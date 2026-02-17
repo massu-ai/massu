@@ -1,0 +1,87 @@
+---
+title: "/massu-estimate"
+description: "Effort estimation with complexity scoring, codebase impact analysis, and historical comparison against similar past tasks"
+order: 25
+---
+
+# /massu-estimate
+
+A read-only effort estimation command that analyzes a task description or plan file and produces a complexity-scored estimate. It uses codebase impact analysis (how many files and domains would be touched), historical data from past sessions, and configurable complexity weights to generate a calibrated estimate in hours or story points.
+
+## What It Does
+
+The estimate command runs four analysis steps:
+
+1. **Task parsing** -- Reads the task description or plan file and extracts the deliverables, affected files, and scope
+2. **Impact analysis** -- Uses the CodeGraph database to identify all files, domains, and tRPC procedures that would be affected (similar to `massu_impact`)
+3. **Complexity scoring** -- Scores the task across four dimensions: scope (number of files), novelty (new patterns vs. existing), risk (security/migration/type changes), and test coverage needed
+4. **Historical comparison** -- Searches the memory database for similar past tasks and compares actual vs. estimated completion time
+
+The result is a structured estimate with confidence intervals. It does not modify any files.
+
+## Usage
+
+Estimate from a task description:
+
+```
+/massu-estimate "Add pagination to the orders list endpoint"
+```
+
+Estimate from a plan file:
+
+```
+/massu-estimate docs/plans/2026-02-16-orders-pagination.md
+```
+
+Output in story points instead of hours:
+
+```
+/massu-estimate "Add pagination" --story-points
+```
+
+## Output
+
+```
+## Effort Estimate
+
+Task: Add pagination to the orders list endpoint
+
+### Impact Analysis
+- Files directly affected: 4
+  - src/server/routers/orders.ts
+  - src/components/orders/OrderList.tsx
+  - src/hooks/useOrders.ts
+  - src/types/orders.ts
+- Domains touched: 1 (orders)
+- tRPC procedures modified: 1 (orders.listOrders)
+- Test files needed: 2
+
+### Complexity Breakdown
+| Dimension | Score | Reason |
+|-----------|-------|--------|
+| Scope | 2/5 | 4 files, 1 domain |
+| Novelty | 1/5 | Pagination is an established pattern in this codebase |
+| Risk | 1/5 | No migrations, no auth changes |
+| Test coverage | 2/5 | 2 test files needed |
+| **Total** | **6/20** | Low complexity |
+
+### Estimate
+- **Most likely**: 2-3 hours
+- **Optimistic**: 1.5 hours
+- **Pessimistic**: 4 hours
+- **Confidence**: High (similar past tasks: 3 matches)
+
+### Historical Comparison
+- "Add pagination to users list" (2026-01-28): 2.5 hours actual
+- "Add pagination to products list" (2026-02-03): 3 hours actual
+- Average actual: 2.75 hours
+```
+
+## Tips
+
+- Estimates improve over time as Massu AI accumulates more historical session data
+- Use plan files rather than descriptions for more accurate impact analysis -- plan files have explicit file paths
+- The `--story-points` flag maps to a Fibonacci scale by default (1, 2, 3, 5, 8, 13)
+- High-risk tasks (migrations, auth changes, security) automatically receive a pessimistic multiplier
+- Share estimates with your team before starting work to surface scope disagreements early
+- Run `/massu-estimate` on your plan after `/massu-plan` for a full picture: plan quality + effort estimate

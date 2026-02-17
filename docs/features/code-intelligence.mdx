@@ -1,0 +1,313 @@
+---
+title: "Code Intelligence"
+description: "Deep codebase understanding through import graph analysis, impact tracing, and coupling detection"
+order: 1
+---
+
+# Code Intelligence
+
+Massu AI's code intelligence tools give your AI assistant a deep structural understanding of your codebase. Instead of just reading files, it understands import relationships, dependency chains, domain boundaries, and which database tables are connected to which pages.
+
+## Why This Matters
+
+AI assistants are excellent at reading and writing individual files, but they lack the big-picture view that experienced developers carry in their heads. Massu AI bridges this gap by providing:
+
+- **Import graph analysis** that traces how files connect to each other
+- **Impact analysis** that tells you which pages, routers, and tables are affected by a change
+- **Coupling detection** that finds dead code and orphaned components
+- **Domain boundary enforcement** that prevents architectural violations
+- **Schema cross-referencing** that catches column name mismatches
+
+## Tools
+
+### `massu_sync`
+
+**What it does:** Forces a full rebuild of all Massu AI indexes: import edges, tRPC procedure mappings, page dependency chains, middleware tree, and feature auto-discovery. Run this after significant code changes or when starting a new major task.
+
+**Usage:**
+
+```
+massu_sync
+```
+
+**Example output:**
+
+```
+Indexes rebuilt:
+Import edges: 247
+tRPC procedures: 84 (62 with UI, 22 without)
+Page deps: 31 pages
+Middleware tree: 12 files
+
+Feature scan: 28 features registered
+(16 from procedures, 8 from pages, 4 from components)
+```
+
+**Parameters:** None. This tool always performs a full rebuild.
+
+Massu AI also auto-detects when indexes are stale and rebuilds them lazily before any tool call. The `massu_sync` tool forces an immediate, full rebuild regardless of staleness detection.
+
+---
+
+### `massu_context`
+
+**What it does:** Returns comprehensive context for any file: CodeGraph nodes (functions, classes, exports), applicable coding rules, middleware tree membership, domain classification, import edges in both directions, and schema warnings.
+
+**Usage:**
+
+```
+massu_context --file "src/server/routers/orders.ts"
+```
+
+**Example output:**
+
+```
+## CodeGraph Nodes
+- function: getOrderById (L12-L45)
+- function: listOrders (L47-L89)
+- function: createOrder (L91-L134)
+
+## Applicable Rules
+- [CRITICAL] All mutations must use protectedProcedure
+- [HIGH] Validate all inputs with Zod schemas
+
+## Domain: orders
+
+## Imports (from this file)
+- src/server/db.ts: db
+- src/lib/validators.ts: orderSchema, paginationSchema
+- src/server/auth.ts: protectedProcedure
+
+## Imported By
+- src/server/routers/_app.ts
+- src/components/orders/OrderList.tsx
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | yes | File path relative to project root |
+
+---
+
+### `massu_trpc_map`
+
+**What it does:** Maps tRPC procedures to their UI call sites. Find which components call a specific router, which procedures have no UI callers, or get a complete procedure inventory. Only available when `framework.router` is set to `trpc`.
+
+**Usage:**
+
+```
+massu_trpc_map --router "orders"
+massu_trpc_map --procedure "getById"
+massu_trpc_map --uncoupled true
+```
+
+**Example output (router mode):**
+
+```
+## Router: orders (6 procedures)
+
+### orders.getById (query)
+UI Call Sites:
+  - src/components/orders/OrderDetail.tsx:23 -> api.orders.getById.useQuery
+  - src/app/orders/[id]/page.tsx:15 -> api.orders.getById.useQuery
+
+### orders.archive (mutation) [NO UI CALLERS]
+UI Call Sites: NONE
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `router` | string | no | Show all procedures for this router |
+| `procedure` | string | no | Search for a procedure across all routers |
+| `uncoupled` | boolean | no | Show only procedures with zero UI callers |
+
+---
+
+### `massu_coupling_check`
+
+**What it does:** Automated coupling analysis. Finds all tRPC procedures with zero UI callers and components not rendered in any page. Returns PASS/FAIL with detailed results. Only available when `framework.router` is set to `trpc`.
+
+**Usage:**
+
+```
+massu_coupling_check
+massu_coupling_check --staged_files ["src/server/routers/orders.ts"]
+```
+
+**Example output:**
+
+```
+## Coupling Check Results
+
+### Uncoupled Procedures: 3
+- orders.archiveOrder (mutation) in src/server/routers/orders.ts
+- users.deactivateUser (mutation) in src/server/routers/users.ts
+- reports.generatePdf (query) in src/server/routers/reports.ts
+
+### Orphan Components: 1
+- src/components/legacy/OldDashboard.tsx (not imported by any page.tsx)
+
+### RESULT: FAIL (4 issues)
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `staged_files` | string[] | no | Only check these specific files (useful for pre-commit) |
+
+---
+
+### `massu_impact`
+
+**What it does:** Full impact analysis for a file. Shows which pages are affected by changes, which database tables are in the dependency chain, middleware tree membership, and domain boundary crossings.
+
+**Usage:**
+
+```
+massu_impact --file "src/lib/validators.ts"
+```
+
+**Example output:**
+
+```
+## Impact Analysis: src/lib/validators.ts
+
+### Pages Affected: 8
+- /orders (internal)
+- /orders/[id] (internal)
+- /orders/new (internal)
+- /products (internal)
+- /products/[id] (internal)
+- /api/webhook (internal)
+- /factory/orders (factory)
+- /customer/orders (customer)
+
+### Scopes Affected: internal, factory, customer
+
+### Routers Called (via hooks/components):
+- orders
+- products
+
+### Database Tables:
+- orders
+- order_items
+- products
+
+### Middleware: NOT in middleware import tree (safe)
+
+### Domain: shared
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | yes | File path relative to project root |
+
+---
+
+### `massu_domains`
+
+**What it does:** Domain boundary information. Classify files into domains, find cross-domain import violations, or list all files in a domain. Only available when `domains` are configured in your config.
+
+**Usage:**
+
+```
+massu_domains --file "src/server/routers/orders.ts"
+massu_domains --crossings true
+massu_domains --domain "orders"
+```
+
+**Example output (crossings):**
+
+```
+## Cross-Domain Import Analysis
+Total crossings: 12
+Violations: 2
+Allowed: 10
+
+### Violations (Disallowed Cross-Domain Imports)
+- src/server/routers/orders.ts (orders) -> src/server/routers/users.ts (auth)
+- src/components/orders/UserBadge.tsx (orders) -> src/components/auth/Avatar.tsx (auth)
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | no | File to classify into a domain |
+| `crossings` | boolean | no | Show all cross-domain imports |
+| `domain` | string | no | List all files in this domain |
+
+---
+
+### `massu_schema`
+
+**What it does:** Prisma schema cross-reference tool. Inspect table columns, detect mismatches between code and schema, or verify column references in a specific file. Only available when `framework.orm` is set to `prisma`.
+
+**Usage:**
+
+```
+massu_schema --table "orders"
+massu_schema --mismatches true
+massu_schema --verify "src/server/routers/orders.ts"
+```
+
+**Example output (mismatches):**
+
+```
+## Schema Mismatches Detected: 2
+
+### orders.orderDate [HIGH]
+Code uses "orderDate" but this column does NOT exist in the schema.
+Did you mean "order_date"? (Prisma uses camelCase mapping)
+Files affected:
+  - src/server/routers/orders.ts
+  - src/components/orders/OrderList.tsx
+
+### users.isActive [MEDIUM]
+Code uses "isActive" but this column does NOT exist in the schema.
+Files affected:
+  - src/server/routers/users.ts
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `table` | string | no | Table/model name to inspect |
+| `mismatches` | boolean | no | Show all detected column name mismatches |
+| `verify` | string | no | File path to verify column references |
+
+## Configuration
+
+Code intelligence tools are primarily configured through the `framework`, `paths`, and `domains` sections of your config:
+
+```yaml
+framework:
+  type: typescript
+  router: trpc       # Enables massu_trpc_map and massu_coupling_check
+  orm: prisma        # Enables massu_schema
+
+paths:
+  source: src
+  middleware: src/middleware.ts  # Enables middleware tree analysis
+
+domains:             # Enables massu_domains
+  - name: orders
+    routers: ["src/server/routers/orders*"]
+    allowedImportsFrom: [shared]
+```
+
+## Tips
+
+- Run `massu_sync` at the start of major tasks to ensure fresh indexes
+- Use `massu_impact` before making changes to understand the blast radius
+- Run `massu_coupling_check` before commits to catch orphaned code
+- Configure `domains` even if you start with just 2-3 -- catching cross-domain violations early prevents spaghetti architecture
+- The `massu_context` output is the same information the `post-edit-context` hook surfaces automatically

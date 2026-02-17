@@ -1,0 +1,186 @@
+---
+title: "CLI Reference"
+description: "Complete reference for all Massu CLI commands — init, doctor, install-hooks, validate-config"
+order: 2
+---
+
+# CLI Reference
+
+Massu AI provides four CLI commands for project setup and maintenance. All commands are run via `npx massu <command>`.
+
+## massu init
+
+Full project setup in one command. Detects your framework, generates configuration, registers the MCP server, and installs all 11 lifecycle hooks.
+
+### Usage
+
+```bash
+npx massu init
+```
+
+### What It Does
+
+1. **Framework Detection** — Scans `package.json` for TypeScript, Next.js, SvelteKit, Nuxt, Prisma, Drizzle, tRPC, GraphQL, Express, and more
+2. **Config Generation** — Creates `massu.config.yaml` with detected framework settings
+3. **MCP Registration** — Creates or merges `.mcp.json` to register the Massu MCP server
+4. **Hook Installation** — Configures all 11 lifecycle hooks in `.claude/settings.local.json`
+
+### Output
+
+```
+Massu AI - Project Setup
+========================
+
+  Detected: TypeScript, Next.js, Prisma, tRPC
+  Created massu.config.yaml
+  Registered MCP server in .mcp.json
+  Installed 11 hooks in .claude/settings.local.json
+  Databases will auto-create on first session
+
+Massu AI is ready. Start a Claude Code session to begin.
+```
+
+### Files Created
+
+| File | Purpose |
+|------|---------|
+| `massu.config.yaml` | Project configuration |
+| `.mcp.json` | MCP server registration |
+| `.claude/settings.local.json` | Hook configuration |
+
+---
+
+## massu doctor
+
+Health check that verifies all components of a Massu AI installation are working.
+
+### Usage
+
+```bash
+npx massu doctor
+```
+
+### Checks Performed
+
+| Check | What It Verifies |
+|-------|-----------------|
+| Configuration | `massu.config.yaml` exists and parses correctly |
+| MCP Server | `.mcp.json` has massu entry |
+| Hooks Config | `.claude/settings.local.json` has hooks configured |
+| Hook Files | All 11 compiled hook files exist |
+| Native Modules | `better-sqlite3` loads correctly |
+| Node.js | Version >= 18 |
+| Git Repository | Git repo detected with branch info |
+
+### Output
+
+```
+Massu AI Health Check
+=====================
+
+  ✓ Configuration      massu.config.yaml found and valid
+  ✓ MCP Server         Registered in .mcp.json
+  ✓ Hooks Config       11 hooks configured
+  ✓ Hook Files         11/11 compiled hooks present
+  ✓ Native Modules     better-sqlite3 loads correctly
+  ✓ Node.js            v20.11.0 (>= 18 required)
+  ✓ Git Repository     Detected (branch: main)
+
+Status: HEALTHY (7/7 checks passed)
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | All checks passed |
+| `1` | One or more checks failed |
+
+---
+
+## massu install-hooks
+
+Install or update all 11 Claude Code hooks without running the full init process.
+
+### Usage
+
+```bash
+npx massu install-hooks
+```
+
+### When to Use
+
+- After updating `@massu/core` to a new version
+- If hooks were accidentally removed from `.claude/settings.local.json`
+- To re-install hooks without regenerating config or MCP registration
+
+### Output
+
+```
+Massu AI - Hook Installation
+============================
+
+  Installed 11 hooks in .claude/settings.local.json
+
+Hooks will activate on your next Claude Code session.
+```
+
+---
+
+## massu validate-config
+
+Validate your `massu.config.yaml` without running the full health check.
+
+### Usage
+
+```bash
+npx massu validate-config
+```
+
+### What It Checks
+
+- File exists in current directory
+- Valid YAML syntax
+- Required fields present (`project.name`, `toolPrefix`, `framework.type`)
+
+### Output (Valid)
+
+```
+massu.config.yaml is valid
+```
+
+### Output (Warnings)
+
+```
+massu.config.yaml parsed successfully with warnings:
+  ! Missing project.name (will default to "my-project")
+  ! Missing toolPrefix (will default to "massu")
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Config is valid (may have warnings) |
+| `1` | Config file missing or invalid YAML |
+
+---
+
+## Global Options
+
+All commands support:
+
+| Flag | Description |
+|------|-------------|
+| `--help`, `-h` | Show help message |
+| `--version`, `-v` | Show version |
+
+### MCP Server Mode
+
+When no subcommand is provided, `npx @massu/core` starts the MCP server directly (for advanced use):
+
+```bash
+npx @massu/core
+```
+
+This is handled automatically by Claude Code via `.mcp.json` — you don't need to run this manually.

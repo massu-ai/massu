@@ -1,0 +1,77 @@
+---
+title: "PR Risk Score"
+description: "Automated risk assessment for pull requests using GitHub Actions."
+order: 13
+---
+
+# PR Risk Score
+
+Automatically assess the risk of pull requests by combining impact, regression, security, and coupling analysis.
+
+## Requirements
+
+- **Plan**: Cloud Team or higher
+- **API Key**: With `write` scope
+
+## How It Works
+
+PR Risk Score analyzes four dimensions of risk:
+
+| Dimension | Weight | What It Measures |
+|-----------|--------|-----------------|
+| Impact | 30% | Blast radius of changes across the codebase |
+| Regression | 25% | Likelihood of breaking existing functionality |
+| Security | 25% | Security implications of the changes |
+| Coupling | 20% | Cross-module dependencies affected |
+
+## Risk Ratings
+
+| Score | Rating | Meaning |
+|-------|--------|---------|
+| 0-30 | Low | Safe to merge with standard review |
+| 31-60 | Medium | Requires careful review |
+| 61-80 | High | Needs senior review and testing |
+| 81-100 | Critical | Block merge until risks addressed |
+
+## GitHub Actions Setup
+
+Add this workflow to your repository:
+
+1. Copy the workflow file from your Massu dashboard or download it from `https://massu.ai/massu-risk-score-action.yml`
+
+2. Save it as `.github/workflows/massu-risk-score.yml`
+
+3. Add your API key as a repository secret:
+   - Go to **Settings > Secrets > Actions**
+   - Add `MASSU_API_KEY` with your API key (must have `write` scope)
+
+4. Pull requests will now automatically receive risk score comments.
+
+## API Usage
+
+Submit a PR for risk scoring directly via the API:
+
+```bash
+curl -X POST https://massu.ai/api/v1/risk \
+  -H "Authorization: Bearer ms_live_XXXXXXXX_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo": "org/repo",
+    "pr_number": 42,
+    "pr_title": "Add user authentication",
+    "files_changed": 15,
+    "impact_data": { "score": 65 },
+    "regression_data": { "score": 40 },
+    "security_data": { "score": 80 },
+    "coupling_data": { "score": 30 }
+  }'
+```
+
+## Dashboard
+
+View risk scores for all your PRs at **Dashboard > PR Risk Scores**, including:
+
+- Average risk score across PRs
+- High-risk PR count
+- Score breakdown visualization
+- Trend analysis

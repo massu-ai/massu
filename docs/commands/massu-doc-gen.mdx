@@ -1,0 +1,78 @@
+---
+title: "/massu-doc-gen"
+description: "Generate JSDoc comments, README sections, and API documentation for undocumented code"
+order: 21
+---
+
+# /massu-doc-gen
+
+An automated documentation generation command that analyzes your source code and produces JSDoc comments, README sections, and API reference documentation. It targets undocumented exports and public APIs, preserving existing documentation while filling gaps.
+
+## What It Does
+
+The doc-gen command runs in three phases:
+
+1. **Coverage analysis** -- Scans all exported functions, classes, types, and constants. Identifies which are missing JSDoc comments or have incomplete documentation (missing `@param`, `@returns`, or `@throws`).
+2. **Documentation generation** -- For each undocumented item, generates JSDoc comments by analyzing the function signature, body logic, and usage patterns across the codebase.
+3. **README and API doc updates** -- Optionally generates or updates a `README.md` section and an `API.md` file with the full exported API surface.
+
+Generated documentation is written directly to the source files. All changes are staged for review before committing.
+
+## Usage
+
+Generate JSDoc for all undocumented exports:
+
+```
+/massu-doc-gen
+```
+
+Target a specific module:
+
+```
+/massu-doc-gen src/lib/analytics.ts
+```
+
+Generate README and API docs in addition to JSDoc:
+
+```
+/massu-doc-gen --readme --api-docs
+```
+
+Report coverage gaps without writing:
+
+```
+/massu-doc-gen --dry-run
+```
+
+## Output
+
+```
+## Documentation Generation Report
+
+### Coverage Before
+- 142 exported symbols
+- 38 documented (27%)
+- 104 undocumented
+
+### JSDoc Generated (104 symbols)
+- src/lib/analytics.ts: 6 functions documented
+- src/server/routers/orders.ts: 12 procedures documented
+- src/components/ui/Button.tsx: 4 props interfaces documented
+...
+
+### Coverage After
+- 142 exported symbols
+- 142 documented (100%)
+
+### Files Updated: 23
+### README.md: Updated (--readme flag)
+### API.md: Created (--api-docs flag)
+```
+
+## Tips
+
+- Use `--dry-run` to see coverage gaps before committing to changes
+- Generated JSDoc is a starting point -- review and refine descriptions for accuracy
+- Run `/massu-doc-gen` as part of your release workflow to ensure API documentation stays current
+- Combine with `/massu-review` to catch documentation that is technically present but misleading
+- The `--api-docs` flag generates a Markdown API reference suitable for publishing to a documentation site

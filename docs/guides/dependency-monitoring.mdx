@@ -1,0 +1,37 @@
+---
+title: Dependency Monitoring
+description: Monitor project dependencies for vulnerabilities, abandonment, and license changes.
+---
+
+# Dependency Monitoring
+
+Massu monitors your project dependencies for security vulnerabilities, maintainer abandonment, and license changes.
+
+## How It Works
+
+When dependencies are synced to Massu, the system periodically checks each package against:
+
+- **OSV Database** — Open Source Vulnerability database for known CVEs
+- **npm Registry** — Package metadata including publish dates, license, and download stats
+
+## Alert Types
+
+| Alert Type | Description | Severity |
+|-----------|-------------|----------|
+| CVE | Known vulnerability discovered | Critical/High |
+| Stale | No updates published in 12+ months | Medium |
+| License Change | Package license has changed | High |
+| Deprecated | Package marked as deprecated | Medium |
+| Major Update | Major version available | Low |
+
+## Risk Scores
+
+Each dependency receives a risk score (0-100) based on:
+- Number and severity of vulnerabilities
+- Time since last publish
+- License changes
+- Download trends
+
+## Dashboard
+
+View all monitored dependencies in the [Dependencies Dashboard](/dashboard/dependencies) with filtering by risk level, alert status, and staleness.

@@ -1,0 +1,122 @@
+---
+title: "Observability"
+description: "Replay past sessions, analyze prompts, track tool usage patterns, and monitor session statistics"
+order: 6
+---
+
+# Observability
+
+The observability tools in Massu AI let you look back at what happened during AI sessions with full transparency. Replay conversations turn by turn, search across all prompts ever written, analyze tool usage patterns, and monitor session statistics.
+
+## Why This Matters
+
+When your AI assistant makes changes across a large session, it can be hard to reconstruct exactly what happened and why. Observability tools give you:
+
+- **Session replay**: See the exact conversation that led to a set of changes
+- **Prompt search**: Find any prompt you have ever written across all sessions
+- **Tool pattern analysis**: Understand which tools are used most and how effectively
+- **Session statistics**: Track token usage, duration, and tool call counts
+
+## Tools
+
+### `massu_session_replay`
+
+**What it does:** Replay a past session as a chronological conversation with user prompts, assistant responses, and optional tool call details.
+
+**Usage:**
+
+```
+massu_session_replay --session_id "abc123"
+massu_session_replay --session_id "abc123" --turn_from 5 --turn_to 10
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | yes | Session ID to replay |
+| `turn_from` | number | no | Start from turn N |
+| `turn_to` | number | no | End at turn N |
+| `include_tool_calls` | boolean | no | Include tool call details (default: false) |
+
+---
+
+### `massu_prompt_analysis`
+
+**What it does:** Search and analyze prompts across sessions using FTS5 full-text search. Find prompts by keyword, filter by date range or complexity (tool call count).
+
+**Usage:**
+
+```
+massu_prompt_analysis --query "authentication"
+massu_prompt_analysis --session_id "abc123" --min_tool_calls 5
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | no | FTS5 search query |
+| `session_id` | string | no | Filter to specific session |
+| `date_from` | string | no | Start date (ISO format) |
+| `date_to` | string | no | End date (ISO format) |
+| `min_tool_calls` | number | no | Filter by turns with N+ tool calls |
+| `limit` | number | no | Max results (default: 20) |
+
+---
+
+### `massu_tool_patterns`
+
+**What it does:** Analyze tool usage patterns across sessions. Shows counts, success rates, average I/O sizes per tool. Can group by tool name, session, or day.
+
+**Usage:**
+
+```
+massu_tool_patterns
+massu_tool_patterns --tool_name "Edit" --group_by "day"
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | no | Filter to specific session |
+| `tool_name` | string | no | Filter to specific tool |
+| `date_from` | string | no | Start date (ISO format) |
+| `group_by` | string | no | "tool", "session", or "day" (default: "tool") |
+
+---
+
+### `massu_session_stats`
+
+**What it does:** Get per-session statistics: turn count, tool call breakdown, token usage, duration. Includes database size monitoring for observability data.
+
+**Usage:**
+
+```
+massu_session_stats
+massu_session_stats --session_id "abc123"
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | no | Specific session ID |
+| `limit` | number | no | Max sessions to show (default: 10) |
+
+## How Observability Data Is Captured
+
+Observability data is captured automatically by two hooks:
+
+1. **session-end hook**: Parses the JSONL transcript file, extracts conversation turns, and stores them with tool call details in the memory database
+2. **post-tool-use hook**: Records real-time tool usage observations
+
+The session-end hook uses incremental parsing -- it tracks the last processed line and only processes new content on each invocation. This ensures efficient capture even for long sessions.
+
+## Tips
+
+- Use `massu_session_replay` when you need to understand why a specific change was made
+- Use `massu_prompt_analysis` to find prompts related to a topic across all historical sessions
+- Use `massu_tool_patterns` to identify which tools are used most and optimize your workflow
+- The observability database auto-prunes old data to prevent unbounded growth

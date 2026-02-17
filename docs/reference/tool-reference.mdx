@@ -1,0 +1,138 @@
+---
+title: "Tool Reference"
+description: "Complete reference for all 51 MCP tools with parameters, return types, and descriptions"
+order: 1
+---
+
+# Tool Reference
+
+Complete reference for all 51 Massu AI MCP tools. Tools are prefixed with your configured `toolPrefix` (default: `massu`).
+
+## Memory Tools (6)
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `massu_memory_search` | Full-text search across past observations | `query`: string |
+| `massu_memory_timeline` | Chronological context around an observation | `observation_id`: number |
+| `massu_memory_detail` | Full observation details by IDs | `ids`: number[] |
+| `massu_memory_sessions` | List recent sessions with summaries | (none) |
+| `massu_memory_failures` | Get all failed attempts (DO NOT RETRY) | (none) |
+| `massu_memory_ingest` | Manually add an observation | `type`: string, `title`: string |
+
+## Code Intelligence Tools (7)
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `massu_sync` | Force rebuild all indexes | (none) |
+| `massu_context` | Get file context (rules, imports, domain) | `file`: string |
+| `massu_trpc_map`* | Map tRPC procedures to UI call sites | (none) |
+| `massu_coupling_check`* | Find uncoupled procedures and orphan components | (none) |
+| `massu_impact` | Full impact analysis for a file | `file`: string |
+| `massu_domains`** | Domain boundary information | (none) |
+| `massu_schema`*** | Prisma schema cross-reference | (none) |
+
+\* Only available when `framework.router: trpc`
+\*\* Only available when `domains` is non-empty
+\*\*\* Only available when `framework.orm: prisma`
+
+## Feature Registry Tools (6)
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `massu_sentinel_search` | Search feature registry | (none) |
+| `massu_sentinel_detail` | Get full feature details | `feature_key` or `feature_id` |
+| `massu_sentinel_impact` | Pre-deletion impact analysis | `files`: string[] |
+| `massu_sentinel_validate` | Validate all features have living files | (none) |
+| `massu_sentinel_register` | Register or update a feature | `feature_key`: string, `title`: string |
+| `massu_sentinel_parity` | Check feature parity across portals | (none) |
+
+## Governance Tools (8)
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `massu_audit_log` | Query the audit trail | (none) |
+| `massu_audit_report` | Generate audit report | (none) |
+| `massu_audit_chain` | View complete audit chain for a file | `file_path`: string |
+| `massu_validation_check` | Validate a file against rules | `file`: string |
+| `massu_validation_report` | Aggregate validation report | (none) |
+| `massu_adr_list` | List architecture decision records | (none) |
+| `massu_adr_detail` | Get full ADR details | `adr_id`: number |
+| `massu_adr_create` | Create an ADR | `title`: string, `context`: string, `decision`: string |
+
+## Security Tools (5)
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `massu_security_score` | Scan file for security vulnerabilities | `file`: string |
+| `massu_security_heatmap` | Security risk heatmap across codebase | (none) |
+| `massu_security_trend` | Security score trends over time | (none) |
+| `massu_dep_score` | Dependency risk analysis | (none) |
+| `massu_dep_alternatives` | Suggest safer dependency alternatives | `package`: string |
+
+## Analytics Tools (8)
+
+### Quality (3)
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `massu_quality_score` | Calculate quality score for session | (none) |
+| `massu_quality_trend` | Quality scores over time | (none) |
+| `massu_quality_report` | Comprehensive quality report | (none) |
+
+### Cost Tracking (3)
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `massu_cost_session` | Cost breakdown for a session | (none) |
+| `massu_cost_trend` | Cost trends over time | (none) |
+| `massu_cost_feature` | Cost attribution by feature | (none) |
+
+### Prompt Effectiveness (2)
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `massu_prompt_effectiveness` | Analyze prompt success rates | (none) |
+| `massu_prompt_suggestions` | Get prompt improvement suggestions | (none) |
+
+## Observability Tools (4)
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `massu_session_replay` | Replay past session conversation | `session_id`: string |
+| `massu_prompt_analysis` | Search and analyze prompts | (none) |
+| `massu_tool_patterns` | Analyze tool usage patterns | (none) |
+| `massu_session_stats` | Per-session statistics | (none) |
+
+## Documentation Tools (2)
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `massu_docs_audit` | Audit docs freshness against code changes | (none) |
+| `massu_docs_coverage` | Measure documentation coverage | (none) |
+
+## Enterprise Tools (5)
+
+### Team Knowledge (3)
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `massu_team_search` | Search team knowledge graph | (none) |
+| `massu_team_expertise` | View developer expertise scores | (none) |
+| `massu_team_conflicts` | Detect concurrent edit conflicts | (none) |
+
+### Regression Detection (2)
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `massu_feature_health` | Feature health scores | (none) |
+| `massu_regression_risk` | Identify regression risk | (none) |
+
+## Tool Naming Convention
+
+All tools follow the pattern: `{prefix}_{category}_{action}`
+
+- **Prefix**: Configured via `toolPrefix` (default: `massu`)
+- **Category**: The tool group (memory, sentinel, security, etc.)
+- **Action**: What the tool does (search, score, check, etc.)
+
+Example: `massu_memory_search` = prefix(`massu`) + category(`memory`) + action(`search`)

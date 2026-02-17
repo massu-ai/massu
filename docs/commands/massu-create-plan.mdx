@@ -1,0 +1,68 @@
+---
+title: "/massu-create-plan"
+description: "Create a structured plan document for any non-trivial code change"
+order: 1
+---
+
+# /massu-create-plan
+
+The `/massu-create-plan` command creates a structured plan document for a proposed change. It analyzes the request, identifies affected files and components, defines deliverables, and produces a markdown plan file in `docs/plans/`.
+
+## Usage
+
+```
+/massu-create-plan Implement user profile editing with avatar upload
+```
+
+## What It Produces
+
+A plan document at `docs/plans/YYYY-MM-DD-feature-name.md` containing:
+
+### Plan Structure
+
+1. **Objective**: Clear statement of what will be built
+2. **Scope**: Files that will be created, modified, or deleted
+3. **Deliverables**: Numbered list of specific items to implement
+4. **Verification Requirements**: How each deliverable will be verified
+5. **Blast Radius**: Analysis of what existing code will be affected
+6. **Dependencies**: External packages or internal modules needed
+7. **Risk Assessment**: Potential issues and mitigations
+
+### Example Plan Output
+
+```markdown
+# Plan: User Profile Editing
+
+**Date**: 2026-02-13
+**Status**: Draft
+
+## Objective
+Implement user profile editing with avatar upload for the settings page.
+
+## Deliverables
+
+| ID | Description | Files | Verification |
+|----|-------------|-------|-------------|
+| D-001 | Profile edit form component | src/components/settings/ProfileForm.tsx | VR-FILE, VR-GREP |
+| D-002 | Avatar upload with crop | src/components/settings/AvatarUpload.tsx | VR-FILE |
+| D-003 | Update profile API endpoint | src/server/routers/users.ts | VR-GREP |
+| D-004 | Profile page integration | src/app/settings/profile/page.tsx | VR-FILE |
+| D-005 | Input validation schemas | src/lib/validators/profile.ts | VR-FILE |
+
+## Blast Radius
+- src/server/routers/users.ts: Adding updateProfile mutation
+- src/app/settings/layout.tsx: Adding profile link to sidebar
+
+## Verification
+- VR-FILE: File exists (ls -la)
+- VR-GREP: Pattern exists in file (grep)
+- VR-BUILD: npm run build exits 0
+- VR-TEST: npm test passes
+```
+
+## Important Notes
+
+- This command does NOT edit source code -- it only creates a plan document
+- Plans should be reviewed (with `/massu-plan`) before implementation begins
+- Plans are tracked by the memory system for cross-session continuity
+- Reference the plan file in your prompts to enable automatic task linking

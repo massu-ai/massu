@@ -1,0 +1,25 @@
+{
+  "name": "massu",
+  "version": "0.1.0",
+  "description": "AI Engineering Governance Platform - Session memory, feature registry, code intelligence, and rule enforcement for AI coding assistants",
+  "workspaces": [
+    "packages/core",
+    "packages/plugin",
+    "packages/shared"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace=packages/core",
+    "test": "npm test --workspace=packages/core",
+    "start": "npm start --workspace=packages/core"
+  },
+  "author": "Massu Contributors",
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ethankowen-73/massu.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ethankowen-73/massu/issues"
+  },
+  "homepage": "https://massu.ai"
+}

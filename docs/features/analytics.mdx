@@ -1,0 +1,387 @@
+---
+title: "Analytics & Quality"
+description: "Track code quality over time, monitor AI costs per session and feature, and measure prompt effectiveness"
+order: 5
+---
+
+# Analytics & Quality
+
+Massu AI's analytics tools give you quantitative insight into your AI-assisted development process. Track quality scores that improve (or degrade) over time, monitor exactly how much each AI session costs, and measure which prompts produce the best results.
+
+## Why This Matters
+
+Without analytics, AI-assisted development is a black box. You cannot answer basic questions:
+
+- Is our code quality improving or degrading over time?
+- How much does it cost to build feature X with AI assistance?
+- Which types of prompts lead to the best results?
+- Are we spending more on AI than we are saving?
+
+Massu AI's analytics make these questions answerable with data.
+
+## Quality Tools
+
+### `massu_quality_score`
+
+**What it does:** Calculate a quality score (0-100) for a session based on weighted events. Score starts at 50 and adjusts based on bugs found, verification results, rule violations, clean commits, and successful verifications.
+
+**Usage:**
+
+```
+massu_quality_score
+massu_quality_score --session_id "abc123"
+```
+
+**Example output:**
+
+```
+## Quality Score: 72/100
+
+### Breakdown
+- Security: +5 (no security findings)
+- Architecture: -3 (1 coupling violation)
+- Coupling: 0
+- Tests: +8 (4 verifications passed)
+- Rule Compliance: +12 (all rules followed, 2 clean commits)
+
+### Score Factors
++5  clean_commit (session commit with no issues)
++5  clean_commit (second clean commit)
++6  vr_pass (3 verification checks x +2 each)
++6  successful_verification (2 verifications x +3 each)
+-3  cr_violation (1 canonical rule violation)
+
+Base: 50 + Adjustments: +22 = 72
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | no | Specific session (default: current) |
+
+---
+
+### `massu_quality_trend`
+
+**What it does:** Track quality scores across sessions to visualize improvement or regression over time.
+
+**Usage:**
+
+```
+massu_quality_trend --days 30
+massu_quality_trend --sessions 20
+```
+
+**Example output:**
+
+```
+## Quality Trend (30 days)
+
+Session   Date        Score  Change
+abc123    2026-02-10   72    +4
+def456    2026-02-09   68    -2
+ghi789    2026-02-08   70    +5
+jkl012    2026-02-07   65    +3
+mno345    2026-02-05   62    --
+
+Average: 67.4 | Trend: IMPROVING (+10 over 30 days)
+Best session: abc123 (72) | Worst: mno345 (62)
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `days` | number | no | Lookback period (default: 30) |
+| `sessions` | number | no | Number of sessions to show |
+
+---
+
+### `massu_quality_report`
+
+**What it does:** Generate a comprehensive quality report with category breakdowns, top issues, and recommendations.
+
+**Usage:**
+
+```
+massu_quality_report --days 30
+```
+
+**Example output:**
+
+```
+## Quality Report (30 days)
+
+### Overall
+Average score: 67.4
+Sessions analyzed: 12
+Trend: IMPROVING
+
+### Category Analysis
+- Security: avg +4.2 (good)
+- Architecture: avg -1.5 (minor issues)
+- Coupling: avg -0.8 (minor)
+- Tests: avg +6.3 (strong verification culture)
+- Rule Compliance: avg +3.1 (good)
+
+### Top Issues
+1. Coupling violations: 4 instances
+2. CR-1 violations (claiming without proof): 2 instances
+3. Missing test coverage: 1 instance
+
+### Recommendations
+- Run massu_coupling_check before every commit
+- Address 2 architecture coupling violations in src/server/
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `days` | number | no | Report period (default: 30) |
+| `format` | string | no | `summary` or `detailed` |
+
+## Cost Tracking Tools
+
+### `massu_cost_session`
+
+**What it does:** Show cost breakdown for the current or a specific session. Includes token counts by type (input, output, cache read, cache write) and dollar costs per model.
+
+**Usage:**
+
+```
+massu_cost_session
+massu_cost_session --session_id "abc123"
+```
+
+**Example output:**
+
+```
+## Session Cost: abc123
+
+Model: claude-opus-4-6
+Duration: 45 minutes
+
+### Token Usage
+Input tokens:    45,230  ($0.68)
+Output tokens:   12,450  ($0.93)
+Cache read:     128,000  ($0.19)
+Cache write:      8,500  ($0.03)
+
+### Total: $1.83 USD
+
+### Efficiency
+Cost per tool call: $0.04
+Cost per file edit: $0.12
+Cache hit rate: 74%
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | no | Specific session (default: current) |
+
+---
+
+### `massu_cost_trend`
+
+**What it does:** Track costs over time across sessions. Shows daily, weekly, or monthly spending patterns.
+
+**Usage:**
+
+```
+massu_cost_trend --days 30
+massu_cost_trend --group_by "week"
+```
+
+**Example output:**
+
+```
+## Cost Trend (30 days)
+
+### Weekly Summary
+Week 1 (Feb 3-9):  $12.45 (8 sessions)
+Week 2 (Feb 10-16): $9.80 (6 sessions)
+Week 3 (Feb 17-23): $14.20 (9 sessions)
+Week 4 (Feb 24-28): $8.90 (5 sessions)
+
+### Total: $45.35 USD
+Average per session: $1.62
+Average per day: $1.51
+
+### Model Distribution
+claude-opus-4-6: $38.50 (85%)
+claude-sonnet-4-5: $6.85 (15%)
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `days` | number | no | Lookback period (default: 30) |
+| `group_by` | string | no | `day`, `week`, `month` |
+
+---
+
+### `massu_cost_feature`
+
+**What it does:** Attribute costs to features based on which files were touched during sessions. Shows which features are most expensive to develop and maintain.
+
+**Usage:**
+
+```
+massu_cost_feature
+massu_cost_feature --feature_key "orders.create"
+```
+
+**Example output:**
+
+```
+## Cost by Feature
+
+### Top 5 by Cost
+1. orders.create: $8.45 (5 sessions)
+2. auth.sso: $6.20 (3 sessions)
+3. reports.pdf-export: $5.80 (4 sessions)
+4. users.profile: $3.10 (2 sessions)
+5. dashboard.analytics: $2.90 (2 sessions)
+
+### Total attributed: $36.45 / $45.35 (80%)
+Unattributed: $8.90 (infrastructure, debugging)
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `feature_key` | string | no | Specific feature to drill into |
+| `days` | number | no | Lookback period (default: 30) |
+
+## Prompt Effectiveness Tools
+
+### `massu_prompt_effectiveness`
+
+**What it does:** Analyze prompt effectiveness by measuring outcome success rates, correction counts, and follow-up patterns. Helps you write better prompts by showing which patterns produce the best results.
+
+**Usage:**
+
+```
+massu_prompt_effectiveness
+massu_prompt_effectiveness --category "bugfix"
+```
+
+**Example output:**
+
+```
+## Prompt Effectiveness Analysis
+
+### By Category
+Feature prompts:  78% success | avg 1.2 corrections
+Bugfix prompts:   85% success | avg 0.8 corrections
+Refactor prompts: 72% success | avg 1.5 corrections
+Question prompts: 95% success | avg 0.1 corrections
+Command prompts:  90% success | avg 0.3 corrections
+
+### Best Performing Patterns
+- Prompts with file paths: 88% success
+- Prompts under 200 chars: 82% success
+- Prompts referencing plan items: 91% success
+
+### Worst Performing Patterns
+- Vague prompts ("fix it"): 45% success
+- Multi-task prompts: 52% success
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `category` | string | no | Filter by prompt category |
+| `days` | number | no | Lookback period |
+
+---
+
+### `massu_prompt_suggestions`
+
+**What it does:** Get suggestions for improving prompt effectiveness based on historical patterns.
+
+**Usage:**
+
+```
+massu_prompt_suggestions
+```
+
+**Example output:**
+
+```
+## Prompt Improvement Suggestions
+
+Based on analysis of 245 prompts across 28 sessions:
+
+1. Be specific about files: Prompts mentioning file paths succeed
+   88% of the time vs 65% for vague references
+
+2. One task per prompt: Multi-task prompts fail 48% of the time.
+   Break complex requests into sequential prompts.
+
+3. Reference plan items: Prompts like "Implement P3-002" succeed
+   91% of the time due to clear scope.
+
+4. State expected output: "Create X that does Y" succeeds more
+   than "Make X work."
+
+5. Your most effective prompt patterns:
+   - "Fix [specific error] in [specific file]" (92% success)
+   - "Implement [plan item] following [rule]" (89% success)
+```
+
+**Parameters:** None.
+
+## Configuration
+
+```yaml
+analytics:
+  quality:
+    weights:
+      bug_found: -5
+      vr_failure: -10
+      incident: -20
+      cr_violation: -3
+      vr_pass: 2
+      clean_commit: 5
+      successful_verification: 3
+    categories:
+      - security
+      - architecture
+      - coupling
+      - tests
+      - rule_compliance
+  cost:
+    models:
+      claude-opus-4-6:
+        input_per_million: 15
+        output_per_million: 75
+        cache_read_per_million: 1.5
+        cache_write_per_million: 3.75
+    currency: USD
+  prompts:
+    success_indicators:
+      - committed
+      - approved
+      - looks good
+    failure_indicators:
+      - revert
+      - wrong
+      - undo
+    max_turns_for_success: 2
+```
+
+## Tips
+
+- Quality weights are customizable -- increase penalties for issues that matter most to your team
+- Track cost trends weekly to understand your AI spending patterns
+- Use prompt effectiveness data to train your team on writing better AI prompts
+- The `max_turns_for_success: 2` setting means a prompt is considered successful if it leads to a good outcome within 2 follow-up turns
+- Cost tracking works best when sessions are focused on single features

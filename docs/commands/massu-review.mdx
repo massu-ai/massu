@@ -1,0 +1,86 @@
+---
+title: "/massu-review"
+description: "Automated code review across 7 dimensions including AI-specific and performance"
+order: 15
+---
+
+# /massu-review
+
+An automated code review system that analyzes uncommitted changes, branches, or pull requests across 7 specialized review dimensions, providing actionable feedback with severity ratings.
+
+## Usage
+
+```
+/massu-review              # Review uncommitted changes
+/massu-review [PR#]        # Review a specific pull request
+/massu-review [branch]     # Review a branch against main
+```
+
+## Review Dimensions
+
+The command performs analysis across 7 specialized dimensions:
+
+### 1. Pattern Compliance
+Verifies adherence to Massu development patterns including:
+- ESM import syntax (`.ts` extensions required)
+- Config access via `getConfig()` instead of direct YAML parsing
+- Memory DB lifecycle management (`try/finally` with `.close()`)
+- Tool registration in `tools.ts`
+
+### 2. Security
+Scans for common security vulnerabilities:
+- **XSS**: Unescaped user input in HTML/JSX
+- **Injection**: SQL injection, command injection, path traversal
+- **SSRF**: Server-side request forgery risks
+- **Secrets**: Exposed API keys, tokens, or credentials
+- **Auth bypass**: Missing authentication checks
+- **Path traversal**: Unsafe file path operations
+
+### 3. Architecture
+Validates architectural integrity:
+- Tool registration (new MCP tools wired into `tools.ts`)
+- Hook compilation (hooks compile with esbuild)
+- Config schema (changes maintain backward compatibility)
+- Import cycles (no circular dependencies)
+
+### 4. Website
+Website-specific checks for Next.js projects:
+- Client/server boundary violations
+- Environment variable usage (build-time vs runtime)
+- RLS (Row Level Security) on Supabase queries
+- Auth middleware on protected routes
+
+### 5. AI-Specific
+Reviews AI engineering concerns:
+- **Prompt injection**: User input embedded in prompts without sanitization
+- **Over-privileged tools**: MCP tools with excessive permissions
+- **Context management**: Token budget awareness, context window overflow
+- **Cost awareness**: Unbounded LLM calls, missing rate limiting
+
+### 6. Performance
+Identifies performance bottlenecks:
+- **N+1 queries**: Sequential database queries in loops
+- **Unbounded fetches**: Missing limits on data retrieval
+- **Missing pagination**: Large dataset queries without pagination
+- **Bundle impact**: JavaScript bundle size increases
+
+### 7. Accessibility
+Checks web accessibility compliance:
+- ARIA labels on interactive elements
+- Keyboard navigation support
+- Color contrast ratios (WCAG AA)
+- Focus management for modals and dialogs
+
+## Review Verdict
+
+The review concludes with one of three verdicts:
+
+- **APPROVE**: Zero critical or high-severity issues found
+- **REQUEST CHANGES**: No critical issues, but one or more high-severity issues present
+- **BLOCK**: One or more critical issues that must be fixed before merging
+
+## When to Use
+
+- **Before committing**: Run `/massu-review` to catch issues before they enter version control
+- **Reviewing PRs**: Use `/massu-review [PR#]` for comprehensive pull request analysis
+- **Periodic code quality checks**: Regular reviews to maintain code health and catch technical debt

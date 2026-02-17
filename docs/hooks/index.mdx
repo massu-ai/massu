@@ -1,0 +1,109 @@
+---
+title: "Lifecycle Hooks"
+description: "11 automated hooks that capture context, enforce rules, and preserve memory without any manual effort"
+order: 0
+---
+
+# Lifecycle Hooks
+
+Massu AI includes 11 lifecycle hooks that run automatically during Claude Code sessions. These hooks capture observations, inject context, enforce rules, and preserve state -- all without any manual effort from the developer.
+
+## How Hooks Work
+
+Hooks are compiled TypeScript files that Claude Code executes at specific lifecycle events. Each hook:
+
+1. **Receives JSON on stdin** with session context (session ID, transcript path, tool details)
+2. **Processes the input** (reads databases, analyzes tool calls, generates context)
+3. **Outputs result on stdout** (plain text for context injection, JSON for structured responses)
+4. **Exits within 5 seconds** to avoid blocking Claude Code
+
+Hooks are compiled with esbuild into standalone JavaScript files bundled inside the `@massu/core` npm package (`dist/hooks/`). They are automatically configured in `.claude/settings.local.json` when you run `npx massu init`. They have no runtime dependencies beyond Node.js built-ins and the bundled Massu AI modules.
+
+## The 11-Hook Lifecycle
+
+| Hook | Event | Purpose | Timing |
+|------|-------|---------|--------|
+| [session-start](/docs/hooks/session-start) | Session begins | Inject memory context | Startup, resume, compact |
+| [session-end](/docs/hooks/session-end) | Session ends | Generate summary, archive state | Session stop |
+| [post-tool-use](/docs/hooks/post-tool-use) | After each tool call | Capture observations | After every tool |
+| [user-prompt](/docs/hooks/user-prompt) | User submits prompt | Capture prompts, link tasks | Every prompt |
+| [pre-compact](/docs/hooks/pre-compact) | Before compaction | Preserve session state | Before context window compaction |
+| [pre-delete-check](/docs/hooks/pre-delete-check) | Before file deletion | Feature impact check | Before rm/delete operations |
+| [post-edit-context](/docs/hooks/post-edit-context) | After file edit | Surface applicable rules | After Edit/Write on src/ files |
+| [security-gate](/docs/hooks/security-gate) | Before tool execution | Validate security policies | Before dangerous operations |
+| [cost-tracker](/docs/hooks/cost-tracker) | After each tool call | Track token usage and costs | After every tool |
+| [quality-event](/docs/hooks/quality-event) | After each tool call | Detect quality signals | After every tool |
+| [intent-suggester](/docs/hooks/intent-suggester) | User submits prompt | Suggest relevant commands | Every prompt |
+
+## Session Lifecycle Flow
+
+```
+Session Start
+  |
+  v
+[session-start hook] --> Injects memory context
+  |
+  v
+User writes prompt
+  |
+  v
+[user-prompt hook] --> Captures prompt, links to task
+[intent-suggester hook] --> Suggests relevant commands
+  |
+  v
+Claude Code processes (reads, edits, runs commands)
+  |
+  v
+[post-tool-use hook] --> Captures observation per tool call
+[post-edit-context hook] --> Surfaces rules on file edits
+[pre-delete-check hook] --> Checks feature impact on deletions
+[security-gate hook] --> Validates security policies
+[cost-tracker hook] --> Records token usage
+[quality-event hook] --> Detects quality signals
+  |
+  v
+(if context window fills up)
+[pre-compact hook] --> Snapshots state before compaction
+[session-start hook] --> Re-injects context after compact
+  |
+  v
+Session ends
+  |
+  v
+[session-end hook] --> Generates summary, archives CURRENT.md
+```
+
+## Zero Effort for Users
+
+You do not need to interact with hooks directly. They run silently in the background:
+
+- **No commands to remember**: Hooks trigger automatically at the right lifecycle events
+- **No performance impact**: Each hook completes in under 500ms
+- **No configuration needed**: Hooks use your `massu.config.yaml` automatically
+- **Best-effort execution**: If a hook fails, it exits silently without blocking Claude Code
+
+## Hook Compilation
+
+Hooks are written in TypeScript and compiled with esbuild:
+
+```bash
+cd packages/core && npm run build:hooks
+```
+
+This produces standalone JavaScript files in `packages/core/dist/hooks/` that are referenced by `.claude/settings.local.json` during installation. Run `npx massu install-hooks` to update the hooks configuration.
+
+## Detailed Hook Documentation
+
+Click any hook below for complete documentation including input/output formats, configuration, and examples:
+
+- [session-start](/docs/hooks/session-start) -- Context injection at session start
+- [session-end](/docs/hooks/session-end) -- Summary generation and archival
+- [post-tool-use](/docs/hooks/post-tool-use) -- Observation capture after tool calls
+- [user-prompt](/docs/hooks/user-prompt) -- Prompt capture and task linking
+- [pre-compact](/docs/hooks/pre-compact) -- State preservation before compaction
+- [pre-delete-check](/docs/hooks/pre-delete-check) -- Deletion protection via feature impact
+- [post-edit-context](/docs/hooks/post-edit-context) -- Rule surfacing after file edits
+- [security-gate](/docs/hooks/security-gate) -- Security policy validation before tool execution
+- [cost-tracker](/docs/hooks/cost-tracker) -- Token usage tracking per tool call
+- [quality-event](/docs/hooks/quality-event) -- Quality signal detection after tool calls
+- [intent-suggester](/docs/hooks/intent-suggester) -- Command suggestion based on prompt intent

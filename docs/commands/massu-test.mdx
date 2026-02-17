@@ -1,0 +1,59 @@
+---
+title: "/massu-test"
+description: "Intelligent test runner with failure analysis, coverage gaps, and test generation"
+order: 7
+---
+
+# /massu-test
+
+Runs tests with intelligent failure analysis, identifies coverage gaps, and can generate missing tests for untested modules.
+
+## Usage
+
+```
+/massu-test [mode]
+```
+
+## Modes
+
+### Default Mode (No Arguments)
+Runs all tests using vitest and provides:
+- Test execution summary (pass/fail counts)
+- Failure analysis with stack traces
+- Suggested fixes for common failure patterns
+- Coverage summary if available
+
+### --affected
+Runs only tests for files that have changed:
+- Detects modified files via git status
+- Identifies related test files
+- Runs targeted test suite
+- Faster feedback for incremental development
+
+### --coverage
+Generates a coverage gap report:
+- Identifies modules without tests
+- Calculates coverage percentages by module
+- Prioritizes critical paths (used by >3 modules)
+- Outputs actionable coverage improvement plan
+
+### --generate [module]
+Creates tests for an untested module:
+- Analyzes module exports and functions
+- Generates vitest test scaffolding
+- Includes example test cases
+- Follows project testing patterns
+
+### --fix
+Attempts to fix failing tests automatically:
+- Analyzes test failure messages
+- Identifies common patterns (type mismatches, missing mocks, async issues)
+- Applies targeted fixes
+- Re-runs tests to verify fixes
+
+## When to Use
+
+- **Before commits**: Run `/massu-test` to ensure all tests pass (CR-7 requirement)
+- **To check coverage gaps**: Use `/massu-test --coverage` to identify untested modules
+- **To bootstrap tests**: Use `/massu-test --generate [module]` for modules without test coverage
+- **During development**: Use `/massu-test --affected` for faster feedback on changed code

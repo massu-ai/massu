@@ -1,0 +1,96 @@
+---
+title: "Registering Your First Feature"
+description: "How to register a feature in the Sentinel registry and link its components"
+order: 1
+---
+
+# Registering Your First Feature
+
+This guide shows you how to register a feature in the Sentinel feature registry, link its components, and set up tracking. After registration, Massu AI will monitor the feature's health and warn you before any changes that could break it.
+
+## What Is a Feature?
+
+In Massu AI, a feature is a unit of business functionality that maps to specific files in your codebase:
+
+- **Components**: UI elements that implement the feature
+- **Procedures**: API endpoints that the feature depends on
+- **Pages**: Routes where the feature is accessible
+
+For example, an "Order Creation" feature might include a form component, a create mutation, and the /orders/new page.
+
+## Auto-Discovery
+
+Before registering manually, run `massu_sync` to see what Massu AI discovers automatically:
+
+```
+> Run massu_sync
+```
+
+Massu AI auto-discovers features from:
+- tRPC router names (each router becomes a feature group)
+- Page routes (each page route registers as a feature)
+- Component directory patterns
+
+## Manual Registration
+
+For precise control, register a feature manually:
+
+```
+> Use massu_sentinel_register with:
+  feature_key: "orders.create"
+  title: "Order Creation Flow"
+  domain: "orders"
+  status: "active"
+  priority: "P1"
+  components: [
+    {"file": "src/components/orders/CreateOrderForm.tsx", "role": "primary"},
+    {"file": "src/components/orders/ProductSelector.tsx", "role": "supporting"},
+    {"file": "src/components/orders/OrderSummary.tsx", "role": "supporting"}
+  ]
+  procedures: ["orders.create", "orders.validateDraft"]
+  pages: ["/orders/new"]
+```
+
+### Component Roles
+
+| Role | Meaning | Impact on Deletion |
+|------|---------|-------------------|
+| `primary` | Core component for the feature | Deletion orphans the feature |
+| `supporting` | Important but not essential | Deletion degrades the feature |
+| `shared` | Used by multiple features | Deletion may affect multiple features |
+
+## Verifying Registration
+
+Check that your feature was registered:
+
+```
+> Use massu_sentinel_detail with feature_key: "orders.create"
+```
+
+## Testing Feature Protection
+
+Try to see what would happen if you deleted a component:
+
+```
+> Use massu_sentinel_impact with files: ["src/components/orders/CreateOrderForm.tsx"]
+```
+
+You should see a warning that the feature would be orphaned.
+
+## Validating All Features
+
+Run validation across all features:
+
+```
+> Use massu_sentinel_validate
+```
+
+This checks that all registered components, procedures, and pages still exist in the codebase.
+
+## Tips
+
+- Register critical features with `priority: "P1"` to get stronger deletion protection
+- Use `primary` role for the component that IS the feature (without it, the feature does not exist)
+- Use `supporting` for components that enhance but are not essential
+- Auto-discovery is a good starting point, but manually refine features for accuracy
+- The `pre-delete-check` hook automatically runs impact analysis on file deletions

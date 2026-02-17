@@ -1,0 +1,267 @@
+---
+title: "Security"
+description: "Automated security scanning, risk scoring, and dependency analysis for AI-generated code"
+order: 4
+---
+
+# Security
+
+Massu AI's security tools automatically scan AI-generated code for vulnerabilities, score files by risk level, track security trends over time, and analyze dependency risks. Security scanning runs automatically when files are edited, catching issues before they reach production.
+
+## Why This Matters
+
+AI coding assistants can introduce security vulnerabilities that experienced developers would catch on review: hardcoded credentials, SQL injection through template literals, mutations without authentication, XSS via dangerouslySetInnerHTML. Massu AI scans for these patterns automatically, scoring every file on a 0-100 risk scale.
+
+For dependencies, AI assistants sometimes add packages that are unmaintained, have known vulnerabilities, or use restrictive licenses. Massu AI's dependency scorer catches these risks before they become problems.
+
+## Tools
+
+### `massu_security_score`
+
+**What it does:** Scan a file for security vulnerabilities and return a risk score (0 = safe, 100 = critical). Detects patterns including command injection, hardcoded credentials, public mutations, XSS, SQL injection, eval usage, CORS misconfiguration, and prototype pollution.
+
+**Usage:**
+
+```
+massu_security_score --file "src/server/routers/orders.ts"
+```
+
+**Example output:**
+
+```
+## Security Score: src/server/routers/orders.ts
+
+Risk Score: 35/100 (Medium)
+
+### Findings (3)
+
+[CRITICAL] Line 45: Mutation without authentication (publicProcedure)
+  Pattern: publicProcedure.mutation
+  Impact: -25 points
+
+[MEDIUM] Line 78: Error details exposed in response
+  Pattern: catch block sends error to client
+  Impact: -8 points
+
+[LOW] Line 92: JSON.parse on user input without try/catch
+  Pattern: JSON.parse(input.body)
+  Impact: -3 points
+
+### Recommendation
+Fix the CRITICAL finding immediately. publicProcedure mutations
+allow unauthenticated users to modify data.
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | yes | File path to scan |
+
+---
+
+### `massu_security_heatmap`
+
+**What it does:** Generate a security heatmap across your codebase. Shows which directories and files have the highest risk scores, making it easy to prioritize security reviews.
+
+**Usage:**
+
+```
+massu_security_heatmap
+massu_security_heatmap --directory "src/server"
+```
+
+**Example output:**
+
+```
+## Security Heatmap
+
+### High Risk (score > 50)
+- src/server/routers/webhooks.ts: 72 (3 critical, 1 high)
+- src/server/routers/auth.ts: 58 (1 critical, 2 high)
+- src/lib/api-client.ts: 55 (2 high, 3 medium)
+
+### Medium Risk (score 25-50)
+- src/server/routers/orders.ts: 35 (1 critical, 1 medium)
+- src/server/routers/users.ts: 28 (2 medium)
+
+### Low Risk (score < 25)
+- src/components/: avg 5 (127 files scanned)
+- src/lib/validators.ts: 0
+
+### Summary
+Files scanned: 156
+Average score: 12
+Files above threshold (50): 3
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `directory` | string | no | Scope to a directory |
+| `min_score` | number | no | Only show files above this score |
+
+---
+
+### `massu_security_trend`
+
+**What it does:** Track security score trends over time. Shows whether your codebase is getting more or less secure across sessions.
+
+**Usage:**
+
+```
+massu_security_trend --days 30
+```
+
+**Example output:**
+
+```
+## Security Trend (30 days)
+
+Average Risk Score:
+  30 days ago: 18.5
+  14 days ago: 15.2
+  7 days ago: 12.8
+  Today: 11.3
+
+Trend: IMPROVING (-39% over 30 days)
+
+### Critical Findings Over Time
+  Week 1: 8 critical findings
+  Week 2: 5 critical findings
+  Week 3: 3 critical findings
+  Week 4: 2 critical findings
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `days` | number | no | Lookback period (default: 30) |
+
+---
+
+### `massu_dep_score`
+
+**What it does:** Analyze dependency risk for installed packages. Checks for known vulnerabilities, maintenance status, popularity, license restrictions, bundle size, and historical churn (AI adding then removing packages).
+
+**Usage:**
+
+```
+massu_dep_score
+massu_dep_score --package "some-package"
+```
+
+**Example output:**
+
+```
+## Dependency Risk Analysis
+
+### High Risk (score > 50)
+- abandoned-lib@1.2.0: Score 68
+  Vulnerabilities: 2 known | Last publish: 847 days ago
+  Downloads: 230/week | License: Unknown
+
+- risky-package@3.0.1: Score 55
+  License: GPL-3.0 (restrictive) | Churn: removed 2x before
+
+### Medium Risk (score 25-50)
+- outdated-util@2.1.0: Score 32
+  Last publish: 400 days ago | No vulnerabilities
+
+### Summary
+Total packages: 45
+Low risk: 38 | Medium risk: 5 | High risk: 2
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `package` | string | no | Specific package to analyze |
+
+---
+
+### `massu_dep_alternatives`
+
+**What it does:** Suggest safer alternatives for high-risk dependencies based on functionality, popularity, and maintenance status.
+
+**Usage:**
+
+```
+massu_dep_alternatives --package "abandoned-lib"
+```
+
+**Example output:**
+
+```
+## Alternatives for abandoned-lib
+
+Current: abandoned-lib@1.2.0 (Risk: 68)
+  Last publish: 847 days ago | 2 vulnerabilities
+
+### Suggested Alternatives
+
+1. modern-lib@4.2.1 (Risk: 5)
+   Downloads: 2.1M/week | Last publish: 12 days ago
+   License: MIT | No known vulnerabilities
+
+2. another-option@1.0.3 (Risk: 12)
+   Downloads: 450K/week | Last publish: 45 days ago
+   License: MIT | No known vulnerabilities
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `package` | string | yes | Package to find alternatives for |
+
+## Security Patterns Detected
+
+Massu AI scans for these vulnerability patterns:
+
+| Pattern | Severity | Description |
+|---------|----------|-------------|
+| Command injection | Critical | Template literals in `exec()` |
+| Public mutations | Critical | `publicProcedure.mutation` (no auth) |
+| Hardcoded credentials | Critical | Passwords, tokens, API keys in code |
+| XSS | High | `dangerouslySetInnerHTML` usage |
+| SQL injection | High | Raw SQL with template literals |
+| Code injection | High | `eval()` usage |
+| Prototype pollution | High | Prototype key in object literals |
+| Env var leakage | Medium | Environment variables logged to console |
+| Error exposure | Medium | Error details sent in HTTP responses |
+| CORS misconfiguration | Medium | `Access-Control-Allow-Origin: *` |
+| SSRF risk | Medium | URLs constructed from user input |
+| Unsafe parsing | Low | `JSON.parse` on user input without try/catch |
+
+## Configuration
+
+```yaml
+security:
+  auto_score_on_edit: true     # Scan files when edited
+  score_threshold_alert: 50    # Alert above this score
+  severity_weights:
+    critical: 25
+    high: 15
+    medium: 8
+    low: 3
+  restrictive_licenses:
+    - GPL
+    - AGPL
+    - SSPL
+  dependencies:
+    package_manager: npm
+    blocked_packages: []       # Packages to always flag
+    max_bundle_size_kb: 500    # Flag packages above this size
+```
+
+## Tips
+
+- Set `auto_score_on_edit: true` to catch security issues as they are introduced
+- Lower the `score_threshold_alert` for security-critical projects (e.g., 25 instead of 50)
+- Add known-bad packages to `blocked_packages` to prevent AI from re-introducing them
+- Run `massu_security_heatmap` periodically to identify the riskiest areas of your codebase
+- Use `massu_dep_score` before accepting any new dependency the AI suggests

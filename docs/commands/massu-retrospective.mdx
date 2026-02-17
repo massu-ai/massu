@@ -1,0 +1,94 @@
+---
+title: "/massu-retrospective"
+description: "Generate a session or sprint retrospective with quality metrics, cost summary, key decisions, and actionable improvement items"
+order: 23
+---
+
+# /massu-retrospective
+
+A read-only command that generates a structured retrospective from Massu AI's session data. It analyzes quality events, cost tracking, decisions made, failed attempts, and rule violations to produce a retrospective report with actionable improvement items for the next session or sprint.
+
+## What It Does
+
+The retrospective command analyzes data from the memory database across six dimensions:
+
+1. **Quality metrics** -- Quality scores per session, trend direction, and the events that drove score changes
+2. **Cost summary** -- Total AI session cost, breakdown by model and tool type, and cost per feature
+3. **Key decisions** -- Architectural and implementation decisions captured during the period
+4. **Failed attempts** -- Approaches that were tried and abandoned, with reasons
+5. **Rule violations** -- Canonical rule violations (CR-1 through CR-12) that occurred and their frequency
+6. **Actionable items** -- Specific, prioritized improvements derived from the above data
+
+The report is printed to stdout. It does not modify any files or source code.
+
+## Usage
+
+Retrospective for the current session:
+
+```
+/massu-retrospective
+```
+
+Retrospective for the last 7 days:
+
+```
+/massu-retrospective --days 7
+```
+
+Sprint retrospective (last 14 days):
+
+```
+/massu-retrospective --sprint
+```
+
+Retrospective since a specific date:
+
+```
+/massu-retrospective --since 2026-02-01
+```
+
+## Output
+
+```
+## Session Retrospective
+Period: 2026-02-10 to 2026-02-16 (7 days)
+
+### Quality Summary
+- Average quality score: 74/100 (up from 68 last week)
+- Sessions: 12
+- Best session: 2026-02-14 (score: 88)
+- Worst session: 2026-02-11 (score: 52 — 3 build failures)
+
+### Cost Summary
+- Total AI cost: $24.30
+- Per session average: $2.02
+- Most expensive feature: orders-refactor ($8.40)
+- Model breakdown: claude-opus-4-6 (87%), claude-sonnet-4-5 (13%)
+
+### Key Decisions (5)
+1. Chose Prisma over Drizzle for migration management
+2. Moved tRPC routers to domain folders
+3. Adopted zod-form-data for form validation
+...
+
+### Failed Attempts (2)
+1. drizzle-kit push with RLS tables -- always fails, use migrate
+2. Direct Supabase auth in middleware -- use createServerSupabaseClient
+
+### Rule Violations (3)
+- CR-7 (tests must pass before claiming complete): 2 occurrences
+- CR-1 (never claim without proof): 1 occurrence
+
+### Actionable Items
+1. [HIGH] Add pre-commit hook for test run to prevent CR-7 violations
+2. [MEDIUM] Set cost alert threshold -- orders work is exceeding budget
+3. [LOW] Document the Prisma vs Drizzle decision in an ADR
+```
+
+## Tips
+
+- Run `/massu-retrospective` at the end of a sprint to prepare for your team retrospective meeting
+- The `--sprint` flag defaults to 14 days -- use `--days N` for custom periods
+- Quality score trends are the most actionable metric: a declining trend indicates systemic issues
+- Failed attempts from retrospectives are surfaced by the `session-start` hook in future sessions -- they accumulate into a "do not retry" knowledge base
+- Share the output with your team by piping to a file: `/massu-retrospective --sprint > docs/retros/2026-02-sprint.md`

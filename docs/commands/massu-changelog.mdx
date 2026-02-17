@@ -1,0 +1,78 @@
+---
+title: "/massu-changelog"
+description: "Generate changelog entries from conventional commits"
+order: 18
+---
+
+# /massu-changelog
+
+Automatically generates changelog entries by parsing conventional commit messages from git history, grouping changes by type, and formatting for CHANGELOG.md.
+
+## Usage
+
+```
+/massu-changelog           # Generate changelog since last git tag
+/massu-changelog [from..to]  # Generate changelog for specific range
+```
+
+## Conventional Commit Types
+
+The command recognizes standard conventional commit types:
+
+- **feat**: New features
+- **fix**: Bug fixes
+- **perf**: Performance improvements
+- **docs**: Documentation changes
+- **style**: Code style changes (formatting, whitespace)
+- **refactor**: Code refactoring without feature or bug changes
+- **test**: Test additions or modifications
+- **build**: Build system or dependency changes
+- **ci**: CI/CD configuration changes
+- **chore**: Maintenance tasks
+
+## Changelog Structure
+
+Generated changelog entries are grouped by type in this order:
+
+### Breaking Changes
+Any commit with `BREAKING CHANGE:` in the footer or `!` after the type/scope.
+
+### Features
+All commits with type `feat:`.
+
+### Bug Fixes
+All commits with type `fix:`.
+
+### Performance Improvements
+All commits with type `perf:`.
+
+### Documentation
+All commits with type `docs:`.
+
+### Other Changes
+Remaining commit types (style, refactor, test, build, ci, chore).
+
+## Output Format
+
+Entries are formatted as:
+
+```markdown
+## [Version] - YYYY-MM-DD
+
+### Breaking Changes
+- **scope**: description (#PR)
+
+### Features
+- **scope**: description (#PR)
+
+### Bug Fixes
+- **scope**: description (#PR)
+```
+
+The output is appended to `CHANGELOG.md` or can be copied for release notes.
+
+## When to Use
+
+- **Before releases**: Generate changelog entries documenting all changes since the last release
+- **To document changes between versions**: Create historical changelog entries for version ranges
+- **During release preparation**: Automatically compile release notes from conventional commits

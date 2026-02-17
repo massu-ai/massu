@@ -1,0 +1,242 @@
+# Massu Configuration - Next.js + tRPC + Prisma + Supabase
+# This example is derived from a real production enterprise application
+
+project:
+  name: my-enterprise-app
+  root: auto
+
+# Framework detection
+framework:
+  type: typescript
+  router: trpc        # Enables tRPC coupling detection
+  orm: prisma          # Enables schema analysis + mismatch detection
+  ui: nextjs           # Enables page dependency graph + route analysis
+
+# Path conventions
+paths:
+  source: src
+  aliases:
+    "@": src
+  # Framework-specific paths (auto-detected from framework.type, but overridable)
+  routers: src/server/api/routers
+  routerRoot: src/server/api/root.ts
+  pages: src/app
+  middleware: src/middleware.ts
+  schema: prisma/schema.prisma
+  components: src/components
+  hooks: src/hooks
+
+# Tool prefix for MCP tools
+toolPrefix: massu
+
+# Database client pattern (for detecting table usage in code)
+dbAccessPattern: "ctx.db.{table}"
+
+# Known schema mismatches (optional - prevents common column name errors)
+knownMismatches:
+  unified_products:
+    category: furniture_type       # Code says "category" but column is "furniture_type"
+    retail_price: list_price
+    unit_cost: cost
+  design_briefs:
+    project_id: design_project_id
+
+# Access scopes (for page dependency analysis)
+accessScopes:
+  - admin
+  - customer
+  - designer
+  - factory
+  - production
+
+# Domains - business domain boundaries for cross-domain import detection
+domains:
+  - name: Product Lifecycle
+    routers: [unifiedProducts, variations, dimensions, collections]
+    pages: ["src/app/(portal)/*/products/**"]
+    tables: [unified_products, product_variations, furniture_dimensions]
+    allowedImportsFrom: [Admin/System]
+
+  - name: Order Management
+    routers: [orders, orderItems, shipping]
+    pages: ["src/app/(portal)/*/orders/**"]
+    tables: [orders, order_items, shipments]
+    allowedImportsFrom: [Product Lifecycle, CRM/Sales]
+
+  - name: CRM/Sales
+    routers: [leads, contacts, companies, activities]
+    pages: ["src/app/(portal)/*/crm/**"]
+    tables: [leads, contacts, companies, crm_activities]
+    allowedImportsFrom: [Product Lifecycle]
+
+  - name: Production/Factory
+    routers: [prototypes, productionTracking, qualityControl]
+    pages: ["src/app/(portal)/*/production/**"]
+    tables: [prototypes, production_batches, qc_inspections]
+    allowedImportsFrom: [Product Lifecycle, Order Management]
+
+  - name: Finance
+    routers: [invoices, payments, pricing]
+    pages: ["src/app/(portal)/*/finance/**"]
+    tables: [invoices, payments, price_lists]
+    allowedImportsFrom: [Order Management, CRM/Sales]
+
+  - name: Task Management
+    routers: [tasks, taskChecklistItems]
+    pages: ["src/app/(portal)/*/tasks/**"]
+    tables: [tasks, task_checklist_items]
+    allowedImportsFrom: ["*"]  # Tasks can reference any domain
+
+  - name: Admin/System
+    routers: [admin, userProfiles, featureFlags, workflows]
+    pages: ["src/app/(portal)/admin/**"]
+    tables: [user_profiles, feature_flags, workflows]
+    allowedImportsFrom: ["*"]
+
+# Rules - contextual coding rules surfaced when editing files
+rules:
+  - pattern: "src/server/api/routers/**/*.ts"
+    rules:
+      - "Use ctx.db NOT ctx.prisma - the hybrid client"
+      - "No include: statements - use 3-step query pattern with Maps"
+      - "Use user_profiles NOT users (auth.users not exposed)"
+      - "ALL mutations must use protectedProcedure"
+      - "Serialize BigInt with Number(), Decimal with convertDecimalToNumber()"
+
+  - pattern: "src/middleware.ts"
+    rules:
+      - "Edge Runtime: NO pino, winston, fs, crypto, or Node.js-only packages"
+      - "Dynamic imports only for heavy dependencies"
+      - "Portal routing must sync with src/lib/auth/redirect.ts and admin router"
+
+  - pattern: "src/app/**/page.tsx"
+    rules:
+      - "Always use page-container class for consistent layout"
+      - "Wrap async pages with Suspense boundaries"
+      - "Use onPointerDown not onClick for tablet/stylus compatibility"
+
+  - pattern: "src/components/**/*.tsx"
+    rules:
+      - "Check shared/ui library before creating new components (VR-REUSE)"
+      - "Never use Select.Item with value='' - use '__none__' sentinel"
+      - "All interactive elements need focus:ring indicators (VR-FOCUS)"
+
+  - pattern: "prisma/schema.prisma"
+    rules:
+      - "After schema changes, run VR-SCHEMA to verify all 3 environments"
+      - "New tables need RLS policies AND grants"
+      - "Add new tables to src/lib/db.ts DatabaseClient"
+
+# Analytics - quality scoring, cost tracking, prompt analysis
+analytics:
+  quality:
+    weights:
+      bug_found: -5
+      vr_failure: -10
+      incident: -20
+      cr_violation: -3
+      vr_pass: 2
+      clean_commit: 5
+      successful_verification: 3
+    categories:
+      - security
+      - architecture
+      - coupling
+      - tests
+      - rule_compliance
+  cost:
+    models:
+      claude-opus-4-6:
+        input_per_million: 15
+        output_per_million: 75
+        cache_read_per_million: 1.5
+        cache_write_per_million: 3.75
+      claude-sonnet-4-5-20250929:
+        input_per_million: 3
+        output_per_million: 15
+        cache_read_per_million: 0.3
+        cache_write_per_million: 0.75
+    currency: USD
+  prompts:
+    success_indicators:
+      - committed
+      - approved
+      - looks good
+      - perfect
+      - great
+      - thanks
+    failure_indicators:
+      - revert
+      - wrong
+      - "that's not"
+      - undo
+      - incorrect
+    max_turns_for_success: 2
+
+# Governance - audit trail, validation, ADR detection
+governance:
+  audit:
+    formats:
+      - summary
+      - detailed
+      - soc2
+    retention_days: 365
+    auto_log:
+      code_changes: true
+      rule_enforcement: true
+      approvals: true
+      commits: true
+  validation:
+    realtime: true
+    checks:
+      rule_compliance: true
+      import_existence: true
+      naming_conventions: true
+  adr:
+    detection_phrases:
+      - chose
+      - decided
+      - switching to
+      - moving from
+      - going with
+    storage: database
+
+# Security - risk scoring, license checks, dependency analysis
+security:
+  auto_score_on_edit: true
+  score_threshold_alert: 50
+  severity_weights:
+    critical: 25
+    high: 15
+    medium: 8
+    low: 3
+  restrictive_licenses:
+    - GPL
+    - AGPL
+    - SSPL
+  dependencies:
+    package_manager: npm
+    blocked_packages: []
+    max_bundle_size_kb: 500
+
+# Team knowledge - expertise tracking, conflict detection
+team:
+  enabled: false
+  sync_backend: local
+  expertise_weights:
+    session: 20
+    observation: 10
+  privacy:
+    share_file_paths: true
+    share_code_snippets: false
+    share_observations: true
+
+# Regression detection - feature health, test gap tracking
+regression:
+  test_runner: "npm test"
+  test_patterns:
+    - "{dir}/__tests__/{name}.test.{ext}"
+    - "{dir}/{name}.spec.{ext}"
+  health_thresholds:
+    healthy: 80
+    warning: 50

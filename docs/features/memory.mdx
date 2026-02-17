@@ -1,0 +1,274 @@
+---
+title: "Memory & Learning"
+description: "Cross-session memory that persists decisions, failures, and context - your AI assistant never forgets"
+order: 0
+---
+
+# Memory & Learning
+
+Massu AI's memory system is what makes your AI assistant genuinely learn from past sessions. Every decision, every bug fix, every failed attempt is captured and stored in a local SQLite database. When you start a new session, relevant context is automatically injected -- including warnings about approaches that already failed.
+
+## Why This Matters
+
+Without memory, every AI session starts from zero. Your assistant will:
+- Retry approaches that already failed
+- Re-discover information it found yesterday
+- Make the same architectural mistakes twice
+- Forget decisions your team already made
+
+Massu AI's memory system eliminates this waste. After just a few sessions, your AI assistant has a rich knowledge base of your project's history, decisions, and pitfalls.
+
+## Tools
+
+### `massu_memory_search`
+
+**What it does:** Full-text search across all past session observations and decisions. Uses SQLite FTS5 for fast, relevance-ranked results.
+
+**Usage:**
+
+```
+massu_memory_search --query "database migration"
+massu_memory_search --query "authentication" --type "decision"
+massu_memory_search --query "prisma" --date_from "2026-01-01"
+```
+
+**Example output:**
+
+```
+## Search Results (5 matches)
+
+#142 [decision] Chose Prisma migrate over raw SQL for schema changes
+     Session: 2026-02-10 | Importance: 8
+     Files: src/server/db.ts, prisma/schema.prisma
+
+#138 [bugfix] Fixed migration timeout by increasing lock_timeout to 30s
+     Session: 2026-02-09 | Importance: 7
+
+#115 [failed_attempt] DO NOT RETRY: drizzle-kit push fails with RLS-enabled tables
+     Session: 2026-02-05 | Importance: 9 | Recurrence: 2x
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | yes | FTS5 search query. Supports AND, OR, NOT, and phrase matching with quotes |
+| `type` | string | no | Filter by observation type: `decision`, `bugfix`, `feature`, `failed_attempt`, `cr_violation`, `vr_check`, `discovery`, `refactor`, `file_change` |
+| `cr_rule` | string | no | Filter by canonical rule (e.g., `CR-16`) |
+| `date_from` | string | no | Start date in ISO format |
+| `limit` | number | no | Max results (default: 20) |
+
+---
+
+### `massu_memory_timeline`
+
+**What it does:** Retrieves episodic memory -- chronological context around a specific observation. Shows what happened before and after an event to reconstruct the full story.
+
+**Usage:**
+
+```
+massu_memory_timeline --observation_id 142
+massu_memory_timeline --observation_id 142 --depth_before 10 --depth_after 3
+```
+
+**Example output:**
+
+```
+## Timeline around #142
+
+--- 5 observations before ---
+#137 [discovery] Found that Prisma schema has 3 tables without indexes
+#138 [bugfix] Fixed migration timeout by increasing lock_timeout
+#139 [file_change] Edited prisma/schema.prisma
+#140 [vr_check] VR-BUILD: PASS
+#141 [decision] Will use Prisma's built-in migration system
+
+--- Anchor: #142 ---
+#142 [decision] Chose Prisma migrate over raw SQL for schema changes
+
+--- 5 observations after ---
+#143 [file_change] Created prisma/migrations/20260210_add_indexes.sql
+#144 [feature] Implemented migration CI check
+#145 [vr_check] VR-TEST: PASS
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `observation_id` | number | yes | The anchor observation ID |
+| `depth_before` | number | no | How many items before (default: 5) |
+| `depth_after` | number | no | How many items after (default: 5) |
+
+---
+
+### `massu_memory_detail`
+
+**What it does:** Retrieves full observation details by ID, including evidence, file lists, plan items, and metadata. Supports batch retrieval.
+
+**Usage:**
+
+```
+massu_memory_detail --ids [142, 138, 115]
+```
+
+**Example output:**
+
+```
+## Observation #142
+Type: decision
+Title: Chose Prisma migrate over raw SQL for schema changes
+Detail: After evaluating both approaches, Prisma migrate provides better
+  type safety and rollback support. Raw SQL was considered but rejected
+  due to lack of migration tracking.
+Importance: 8
+Files: src/server/db.ts, prisma/schema.prisma
+Session: abc123 (2026-02-10)
+Plan Item: P3-002
+
+## Observation #138
+Type: bugfix
+Title: Fixed migration timeout by increasing lock_timeout to 30s
+...
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `ids` | number[] | yes | Array of observation IDs to retrieve |
+
+---
+
+### `massu_memory_sessions`
+
+**What it does:** Lists recent sessions with their summaries, including what was requested, what was completed, what failed, and plan progress.
+
+**Usage:**
+
+```
+massu_memory_sessions
+massu_memory_sessions --limit 5 --status completed
+```
+
+**Example output:**
+
+```
+## Recent Sessions (3)
+
+### Session abc123 (2026-02-10)
+Status: completed | Branch: feat/migrations
+Request: "Implement database migration system"
+Completed:
+  - Implemented migration CI check
+  - Added migration timeout handling
+Plan: 4/5 complete
+
+### Session def456 (2026-02-09)
+Status: completed | Branch: feat/auth
+Request: "Fix authentication flow for SSO"
+Completed:
+  - Fixed SSO callback URL handling
+  - Added session refresh mechanism
+Failed: Token refresh race condition (DO NOT RETRY)
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `limit` | number | no | Max sessions to show (default: 10) |
+| `status` | string | no | Filter: `active`, `completed`, `abandoned` |
+
+---
+
+### `massu_memory_failures`
+
+**What it does:** Retrieves all failed attempts -- approaches that were tried and did not work. These are tagged as "DO NOT RETRY" and automatically surfaced at session start.
+
+**Usage:**
+
+```
+massu_memory_failures
+massu_memory_failures --query "prisma"
+```
+
+**Example output:**
+
+```
+## Failed Attempts (DO NOT RETRY)
+
+#115 drizzle-kit push fails with RLS-enabled tables (2x)
+     Last seen: 2026-02-08
+     Detail: drizzle-kit push cannot handle Supabase RLS policies.
+     Results in "policy already exists" errors and partial migrations.
+
+#089 next-auth getServerSession returns null in middleware
+     Last seen: 2026-02-03
+     Detail: Edge runtime limitation. getServerSession requires Node.js
+     runtime which is not available in Next.js middleware.
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | no | Filter failures by keyword |
+| `limit` | number | no | Max results (default: 20) |
+
+---
+
+### `massu_memory_ingest`
+
+**What it does:** Manually add an observation to memory. Useful for recording decisions, discoveries, or warnings that were not automatically captured.
+
+**Usage:**
+
+```
+massu_memory_ingest --type "decision" --title "Using Redis for session storage" --detail "Chose Redis over database sessions for better performance at scale" --importance 8
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `type` | string | yes | Observation type |
+| `title` | string | yes | Short summary |
+| `detail` | string | no | Full description |
+| `importance` | number | no | 1-10 importance score |
+| `files` | string[] | no | Related file paths |
+
+## How Memory Works
+
+### Automatic Capture
+
+Most memory is captured automatically by the lifecycle hooks:
+
+- **`post-tool-use` hook**: Classifies every tool call into observation types (file_change, bugfix, feature, decision, failed_attempt, etc.)
+- **`user-prompt` hook**: Captures every user prompt for full-text search
+- **`session-end` hook**: Generates structured session summaries
+
+### Importance Scoring
+
+Observations are scored from 1-10 based on their type and context:
+
+| Type | Default Importance | Rationale |
+|------|-------------------|-----------|
+| `failed_attempt` | 9 | Highest -- prevents repeating mistakes |
+| `decision` | 8 | High -- preserves architectural choices |
+| `incident` | 8 | High -- prevents future incidents |
+| `bugfix` | 7 | Records solutions |
+| `feature` | 6 | Tracks what was built |
+| `discovery` | 5 | Background context |
+| `file_change` | 3 | Low -- high volume |
+
+### Deduplication
+
+Failed attempts are automatically deduplicated. If the same approach fails again, the recurrence count increments rather than creating a duplicate entry.
+
+## Tips
+
+- Search memory at the start of any session to check if your planned approach has been tried before
+- Use `massu_memory_failures` before attempting any workaround -- someone may have already tried it
+- The `session-start` hook automatically injects the most important context, but you can search for more detail
+- Failed attempts with high recurrence counts are the most valuable -- they save the most wasted effort

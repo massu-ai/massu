@@ -1,0 +1,532 @@
+---
+title: "REST API (v1)"
+description: "Programmatic access to your Massu cloud data via authenticated REST endpoints."
+order: 10
+---
+
+# REST API (v1)
+
+Access your Massu cloud data programmatically with the REST API.
+
+## Authentication
+
+All API requests require a valid API key passed in the Authorization header:
+
+```bash
+curl -H "Authorization: Bearer ms_live_XXXXXXXX_your_secret_key" \
+  https://massu.ai/api/v1/sessions
+```
+
+Create API keys in **Settings > API Keys** in your dashboard.
+
+## Rate Limits
+
+| Plan | Requests/Minute |
+|------|----------------|
+| Cloud Pro | 100 |
+| Cloud Team | 500 |
+| Cloud Enterprise | 2,000 |
+
+Rate limit headers are included in all responses:
+- `X-RateLimit-Limit`: Total requests allowed per minute
+- `X-RateLimit-Remaining`: Requests remaining in current window
+- `X-RateLimit-Reset`: Unix timestamp when the limit resets
+
+## Response Format
+
+All responses are JSON. Successful responses return a 2xx status code with data:
+
+```json
+{
+  "data": [...],
+  "pagination": {
+    "page": 1,
+    "per_page": 50,
+    "total": 245
+  }
+}
+```
+
+Error responses return a 4xx or 5xx status code:
+
+```json
+{
+  "error": "Invalid API key",
+  "code": "UNAUTHORIZED"
+}
+```
+
+## Endpoints
+
+### Sessions
+
+#### List Sessions
+
+```http
+GET /api/v1/sessions
+```
+
+Query parameters:
+- `page` (integer): Page number (default: 1)
+- `per_page` (integer): Results per page (default: 50, max: 100)
+- `project` (string): Filter by project name
+- `date_from` (string): ISO 8601 date (e.g., "2026-02-01")
+- `date_to` (string): ISO 8601 date
+- `sort` (string): Sort field ("created_at", "estimated_cost", "turns")
+- `order` (string): Sort order ("asc" or "desc")
+
+Example response:
+
+```json
+{
+  "data": [
+    {
+      "id": "sess_abc123",
+      "project_name": "my-project",
+      "turns": 12,
+      "estimated_cost": 0.45,
+      "quality_score": 87,
+      "created_at": "2026-02-15T10:30:00Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 50,
+    "total": 123
+  }
+}
+```
+
+#### Get Session Details
+
+```http
+GET /api/v1/sessions/:session_id
+```
+
+Returns full session data including turns, observations, and analysis.
+
+### Quality Scores
+
+#### Get Quality Overview
+
+```http
+GET /api/v1/quality
+```
+
+Query parameters:
+- `project` (string): Filter by project name
+- `date_from` (string): ISO 8601 date
+- `date_to` (string): ISO 8601 date
+
+Example response:
+
+```json
+{
+  "average_score": 85,
+  "total_sessions": 245,
+  "trend": "up",
+  "scores_by_date": [
+    { "date": "2026-02-14", "score": 82 },
+    { "date": "2026-02-15", "score": 87 }
+  ]
+}
+```
+
+#### Get Session Quality Score
+
+```http
+GET /api/v1/quality/:session_id
+```
+
+Returns quality score breakdown for a specific session.
+
+### Cost
+
+#### Get Cost Summary
+
+```http
+GET /api/v1/cost
+```
+
+Query parameters:
+- `project` (string): Filter by project name
+- `date_from` (string): ISO 8601 date
+- `date_to` (string): ISO 8601 date
+- `group_by` (string): "day", "week", or "month"
+
+Example response:
+
+```json
+{
+  "total_cost": 145.67,
+  "current_month": 89.23,
+  "by_period": [
+    { "period": "2026-02-01", "cost": 12.34 },
+    { "period": "2026-02-02", "cost": 15.67 }
+  ],
+  "by_project": [
+    { "project": "frontend", "cost": 45.12 },
+    { "project": "backend", "cost": 44.11 }
+  ]
+}
+```
+
+#### Get Budget Status
+
+```http
+GET /api/v1/cost/budget
+```
+
+Returns current budget configuration and usage.
+
+### Security
+
+#### Get Security Alerts
+
+```http
+GET /api/v1/security/alerts
+```
+
+Query parameters:
+- `severity` (string): "critical", "high", "medium", "low"
+- `status` (string): "open", "acknowledged", "resolved"
+- `page` (integer): Page number
+- `per_page` (integer): Results per page
+
+Example response:
+
+```json
+{
+  "data": [
+    {
+      "id": "alert_xyz789",
+      "severity": "high",
+      "title": "Hardcoded API key detected",
+      "description": "Found potential API key in session turn 3",
+      "session_id": "sess_abc123",
+      "status": "open",
+      "created_at": "2026-02-15T10:30:00Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 50,
+    "total": 8
+  }
+}
+```
+
+#### Get Security Score
+
+```http
+GET /api/v1/security/score
+```
+
+Returns overall security score and breakdown.
+
+### Team
+
+#### List Team Members
+
+```http
+GET /api/v1/team/members
+```
+
+Example response:
+
+```json
+{
+  "data": [
+    {
+      "id": "user_123",
+      "email": "alice@example.com",
+      "display_name": "Alice Smith",
+      "role": "admin",
+      "joined_at": "2026-01-15T09:00:00Z"
+    }
+  ]
+}
+```
+
+#### Get Team Activity
+
+```http
+GET /api/v1/team/activity
+```
+
+Query parameters:
+- `user_id` (string): Filter by user ID
+- `date_from` (string): ISO 8601 date
+- `date_to` (string): ISO 8601 date
+
+Returns activity logs for team members.
+
+### Audit
+
+#### Get Audit Logs
+
+```http
+GET /api/v1/audit
+```
+
+Query parameters:
+- `action` (string): Filter by action type
+- `user_id` (string): Filter by user
+- `date_from` (string): ISO 8601 date
+- `date_to` (string): ISO 8601 date
+- `page` (integer): Page number
+- `per_page` (integer): Results per page
+
+Example response:
+
+```json
+{
+  "data": [
+    {
+      "id": "log_abc123",
+      "action": "session.sync",
+      "user_id": "user_123",
+      "details": { "session_id": "sess_xyz" },
+      "ip_address": "192.0.2.1",
+      "created_at": "2026-02-15T10:30:00Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 50,
+    "total": 1234
+  }
+}
+```
+
+### PR Risk Scores
+
+#### List PR Risk Scores
+
+```http
+GET /api/v1/risk/prs
+```
+
+Query parameters:
+- `repo` (string): Filter by repository
+- `rating` (string): "low", "medium", "high", "critical"
+- `page` (integer): Page number
+- `per_page` (integer): Results per page
+
+Example response:
+
+```json
+{
+  "data": [
+    {
+      "id": "risk_abc123",
+      "repo": "org/repo",
+      "pr_number": 42,
+      "pr_title": "Add new feature",
+      "risk_score": 65,
+      "impact_score": 70,
+      "regression_score": 55,
+      "security_score": 60,
+      "coupling_score": 75,
+      "files_changed": 12,
+      "created_at": "2026-02-15T10:30:00Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 50,
+    "total": 87
+  }
+}
+```
+
+### Webhooks
+
+#### List Webhook Endpoints
+
+```http
+GET /api/v1/webhooks
+```
+
+Example response:
+
+```json
+{
+  "data": [
+    {
+      "id": "hook_abc123",
+      "url": "https://api.example.com/webhooks",
+      "events": ["*"],
+      "enabled": true,
+      "description": "Production webhook",
+      "created_at": "2026-02-01T09:00:00Z"
+    }
+  ]
+}
+```
+
+#### Create Webhook Endpoint
+
+```http
+POST /api/v1/webhooks
+```
+
+Request body:
+
+```json
+{
+  "url": "https://api.example.com/webhooks",
+  "events": ["session.completed", "quality.score_changed"],
+  "description": "Optional description"
+}
+```
+
+#### Update Webhook Endpoint
+
+```http
+PATCH /api/v1/webhooks/:webhook_id
+```
+
+Request body (all fields optional):
+
+```json
+{
+  "url": "https://api.example.com/new-webhook",
+  "events": ["*"],
+  "enabled": false,
+  "description": "Updated description"
+}
+```
+
+#### Delete Webhook Endpoint
+
+```http
+DELETE /api/v1/webhooks/:webhook_id
+```
+
+Returns 204 No Content on success.
+
+#### Test Webhook Endpoint
+
+```http
+POST /api/v1/webhooks/:webhook_id/test
+```
+
+Sends a test event to the webhook endpoint.
+
+## Webhook Events
+
+Webhook payloads are sent as POST requests with a JSON body:
+
+```json
+{
+  "event": "session.completed",
+  "timestamp": "2026-02-15T10:30:00Z",
+  "data": {
+    "session_id": "sess_abc123",
+    "project_name": "my-project",
+    "quality_score": 87
+  }
+}
+```
+
+### Event Types
+
+| Event | Description | Data Fields |
+|-------|-------------|-------------|
+| `session.completed` | A session sync completed | `session_id`, `project_name`, `quality_score` |
+| `quality.score_changed` | Quality score updated | `session_id`, `old_score`, `new_score` |
+| `security.alert` | Security alert created | `alert_id`, `severity`, `title` |
+| `cost.budget_exceeded` | Budget threshold exceeded | `budget_id`, `current_cost`, `limit` |
+| `team.member_joined` | New team member joined | `user_id`, `email`, `role` |
+| `compliance.report_ready` | Compliance report generated | `report_id`, `report_type`, `date_range` |
+
+### Webhook Security
+
+All webhook requests include these headers:
+- `X-Massu-Signature`: HMAC-SHA256 signature of the payload
+- `X-Massu-Event`: Event type
+- `X-Massu-Delivery`: Unique delivery ID
+
+To verify the signature:
+
+```javascript
+const crypto = require('crypto')
+
+function verifySignature(payload, signature, secret) {
+  const hmac = crypto.createHmac('sha256', secret)
+  const digest = 'sha256=' + hmac.update(payload).digest('hex')
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(digest)
+  )
+}
+```
+
+## Quality Badges
+
+Embed live quality score badges in your README or documentation:
+
+### Markdown
+
+```markdown
+![Quality](https://massu.ai/api/badge/your-org/quality)
+![Security](https://massu.ai/api/badge/your-org/security)
+![Cost](https://massu.ai/api/badge/your-org/cost)
+```
+
+### HTML
+
+```html
+<img src="https://massu.ai/api/badge/your-org/quality" alt="Quality Score">
+<img src="https://massu.ai/api/badge/your-org/security" alt="Security Score">
+<img src="https://massu.ai/api/badge/your-org/cost" alt="Cost Efficiency">
+```
+
+Badge URLs:
+- Quality: `/api/badge/:org_slug/quality`
+- Security: `/api/badge/:org_slug/security`
+- Cost: `/api/badge/:org_slug/cost`
+
+Configure badge appearance in **Settings > Badges**.
+
+## Error Codes
+
+| Code | Description |
+|------|-------------|
+| `UNAUTHORIZED` | Invalid or missing API key |
+| `FORBIDDEN` | Insufficient permissions |
+| `NOT_FOUND` | Resource not found |
+| `RATE_LIMITED` | Rate limit exceeded |
+| `VALIDATION_ERROR` | Invalid request parameters |
+| `INTERNAL_ERROR` | Server error |
+
+## SDKs
+
+Official SDKs are available for:
+- **Node.js**: `npm install @massu/node-sdk`
+- **Python**: `pip install massu`
+- **Go**: `go get github.com/massu-ai/go-sdk`
+
+Example (Node.js):
+
+```javascript
+const { MassuClient } = require('@massu/node-sdk')
+
+const client = new MassuClient({
+  apiKey: process.env.MASSU_API_KEY
+})
+
+const sessions = await client.sessions.list({
+  project: 'my-project',
+  page: 1
+})
+
+console.log(sessions)
+```
+
+## Support
+
+- **Email**: api-support@massu.ai
+- **Documentation**: https://massu.ai/docs
+- **Status**: https://status.massu.ai

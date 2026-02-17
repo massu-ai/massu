@@ -1,0 +1,150 @@
+---
+title: "Workflow Commands"
+description: "26 workflow commands that enforce a verification-first approach to AI-assisted development"
+order: 0
+---
+
+# Workflow Commands
+
+Massu AI provides 26 workflow commands organized into 7 categories that enforce a structured, verification-first approach to AI-assisted development. These are not suggestions -- they are mandatory execution protocols that ensure every plan is thorough, every implementation is verified, and every commit meets quality standards.
+
+## Implementation Workflow
+
+The core 5-command pipeline for structured development:
+
+```
+/massu-create-plan  -->  /massu-plan  -->  /massu-loop  -->  /massu-commit  -->  /massu-push
+   (create)          (audit)      (implement)     (pre-commit)     (pre-push)
+```
+
+| Step | Command | Edits Source Code? | Purpose |
+|------|---------|-------------------|---------|
+| 1 | [/massu-create-plan](/docs/commands/massu-create-plan) | No | Create a plan document |
+| 2 | [/massu-plan](/docs/commands/massu-plan) | No (plan doc only) | Audit and improve the plan |
+| 3 | [/massu-loop](/docs/commands/massu-loop) | Yes | Implement with verification |
+| 4 | [/massu-commit](/docs/commands/massu-commit) | Fixes only | Pre-commit verification gate |
+| 5 | [/massu-push](/docs/commands/massu-push) | Fixes only | Pre-push full verification |
+
+## Development Tools
+
+4 commands for day-to-day development tasks:
+
+| Command | Edits Source Code? | Purpose |
+|---------|-------------------|---------|
+| [/massu-test](/docs/commands/massu-test) | Yes | Intelligent test runner with failure analysis and generation |
+| [/massu-debug](/docs/commands/massu-debug) | Yes | Systematic debugging with hypothesis testing |
+| [/massu-refactor](/docs/commands/massu-refactor) | Yes | Safe refactoring with behavioral equivalence |
+| [/massu-hotfix](/docs/commands/massu-hotfix) | Yes | Quick scoped fix with branch, test, commit, PR |
+
+## Quality & Security
+
+5 read-only analysis commands:
+
+| Command | Edits Source Code? | Purpose |
+|---------|-------------------|---------|
+| [/massu-review](/docs/commands/massu-review) | No | Code review across 7 dimensions |
+| [/massu-security-scan](/docs/commands/massu-security-scan) | No | Deep security audit (OWASP, RLS, secrets) |
+| [/massu-audit-deps](/docs/commands/massu-audit-deps) | No | Dependency vulnerability and license audit |
+| [/massu-website-check](/docs/commands/massu-website-check) | No | Website-specific verification (Next.js, Supabase) |
+| [/massu-perf](/docs/commands/massu-perf) | No | Performance analysis (bundle, queries, edge functions) |
+
+## Release & Ops
+
+3 commands for release and operational tasks:
+
+| Command | Edits Source Code? | Purpose |
+|---------|-------------------|---------|
+| [/massu-release](/docs/commands/massu-release) | Yes | Release preparation with full verification |
+| [/massu-changelog](/docs/commands/massu-changelog) | CHANGELOG.md only | Generate changelog from commits |
+| [/massu-migrate](/docs/commands/massu-migrate) | Yes | Database migration creation and validation |
+
+## Diagnostics
+
+2 read-only diagnostic commands:
+
+| Command | Edits Source Code? | Purpose |
+|---------|-------------------|---------|
+| [/massu-status](/docs/commands/massu-status) | No | Project health dashboard with 14 checks |
+| [/massu-feature-parity](/docs/commands/massu-feature-parity) | No | Enterprise feature comparison |
+
+## Productivity
+
+3 commands for codebase hygiene and documentation:
+
+| Command | Edits Source Code? | Purpose |
+|---------|-------------------|---------|
+| [/massu-cleanup](/docs/commands/massu-cleanup) | Yes | Dead code removal, unused imports, orphaned files |
+| [/massu-doc-gen](/docs/commands/massu-doc-gen) | Yes | Generate JSDoc, README, and API documentation |
+| [/massu-onboard](/docs/commands/massu-onboard) | No | Generate onboarding guide for new team members |
+
+## Insights
+
+4 read-only analysis commands for retrospectives and planning:
+
+| Command | Edits Source Code? | Purpose |
+|---------|-------------------|---------|
+| [/massu-retrospective](/docs/commands/massu-retrospective) | No | Session/sprint retrospective with actionable items |
+| [/massu-accessibility](/docs/commands/massu-accessibility) | No | WCAG 2.1 accessibility audit |
+| [/massu-estimate](/docs/commands/massu-estimate) | No | Effort estimation with complexity scoring |
+| [/massu-benchmark](/docs/commands/massu-benchmark) | No | Performance benchmarking with baselines |
+
+## Decision Tree
+
+Not sure which command to use?
+
+- **Starting new work** -- `/massu-create-plan` then `/massu-plan` then `/massu-loop`
+- **Ready to commit** -- `/massu-commit`
+- **Ready to push** -- `/massu-push`
+- **Tests are failing** -- `/massu-test`
+- **Bug to diagnose** -- `/massu-debug`
+- **Urgent production fix** -- `/massu-hotfix`
+- **Restructuring code** -- `/massu-refactor`
+- **Before a code review** -- `/massu-review`
+- **Security concerns** -- `/massu-security-scan`
+- **Cutting a release** -- `/massu-release`
+- **Schema changes** -- `/massu-migrate`
+- **Project health check** -- `/massu-status`
+- **Performance problems** -- `/massu-perf`
+- **Dependency concerns** -- `/massu-audit-deps`
+- **Deploying a website** -- `/massu-website-check`
+- **Dead code / cleanup** -- `/massu-cleanup`
+- **Generate documentation** -- `/massu-doc-gen`
+- **Onboarding new member** -- `/massu-onboard`
+- **Session retrospective** -- `/massu-retrospective`
+- **Accessibility check** -- `/massu-accessibility`
+- **Effort estimation** -- `/massu-estimate`
+- **Benchmark performance** -- `/massu-benchmark`
+
+## Why This Workflow?
+
+AI assistants are powerful but they can also be careless. Without a structured workflow:
+
+- Plans have gaps that only surface during implementation
+- Implementations claim completion without verification
+- Commits include untested or type-unsafe code
+- Removals leave behind orphaned references
+- "100% complete" turns out to be 80% complete
+
+The Massu AI workflow prevents all of these problems by requiring proof at every stage.
+
+## Core Principles
+
+### 1. Plans Before Code
+
+Every non-trivial change starts with a plan document. Plans live in `docs/plans/` and include specific deliverables, file paths, and verification requirements.
+
+### 2. Verification Before Claims
+
+Every claim of completion requires a verification command and its output as proof. "I verified it" without showing the command output is treated as unverified.
+
+### 3. Negative Verification for Removals
+
+When a plan says "remove X", verification requires `grep -rn "X" src/` returning 0 results. Partial removal is not removal.
+
+### 4. All Items, Not Most Items
+
+If a plan has 10 items, all 10 must be implemented and verified. Stopping at 8 and claiming complete is a protocol violation.
+
+### 5. Protocols Are Mandatory
+
+Slash commands are execution instructions, not suggestions. When a protocol says "loop until complete," it means loop until complete.

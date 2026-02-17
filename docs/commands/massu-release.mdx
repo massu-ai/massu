@@ -1,0 +1,120 @@
+---
+title: "/massu-release"
+description: "Release preparation with version bump, changelog, and full verification"
+order: 13
+---
+
+# /massu-release
+
+Prepares a new release with automatic version determination, changelog generation, full verification gates, and git tagging.
+
+## Usage
+
+```
+/massu-release
+```
+
+## Release Protocol
+
+### 1. Version Determination
+Analyzes commit history since last release to determine version bump:
+- **Major (x.0.0)**: Breaking changes (BREAKING CHANGE in commit message)
+- **Minor (0.x.0)**: New features (feat: commits)
+- **Patch (0.0.x)**: Bug fixes only (fix: commits)
+
+Uses [Conventional Commits](https://www.conventionalcommits.org/) for automatic semantic versioning.
+
+**Output:**
+- Suggested version bump with reasoning
+- List of commits contributing to decision
+
+### 2. Pre-Release Verification (4 Tiers)
+
+#### Tier 1: Type Safety
+- Runs `npx tsc --noEmit` in all packages
+- **Zero type errors** required to proceed
+- Validates tsconfig.json strictness settings
+
+#### Tier 2: Test Coverage
+- Runs full test suite (`npm test`)
+- **All tests must pass** (CR-7)
+- Generates coverage report
+- Warns if coverage decreased vs previous release
+
+#### Tier 3: Pattern Compliance
+- Runs `bash scripts/massu-pattern-scanner.sh`
+- **All 8 pattern checks must pass**
+- Validates ESM imports, config usage, tool registration
+
+#### Tier 4: Security
+- Runs `/massu-security-scan`
+- **No CRITICAL severity findings** allowed
+- HIGH severity findings require acknowledgment
+- Generates security report for release notes
+
+**Abort Conditions:**
+- Any tier 1-3 check fails → Must fix before proceeding
+- CRITICAL security findings → Must fix before proceeding
+- >5 HIGH security findings → Recommend fixing before release
+
+### 3. Changelog Generation
+Generates changelog from conventional commits since last release:
+- Groups commits by type (Breaking Changes, Features, Fixes, Chores)
+- Includes commit messages and PR references if available
+- Links to GitHub compare view for full diff
+- Follows [Keep a Changelog](https://keepachangelog.com/) format
+
+**Output:**
+- `CHANGELOG.md` updated with new version section
+- Formatted release notes for GitHub release
+
+### 4. Version Bump
+Updates version in all package.json files:
+- `package.json` in root
+- `packages/core/package.json`
+- `packages/plugin/package.json` (if exists)
+- Maintains version consistency across monorepo
+
+**Validation:**
+- Checks for uncommitted changes (should be clean except changelog)
+- Verifies version follows semver format
+- Ensures version doesn't already exist as git tag
+
+### 5. Release Notes
+Generates structured release notes:
+- **Summary**: 1-2 sentence overview of release
+- **Breaking Changes**: Migration guide if major version
+- **New Features**: Highlight key features with examples
+- **Bug Fixes**: Notable fixes
+- **Security**: Security improvements
+- **Dependencies**: Major dependency updates
+- **Contributors**: Acknowledgments
+
+**Output:**
+- `docs/releases/[version].md` with full release notes
+- Summary suitable for GitHub release description
+
+### 6. Commit and Tag (No Push)
+Creates release commit and git tag:
+```bash
+git add CHANGELOG.md package.json packages/*/package.json docs/releases/
+git commit -m "chore(release): v[version]"
+git tag -a "v[version]" -m "Release v[version]"
+```
+
+**Does NOT push automatically** - allows final review before publishing.
+
+**Next Steps Reminder:**
+1. Review commit: `git show HEAD`
+2. Review tag: `git tag -n v[version]`
+3. Push release: `git push && git push --tags`
+4. Create GitHub release: `gh release create v[version] --notes-file docs/releases/[version].md`
+5. Publish to npm: `cd packages/core && npm publish`
+
+## When to Use
+
+- **Preparing a new release**: After feature completion and testing
+- **After feature completion**: When ready to cut a new version
+- **Scheduled releases**: Weekly/monthly release cadence
+- **Hotfix releases**: For urgent bug fixes (will be patch version)
+- **Vs /massu-changelog**: `/massu-changelog` only generates changelog; `/massu-release` does full release preparation including version bump and verification

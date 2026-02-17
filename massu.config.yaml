@@ -1,0 +1,162 @@
+# Massu Configuration
+# This is Massu's own config (dog-fooding)
+
+project:
+  name: massu
+  root: auto  # Auto-detect from package.json or .git
+
+# Framework detection
+framework:
+  type: typescript  # typescript | javascript
+  router: none      # trpc | graphql | rest | none
+  orm: none          # prisma | drizzle | typeorm | none
+  ui: none           # nextjs | sveltekit | nuxt | none
+
+# Path conventions
+paths:
+  source: src
+  aliases:
+    "@": src
+
+# Tool prefix for MCP tools
+toolPrefix: massu
+
+# Domains (empty - Massu doesn't have business domains)
+domains: []
+
+# Rules (minimal - Massu's own coding rules)
+rules:
+  - pattern: "src/**/*.ts"
+    rules:
+      - "Use ESM imports (import/export), not CommonJS (require/module.exports)"
+      - "All database operations go through better-sqlite3"
+
+  - pattern: "src/hooks/**/*.ts"
+    rules:
+      - "Hooks receive JSON on stdin, output JSON on stdout"
+      - "Hooks must exit within 5 seconds"
+      - "Never import heavy dependencies - hooks must be fast"
+
+# Analytics configuration
+analytics:
+  quality:
+    weights:
+      bug_found: -5
+      vr_failure: -10
+      incident: -20
+      cr_violation: -3
+      vr_pass: 2
+      clean_commit: 5
+      successful_verification: 3
+    categories:
+      - security
+      - architecture
+      - coupling
+      - tests
+      - rule_compliance
+  cost:
+    models:
+      claude-opus-4-6:
+        input_per_million: 15
+        output_per_million: 75
+        cache_read_per_million: 1.5
+        cache_write_per_million: 3.75
+      claude-sonnet-4-5-20250929:
+        input_per_million: 3
+        output_per_million: 15
+        cache_read_per_million: 0.3
+        cache_write_per_million: 0.75
+    currency: USD
+  prompts:
+    success_indicators:
+      - committed
+      - approved
+      - looks good
+      - perfect
+      - great
+      - thanks
+    failure_indicators:
+      - revert
+      - wrong
+      - "that's not"
+      - undo
+      - incorrect
+    max_turns_for_success: 2
+
+# Governance configuration
+governance:
+  audit:
+    formats:
+      - summary
+      - detailed
+      - soc2
+    retention_days: 365
+    auto_log:
+      code_changes: true
+      rule_enforcement: true
+      approvals: true
+      commits: true
+  validation:
+    realtime: true
+    checks:
+      rule_compliance: true
+      import_existence: true
+      naming_conventions: true
+  adr:
+    detection_phrases:
+      - chose
+      - decided
+      - switching to
+      - moving from
+      - going with
+    storage: database
+
+# Security configuration
+security:
+  auto_score_on_edit: true
+  score_threshold_alert: 50
+  severity_weights:
+    critical: 25
+    high: 15
+    medium: 8
+    low: 3
+  restrictive_licenses:
+    - GPL
+    - AGPL
+    - SSPL
+  dependencies:
+    package_manager: npm
+    blocked_packages: []
+    max_bundle_size_kb: 500
+
+# Team configuration
+team:
+  enabled: false
+  sync_backend: local
+  expertise_weights:
+    session: 20
+    observation: 10
+  privacy:
+    share_file_paths: true
+    share_code_snippets: false
+    share_observations: true
+
+# Regression detection
+regression:
+  test_runner: "npm test"
+  test_patterns:
+    - "{dir}/__tests__/{name}.test.{ext}"
+    - "{dir}/{name}.spec.{ext}"
+  health_thresholds:
+    healthy: 80
+    warning: 50
+
+# Cloud Sync (optional — requires Massu AI Cloud subscription)
+# cloud:
+#   enabled: false
+#   apiKey: "ms_live_your_key_here"
+#   endpoint: "https://your-project.supabase.co/functions/v1/sync"
+#   sync:
+#     memory: true
+#     analytics: true
+#     audit: true

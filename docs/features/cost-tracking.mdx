@@ -1,0 +1,192 @@
+---
+title: "Cost Tracking"
+description: "Monitor AI usage costs per session, per feature, and over time to optimize spending"
+order: 6
+---
+
+# Cost Tracking
+
+Massu AI's cost tracking tools give you full visibility into what your AI-assisted development actually costs. Track token usage per session, attribute spending to individual features, analyze trends over weeks and months, and receive automated alerts before you exceed your budget. Stop guessing at AI costs and start managing them with data.
+
+## Why This Matters
+
+Without cost tracking, AI development spend is invisible until the bill arrives:
+
+- You have no idea which features or tasks are the most expensive to build with AI
+- High-token sessions go unnoticed until monthly totals appear on your statement
+- Cache efficiency, model selection, and prompt length have real cost implications you cannot measure
+- Budget overruns happen because there is no early warning system
+- Comparing the AI cost of two implementation approaches is impossible
+
+Massu AI's cost tracking makes every dollar of AI spend visible, attributable, and manageable.
+
+## Open Source Tools
+
+### `massu_cost_session`
+
+**What it does:** Track token usage and estimated cost for the current session. Breaks down by tool calls, prompts, and responses, with per-model pricing applied to input tokens, output tokens, cache reads, and cache writes.
+
+**Usage:**
+
+```
+massu_cost_session
+massu_cost_session --session_id "abc123"
+```
+
+**Example output:**
+
+```
+## Session Cost: abc123
+
+Model: claude-opus-4-6
+Duration: 45 minutes
+
+### Token Usage
+Input tokens:    45,230  ($0.68)
+Output tokens:   12,450  ($0.93)
+Cache read:     128,000  ($0.19)
+Cache write:      8,500  ($0.03)
+
+### Total: $1.83 USD
+
+### Efficiency
+Cost per tool call: $0.04
+Cost per file edit: $0.12
+Cache hit rate: 74%
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | no | Specific session to inspect (default: current session) |
+
+---
+
+### `massu_cost_trend`
+
+**What it does:** Analyze cost trends over time. Identify expensive patterns, compare session costs week over week, and forecast spending based on your usage rate. Groups data by day, week, or month and shows model distribution.
+
+**Usage:**
+
+```
+massu_cost_trend --days 30
+massu_cost_trend --group_by "week"
+```
+
+**Example output:**
+
+```
+## Cost Trend (30 days)
+
+### Weekly Summary
+Week 1 (Feb 3-9):   $12.45 (8 sessions)
+Week 2 (Feb 10-16): $9.80  (6 sessions)
+Week 3 (Feb 17-23): $14.20 (9 sessions)
+Week 4 (Feb 24-28): $8.90  (5 sessions)
+
+### Total: $45.35 USD
+Average per session: $1.62
+Average per day: $1.51
+
+### Model Distribution
+claude-opus-4-6:           $38.50 (85%)
+claude-sonnet-4-5-20250929: $6.85 (15%)
+
+### Trend
+Last 30 days vs prior 30: -8% (IMPROVING)
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `days` | number | no | Lookback period in days (default: 30) |
+| `group_by` | string | no | Grouping interval: `day`, `week`, or `month` |
+
+---
+
+### `massu_cost_feature`
+
+**What it does:** Attribute AI costs to specific features based on which files were touched during sessions. See which features are most expensive to build and maintain with AI assistance. Supports drilling into a single feature for session-by-session detail.
+
+**Usage:**
+
+```
+massu_cost_feature
+massu_cost_feature --feature_key "orders.create"
+```
+
+**Example output:**
+
+```
+## Cost by Feature
+
+### Top 5 by Cost
+1. orders.create:        $8.45  (5 sessions)
+2. auth.sso:             $6.20  (3 sessions)
+3. reports.pdf-export:   $5.80  (4 sessions)
+4. users.profile:        $3.10  (2 sessions)
+5. dashboard.analytics:  $2.90  (2 sessions)
+
+### Total attributed: $36.45 / $45.35 (80%)
+Unattributed: $8.90 (infrastructure, debugging)
+
+### orders.create Detail
+Session abc123: $2.10 (Feb 14) — initial implementation
+Session def456: $1.85 (Feb 15) — bug fix
+Session ghi789: $4.50 (Feb 16) — refactor + tests
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `feature_key` | string | no | Drill into a specific feature by key |
+| `days` | number | no | Lookback period in days (default: 30) |
+
+## Cloud Pro Features
+
+### Cost Dashboard
+
+Cloud Pro adds an interactive web dashboard for AI cost data. Instead of reading CLI output, you get interactive charts with trend lines, model breakdown pie charts, and per-feature cost heat maps. Filter by date range, model, or feature key. Share cost reports with your team or engineering leadership without requiring CLI access.
+
+### Budget Alerts
+
+Automated email alerts when your AI spend approaches or exceeds your configured monthly budget threshold. Set a soft limit (warning at 80% of budget) and a hard limit (alert at 100%). Alerts include a cost breakdown so you can immediately see which sessions or features drove the spike. Connects to the same model pricing configuration in `massu.config.yaml` so alerts reflect your actual negotiated rates.
+
+### Cost Forecasting
+
+AI spend projections based on current daily usage patterns, projecting month-end totals from your current spending rate. If you are 10 days into a month and have spent $18, Cost Forecasting projects $54 for the full month and flags whether that is above, below, or on track relative to your configured budget. Adjusts dynamically as your usage changes throughout the month.
+
+### Session Comparison
+
+Side-by-side session analytics comparison showing cost, tokens, turns, and tool usage differences between any two sessions. Useful for understanding why one implementation session cost twice as much as another — compare cache hit rates, output token counts, and tool call frequency to identify inefficiencies and replicate high-efficiency sessions.
+
+## Configuration
+
+```yaml
+analytics:
+  cost:
+    models:
+      claude-opus-4-6:
+        input_per_million: 15
+        output_per_million: 75
+        cache_read_per_million: 1.5
+        cache_write_per_million: 3.75
+      claude-sonnet-4-5-20250929:
+        input_per_million: 3
+        output_per_million: 15
+        cache_read_per_million: 0.3
+        cache_write_per_million: 0.75
+    currency: USD
+```
+
+Add additional models to the `models` map as needed. Pricing values are per million tokens. The `currency` field is used for display only.
+
+## Tips
+
+- Run `massu_cost_session` at the end of any session that felt unusually long — cache hit rate below 50% is a sign of context thrashing that you can fix by scoping sessions more tightly
+- Use `massu_cost_feature` at the end of a sprint to include AI costs in your engineering cost accounting alongside compute and developer time
+- Switch to `claude-sonnet-4-5-20250929` for research, exploration, and question-answering tasks — it costs 80% less than Opus and performs equally well for non-implementation work
+- Cost trends are most useful when sessions are focused on a single feature or task; mixed-purpose sessions make attribution unreliable

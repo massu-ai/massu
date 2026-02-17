@@ -1,0 +1,180 @@
+---
+title: "Installation"
+description: "Install Massu AI in your project with a single command"
+order: 1
+---
+
+# Installation
+
+Massu AI installs with one command. It automatically detects your framework, creates your configuration, registers the MCP server, and installs all 11 lifecycle hooks.
+
+## Prerequisites
+
+Before you begin, make sure you have:
+
+- **Node.js 18+** -- Check with `node --version`
+- **Claude Code CLI** -- Installed and authenticated. See [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code) for setup.
+- **A Git repository** -- Massu AI uses git for branch detection and session tracking
+
+## Step 1: Install the Package
+
+```bash
+npm install @massu/core
+```
+
+## Step 2: Initialize Massu AI
+
+Run the init command in your project root:
+
+```bash
+npx massu init
+```
+
+This single command does everything:
+
+```
+Massu AI - Project Setup
+========================
+
+  Detected: TypeScript, Next.js, Prisma, tRPC
+  Created massu.config.yaml
+  Registered MCP server in .mcp.json
+  Installed 11 hooks in .claude/settings.local.json
+  Databases will auto-create on first session
+
+Massu AI is ready. Start a Claude Code session to begin.
+```
+
+Here's what `massu init` does automatically:
+
+1. **Framework Detection** -- Scans your `package.json` for TypeScript, Next.js, SvelteKit, Nuxt, Prisma, Drizzle, tRPC, GraphQL, Express, and more
+2. **Config Generation** -- Creates `massu.config.yaml` with detected framework settings
+3. **MCP Registration** -- Creates or merges `.mcp.json` to register the Massu MCP server
+4. **Hook Installation** -- Configures all 11 lifecycle hooks in `.claude/settings.local.json`
+
+## Step 3: Start Using Massu AI
+
+Start a Claude Code session:
+
+```bash
+claude
+```
+
+On the first session, you'll see:
+
+```
+=== MASSU AI: Active ===
+Session memory, code intelligence, and governance are now active.
+11 hooks monitoring this session. Type "massu_sync" to index your codebase.
+=== END MASSU ===
+```
+
+Then index your codebase:
+
+```
+> Use massu_sync to rebuild indexes
+```
+
+## Verify Installation
+
+Run the health check at any time:
+
+```bash
+npx massu doctor
+```
+
+Expected output:
+
+```
+Massu AI Health Check
+=====================
+
+  ✓ Configuration      massu.config.yaml found and valid
+  ✓ MCP Server         Registered in .mcp.json
+  ✓ Hooks Config       11 hooks configured
+  ✓ Hook Files         11/11 compiled hooks present
+  ✓ Native Modules     better-sqlite3 loads correctly
+  ✓ Node.js            v20.11.0 (>= 18 required)
+  ✓ Git Repository     Detected (branch: main)
+
+Status: HEALTHY (7/7 checks passed)
+```
+
+## What Gets Installed
+
+### The 11 Lifecycle Hooks
+
+| Hook | Event | Purpose |
+|------|-------|---------|
+| `session-start` | SessionStart | Injects prior context, failed attempts, and session summaries |
+| `session-end` | Stop | Generates session summary, captures conversation turns |
+| `post-tool-use` | PostToolUse | Classifies tool calls into observations, detects patterns |
+| `user-prompt` | UserPromptSubmit | Records prompts, auto-detects plan file references |
+| `pre-compact` | PreCompact | Snapshots session state before context compaction |
+| `pre-delete-check` | PreToolUse | Checks sentinel impact before file deletion |
+| `post-edit-context` | PostToolUse | Surfaces applicable rules after editing files |
+| `security-gate` | PreToolUse | Blocks dangerous bash commands and protected file writes |
+| `cost-tracker` | PostToolUse | Estimates and tracks token costs per tool call |
+| `quality-event` | PostToolUse | Detects test failures, type errors, and build failures |
+| `intent-suggester` | UserPromptSubmit | Suggests relevant slash commands based on your prompt |
+
+### Files Created
+
+```
+your-project/
+  massu.config.yaml              # Project configuration (auto-generated)
+  .mcp.json                      # MCP server registration (auto-generated)
+  .claude/
+    settings.local.json          # Hook configuration (auto-generated)
+    session-state/
+      CURRENT.md                 # Auto-generated session state
+  .massu/                        # Created on first session
+    memory.db                    # Cross-session memory database
+    data.db                      # Import edges, feature registry
+```
+
+## Other Commands
+
+### Install or update hooks only
+
+```bash
+npx massu install-hooks
+```
+
+### Validate your configuration
+
+```bash
+npx massu validate-config
+```
+
+## Troubleshooting
+
+### MCP Server Not Found
+
+1. Verify the package is installed: `npm list @massu/core`
+2. Check the MCP configuration: `cat .mcp.json`
+3. Re-run: `npx massu init`
+
+### Hooks Not Running
+
+1. Run the health check: `npx massu doctor`
+2. Check hooks are configured: `cat .claude/settings.local.json`
+3. Re-install hooks: `npx massu install-hooks`
+
+### No Tools Available
+
+1. Verify config exists: `ls massu.config.yaml`
+2. Validate config: `npx massu validate-config`
+3. Check MCP server logs for errors
+
+### Database Errors
+
+Massu AI creates its SQLite databases automatically on first use. If you see database errors:
+
+1. Check write permissions in the `.massu/` directory
+2. Ensure `better-sqlite3` native module loads: `node -e "require('better-sqlite3')"`
+3. Rebuild native modules: `npm rebuild better-sqlite3`
+
+## Next Steps
+
+Now that Massu AI is installed, follow the [Quick Start Guide](/docs/getting-started/quick-start) for a hands-on tutorial, or dive into the [Configuration Reference](/docs/getting-started/configuration) to customize Massu AI for your project.

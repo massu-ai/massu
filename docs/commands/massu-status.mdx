@@ -1,0 +1,75 @@
+---
+title: "/massu-status"
+description: "Read-only project health dashboard with 14 health checks"
+order: 14
+---
+
+# /massu-status
+
+A comprehensive read-only health dashboard that runs 14 diagnostic checks across your codebase, infrastructure, and dependencies to provide an instant project health snapshot.
+
+## Usage
+
+```
+/massu-status
+```
+
+## Health Checks
+
+The command performs 14 distinct health checks:
+
+### 1. TypeScript Compilation
+Verifies all TypeScript files compile without errors using `npx tsc --noEmit`.
+
+### 2. Test Suite
+Runs the full vitest test suite and reports pass/fail status with coverage metrics.
+
+### 3. Pattern Scanner
+Executes `bash scripts/massu-pattern-scanner.sh` to verify 8 codebase patterns including ESM imports, config access, and tool registration.
+
+### 4. Hook Build
+Compiles all hooks in `packages/core/src/hooks/` using esbuild to ensure they build successfully.
+
+### 5. Config Validity
+Parses `massu.config.yaml` to verify valid YAML syntax and required schema fields.
+
+### 6. Git State
+Checks for uncommitted changes, unpushed commits, and branch status.
+
+### 7. Dependency Freshness
+Scans for outdated npm packages and security vulnerabilities.
+
+### 8. Code-Graph DB
+Verifies the Code-Graph database exists, is accessible, and has expected schema tables.
+
+### 9. Website Health
+For projects with a website, checks Next.js build status and Supabase connectivity.
+
+### 10. Test Coverage Gaps
+Identifies modules without test coverage by comparing source files to test files.
+
+### 11. Bundle Size
+Reports current bundle size and flags significant increases from baseline.
+
+### 12. Migration Health
+Validates Supabase migration files are sequential and have no conflicts.
+
+### 13. API Endpoint Inventory
+Lists all tRPC procedures and REST API endpoints with auth requirements.
+
+### 14. Edge Function Inventory
+Catalogs all Supabase Edge Functions and their deployment status.
+
+## Health Classification
+
+The dashboard classifies overall project health into three categories:
+
+- **Healthy**: All 14 checks pass with no warnings
+- **Degraded**: Some checks pass with warnings but no failures
+- **Unhealthy**: One or more checks fail
+
+## When to Use
+
+- **Morning check**: Start each day by running `/massu-status` to verify project health before beginning work
+- **Before starting work**: Use as a pre-flight check to catch issues early
+- **After major changes**: Verify that refactoring, dependency updates, or architectural changes didn't break anything

@@ -1,0 +1,245 @@
+---
+title: "Workflow Commands"
+description: "26 slash commands for structured, verification-first AI-assisted development"
+order: 13
+---
+
+# Workflow Commands
+
+Massu AI's workflow commands are the command-line interface to its governance layer. These 26 slash commands enforce a structured, verification-first approach across the full development lifecycle -- from writing a plan to pushing code. Each command is a mandatory execution protocol, not a suggestion: when a command says "loop until complete," it loops until complete.
+
+## Why This Matters
+
+Unstructured AI development produces unstructured results:
+
+- Plans written from memory get skipped or forgotten
+- Implementations claim completion without running a single verification
+- Commits include type errors, failing tests, and orphaned references
+- "100% complete" turns out to mean "I think it's mostly done"
+- Security and dependency issues are caught by CI, not the developer
+
+The workflow commands eliminate these failure modes by requiring proof at every stage. Verification output is shown inline, not assumed. All items in a plan are executed, not most of them.
+
+## Implementation Workflow
+
+The core pipeline for structured feature development. Every non-trivial change should flow through all five stages in order.
+
+```
+/massu-create-plan  -->  /massu-plan  -->  /massu-loop  -->  /massu-commit  -->  /massu-push
+   (create)             (audit)          (implement)       (pre-commit)        (pre-push)
+```
+
+### `/massu-create-plan`
+
+Creates a plan document from requirements and saves it to `docs/plans/`. The plan includes specific deliverables with file paths, implementation steps, and verification requirements for each item. Use this before any non-trivial change so that scope is defined before a single line of code is written.
+
+See [/massu-create-plan](/docs/commands/massu-create-plan) for full documentation.
+
+### `/massu-plan`
+
+Audits an existing plan document for completeness, gaps, and missing verifications -- without editing source code. It checks that every deliverable has a verification type, that blast radius analysis is included for value changes, and that the plan is granular enough to implement without ambiguity. Run this after creating a plan and before starting implementation.
+
+See [/massu-plan](/docs/commands/massu-plan) for full documentation.
+
+### `/massu-loop`
+
+The implementation engine. It reads the plan file from disk, executes each deliverable with mandatory verification, shows the verification command and its output as proof, and loops until every item is complete. Stopping at "most items" is a protocol violation -- the loop continues until all deliverables are verified.
+
+See [/massu-loop](/docs/commands/massu-loop) for full documentation.
+
+### `/massu-commit`
+
+A pre-commit verification gate that runs 7 checks before allowing a commit: type safety, all tests passing, build success, pattern compliance, no debug code, no exposed secrets, and no orphaned references from removals. It fixes minor issues automatically and blocks on anything that requires human attention.
+
+See [/massu-commit](/docs/commands/massu-commit) for full documentation.
+
+### `/massu-push`
+
+The final verification gate before pushing to remote. Runs the full verification suite including type check, tests, build, security scan, and dependency audit. Designed to catch everything that should not reach CI before it does.
+
+See [/massu-push](/docs/commands/massu-push) for full documentation.
+
+## Development Tools
+
+Four commands for day-to-day development tasks that require more than a one-shot prompt.
+
+### `/massu-test`
+
+Runs the test suite with failure analysis -- it does not just report which tests failed, it investigates why and generates fixes or new tests as needed. Use it when tests are failing and you want structured diagnosis rather than a raw error dump.
+
+See [/massu-test](/docs/commands/massu-test) for full documentation.
+
+### `/massu-debug`
+
+Systematic debugging through hypothesis generation and testing. It forms explicit hypotheses about the root cause, tests each one with targeted evidence gathering, and eliminates possibilities methodically. Use it for bugs that are not immediately obvious from a stack trace.
+
+See [/massu-debug](/docs/commands/massu-debug) for full documentation.
+
+### `/massu-refactor`
+
+Safe refactoring with behavioral equivalence verification. It plans the refactor, executes it, and verifies that observable behavior is unchanged by running tests before and after. Use it when restructuring code that has test coverage and cannot regress.
+
+See [/massu-refactor](/docs/commands/massu-refactor) for full documentation.
+
+### `/massu-hotfix`
+
+A scoped quick-fix workflow for urgent production issues. It creates a branch, implements the minimal fix, runs targeted tests, commits with a structured message, and opens a PR. Use it for bugs that need to ship immediately without going through the full plan-loop cycle.
+
+See [/massu-hotfix](/docs/commands/massu-hotfix) for full documentation.
+
+## Quality & Security
+
+Five read-only analysis commands. None of these edit source code.
+
+### `/massu-review`
+
+Automated code review across 7 dimensions: correctness, security, performance, maintainability, test coverage, API design, and rule compliance. It produces structured findings with severity levels and specific line references. Use it before requesting human review or as a pre-merge check.
+
+See [/massu-review](/docs/commands/massu-review) for full documentation.
+
+### `/massu-security-scan`
+
+Deep security audit covering OWASP Top 10, API endpoint exposure, Row Level Security policy gaps, and secret detection. It goes beyond pattern matching to reason about authentication flows and data access paths. Use it when adding new API routes, modifying auth logic, or preparing for a security review.
+
+See [/massu-security-scan](/docs/commands/massu-security-scan) for full documentation.
+
+### `/massu-audit-deps`
+
+Dependency audit covering known vulnerabilities (via npm audit), license compatibility, and unused packages. It surfaces transitive vulnerabilities and flags licenses that may conflict with your project's requirements. Use it before releases or when adding new dependencies.
+
+See [/massu-audit-deps](/docs/commands/massu-audit-deps) for full documentation.
+
+### `/massu-website-check`
+
+Website-specific verification for Next.js and Supabase projects. Checks build output, environment variable completeness, Supabase RLS policy coverage, edge function compatibility, and route correctness. Use it before deploying a Next.js application.
+
+See [/massu-website-check](/docs/commands/massu-website-check) for full documentation.
+
+### `/massu-perf`
+
+Performance analysis covering bundle size, lazy-loading opportunities, query efficiency, and edge function cold-start impact. Produces actionable findings ranked by estimated user impact. Use it when optimizing load times or investigating performance regressions.
+
+See [/massu-perf](/docs/commands/massu-perf) for full documentation.
+
+## Release & Ops
+
+Three commands for release preparation and operational tasks.
+
+### `/massu-release`
+
+Release preparation with full verification. It runs the complete verification suite, generates a changelog diff, checks that all planned items are complete, and prepares the release artifacts. Use it as the final gate before tagging a release.
+
+See [/massu-release](/docs/commands/massu-release) for full documentation.
+
+### `/massu-changelog`
+
+Generates a structured changelog from git commits grouped by type (features, fixes, breaking changes). Writes to `CHANGELOG.md` only -- no source code changes. Use it as part of the release workflow or to update the changelog after a sprint.
+
+See [/massu-changelog](/docs/commands/massu-changelog) for full documentation.
+
+### `/massu-migrate`
+
+Database migration management -- creates, validates, and tracks schema migrations. It checks migration files for destructive operations, verifies rollback paths exist, and ensures migrations are applied in order. Use it whenever the database schema changes.
+
+See [/massu-migrate](/docs/commands/massu-migrate) for full documentation.
+
+## Diagnostics
+
+Two read-only commands for project health visibility.
+
+### `/massu-status`
+
+A read-only project health dashboard that runs 14 checks across type safety, tests, build, security, dependencies, feature registry health, and recent audit activity. Produces a structured report with pass/fail status per check. Use it at the start of a session to understand the current state of the project.
+
+See [/massu-status](/docs/commands/massu-status) for full documentation.
+
+### `/massu-feature-parity`
+
+Compares feature coverage across portals or environments to identify gaps. Reports which features are present in one context but missing from another. Use it when working on multi-portal applications where feature consistency is a requirement.
+
+See [/massu-feature-parity](/docs/commands/massu-feature-parity) for full documentation.
+
+## Productivity
+
+Three commands for codebase hygiene and documentation generation.
+
+### `/massu-cleanup`
+
+Systematically removes dead code -- unused imports, dead exports, orphaned files, and stale references. Performs blast radius analysis before every removal and verifies with negative grep after. Use it before a release or when the codebase has accumulated cruft from iterative development.
+
+See [/massu-cleanup](/docs/commands/massu-cleanup) for full documentation.
+
+### `/massu-doc-gen`
+
+Generates JSDoc comments, README sections, and API reference documentation for undocumented exports. Analyzes function signatures and usage patterns to produce accurate descriptions. Use it to bootstrap documentation coverage or to keep API docs current before a release.
+
+See [/massu-doc-gen](/docs/commands/massu-doc-gen) for full documentation.
+
+### `/massu-onboard`
+
+Generates a comprehensive onboarding guide for new team members by analyzing your codebase structure, coding conventions, team knowledge base, and known pitfalls. Writes to `docs/ONBOARDING.md`. Use it after major architectural changes or when onboarding a new contributor.
+
+See [/massu-onboard](/docs/commands/massu-onboard) for full documentation.
+
+## Insights
+
+Four read-only commands for retrospectives, planning, and measurement.
+
+### `/massu-retrospective`
+
+Generates a structured retrospective from Massu AI's session data -- quality metrics, cost summary, key decisions, failed attempts, and rule violations -- with actionable improvement items. Use it at the end of a sprint to prepare for team retrospective meetings.
+
+See [/massu-retrospective](/docs/commands/massu-retrospective) for full documentation.
+
+### `/massu-accessibility`
+
+Static accessibility audit against WCAG 2.1 AA criteria: ARIA attributes, keyboard navigation, color contrast, semantic HTML, form labels, and image alt text. Produces severity-ranked findings without running a browser. Use it as part of your pre-release checklist.
+
+See [/massu-accessibility](/docs/commands/massu-accessibility) for full documentation.
+
+### `/massu-estimate`
+
+Effort estimation with complexity scoring and historical comparison. Analyzes a task description or plan file to estimate hours or story points based on codebase impact, novelty, risk, and similar past tasks stored in memory. Use it before starting a task to surface scope disagreements early.
+
+See [/massu-estimate](/docs/commands/massu-estimate) for full documentation.
+
+### `/massu-benchmark`
+
+Performance benchmarking with baseline capture and regression detection. Tracks bundle size, test suite duration, TypeScript compilation time, build time, and hook execution times. Identifies which recent change caused a regression. Use it after adding dependencies or before a performance-sensitive release.
+
+See [/massu-benchmark](/docs/commands/massu-benchmark) for full documentation.
+
+## Command Decision Tree
+
+Not sure which command to use? Start here:
+
+- **Starting new work** -- `/massu-create-plan` then `/massu-plan` then `/massu-loop`
+- **Ready to commit** -- `/massu-commit`
+- **Ready to push** -- `/massu-push`
+- **Tests are failing** -- `/massu-test`
+- **Bug to diagnose** -- `/massu-debug`
+- **Urgent production fix** -- `/massu-hotfix`
+- **Restructuring code** -- `/massu-refactor`
+- **Before a code review** -- `/massu-review`
+- **Security concerns** -- `/massu-security-scan`
+- **Cutting a release** -- `/massu-release` (runs `/massu-changelog` internally)
+- **Schema changes** -- `/massu-migrate`
+- **Project health check** -- `/massu-status`
+- **Performance problems** -- `/massu-perf`
+- **Dependency concerns** -- `/massu-audit-deps`
+- **Deploying a website** -- `/massu-website-check`
+- **Dead code / cleanup** -- `/massu-cleanup`
+- **Generate documentation** -- `/massu-doc-gen`
+- **Onboarding new member** -- `/massu-onboard`
+- **Session retrospective** -- `/massu-retrospective`
+- **Accessibility check** -- `/massu-accessibility`
+- **Effort estimation** -- `/massu-estimate`
+- **Benchmark performance** -- `/massu-benchmark`
+
+## Tips
+
+- Always run `/massu-plan` after `/massu-create-plan` -- the audit step catches gaps that are invisible when you wrote the plan yourself.
+- `/massu-commit` and `/massu-push` are gates, not formalities. If they block, fix the issue rather than working around it.
+- `/massu-status` at the start of each session takes 30 seconds and prevents surprises mid-implementation.
+- The Implementation Workflow commands do not edit source code until `/massu-loop`. If you need to rethink the plan, do it before you reach the loop.
+- `/massu-hotfix` is for genuine emergencies. For anything that can wait an hour, use the full plan-loop-commit-push pipeline.

@@ -1,0 +1,81 @@
+---
+title: "quality-event Hook"
+description: "Detects quality signals from tool outputs — test failures, type errors, and build failures — and records them for retrospectives and scoring"
+order: 10
+---
+
+# quality-event Hook
+
+The quality-event hook fires after every tool call and inspects the output for quality signals. When it detects a test failure, type error, build failure, or rule violation, it records the event in the `quality_events` table. These events feed the quality scoring system and are surfaced in session retrospectives.
+
+## Trigger Event
+
+Fires as a PostToolUse hook after every tool call completes. It primarily inspects outputs from:
+
+- `Bash` tool -- inspects stdout/stderr for test failure patterns, TypeScript errors, and build errors
+- MCP tools -- inspects text responses for rule violation patterns
+
+## What It Does
+
+1. **Reads the completed tool call output** from JSON stdin
+2. **Scans for quality signal patterns** using regex matching on the output text
+3. **Classifies the signal** (test failure, type error, build failure, rule violation, or verification pass)
+4. **Writes a quality event** to the `quality_events` table in the memory database
+5. **Exits silently** -- no output to stdout
+
+## Detection Patterns
+
+| Signal Type | Patterns Detected | Score Impact |
+|------------|-------------------|--------------|
+| `test_failure` | `FAIL`, `✗`, `Tests failed`, `× `, vitest failure output | -3 per event |
+| `type_error` | `error TS`, `Type error`, `tsc: error` | -2 per event |
+| `build_failure` | `Build failed`, `esbuild: error`, `next build` error output | -4 per event |
+| `rule_violation` | `CR-` violation patterns, canonical rule references | -3 per event |
+| `vr_pass` | Verification commands returning expected output | +2 per event |
+| `clean_commit` | Successful commit with no fixups | +5 per event |
+
+## Data Storage
+
+Quality events are stored in the `quality_events` table in the memory database (`.massu/memory.db`):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `session_id` | TEXT | The current session identifier |
+| `event_type` | TEXT | Signal type (e.g., `test_failure`, `vr_pass`) |
+| `tool_name` | TEXT | The tool whose output triggered the signal |
+| `details` | TEXT | Snippet of the matched output |
+| `score_delta` | INTEGER | Positive or negative score adjustment |
+| `created_at` | TEXT | UTC timestamp of the event |
+
+## Integration with Quality Scoring
+
+Quality events are aggregated by the `massu_quality_score` tool to produce a session quality score from 0 to 100:
+
+- Scores start at 50 per session
+- Each quality event applies its `score_delta` to the running total
+- The score is capped at 0 (minimum) and 100 (maximum)
+- Score weights are configurable in `massu.config.yaml` under `quality.weights`
+
+## Integration with Retrospectives
+
+When you run `/massu-retrospective`, quality events from the session are surfaced as actionable items:
+
+- Test failures are listed with their tool context for targeted diagnosis
+- Type errors are grouped by file to show which modules need attention
+- Build failures are flagged as high-priority blockers
+- Rule violations are listed with the specific canonical rule violated
+
+## Performance
+
+This hook must complete within 500ms. It achieves this with:
+
+- Regex-only pattern matching (no database reads, only one write)
+- Early exit if the tool output is empty or too short to contain meaningful signals
+- Single SQLite insert per detected signal
+
+## Tips
+
+- Use `massu_quality_score` to see the running score for your current session
+- Use `massu_quality_report` to view a trend over the last N sessions
+- Adjust score weights in `massu.config.yaml` to match your team's priorities -- for example, weight type errors more heavily if TypeScript safety is critical
+- The hook detects signals from vitest, TypeScript compiler, esbuild, and Next.js build output by default

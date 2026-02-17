@@ -1,0 +1,65 @@
+---
+title: "Quality Badges"
+description: "Embed live quality score badges in your repository README."
+order: 14
+---
+
+# Quality Badges
+
+Display live quality, security, or cost score badges in your repository READMEs using shields.io-compatible SVG badges.
+
+## Requirements
+
+- **Plan**: Cloud Pro or higher
+
+## Setup
+
+1. Go to **Dashboard > Settings > Badges**
+2. Configure your badge appearance and thresholds
+3. Toggle "Public" to make the badge accessible
+4. Copy the embed code
+
+## Badge Types
+
+| Type | Shows | Example |
+|------|-------|---------|
+| Quality | Average quality score | `quality: 85` |
+| Security | Security posture score | `security: 92` |
+| Cost | Cost efficiency score | `cost: 78` |
+
+## Embedding
+
+### Markdown
+
+```markdown
+![Quality](https://massu.ai/api/badge/your-org/quality)
+```
+
+### HTML
+
+```html
+<img src="https://massu.ai/api/badge/your-org/quality" alt="Quality Score" />
+```
+
+## Configuration
+
+Customize badge appearance in the dashboard:
+
+- **Label**: Text shown on the left side of the badge
+- **Thresholds**: Score ranges for good (green), warning (yellow), and bad (red) colors
+- **Colors**: Custom color names (brightgreen, green, yellow, orange, red)
+- **Public**: Whether the badge is accessible without authentication
+
+## Color Thresholds
+
+| Score Range | Default Color | Meaning |
+|-------------|--------------|---------|
+| >= 80 | brightgreen | Good |
+| >= 50 | yellow | Warning |
+| < 50 | red | Bad |
+
+Thresholds are fully configurable per badge type.
+
+## Caching
+
+Badge responses are cached for 5 minutes (`max-age=300`). Scores update as new sessions sync.

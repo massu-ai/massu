@@ -1,0 +1,80 @@
+---
+title: "/massu-push"
+description: "Pre-push full verification gate - comprehensive quality check before pushing to remote"
+order: 5
+---
+
+# /massu-push
+
+The `/massu-push` command is the final quality gate before pushing to the remote repository. It runs a more comprehensive verification suite than `/massu-commit`, including full build verification, all tests, and pattern compliance.
+
+## Usage
+
+```
+/massu-push
+```
+
+## Verification Suite
+
+The command runs all `/massu-commit` checks plus:
+
+### 1. Full Build
+
+```
+$ npm run build
+```
+
+Complete production build including hook compilation.
+
+### 2. Hook Compilation
+
+```
+$ cd packages/core && npm run build:hooks
+```
+
+All hooks must compile with esbuild without errors.
+
+### 3. Comprehensive Type Check
+
+```
+$ cd packages/core && npx tsc --noEmit
+```
+
+Full type checking across the entire project.
+
+### 4. Full Test Suite
+
+```
+$ npm test
+```
+
+All tests must pass (not just affected tests).
+
+### 5. Pattern Scanner
+
+```
+$ bash scripts/massu-pattern-scanner.sh
+```
+
+Complete pattern compliance check.
+
+### 6. Security Scan
+
+Reviews all changes being pushed for security vulnerabilities using the security scorer.
+
+## Failure Handling
+
+If any check fails:
+
+1. The push is blocked
+2. The specific failure is reported with details
+3. Fixes are applied where possible
+4. Checks are re-run
+5. Push only proceeds when everything passes
+
+## Important Notes
+
+- This is the most thorough verification gate -- it catches issues that `/massu-commit` might miss
+- Running `/massu-push` on a clean commit should always pass if `/massu-commit` passed
+- The command does not force-push -- it uses standard `git push`
+- May edit source files only to fix issues, never to add features

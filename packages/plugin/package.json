@@ -1,0 +1,6 @@
+{
+  "name": "@massu/plugin",
+  "version": "0.1.0",
+  "description": "Claude Code plugin for Massu - commands, agents, and hooks",
+  "private": true
+}

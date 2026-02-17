@@ -1,0 +1,88 @@
+---
+title: "/massu-security-scan"
+description: "Deep security audit across OWASP, API, RLS, secrets, and headers"
+order: 10
+---
+
+# /massu-security-scan
+
+Read-only deep security audit covering OWASP Top 10, API authentication, Supabase RLS policies, secret exposure, security headers, dependency vulnerabilities, and webhook security.
+
+## Usage
+
+```
+/massu-security-scan
+```
+
+## Security Dimensions
+
+### 1. OWASP Top 10 Analysis
+Scans for common web application vulnerabilities:
+- **XSS (Cross-Site Scripting)**: Unsafe HTML rendering, missing sanitization
+- **SQL Injection**: Direct SQL string concatenation, unsafe query building
+- **SSRF (Server-Side Request Forgery)**: Unvalidated URL fetching
+- **Path Traversal**: Unsafe file path handling
+- **Authentication Bypass**: Missing auth checks, weak session handling
+- **Authorization Flaws**: Missing role checks, privilege escalation risks
+- **Cryptographic Failures**: Weak algorithms, hardcoded secrets
+- **Insecure Deserialization**: Unsafe JSON.parse, eval usage
+- **Logging Failures**: Sensitive data in logs, missing audit trails
+- **Component Vulnerabilities**: See dependency scanning below
+
+### 2. API Endpoint Authentication
+- Identifies all API routes (pages/api/*, app/api/*)
+- Checks for auth middleware or session validation
+- Flags public endpoints that might need protection
+- Verifies CORS configuration
+
+### 3. Supabase RLS Policy Coverage
+- Scans `supabase/migrations/*.sql` for CREATE TABLE statements
+- Checks for corresponding RLS policies (SELECT, INSERT, UPDATE, DELETE)
+- Flags tables without RLS enabled
+- Validates policy logic for common mistakes (missing user checks)
+
+### 4. Secret Scanning
+- Searches for exposed credentials (API keys, tokens, passwords)
+- Checks `.env` files are gitignored
+- Scans for hardcoded secrets in source code
+- Validates environment variable usage
+
+### 5. Security Headers
+- Analyzes Next.js config for security headers
+- Checks for: CSP, X-Frame-Options, X-Content-Type-Options, HSTS, Referrer-Policy
+- Validates header values for common misconfigurations
+
+### 6. Dependency Vulnerabilities
+- Queries OSV.dev for known vulnerabilities in dependencies
+- Reports CVEs with severity levels (CRITICAL/HIGH/MEDIUM/LOW)
+- Suggests upgrade paths for vulnerable packages
+- Cross-references with `npm audit`
+
+### 7. Webhook Security
+- Identifies webhook endpoints (Stripe, GitHub, etc.)
+- Verifies HMAC signature validation
+- Checks for replay attack protection (timestamp validation)
+- Validates request origin verification
+
+## Severity Levels
+
+- **CRITICAL**: Immediate fix required (exposed secrets, critical CVEs, RLS disabled)
+- **HIGH**: Fix before deployment (missing auth, high-severity CVEs, XSS risks)
+- **MEDIUM**: Fix soon (missing headers, medium CVEs, weak validation)
+- **LOW**: Best practice improvements (logging gaps, outdated dependencies)
+
+## Output
+
+The scan generates:
+1. **Executive Summary**: Total findings by severity
+2. **Detailed Findings**: Each issue with file location, line number, and remediation advice
+3. **Remediation Roadmap**: Prioritized action items
+4. **False Positive Notes**: How to exclude known safe patterns
+
+## When to Use
+
+- **Before deployment**: Run security scan as pre-deployment gate
+- **After adding new API routes**: Verify auth and validation are in place
+- **Periodic security audits**: Monthly or quarterly security reviews
+- **Vs /massu-review**: Use `/massu-review` for general code quality; use `/massu-security-scan` for security-focused audit
+- **After dependency updates**: Check for newly disclosed vulnerabilities

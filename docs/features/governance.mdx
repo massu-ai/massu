@@ -1,0 +1,314 @@
+---
+title: "Governance"
+description: "Compliance audit trails, real-time validation, and automated architecture decision records"
+order: 3
+---
+
+# Governance
+
+Massu AI's governance tools provide the compliance infrastructure that enterprise teams need when adopting AI-assisted development. Every code change gets an audit entry. Every AI decision gets recorded. Every validation check leaves a trail. This is the foundation for SOC2 compliance, security audits, and engineering accountability.
+
+## Why This Matters
+
+When AI writes or modifies code, organizations need to answer questions like:
+
+- Who (or what) made this change, and why?
+- Were coding rules enforced at the time of the change?
+- What decisions led to this architectural choice?
+- Can we generate a compliance report for auditors?
+
+Massu AI's governance layer answers all of these automatically, with zero manual effort from developers.
+
+## Tools
+
+### `massu_audit_log`
+
+**What it does:** Query the audit trail with filters. Every code change, rule enforcement, approval, and commit is logged with actor, timestamp, evidence, and metadata.
+
+**Usage:**
+
+```
+massu_audit_log --event_type "code_change" --days 7
+massu_audit_log --actor "ai" --file_path "src/server/routers/orders.ts"
+massu_audit_log --change_type "delete" --limit 50
+```
+
+**Example output:**
+
+```
+## Audit Log (12 entries, last 7 days)
+
+2026-02-10 14:23:01 | code_change | actor: ai | model: claude-opus-4-6
+  File: src/server/routers/orders.ts (edit)
+  Rules: CR-1, CR-7 | Approval: auto_approved
+  Evidence: Added input validation per Zod schema requirement
+
+2026-02-10 14:22:45 | rule_enforced | actor: hook
+  Rule: "All mutations must use protectedProcedure"
+  File: src/server/routers/orders.ts
+  Result: PASS
+
+2026-02-10 14:20:12 | commit | actor: human
+  Files: 3 changed | Branch: feat/orders
+  Approval: human_approved
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `event_type` | string | no | `code_change`, `rule_enforced`, `approval`, `review`, `commit`, `compaction` |
+| `actor` | string | no | `ai`, `human`, `hook`, `agent` |
+| `days` | number | no | Filter to last N days |
+| `file_path` | string | no | Filter by file path |
+| `change_type` | string | no | `create`, `edit`, `delete` |
+| `limit` | number | no | Max results (default: 50) |
+
+---
+
+### `massu_audit_report`
+
+**What it does:** Generate formatted audit reports in multiple formats: summary (quick overview), detailed (full evidence chain), or SOC2 (compliance-formatted).
+
+**Usage:**
+
+```
+massu_audit_report --format "summary" --days 30
+massu_audit_report --format "soc2" --days 90
+```
+
+**Example output (summary):**
+
+```
+## Audit Summary Report (30 days)
+
+### Activity Overview
+- Code changes: 142 (AI: 118, Human: 24)
+- Rules enforced: 89 (86 PASS, 3 FAIL)
+- Approvals: 45 (Auto: 38, Human: 7)
+- Commits: 23
+
+### AI Activity
+- Model: claude-opus-4-6 (95%), claude-sonnet-4-5 (5%)
+- Files modified by AI: 67
+- Average rules enforced per change: 2.3
+
+### Compliance Status
+- Audit coverage: 100%
+- Rule enforcement rate: 96.6%
+- Retention: 365 days configured
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `format` | string | no | `summary`, `detailed`, `soc2` (default: `summary`) |
+| `days` | number | no | Report period in days (default: 30) |
+| `session_id` | string | no | Generate report for specific session |
+
+---
+
+### `massu_audit_chain`
+
+**What it does:** View the complete audit chain for a specific file -- every change, rule check, and approval from creation to present.
+
+**Usage:**
+
+```
+massu_audit_chain --file_path "src/server/routers/orders.ts"
+```
+
+**Example output:**
+
+```
+## Audit Chain: src/server/routers/orders.ts
+
+1. 2026-01-15 | CREATE | actor: ai | model: claude-opus-4-6
+   Session: xyz789 | Rules: CR-1, CR-7
+   Evidence: Initial router creation per plan P2-001
+
+2. 2026-01-18 | EDIT | actor: ai | model: claude-opus-4-6
+   Session: abc123 | Rules: CR-1
+   Evidence: Added getById procedure with Zod validation
+
+3. 2026-02-10 | EDIT | actor: ai | model: claude-opus-4-6
+   Session: def456 | Rules: CR-1, CR-7
+   Evidence: Added input validation per security review
+   Approval: human_approved (2026-02-10 14:25:00)
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | string | yes | File path to trace |
+
+---
+
+### `massu_validation_check`
+
+**What it does:** Run validation checks on a file: rule compliance, import existence, naming conventions, and custom patterns. Returns findings with severity levels.
+
+**Usage:**
+
+```
+massu_validation_check --file "src/server/routers/orders.ts"
+```
+
+**Example output:**
+
+```
+## Validation: src/server/routers/orders.ts
+
+### Results: 1 error, 1 warning, 2 info
+
+[ERROR] rule_compliance: publicProcedure used with mutation (line 45)
+  Rule: "All mutations must use protectedProcedure"
+
+[WARNING] naming_convention: Function "DoSomething" should be camelCase (line 67)
+
+[INFO] import_exists: All imports verified (12 imports checked)
+[INFO] custom_pattern: No custom pattern violations
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | yes | File path to validate |
+
+---
+
+### `massu_validation_report`
+
+**What it does:** Generate a validation report across all files or a specific directory. Shows aggregate findings by severity and category.
+
+**Usage:**
+
+```
+massu_validation_report
+massu_validation_report --directory "src/server/routers"
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `directory` | string | no | Scope to a directory |
+| `severity` | string | no | Filter by minimum severity |
+
+---
+
+### `massu_adr_list`
+
+**What it does:** List all architecture decision records (ADRs). Massu AI automatically detects decisions from conversation patterns ("chose X over Y", "decided to use", "switching from A to B") and records them.
+
+**Usage:**
+
+```
+massu_adr_list
+massu_adr_list --status "accepted"
+```
+
+**Example output:**
+
+```
+## Architecture Decision Records (8)
+
+ADR-001 [accepted] Use Prisma over Drizzle for ORM
+  Date: 2026-01-15 | Session: xyz789
+  Alternatives: Prisma, Drizzle, TypeORM
+
+ADR-002 [accepted] Redis for session storage
+  Date: 2026-01-20 | Session: abc123
+  Alternatives: Redis, database sessions, JWT
+
+ADR-003 [superseded] Use REST for webhooks (superseded by ADR-005)
+  Date: 2026-01-22 | Session: def456
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `status` | string | no | `accepted`, `superseded`, `deprecated` |
+
+---
+
+### `massu_adr_detail`
+
+**What it does:** Get full ADR details including context, decision rationale, alternatives considered, and consequences.
+
+**Usage:**
+
+```
+massu_adr_detail --adr_id 1
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `adr_id` | number | yes | ADR identifier |
+
+---
+
+### `massu_adr_create`
+
+**What it does:** Manually create an architecture decision record. Most ADRs are auto-detected from conversation, but you can create them explicitly for important decisions.
+
+**Usage:**
+
+```
+massu_adr_create --title "Use Redis for caching" --context "Need low-latency caching for API responses" --decision "Redis with 5-minute TTL" --alternatives ["Redis", "Memcached", "In-memory LRU"] --consequences "Adds Redis infrastructure dependency"
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `title` | string | yes | Decision title |
+| `context` | string | yes | Why this decision was needed |
+| `decision` | string | yes | What was decided |
+| `alternatives` | string[] | no | Options that were considered |
+| `consequences` | string | no | Expected impact |
+
+## Configuration
+
+```yaml
+governance:
+  audit:
+    formats:
+      - summary
+      - detailed
+      - soc2
+    retention_days: 365
+    auto_log:
+      code_changes: true
+      rule_enforcement: true
+      approvals: true
+      commits: true
+  validation:
+    realtime: true
+    checks:
+      rule_compliance: true
+      import_existence: true
+      naming_conventions: true
+  adr:
+    detection_phrases:
+      - chose
+      - decided
+      - switching to
+      - moving from
+      - going with
+    storage: database
+```
+
+## Tips
+
+- Generate SOC2 reports monthly and archive them for compliance reviews
+- Use `massu_audit_chain` when investigating how a file reached its current state
+- ADR auto-detection works best when you explicitly state decisions in your prompts: "I decided to use X over Y because..."
+- Validation checks run automatically when `validation.realtime` is enabled
+- Audit retention defaults to 365 days -- adjust based on your compliance requirements

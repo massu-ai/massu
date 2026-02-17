@@ -1,0 +1,81 @@
+---
+title: "post-edit-context Hook"
+description: "Surfaces applicable coding rules and warnings when source files are edited"
+order: 7
+---
+
+# post-edit-context Hook
+
+The post-edit-context hook fires after Edit or Write tool calls on source files. It surfaces applicable coding rules from your configuration and warns about middleware tree membership, ensuring the AI assistant is always aware of the rules governing the file being modified.
+
+## Trigger Event
+
+Fires as a PostToolUse hook after Edit or Write operations on files under `src/`.
+
+## What It Does
+
+1. **Extracts the file path** from the tool input
+2. **Converts to relative path** from the project root
+3. **Checks applicable rules** using `matchRules()` from the rules engine
+4. **Checks middleware tree membership** to warn about Edge Runtime restrictions
+5. **Outputs warnings** for CRITICAL and HIGH severity rules
+
+## Example Input
+
+```json
+{
+  "session_id": "abc123-def456",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/Users/dev/my-app/src/server/routers/orders.ts"
+  }
+}
+```
+
+## Example Output
+
+```
+[MASSU CONTEXT] [CRITICAL] All mutations must use protectedProcedure | [HIGH] Validate all inputs with Zod schemas
+```
+
+If the file is in the middleware import tree:
+
+```
+[MASSU CONTEXT] [CRITICAL] CR-16: This file is in the middleware import tree. No Node.js deps allowed. | [HIGH] Keep middleware lightweight
+```
+
+## Rule Matching
+
+Rules are matched against file paths using glob patterns defined in your configuration:
+
+```yaml
+rules:
+  - pattern: "src/server/**/*.ts"
+    severity: CRITICAL
+    rules:
+      - "All mutations must use protectedProcedure"
+      - "Never expose raw error details to clients"
+
+  - pattern: "src/components/**/*.tsx"
+    severity: HIGH
+    rules:
+      - "Use React.memo for list item components"
+```
+
+Only CRITICAL and HIGH severity rules are surfaced by this hook to avoid noise. All rules (including MEDIUM and LOW) are available via `massu_context`.
+
+## Performance
+
+This hook completes in under 500ms by:
+
+- Only processing `src/` files (non-source files are skipped)
+- Using pre-compiled rule patterns
+- Opening the data database read-only for middleware tree checks
+- Exiting silently if the database does not exist
+
+## Tips
+
+- Define rules in your `massu.config.yaml` for the patterns that matter most
+- The hook automatically detects middleware tree membership -- no configuration needed
+- Rules surface as inline context, so the AI assistant sees them immediately after editing
+- This is the same information returned by `massu_context`, but delivered proactively

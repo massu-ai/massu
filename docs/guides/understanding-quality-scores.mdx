@@ -1,0 +1,91 @@
+---
+title: "Understanding Quality Scores"
+description: "How Massu AI calculates quality scores and how to use them to improve your development process"
+order: 3
+---
+
+# Understanding Quality Scores
+
+Quality scores are Massu AI's way of quantifying the quality of AI-assisted development sessions. Each session gets a score from 0 to 100 based on weighted events that occur during the session.
+
+## How Scoring Works
+
+### Base Score
+
+Every session starts with a base score of **50**. This represents a neutral session where nothing particularly good or bad happened.
+
+### Event Weights
+
+Events during the session adjust the score up or down:
+
+| Event | Default Weight | Description |
+|-------|---------------|-------------|
+| `clean_commit` | +5 | A commit with no issues |
+| `successful_verification` | +3 | A verification check passed |
+| `vr_pass` | +2 | Any VR check passed |
+| `cr_violation` | -3 | A canonical rule was violated |
+| `bug_found` | -5 | A bug was discovered |
+| `vr_failure` | -10 | A verification check failed |
+| `incident` | -20 | A production-impacting incident |
+
+### Score Range
+
+The final score is clamped to 0-100:
+
+- **80-100**: Excellent session -- clean commits, all verifications passed
+- **60-79**: Good session -- minor issues but overall positive
+- **40-59**: Average session -- some failures or violations
+- **20-39**: Poor session -- significant issues
+- **0-19**: Critical session -- multiple failures or incidents
+
+## Category Breakdown
+
+Quality scores are broken down into categories:
+
+| Category | What It Measures |
+|----------|-----------------|
+| `security` | Security findings and fixes |
+| `architecture` | Architectural decisions and coupling |
+| `coupling` | Code coupling and dependency issues |
+| `tests` | Test coverage and verification results |
+| `rule_compliance` | Adherence to configured rules |
+
+An observation contributes to a category when its description mentions that category keyword.
+
+## Customizing Weights
+
+Override default weights in your config:
+
+```yaml
+analytics:
+  quality:
+    weights:
+      bug_found: -10       # Penalize bugs more heavily
+      clean_commit: 10     # Reward clean commits more
+      vr_failure: -15      # Make verification failures more costly
+    categories:
+      - security
+      - architecture
+      - coupling
+      - tests
+      - rule_compliance
+      - performance       # Add custom categories
+```
+
+## Tracking Quality Over Time
+
+Use `massu_quality_trend` to see how your scores change across sessions. An improving trend means your AI-assisted development is getting better over time.
+
+Common patterns:
+
+- **Improving trend**: Team is learning, rules are effective, fewer mistakes
+- **Flat trend**: Steady state -- quality is consistent but not improving
+- **Declining trend**: New complexity, rule gaps, or changing team members
+
+## Tips
+
+- Quality scores are most useful as trends, not absolute numbers
+- A score of 50 is not bad -- it means a neutral session with no notable events
+- Focus on reducing `vr_failure` and `cr_violation` events for the biggest score improvements
+- Add custom categories to track quality dimensions specific to your project
+- Share quality trends with your team to build awareness

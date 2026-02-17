@@ -1,0 +1,55 @@
+---
+title: Cost Intelligence Guide
+description: Setting up and using the AI Cost Intelligence dashboard for monitoring spending, setting budgets, and forecasting costs.
+---
+
+# Cost Intelligence Guide
+
+The Cost Intelligence dashboard gives you full visibility into your AI development spending. Available on Cloud Pro plans and above.
+
+## Overview
+
+The dashboard provides:
+
+- **Daily cost trends** — Line chart showing spend over time
+- **Model breakdown** — See which AI models cost the most
+- **Feature attribution** — Understand cost per feature
+- **Budget alerts** — Get notified when approaching spending limits
+- **Spend forecasting** — Project month-end totals from current rate
+
+## Setup
+
+Cost Intelligence works automatically once you have cloud sync enabled:
+
+1. Ensure you have a Cloud Pro (or above) subscription
+2. Generate an API key from Settings
+3. Enable sync in your `massu.config.yaml`
+4. The daily cost snapshot function aggregates your data
+
+## Setting a Budget
+
+Navigate to **Cost Intelligence > Budget** in the dashboard:
+
+1. Set your monthly budget amount (USD)
+2. Configure the alert threshold (default: 80%)
+3. Optionally set an alert email address
+4. Save your budget settings
+
+You'll receive an email when your spending reaches the alert threshold.
+
+## Understanding Forecasting
+
+The forecast uses a simple linear projection:
+
+- It calculates your average daily spend for the current month
+- Multiplies by remaining days to project month-end total
+- The projection updates daily as new cost data arrives
+
+## Cost Comparison
+
+Compare spending across time periods:
+
+- **This Week vs Last Week** — Short-term trend analysis
+- **This Month vs Last Month** — Monthly budget tracking
+
+Navigate to **Cost Intelligence > Compare** to access this feature.

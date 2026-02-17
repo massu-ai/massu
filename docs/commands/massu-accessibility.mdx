@@ -1,0 +1,88 @@
+---
+title: "/massu-accessibility"
+description: "WCAG 2.1 AA accessibility audit — ARIA attributes, keyboard navigation, color contrast, semantic HTML, and screen reader compatibility"
+order: 24
+---
+
+# /massu-accessibility
+
+A read-only accessibility audit command that checks your UI components and pages against WCAG 2.1 AA criteria. It analyzes source code for ARIA attribute correctness, keyboard navigation patterns, semantic HTML usage, and common screen reader compatibility issues without running a browser.
+
+## What It Does
+
+The accessibility command performs static analysis across six WCAG 2.1 dimensions:
+
+1. **ARIA attributes** -- Checks for missing `aria-label` on interactive elements, invalid `role` values, and improper use of `aria-hidden`
+2. **Keyboard navigation** -- Verifies that all interactive elements are reachable via keyboard, that focus order is logical, and that focus traps are implemented correctly in modals and dialogs
+3. **Color contrast** -- Flags hardcoded color values that fall below the WCAG AA contrast ratio of 4.5:1 for normal text and 3:1 for large text
+4. **Semantic HTML** -- Identifies non-semantic patterns: click handlers on `div` elements, missing landmark roles, improper heading hierarchy
+5. **Form accessibility** -- Checks for inputs without associated labels, missing `autocomplete` attributes, and error messages not linked to fields
+6. **Image accessibility** -- Verifies `alt` attributes on `img` elements and decorative images marked with `alt=""`
+
+The report is printed to stdout. It does not modify any files.
+
+## Usage
+
+Audit the entire project:
+
+```
+/massu-accessibility
+```
+
+Audit a specific directory:
+
+```
+/massu-accessibility src/components
+```
+
+Focus on a specific WCAG criterion:
+
+```
+/massu-accessibility --criterion keyboard
+```
+
+Output as JSON for CI integration:
+
+```
+/massu-accessibility --json
+```
+
+## Output
+
+```
+## Accessibility Audit Report
+WCAG 2.1 AA | 3 files scanned
+
+### Critical (2 issues)
+- src/components/Modal.tsx:45 — Focus trap missing: modal does not trap focus within dialog
+- src/components/forms/SearchInput.tsx:12 — Input has no associated label element
+
+### High (5 issues)
+- src/components/Button.tsx:23 — Icon-only button missing aria-label
+- src/pages/dashboard.tsx:67 — Click handler on div element (use button)
+- src/components/Table.tsx:34 — Table missing caption or aria-label
+...
+
+### Medium (8 issues)
+- src/styles/globals.css:12 — Hardcoded color #999 fails contrast ratio (2.8:1 < 4.5:1)
+...
+
+### Summary
+- Critical: 2
+- High: 5
+- Medium: 8
+- Low: 3
+- Total: 18
+
+WCAG 2.1 AA Compliance: FAIL
+Estimated remediation effort: 4-6 hours
+```
+
+## Tips
+
+- Fix Critical issues first -- they represent complete barriers for users with disabilities
+- Color contrast issues are best fixed by referencing design tokens rather than hardcoded values
+- Use `/massu-accessibility` as part of your pre-release checklist with `/massu-release`
+- The `--json` flag produces output that can be integrated with CI pipelines to fail builds with accessibility regressions
+- Static analysis cannot catch all accessibility issues -- combine with manual testing using a screen reader for comprehensive coverage
+- Keyboard navigation issues are among the most impactful to fix and often require the least code change

@@ -1,0 +1,233 @@
+---
+title: "Troubleshooting"
+description: "Common issues and solutions for Massu AI - FAQ and debugging guide"
+order: 6
+---
+
+# Troubleshooting
+
+Common issues and solutions when working with Massu AI.
+
+## Installation Issues
+
+### MCP Server Not Connecting
+
+**Symptom:** Claude Code does not show Massu AI tools.
+
+**Solutions:**
+
+1. Verify the MCP server is registered:
+```bash
+claude mcp list
+```
+You should see `massu` in the list.
+
+2. Check for errors in the MCP server:
+```bash
+npx @massu/core --check
+```
+
+3. Verify Node.js version:
+```bash
+node --version  # Must be 18+
+```
+
+4. Restart Claude Code:
+```bash
+claude --restart
+```
+
+### better-sqlite3 Build Failure
+
+**Symptom:** Error about native module compilation during install.
+
+**Solutions:**
+
+1. Rebuild native modules:
+```bash
+npm rebuild better-sqlite3
+```
+
+2. If on Apple Silicon, ensure you have the right architecture:
+```bash
+node -e "console.log(process.arch)"  # Should output "arm64"
+```
+
+3. Install build tools if missing:
+```bash
+# macOS
+xcode-select --install
+
+# Ubuntu/Debian
+sudo apt-get install build-essential python3
+```
+
+### Config File Not Found
+
+**Symptom:** Tools return errors about missing configuration.
+
+**Solutions:**
+
+1. Verify the file exists in your project root:
+```bash
+ls massu.config.yaml
+```
+
+2. Check for YAML syntax errors:
+```bash
+npx @massu/core validate-config
+```
+
+3. Check the filename -- it must be exactly `massu.config.yaml` (not `.yml`).
+
+## Tool Issues
+
+### massu_sync Returns Empty Results
+
+**Symptom:** Sync reports 0 import edges and 0 features.
+
+**Possible causes:**
+
+1. **CodeGraph not indexed**: Massu AI depends on CodeGraph data. Ensure the CodeGraph MCP server has indexed your project first.
+
+2. **Wrong source path**: Check that `paths.source` in your config matches your actual source directory.
+
+3. **No files in CodeGraph**: Verify CodeGraph has data:
+```bash
+sqlite3 .codegraph/graph.db "SELECT COUNT(*) FROM files"
+```
+
+### massu_trpc_map Not Available
+
+**Symptom:** Tool is not listed or returns "Unknown tool."
+
+**Solution:** Set `framework.router: trpc` in your config. This tool only registers when tRPC is configured.
+
+### massu_schema Not Available
+
+**Symptom:** Tool is not listed.
+
+**Solution:** Set `framework.orm: prisma` in your config and ensure `prisma/schema.prisma` exists.
+
+### Memory Search Returns No Results
+
+**Symptom:** `massu_memory_search` returns empty even though you have had previous sessions.
+
+**Possible causes:**
+
+1. **New database**: The memory database is created fresh. It needs a few sessions to accumulate data.
+
+2. **Hooks not running**: Verify hooks are configured:
+```bash
+npx massu doctor
+```
+
+3. **FTS index not built**: The FTS5 search index is rebuilt automatically but can occasionally need a manual refresh.
+
+## Hook Issues
+
+### Hooks Not Firing
+
+**Symptom:** No context injection at session start, no observations captured.
+
+**Solutions:**
+
+1. Run the health check:
+```bash
+npx massu doctor
+# Should show all 11 hooks configured
+```
+
+2. Verify Claude Code settings reference the hooks:
+```bash
+cat .claude/settings.local.json
+```
+
+3. Reinstall hooks:
+```bash
+npx massu install-hooks
+```
+
+4. Run the health check:
+```bash
+npx massu doctor
+```
+
+### Hook Timeout
+
+**Symptom:** Hooks appear to hang or Claude Code feels slow.
+
+**Possible cause:** A hook is taking longer than 5 seconds (usually a database issue).
+
+**Solutions:**
+
+1. Check database size:
+```bash
+ls -la .massu/*.db
+```
+If the memory database is very large (>500MB), consider pruning old data.
+
+2. Rebuild hooks:
+```bash
+cd packages/core && npm run build:hooks
+```
+
+### post-edit-context Not Showing Rules
+
+**Symptom:** No rules appear when editing files.
+
+**Solutions:**
+
+1. Verify rules are configured for the file pattern you are editing
+2. Only CRITICAL and HIGH rules are shown by the hook
+3. Check that the file is under `src/` (non-source files are ignored)
+
+## Database Issues
+
+### Database Locked
+
+**Symptom:** "database is locked" errors.
+
+**Solution:** Massu AI uses WAL mode for all databases. If you see lock errors:
+
+1. Close any other processes accessing the database
+2. Delete the WAL and SHM files:
+```bash
+rm .massu/memory.db-wal .massu/memory.db-shm
+```
+
+### Database Corruption
+
+**Symptom:** Unexpected errors from database queries.
+
+**Solution:** Back up and recreate:
+```bash
+mv .massu/memory.db .massu/memory.db.backup
+# Massu AI will create a fresh database on next use
+```
+
+## Performance Issues
+
+### Slow Tool Responses
+
+**Possible causes:**
+
+1. **Stale indexes**: Run `massu_sync` to rebuild
+2. **Large database**: Prune old observability data
+3. **Many files**: Massu AI handles large codebases but initial sync may take longer
+
+### High Memory Usage
+
+The MCP server loads SQLite databases into memory. For very large projects:
+
+1. Monitor database sizes: `ls -la .massu/*.db`
+2. The observability tools auto-prune old conversation turns
+3. Audit log retention is configurable (`governance.audit.retention_days`)
+
+## Getting Help
+
+If these solutions do not resolve your issue:
+
+1. Check the GitHub issues for known problems
+2. Run with debug logging: `MASSU_LOG_LEVEL=debug`
+3. File an issue with your config file, error message, and Node.js version

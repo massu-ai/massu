@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "description": "Maps app code (routes, routers, components) to help site pages. Used by massu_docs_audit to detect which docs need updating when code changes.",
+  "mappings": [
+    {
+      "id": "dashboard",
+      "helpPage": "pages/dashboard.mdx",
+      "appRoutes": ["src/app/dashboard/**"],
+      "routers": ["dashboard.ts", "analytics.ts"],
+      "components": ["src/components/dashboard/**", "src/components/analytics/**"],
+      "keywords": ["dashboard", "home", "overview", "analytics", "KPI"]
+    },
+    {
+      "id": "auth",
+      "helpPage": "pages/auth.mdx",
+      "appRoutes": ["src/app/auth/**", "src/app/login/**"],
+      "routers": ["auth.ts", "sessions.ts", "oauth.ts"],
+      "components": ["src/components/auth/**"],
+      "keywords": ["login", "signup", "authentication", "password", "SSO", "OAuth"]
+    },
+    {
+      "id": "users",
+      "helpPage": "pages/users.mdx",
+      "appRoutes": ["src/app/users/**", "src/app/profile/**"],
+      "routers": ["users.ts", "user-profiles.ts", "user-preferences.ts"],
+      "components": ["src/components/users/**", "src/components/profile/**"],
+      "keywords": ["user", "profile", "account", "preferences"]
+    },
+    {
+      "id": "teams",
+      "helpPage": "pages/teams.mdx",
+      "appRoutes": ["src/app/teams/**", "src/app/organizations/**"],
+      "routers": ["teams.ts", "team-members.ts", "organizations.ts", "invitations.ts"],
+      "components": ["src/components/teams/**", "src/components/organizations/**"],
+      "keywords": ["team", "organization", "member", "invite", "role"]
+    },
+    {
+      "id": "billing",
+      "helpPage": "pages/billing.mdx",
+      "appRoutes": ["src/app/billing/**", "src/app/subscriptions/**"],
+      "routers": ["billing.ts", "subscriptions.ts", "invoices.ts", "payment-methods.ts"],
+      "components": ["src/components/billing/**", "src/components/subscriptions/**"],
+      "keywords": ["billing", "subscription", "invoice", "payment", "plan", "pricing"]
+    },
+    {
+      "id": "settings",
+      "helpPage": "pages/settings.mdx",
+      "appRoutes": ["src/app/settings/**", "src/app/admin/**"],
+      "routers": ["settings.ts", "admin.ts", "feature-flags.ts"],
+      "components": ["src/components/settings/**", "src/components/admin/**"],
+      "keywords": ["settings", "configuration", "admin", "preferences", "feature flag"]
+    },
+    {
+      "id": "notifications",
+      "helpPage": "pages/notifications.mdx",
+      "appRoutes": ["src/app/notifications/**"],
+      "routers": ["notifications.ts", "notification-preferences.ts", "push-notifications.ts"],
+      "components": ["src/components/notifications/**"],
+      "keywords": ["notification", "alert", "email", "push", "webhook"]
+    },
+    {
+      "id": "projects",
+      "helpPage": "pages/projects.mdx",
+      "appRoutes": ["src/app/projects/**"],
+      "routers": ["projects.ts", "project-members.ts", "project-settings.ts"],
+      "components": ["src/components/projects/**"],
+      "keywords": ["project", "workspace", "task", "milestone"]
+    },
+    {
+      "id": "api-docs",
+      "helpPage": "pages/api-docs.mdx",
+      "appRoutes": ["src/app/api-docs/**"],
+      "routers": ["api-keys.ts", "webhooks.ts"],
+      "components": ["src/components/api-docs/**"],
+      "keywords": ["API", "key", "webhook", "endpoint", "documentation"]
+    },
+    {
+      "id": "integrations",
+      "helpPage": "pages/integrations.mdx",
+      "appRoutes": ["src/app/integrations/**"],
+      "routers": ["integrations.ts", "oauth-connections.ts", "sync.ts"],
+      "components": ["src/components/integrations/**"],
+      "keywords": ["integration", "connect", "sync", "OAuth", "third-party"]
+    }
+  ],
+  "userGuideInheritance": {
+    "description": "User guide pages inherit their parent feature's mapping. The guide name contains the feature keyword. For example, billing-guide inherits from the 'billing' mapping.",
+    "pattern": "pages/user-guides/{feature}-guide/**",
+    "examples": {
+      "dashboard-guide": "dashboard",
+      "billing-guide": "billing",
+      "team-management-guide": "teams",
+      "user-management-guide": "users",
+      "notifications-guide": "notifications",
+      "analytics-guide": "dashboard",
+      "project-setup-guide": "projects",
+      "api-integration-guide": "integrations"
+    }
+  }
+}

@@ -1,0 +1,75 @@
+---
+title: "session-end Hook"
+description: "Generates structured session summaries and archives session state when a Claude Code session ends"
+order: 2
+---
+
+# session-end Hook
+
+The session-end hook fires when a Claude Code session ends. It generates a structured summary from all observations captured during the session, captures conversation turns and tool call details from the transcript, marks the session as completed, and auto-generates/archives the CURRENT.md session state file.
+
+## Trigger Event
+
+Fires once when the Claude Code session stops (user exits or session times out).
+
+## What It Does
+
+1. **Collects all observations** for the current session from the memory database
+2. **Collects all user prompts** captured by the user-prompt hook
+3. **Generates a structured summary** including:
+   - Original request (first user prompt)
+   - Discoveries and investigations
+   - Decisions made
+   - Work completed (features, bugfixes, refactors)
+   - Failed attempts
+   - Next steps (if work is incomplete)
+   - Files created and modified
+   - Verification results (VR pass/fail)
+   - Plan progress tracking
+4. **Captures conversation data** by parsing the JSONL transcript (incremental -- only new lines)
+5. **Marks session as completed** in the database
+6. **Archives CURRENT.md** and generates a fresh one
+
+## Example Input
+
+```json
+{
+  "session_id": "abc123-def456",
+  "transcript_path": "/Users/dev/.claude/projects/my-app/transcript.jsonl",
+  "cwd": "/Users/dev/my-app",
+  "hook_event_name": "stop"
+}
+```
+
+## Summary Structure
+
+The generated summary includes these fields:
+
+| Field | Source | Description |
+|-------|--------|-------------|
+| `request` | First user prompt | What the user asked for |
+| `investigated` | Discovery observations | What was explored |
+| `decisions` | Decision observations | Architectural choices made |
+| `completed` | Feature/bugfix/refactor observations | Work finished |
+| `failedAttempts` | Failed attempt observations | What did not work |
+| `nextSteps` | Last 10% of observations | What to do next |
+| `filesCreated` | File change observations | New files |
+| `filesModified` | File change observations | Changed files |
+| `verificationResults` | VR check observations | Pass/fail results |
+| `planProgress` | Plan item observations | Plan completion tracking |
+
+## Conversation Capture
+
+The session-end hook also parses the JSONL transcript to capture:
+
+- **Conversation turns**: User prompts paired with assistant responses
+- **Tool call details**: Tool name, input summary, I/O sizes, success/failure, files touched
+- **Token estimates**: Approximate token counts per turn
+
+This data powers the observability tools (`massu_session_replay`, `massu_prompt_analysis`, `massu_tool_patterns`).
+
+## Tips
+
+- The session-end hook uses incremental transcript parsing -- it tracks the last processed line to avoid re-processing
+- Assistant responses are capped at 10,000 characters to prevent database bloat
+- The hook runs best-effort -- it never blocks Claude Code from shutting down

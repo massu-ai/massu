@@ -1,0 +1,89 @@
+---
+title: "intent-suggester Hook"
+description: "Analyzes user prompts for intent keywords and suggests the most relevant Massu AI workflow command before Claude Code processes the prompt"
+order: 11
+---
+
+# intent-suggester Hook
+
+The intent-suggester hook fires when a user submits a prompt. It scans the prompt text for intent keywords and, when a relevant workflow command is detected, outputs a plain-text suggestion so Claude Code can surface it at the start of the response. This helps new users discover the right command for their task rather than writing ad-hoc prompts.
+
+## Trigger Event
+
+Fires as a UserPrompt hook on every user prompt submission.
+
+## What It Does
+
+1. **Reads the user's prompt** from JSON stdin
+2. **Scans for intent keywords** using case-insensitive pattern matching
+3. **Maps matched keywords** to the most appropriate workflow command
+4. **Outputs a suggestion** as plain text to stdout if a match is found
+5. **Exits silently** if no relevant command is detected
+
+The hook does not modify the prompt or block execution. It only adds a suggestion prefix that Claude Code prepends to the response.
+
+## Keyword to Command Mapping
+
+| Keywords | Suggested Command |
+|----------|------------------|
+| `fix bug`, `debug`, `investigate error`, `trace` | `/massu-debug` |
+| `add test`, `test failing`, `test coverage`, `generate test` | `/massu-test` |
+| `refactor`, `restructure`, `rename`, `reorganize` | `/massu-refactor` |
+| `security`, `vulnerability`, `owasp`, `rls`, `secrets` | `/massu-security-scan` |
+| `deploy`, `release`, `version bump`, `tag` | `/massu-release` |
+| `review`, `code review`, `pr review` | `/massu-review` |
+| `migrate`, `migration`, `schema change`, `alter table` | `/massu-migrate` |
+| `performance`, `slow`, `bundle size`, `optimize` | `/massu-perf` |
+| `hotfix`, `urgent fix`, `production bug` | `/massu-hotfix` |
+| `plan`, `implement feature`, `new feature` | `/massu-create-plan` |
+| `commit`, `ready to commit` | `/massu-commit` |
+| `push`, `ready to push` | `/massu-push` |
+| `cleanup`, `dead code`, `unused imports`, `orphaned` | `/massu-cleanup` |
+| `documentation`, `jsdoc`, `generate docs`, `readme` | `/massu-doc-gen` |
+| `onboard`, `new team member`, `getting started guide` | `/massu-onboard` |
+| `retrospective`, `sprint review`, `what happened` | `/massu-retrospective` |
+| `accessibility`, `wcag`, `a11y`, `screen reader` | `/massu-accessibility` |
+| `estimate`, `effort`, `story points`, `complexity` | `/massu-estimate` |
+| `benchmark`, `baseline`, `performance test` | `/massu-benchmark` |
+| `dependencies`, `outdated`, `audit deps` | `/massu-audit-deps` |
+| `health`, `project status`, `what is broken` | `/massu-status` |
+| `changelog`, `release notes` | `/massu-changelog` |
+
+## Example Output
+
+When a user types `I need to debug why the order creation endpoint is failing`, the hook outputs:
+
+```
+Suggestion: This looks like a debugging task. Consider using /massu-debug for systematic hypothesis-driven root cause tracing.
+```
+
+When a user types `Let's add tests for the analytics module`, the hook outputs:
+
+```
+Suggestion: For test generation and failure analysis, consider using /massu-test --generate analytics.
+```
+
+When no keywords match (e.g., `What does getOrderById return?`), the hook outputs nothing.
+
+## Why It Helps
+
+New users working with Claude Code often write ad-hoc prompts like "fix this bug" without knowing that `/massu-debug` provides a systematic 9-step debugging protocol. The intent-suggester bridges the discovery gap:
+
+- **No configuration needed** -- keyword matching works out of the box
+- **Non-intrusive** -- it only suggests, never blocks or redirects
+- **Education over enforcement** -- helps teams adopt structured workflows naturally over time
+
+## Performance
+
+This hook must complete within 100ms. It achieves this with:
+
+- Pure string matching (no database access, no network calls)
+- First-match exit (stops after finding the highest-priority match)
+- Minimal dependencies (Node.js built-ins only)
+
+## Tips
+
+- Suggestions are shown at the start of Claude Code's response and can be dismissed by continuing normally
+- The hook learns nothing -- suggestions are purely keyword-based and do not adapt over time
+- To suppress suggestions for a prompt, prefix it with `!` (e.g., `! Just answer directly: ...`)
+- For the full command reference, see the [Commands documentation](/docs/commands)

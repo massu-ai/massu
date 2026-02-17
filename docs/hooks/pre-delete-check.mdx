@@ -1,0 +1,61 @@
+---
+title: "pre-delete-check Hook"
+description: "Checks feature impact before file deletions to prevent accidentally orphaning features"
+order: 6
+---
+
+# pre-delete-check Hook
+
+The pre-delete-check hook fires before file deletion operations (rm, git rm, or Write with empty content). It checks whether the files being deleted are linked to features in the Sentinel registry and warns if critical features would be orphaned.
+
+## Trigger Event
+
+Fires as a PreToolUse hook when it detects deletion patterns:
+
+- `Bash` tool with `rm` or `git rm` commands targeting `src/` files
+- `Write` tool with empty content targeting `src/` files
+
+## What It Does
+
+1. **Extracts deleted file paths** from the tool input
+2. **Opens the data database** (read-only) containing the Sentinel feature registry
+3. **Runs feature impact analysis** via `getFeatureImpact()`
+4. **Generates a warning** if features would be orphaned or degraded
+5. **Outputs the warning** as JSON to stdout
+
+The hook does not block the deletion -- it provides a warning that the AI assistant should act on.
+
+## Example Input
+
+```json
+{
+  "session_id": "abc123-def456",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "rm src/components/orders/CreateOrderForm.tsx"
+  }
+}
+```
+
+## Example Output (when features affected)
+
+```json
+{
+  "message": "SENTINEL IMPACT WARNING: Deleting 1 file(s) would affect features:\n\nORPHANED (1 features - no primary components left):\n  - orders.create [P1]: Order Creation Flow\n\nCreate a migration plan before deleting these files."
+}
+```
+
+## Performance
+
+This hook must complete within 500ms. It achieves this with:
+
+- Read-only database access (no writes)
+- Early exit if no `src/` files are being deleted
+- Early exit if the Sentinel table does not exist yet
+- 400ms stdin timeout to prevent hanging
+
+## Tips
+
+- The hook only checks files under `src/` -- non-source file deletions are ignored
+- If the Sentinel registry has not been populated yet (no `massu_sync` run), the hook exits silently
+- Use `massu_sentinel_impact` for a more detailed analysis before large refactoring operations

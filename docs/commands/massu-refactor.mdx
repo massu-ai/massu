@@ -1,0 +1,68 @@
+---
+title: "/massu-refactor"
+description: "Safe refactoring with behavioral equivalence verification"
+order: 9
+---
+
+# /massu-refactor
+
+Safe refactoring with scope guards, blast radius analysis, and behavioral equivalence verification to ensure no regressions.
+
+## Usage
+
+```
+/massu-refactor
+```
+
+## Refactoring Protocol
+
+### 1. Scope Guard
+- Analyze proposed refactoring scope
+- Count affected files
+- **ABORT if >20 files**: use `/massu-create-plan` instead for large restructuring
+
+### 2. Baseline Snapshot
+- Run full test suite and record results
+- Capture type check output
+- Take git diff snapshot of current state
+- Document current behavior (inputs/outputs)
+
+### 3. Blast Radius Analysis (CR-10)
+- For any renamed constants, exports, config keys, or tool names:
+  - Grep entire codebase for all references
+  - Categorize each occurrence as CHANGE, KEEP (with reason), or INVESTIGATE
+  - **Zero INVESTIGATE items** allowed before proceeding
+  - Every CHANGE item must be included in refactoring scope
+
+### 4. Incremental Batches
+- Refactor in small batches (max 3 files per batch)
+- After each batch:
+  - Run type check (`npx tsc --noEmit`)
+  - Run affected tests (`/massu-test --affected`)
+  - Verify behavioral equivalence (same outputs for same inputs)
+
+### 5. Negative Verification (CR-4)
+- For any removed patterns or renamed symbols:
+  - Run `grep -rn "[old_pattern]" packages/core/src/`
+  - **Must return 0 matches** (VR-NEGATIVE)
+  - If matches found, categorize as CHANGE or KEEP
+
+### 6. Behavioral Equivalence Proof
+- Compare outputs before/after for key functions
+- Verify no test behavior changes (same pass/fail, same assertions)
+- Check performance hasn't regressed significantly
+- Confirm public API unchanged (if library code)
+
+### 7. Final Verification
+- Run full test suite (`/massu-test`)
+- Run type check (`npx tsc --noEmit`)
+- Run pattern scanner (`bash scripts/massu-pattern-scanner.sh`)
+- Verify git diff shows only intended changes
+
+## When to Use
+
+- **Restructuring code**: Moving functions between modules, splitting large files
+- **Renaming across codebase**: Changing variable names, function names, or export names
+- **Splitting/merging modules**: Reorganizing code structure for better separation of concerns
+- **Vs /massu-create-plan**: Use `/massu-refactor` for ≤20 files; use `/massu-create-plan` + `/massu-loop` for larger changes
+- **Vs /massu-hotfix**: Use `/massu-hotfix` for bug fixes; use `/massu-refactor` for structural improvements without behavior changes

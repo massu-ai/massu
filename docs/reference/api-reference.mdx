@@ -1,0 +1,209 @@
+---
+title: "API Reference"
+description: "MCP server API surface, protocol details, and integration points"
+order: 3
+---
+
+# API Reference
+
+Massu AI exposes its functionality through the Model Context Protocol (MCP). This page documents the MCP server API surface, protocol details, and integration points.
+
+## MCP Server
+
+Massu AI runs as an MCP server that communicates with Claude Code via the MCP protocol over stdio.
+
+### Server Registration
+
+The MCP server is automatically registered when you run `npx massu init`. It creates a `.mcp.json` file in your project root:
+
+```json
+{
+  "mcpServers": {
+    "massu": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@massu/core"]
+    }
+  }
+}
+```
+
+### Protocol
+
+The server implements the MCP protocol with:
+
+- **Transport**: stdio (stdin/stdout JSON-RPC)
+- **Capabilities**: Tools (51 registered tools)
+- **No resources or prompts**: All functionality is exposed through tools
+
+### Tool Call Flow
+
+```
+Claude Code                    Massu AI MCP Server
+    |                                    |
+    |-- tools/list ---------------------->|
+    |<-- 51 tool definitions ------------|
+    |                                    |
+    |-- tools/call (massu_sync) ----------->|
+    |   (ensures indexes are fresh)      |
+    |<-- result (text content) ----------|
+    |                                    |
+    |-- tools/call (massu_context) -------->|
+    |   (reads CodeGraph + Data DBs)     |
+    |<-- result (text content) ----------|
+```
+
+### Tool Result Format
+
+All tools return results in this format:
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Formatted result text..."
+    }
+  ]
+}
+```
+
+Error results follow the same format:
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Error in massu_tool_name: Error message here"
+    }
+  ]
+}
+```
+
+## Server Architecture
+
+### Entry Point
+
+`packages/core/src/server.ts` -- Initializes the MCP server, registers tool definitions, and handles tool calls.
+
+### Tool Routing
+
+`packages/core/src/tools.ts` -- Central tool registry. Routes tool calls to the appropriate handler module.
+
+Tool routing follows two patterns:
+
+**Pattern A (preferred):** 3-function modules
+
+```typescript
+// Module exports
+export function getXToolDefinitions(): ToolDefinition[]
+export function isXTool(name: string): boolean
+export function handleXToolCall(name, args, db): ToolResult
+```
+
+**Pattern B (legacy):** 2-function modules with inline routing
+
+```typescript
+// Module exports
+export function getXToolDefinitions(): ToolDefinition[]
+export function handleXToolCall(name, args, db): ToolResult
+
+// Routing in tools.ts
+if (name.startsWith(pfx + '_x_')) { ... }
+```
+
+### Database Access Pattern
+
+Tools access databases through getter functions:
+
+```typescript
+import { getCodeGraphDb, getDataDb } from './db.ts'
+import { getMemoryDb } from './memory-db.ts'
+
+// CodeGraph - read-only
+const cgDb = getCodeGraphDb()
+
+// Data DB - read-write
+const dataDb = getDataDb()
+
+// Memory DB - read-write, MUST close after use
+const memDb = getMemoryDb()
+try {
+  // ... use memDb
+} finally {
+  memDb.close()
+}
+```
+
+### Config Access
+
+```typescript
+import { getConfig, getProjectRoot } from './config.ts'
+
+const config = getConfig()
+const prefix = config.toolPrefix  // 'massu'
+const framework = config.framework.type  // 'typescript'
+```
+
+## Hook API
+
+Hooks communicate via JSON on stdin/stdout.
+
+### Hook Input Schema
+
+All hooks receive this base input:
+
+```json
+{
+  "session_id": "string",
+  "transcript_path": "string",
+  "cwd": "string",
+  "hook_event_name": "string"
+}
+```
+
+Additional fields vary by hook type:
+
+| Hook | Additional Fields |
+|------|------------------|
+| session-start | `source`: "startup" \| "resume" \| "compact" \| "clear" |
+| post-tool-use | `tool_name`, `tool_input`, `tool_response` |
+| user-prompt | `prompt` |
+| pre-delete-check | `tool_name`, `tool_input` |
+| post-edit-context | `tool_name`, `tool_input` |
+
+### Hook Output
+
+- **session-start**: Plain text to stdout (injected into conversation)
+- **session-end**: No output (writes to database)
+- **post-tool-use**: No output (writes to database)
+- **user-prompt**: No output (writes to database)
+- **pre-compact**: No output (writes to database)
+- **pre-delete-check**: JSON with `message` field (warning text)
+- **post-edit-context**: Plain text to stdout (context message)
+
+## Integration Points
+
+### Adding Custom Tools
+
+To add a custom tool to Massu AI:
+
+1. Create a module file in `packages/core/src/`
+2. Export `getXToolDefinitions()`, `isXTool()`, and `handleXToolCall()`
+3. Wire into `tools.ts` (import, spread definitions, add routing)
+4. Rebuild: `npm run build`
+
+### Custom Hook Compilation
+
+Custom hooks must be compiled with esbuild:
+
+```bash
+cd packages/core && npm run build:hooks
+```
+
+Hooks must:
+- Read JSON from stdin
+- Output to stdout
+- Exit within 5 seconds
+- Never import heavy dependencies

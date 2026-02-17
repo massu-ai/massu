@@ -1,0 +1,143 @@
+---
+title: Contributing to Massu AI
+description: How to contribute to the open-source Massu AI project — code, docs, issues, and community.
+---
+
+# Contributing to Massu AI
+
+Thank you for your interest in contributing to Massu AI! This guide covers everything you need to know to make your first contribution.
+
+## Ways to Contribute
+
+### Report Issues
+
+Found a bug or have a feature idea?
+
+1. Check [existing issues](https://github.com/massu-ai/massu/issues) first
+2. Open a new issue with a clear title and description
+3. Include steps to reproduce for bugs
+4. Label appropriately (bug, enhancement, documentation)
+
+### Improve Documentation
+
+Documentation improvements are always welcome:
+
+- Fix typos or unclear explanations
+- Add examples or use cases
+- Translate documentation
+- Improve code samples
+
+### Submit Code
+
+Ready to write code?
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/your-feature`)
+3. Make your changes
+4. Run the test suite (`npm test`)
+5. Submit a pull request
+
+## Development Setup
+
+### Prerequisites
+
+- Node.js 18+
+- npm 9+
+- Git
+
+### Getting Started
+
+```bash
+# Clone your fork
+git clone https://github.com/your-username/massu.git
+cd massu
+
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Type check
+cd packages/core && npx tsc --noEmit
+
+# Build hooks
+cd packages/core && npm run build:hooks
+```
+
+### Environment Variables
+
+The main configuration lives in `massu.config.yaml` at the project root. This config file controls:
+
+- `toolPrefix` — Prefix for all MCP tool names (default: `massu`)
+- `project.name` — Your project's display name
+- `project.root` — Project root directory (use `auto` to detect)
+- `paths.source` — Source code directory (default: `src`)
+- `domains` — Domain boundary definitions for architecture validation
+- `rules` — Pattern-specific coding rules
+
+For the website (Cloud Dashboard), copy `website/.env.example` to `website/.env.local` and configure:
+
+- `NEXT_PUBLIC_SITE_URL` — Your site URL (e.g., `http://localhost:3000`)
+- `NEXT_PUBLIC_SUPABASE_URL` — Supabase project URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Supabase anonymous key
+- `SUPABASE_SERVICE_ROLE_KEY` — Supabase service role key (server-only)
+- `STRIPE_SECRET_KEY` — Stripe secret key (server-only)
+- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret
+- `NEXT_PUBLIC_STRIPE_PRICE_*` — Stripe price IDs for subscription tiers
+
+See `website/.env.example` for the complete list with descriptions.
+
+### Project Structure
+
+```
+massu/
+  massu.config.yaml  # Project configuration (toolPrefix, domains, rules)
+  packages/
+    core/              # MCP server (main package)
+      src/
+        server.ts      # Server entry point
+        tools.ts       # Tool definitions & routing
+        config.ts      # Configuration loader (reads massu.config.yaml)
+        db.ts          # Database connections
+        memory-db.ts   # Memory database
+        hooks/         # Lifecycle hooks (compiled with esbuild)
+        __tests__/     # Test files (vitest)
+    plugin/            # Claude Code plugin (planned)
+  website/             # Next.js marketing site + Cloud Dashboard
+    src/
+      app/             # App router pages
+      lib/             # Shared utilities (auth, stripe, supabase)
+      components/      # React components
+  docs/                # Documentation and plans
+  scripts/             # Utility scripts
+```
+
+### Coding Standards
+
+- **TypeScript strict mode** — No `any` types
+- **ESM imports** — Use `.ts` extensions in `packages/core`
+- **Config-driven** — Use `getConfig()` from `config.ts`, never hardcode project-specific values
+- **Test everything** — Add tests for new features
+- **Pattern compliance** — Run `bash scripts/massu-pattern-scanner.sh` before committing
+
+### Pull Request Guidelines
+
+1. **One feature per PR** — Keep changes focused
+2. **Include tests** — New features need test coverage
+3. **Update docs** — If your change affects user-facing behavior
+4. **Follow existing patterns** — Look at similar code for conventions
+5. **Write clear commit messages** — Explain the "why", not just the "what"
+
+## Code of Conduct
+
+We are committed to providing a welcoming and inclusive experience for everyone. Please be respectful, constructive, and kind in all interactions.
+
+## Getting Help
+
+- **GitHub Issues** — For bugs and feature requests
+- **GitHub Discussions** — For questions and community discussion
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the BSL 1.1 (Business Source License 1.1). This license allows free use, modification, and distribution with one restriction: you may not use the software to offer a competing commercial hosted service. The license converts to Apache 2.0 on 2029-02-14. A Contributor License Agreement (CLA) may be required for significant contributions.

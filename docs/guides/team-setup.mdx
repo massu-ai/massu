@@ -1,0 +1,95 @@
+---
+title: "Team Setup"
+description: "Configure Massu AI for team collaboration with knowledge sharing and conflict detection"
+order: 5
+---
+
+# Team Setup
+
+When multiple developers use AI assistants on the same codebase, Massu AI's team features help coordinate work, share knowledge, and prevent conflicts.
+
+## Enabling Team Features
+
+In your `massu.config.yaml`:
+
+```yaml
+team:
+  enabled: true
+  sync_backend: local
+  expertise_weights:
+    session: 20
+    observation: 10
+  privacy:
+    share_file_paths: true
+    share_code_snippets: false
+    share_observations: true
+```
+
+## How Team Knowledge Works
+
+### Expertise Tracking
+
+When a developer works on a module (edits files, fixes bugs, makes decisions), Massu AI tracks their expertise:
+
+- **Session count**: How many sessions touched the module
+- **Observation count**: How many meaningful observations were made
+- **Expertise score**: Logarithmic formula: `min(100, log2(sessions+1) * 20 + log2(observations+1) * 10)`
+
+The logarithmic scale means early experience counts more -- going from 0 to 5 sessions is more impactful than going from 50 to 55.
+
+### Conflict Detection
+
+Massu AI detects when two developers edit the same file within a configurable time window:
+
+```
+> Use massu_team_conflicts --days 7
+```
+
+This helps prevent merge conflicts and duplicated effort.
+
+## Privacy Controls
+
+Team features respect privacy settings:
+
+| Setting | Default | What It Controls |
+|---------|---------|-----------------|
+| `share_file_paths` | true | File paths in shared observations |
+| `share_code_snippets` | false | Actual code content |
+| `share_observations` | true | Observation summaries |
+
+With default settings, team members can see which files were worked on and what was decided, but not the actual code changes.
+
+## Sync Backends
+
+### Local (Default)
+
+```yaml
+team:
+  sync_backend: local
+```
+
+Each developer has their own local database. Team data is shared through git (the `.claude/session-state/` directory).
+
+### Shared
+
+```yaml
+team:
+  sync_backend: shared
+```
+
+Team data is synced through a shared database location (e.g., a network drive or shared directory).
+
+## Getting Started
+
+1. Enable team features in your config
+2. Have each team member run a few sessions
+3. Use `massu_team_expertise` to see the expertise map
+4. Use `massu_team_conflicts` daily to catch overlapping work
+5. Use `massu_team_search` to find who knows about specific modules
+
+## Tips
+
+- Start with `share_code_snippets: false` for privacy
+- Expertise scores are most useful after 2-3 weeks of data collection
+- Run `massu_team_conflicts` at standup meetings to coordinate work
+- High expertise in a module means that developer is the go-to person for questions about it

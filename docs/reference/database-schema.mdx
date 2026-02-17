@@ -1,0 +1,206 @@
+---
+title: "Database Schema"
+description: "Schema reference for all three Massu AI databases - CodeGraph, Data, and Memory"
+order: 2
+---
+
+# Database Schema
+
+Massu AI uses three SQLite databases, each serving a distinct purpose. All databases use WAL mode for concurrent read performance.
+
+## Database Overview
+
+| Database | Module | Purpose | Access |
+|----------|--------|---------|--------|
+| **CodeGraph DB** | `getCodeGraphDb()` | Vanilla CodeGraph data (files, nodes, edges) | Read-only |
+| **Data DB** | `getDataDb()` | Import edges, tRPC mappings, sentinel registry | Read-write |
+| **Memory DB** | `getMemoryDb()` | Session memory, observations, analytics, audit trail | Read-write |
+
+## CodeGraph Database (Read-Only)
+
+This database is populated by the CodeGraph MCP server and contains the raw code analysis data. Massu AI reads from it but never writes to it.
+
+### `files`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `path` | TEXT | File path relative to project root |
+| `language` | TEXT | Programming language |
+| `size` | INTEGER | File size in bytes |
+
+### `nodes`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Node ID |
+| `file_path` | TEXT | File containing the node |
+| `name` | TEXT | Symbol name |
+| `kind` | TEXT | Node type (function, class, interface, etc.) |
+| `start_line` | INTEGER | Starting line number |
+| `end_line` | INTEGER | Ending line number |
+
+### `edges`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `source_id` | INTEGER | Source node ID |
+| `target_id` | INTEGER | Target node ID |
+| `type` | TEXT | Edge type (calls, imports, extends, etc.) |
+
+## Data Database
+
+Contains Massu AI-specific indexed data: import edges, tRPC mappings, and the Sentinel feature registry.
+
+### `massu_imports`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `source_file` | TEXT | Importing file path |
+| `target_file` | TEXT | Imported file path |
+| `imported_names` | TEXT (JSON) | Array of imported symbol names |
+
+### `massu_trpc_procedures`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Procedure ID |
+| `router_name` | TEXT | Router name |
+| `procedure_name` | TEXT | Procedure name |
+| `procedure_type` | TEXT | "query" or "mutation" |
+| `router_file` | TEXT | Router file path |
+| `has_ui_caller` | INTEGER | 1 if any UI component calls this |
+
+### `massu_trpc_call_sites`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `procedure_id` | INTEGER | FK to massu_trpc_procedures |
+| `file` | TEXT | Calling file path |
+| `line` | INTEGER | Line number of call |
+| `call_pattern` | TEXT | The call pattern (e.g., api.orders.getById.useQuery) |
+
+### `massu_sentinel`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Feature ID |
+| `feature_key` | TEXT | Unique key (e.g., orders.create) |
+| `title` | TEXT | Human-readable title |
+| `domain` | TEXT | Business domain |
+| `subdomain` | TEXT | Subdomain |
+| `status` | TEXT | planned, active, deprecated, removed |
+| `priority` | TEXT | P0, P1, P2, P3 |
+| `portal` | TEXT | Portal scope |
+
+### `massu_sentinel_components`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `feature_id` | INTEGER | FK to massu_sentinel |
+| `file_path` | TEXT | Component file path |
+| `role` | TEXT | primary, supporting, shared |
+
+### `massu_sentinel_changelog`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `feature_id` | INTEGER | FK to massu_sentinel |
+| `session_id` | TEXT | Session that made the change |
+| `change_type` | TEXT | Type of change |
+| `description` | TEXT | What changed |
+| `timestamp` | TEXT | ISO timestamp |
+
+## Memory Database
+
+Contains cross-session memory, observability data, analytics, and audit trails.
+
+### `sessions`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `session_id` | TEXT | Unique session identifier |
+| `status` | TEXT | active, completed, abandoned |
+| `branch` | TEXT | Git branch at session start |
+| `plan_file` | TEXT | Linked plan file path |
+| `task_id` | TEXT | Linked task identifier |
+| `created_at` | TEXT | ISO timestamp |
+
+### `observations`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Observation ID |
+| `session_id` | TEXT | FK to sessions |
+| `type` | TEXT | Observation type |
+| `title` | TEXT | Short description |
+| `description` | TEXT | Full description |
+| `importance` | INTEGER | 1-10 importance score |
+| `files_involved` | TEXT (JSON) | Array of file paths |
+| `plan_item` | TEXT | Linked plan item |
+| `vr_type` | TEXT | Verification type (for vr_check) |
+| `created_at_epoch` | INTEGER | Unix timestamp |
+
+### `observations_fts`
+
+FTS5 virtual table for full-text search across observations.
+
+### `user_prompts`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `session_id` | TEXT | FK to sessions |
+| `prompt_number` | INTEGER | Sequential prompt number |
+| `prompt_text` | TEXT | Full prompt text |
+
+### `session_summaries`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `session_id` | TEXT | FK to sessions |
+| `request` | TEXT | Original request |
+| `completed` | TEXT | What was completed |
+| `failed_attempts` | TEXT | What failed |
+| `plan_progress` | TEXT (JSON) | Plan item completion status |
+
+### `conversation_turns`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `session_id` | TEXT | FK to sessions |
+| `turn_number` | INTEGER | Sequential turn number |
+| `user_prompt` | TEXT | User message |
+| `assistant_response` | TEXT | Assistant response (max 10K chars) |
+| `tool_calls_summary` | TEXT (JSON) | Summary of tool calls |
+| `tool_call_count` | INTEGER | Number of tool calls |
+
+### `audit_log`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Audit entry ID |
+| `session_id` | TEXT | Session context |
+| `event_type` | TEXT | code_change, rule_enforced, approval, commit |
+| `actor` | TEXT | ai, human, hook, agent |
+| `model_id` | TEXT | AI model used |
+| `file_path` | TEXT | Affected file |
+| `change_type` | TEXT | create, edit, delete |
+| `approval_status` | TEXT | auto_approved, human_approved, pending |
+| `timestamp` | TEXT | ISO timestamp |
+
+### `quality_scores`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `session_id` | TEXT | FK to sessions |
+| `score` | INTEGER | 0-100 quality score |
+| `breakdown` | TEXT (JSON) | Category breakdown |
+
+### `developer_expertise`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `developer_id` | TEXT | Developer identifier |
+| `module` | TEXT | Module name |
+| `expertise_score` | INTEGER | 0-100 expertise score |
+| `session_count` | INTEGER | Sessions touching this module |
+| `last_active` | TEXT | Last activity timestamp |

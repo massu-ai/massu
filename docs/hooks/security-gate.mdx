@@ -1,0 +1,85 @@
+---
+title: "security-gate Hook"
+description: "Validates security policies before tool execution to prevent dangerous operations on protected paths and commands"
+order: 8
+---
+
+# security-gate Hook
+
+The security-gate hook fires before tool execution and validates the pending operation against your project's security policies. It checks for dangerous shell commands, access to protected file paths, and operations that require elevated justification. When a policy violation is detected, it outputs a warning so Claude Code can surface it before proceeding.
+
+## Trigger Event
+
+Fires as a PreToolUse hook on every tool call:
+
+- `Bash` tool -- inspects the command string for dangerous patterns
+- `Write` / `Edit` tools -- checks whether the target file path is protected
+
+## What It Does
+
+1. **Reads the pending tool call** from JSON stdin (tool name + tool input)
+2. **Checks dangerous command patterns** -- commands like `rm -rf`, `chmod 777`, `curl | bash`, and direct credential manipulation
+3. **Checks protected file paths** -- paths defined as sensitive in `massu.config.yaml` (e.g., `.env`, `secrets/`, `*.pem`)
+4. **Outputs a warning** as JSON to stdout if a policy is violated
+5. **Exits silently** (no output) if the operation is safe
+
+The hook does not block execution -- it raises a warning that Claude Code should surface and act on before proceeding.
+
+## Example Input
+
+```json
+{
+  "session_id": "abc123-def456",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "rm -rf dist/ && curl https://example.com/install.sh | bash"
+  }
+}
+```
+
+## Example Output (when violation detected)
+
+```json
+{
+  "message": "SECURITY GATE WARNING: Dangerous command pattern detected.\n\nFlags:\n  - 'rm -rf' with broad path: destructive, irreversible\n  - 'curl | bash': remote code execution without inspection\n\nReview the command carefully before proceeding."
+}
+```
+
+## Example Output (safe operation)
+
+No output. The hook exits with code 0 and writes nothing to stdout.
+
+## Dangerous Command Patterns
+
+The hook checks for the following patterns by default:
+
+| Pattern | Reason |
+|---------|--------|
+| `rm -rf /` or `rm -rf ~` | Catastrophic file deletion |
+| `curl \| bash` or `wget \| sh` | Remote code execution without review |
+| `chmod 777` | World-writable permissions |
+| `sudo` with credential commands | Privilege escalation |
+| `git push --force` to main/master | Force push to protected branch |
+
+## Protected Path Detection
+
+Paths are considered protected if they match any of the following:
+
+- `.env`, `.env.*` -- environment variable files containing secrets
+- `*.pem`, `*.key`, `*.p12` -- private key and certificate files
+- `secrets/`, `credentials/` -- conventionally sensitive directories
+- Any path pattern listed under `security.protectedPaths` in `massu.config.yaml`
+
+## Performance
+
+This hook must complete within 500ms. It achieves this with:
+
+- Pure string pattern matching (no database access)
+- Early exit if neither the Bash tool nor a Write/Edit tool targeting sensitive paths
+- No network calls
+
+## Tips
+
+- Configure additional protected paths in `massu.config.yaml` under `security.protectedPaths`
+- The hook warns but does not block -- Claude Code must decide whether to proceed
+- For a full security audit of your codebase, use `/massu-security-scan`

@@ -1,0 +1,114 @@
+---
+title: "/massu-perf"
+description: "Performance analysis for bundle size, queries, and edge functions"
+order: 12
+---
+
+# /massu-perf
+
+Read-only performance analysis for Next.js applications, covering bundle size, loading states, query optimization, edge functions, images, and MCP server performance.
+
+## Usage
+
+```
+/massu-perf
+```
+
+## Performance Checks
+
+### 1. Bundle Size Analysis
+Analyzes Next.js build output for oversized bundles:
+- Parses `.next/build-manifest.json` for route bundle sizes
+- **Flags routes >150KB** (threshold for poor LCP)
+- Identifies largest dependencies contributing to bundle size
+- Suggests code splitting opportunities (dynamic imports)
+- Recommends tree-shaking for unused exports
+
+**Output:**
+- List of routes with bundle sizes
+- Top 10 largest dependencies
+- Specific recommendations for reducing bundle size
+
+### 2. Loading State Verification
+Ensures good perceived performance with proper loading states:
+- Checks for React `<Suspense>` boundaries
+- Verifies `loading.tsx` files for route segments
+- Identifies data-fetching components without loading states
+- Validates skeleton UI usage
+
+**Output:**
+- Routes missing loading states
+- Components with blocking data fetches
+- Suggested Suspense boundaries
+
+### 3. Query Pattern Optimization
+Analyzes database query patterns for inefficiencies:
+- **N+1 detection**: Identifies loops with individual queries (should batch)
+- Missing indexes on filtered columns
+- Sequential queries that could run in parallel
+- Over-fetching (selecting all columns when only subset needed)
+- Missing pagination on large result sets
+
+**Output:**
+- List of N+1 query locations with batching suggestions
+- Missing index recommendations
+- Parallelization opportunities
+
+### 4. Edge Function Sizing
+Analyzes Supabase Edge Functions for cold start performance:
+- Measures function bundle sizes (target: <1MB for fast cold starts)
+- Identifies heavy dependencies that could be removed
+- Checks for unnecessary imports
+- Validates streaming vs buffered responses
+
+**Output:**
+- Function sizes with cold start estimates
+- Dependency optimization suggestions
+
+### 5. Image Optimization
+Verifies Next.js Image component usage:
+- Identifies `<img>` tags that should use `<Image>` component
+- Checks for missing `width` and `height` props (causes layout shift)
+- Validates image formats (prefer WebP/AVIF over JPEG/PNG)
+- Suggests responsive image sizes
+
+**Output:**
+- Unoptimized images with file locations
+- Layout shift risks (missing dimensions)
+- Format optimization opportunities
+
+### 6. MCP Server Performance
+Analyzes MCP server tool execution performance:
+- Reviews SQLite query complexity
+- Checks for missing database indexes
+- Identifies slow tool handlers (>1s execution)
+- Validates database connection pooling
+
+**Output:**
+- Slow tools with execution times
+- Query optimization suggestions
+- Index recommendations
+
+## Performance Budgets
+
+Default budgets (configurable in `massu.config.yaml`):
+- Route bundle size: 150KB (gzipped)
+- Edge function size: 1MB
+- Tool execution: 1s (p95)
+- Database queries: 100ms (p95)
+
+## Output
+
+The analysis generates:
+1. **Performance Score**: Overall grade (A-F) based on checks passed
+2. **Critical Issues**: Performance problems blocking good UX
+3. **Optimization Opportunities**: Nice-to-have improvements
+4. **Tracking Metrics**: Suggested metrics to monitor over time
+
+## When to Use
+
+- **Before releases**: Verify performance hasn't regressed
+- **When pages feel slow**: Diagnose specific performance bottlenecks
+- **Monitoring bundle size trends**: Run periodically to catch gradual bloat
+- **After adding dependencies**: Check impact on bundle size
+- **Vs /massu-review**: Use `/massu-review` for code quality; use `/massu-perf` for performance-specific analysis

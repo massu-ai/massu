@@ -1,0 +1,285 @@
+---
+title: "Integrations"
+description: "Connect Massu with your existing tools — REST API, webhooks, CI/CD, and quality badges"
+order: 14
+---
+
+# Integrations
+
+Massu AI does not have to stay in the terminal. The integrations category extends the platform into the rest of your engineering stack — exposing your governance data through a REST API, pushing real-time events to external systems via webhooks, gating pull requests with automated risk scores in GitHub Actions, and surfacing quality metrics directly in your repository READMEs with embeddable badges. These features bridge your local AI engineering context with the tools your team already uses every day.
+
+## Why This Matters
+
+- **Programmatic access**: Query historical quality scores, cost data, audit trails, and security findings from any tool, script, or dashboard without opening a terminal.
+- **Real-time event pipeline**: Trigger downstream workflows — Slack alerts, PagerDuty incidents, JIRA tickets — the moment a session ends, a security finding is detected, or a budget threshold is crossed.
+- **Shift-left risk gates**: Catch high-risk pull requests before they are reviewed by a human. Automated PR scoring combines impact, regression, security, and coupling into a single pass/fail signal in CI.
+- **Visibility without friction**: Quality badges let stakeholders see the health of a codebase at a glance without logging in to any dashboard.
+
+## Cloud Pro Features
+
+### REST API
+
+**What it does:** Provides programmatic, authenticated access to all of your Massu cloud data via versioned REST endpoints. Every piece of data that Massu collects — sessions, quality scores, cost records, audit events, security findings, ADR history — is available over HTTP, making it trivial to build dashboards, automate reporting, or pipe data into data warehouses.
+
+**Key capabilities:**
+
+- Versioned API surface (`/v1/`) with guaranteed backwards compatibility within major versions
+- Full CRUD access to sessions, quality scores, cost records, security findings, and audit events
+- Filtering, sorting, and pagination on all list endpoints
+- Batch export endpoints for bulk data extraction
+- Webhooks registration and management via API (see Cloud Team features below)
+- API reference documentation auto-generated from OpenAPI 3.1 spec
+
+**Authentication:**
+
+All requests require a bearer token in the `Authorization` header. API keys are created and rotated from the Massu cloud dashboard under **Settings > API Keys**. Keys are scoped to a single organization and can optionally be restricted to specific endpoints or HTTP methods.
+
+```
+Authorization: Bearer msk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**Rate limiting:**
+
+Rate limits are enforced per API key. Default limits are 1,000 requests per minute and 100,000 requests per day. Limits are returned in response headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`) so clients can implement backoff without polling. Exceeded limits return HTTP 429 with a `Retry-After` header.
+
+**Example request:**
+
+```bash
+# Fetch quality scores for the last 7 days
+curl -s \
+  -H "Authorization: Bearer msk_live_xxxx" \
+  "https://api.massu.ai/v1/quality/scores?days=7&limit=50" \
+  | jq '.scores[] | {session_id, score, date}'
+```
+
+**Example response:**
+
+```json
+{
+  "scores": [
+    { "session_id": "abc123", "score": 78, "date": "2026-02-15" },
+    { "session_id": "def456", "score": 72, "date": "2026-02-14" },
+    { "session_id": "ghi789", "score": 65, "date": "2026-02-13" }
+  ],
+  "pagination": {
+    "total": 18,
+    "page": 1,
+    "per_page": 50
+  }
+}
+```
+
+---
+
+### Quality Badges
+
+**What it does:** Generates embeddable SVG badges in shields.io format that display live quality, security, or cost metrics from your Massu cloud account. Badges refresh automatically as new session data arrives and can be embedded anywhere that renders Markdown or HTML — READMEs, wikis, internal portals, or PR templates.
+
+**Available badges:**
+
+- **Quality score** — Displays the rolling 30-day average quality score (0-100) with color bands: green (≥80), yellow (60-79), orange (40-59), red (<40)
+- **Security risk** — Displays the current codebase security risk level (Low / Medium / High / Critical) derived from the most recent `massu_security_heatmap` snapshot
+- **Cost this month** — Displays total AI spend for the current calendar month
+- **Coverage trend** — Displays a directional arrow (improving / stable / degrading) based on 30-day quality trend
+- **Last session score** — Displays the score from the most recent completed session
+
+**Usage:**
+
+Replace `<ORG>` and `<PROJECT>` with your Massu organization slug and project identifier, available from **Settings > Badges**.
+
+```markdown
+<!-- Quality score badge -->
+![Massu Quality](https://badges.massu.ai/v1/<ORG>/<PROJECT>/quality.svg)
+
+<!-- Security risk badge -->
+![Massu Security](https://badges.massu.ai/v1/<ORG>/<PROJECT>/security.svg)
+
+<!-- Monthly cost badge -->
+![Massu Cost](https://badges.massu.ai/v1/<ORG>/<PROJECT>/cost.svg)
+```
+
+Badges support optional query parameters for customization:
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `style` | Badge style (flat, flat-square, plastic, for-the-badge) | `?style=flat-square` |
+| `label` | Override the left-hand label text | `?label=AI+Quality` |
+| `days` | Lookback window for score calculation | `?days=14` |
+
+**Example shields.io-compatible badge URL:**
+
+```
+https://img.shields.io/endpoint?url=https://badges.massu.ai/v1/<ORG>/<PROJECT>/quality.json
+```
+
+The JSON endpoint returns the shields.io endpoint schema so badges integrate seamlessly with existing shields.io badge pipelines.
+
+---
+
+## Cloud Team Features
+
+### Webhooks
+
+**What it does:** Delivers real-time HTTP POST notifications to your configured endpoints when specific events occur in Massu. Webhooks make it possible to build event-driven integrations without polling the API — trigger Slack notifications when a session score drops, create JIRA tickets when a critical security finding is detected, or update a cost dashboard the moment a session ends.
+
+**Supported events:**
+
+- `session.completed` — Fired when a Massu session ends, including final quality score, cost, and summary
+- `session.quality.degraded` — Fired when a session score drops below a configured threshold
+- `security.finding.critical` — Fired when a critical severity security issue is detected during a session
+- `cost.budget.threshold` — Fired when cumulative cost crosses a daily or monthly budget threshold
+- `adr.created` — Fired when a new Architecture Decision Record is generated
+- `regression.detected` — Fired when a regression is detected by the regression detector
+- `audit.event` — Fired for every audit trail event (configurable: only surface high-severity events)
+
+**Payload structure:**
+
+All webhook payloads share a common envelope:
+
+```json
+{
+  "id": "evt_01JMKXX4Y5ZBNQ3T9RSGA7C2K1",
+  "type": "session.completed",
+  "created_at": "2026-02-15T14:32:11Z",
+  "api_version": "2026-01-01",
+  "data": {
+    "session_id": "abc123",
+    "quality_score": 78,
+    "total_cost_usd": 1.83,
+    "duration_minutes": 45,
+    "files_modified": 12
+  }
+}
+```
+
+**Security:**
+
+Every webhook delivery includes an `X-Massu-Signature-256` header containing the HMAC-SHA256 signature of the raw request body, keyed with your webhook signing secret. Always verify this signature before processing the payload to protect against replay attacks and spoofed requests.
+
+```typescript
+import { createHmac, timingSafeEqual } from 'crypto';
+
+function verifyWebhookSignature(
+  rawBody: Buffer,
+  signature: string,
+  secret: string
+): boolean {
+  const expected = 'sha256=' + createHmac('sha256', secret)
+    .update(rawBody)
+    .digest('hex');
+  return timingSafeEqual(
+    Buffer.from(expected),
+    Buffer.from(signature)
+  );
+}
+```
+
+**Retry logic and delivery logs:**
+
+Failed deliveries (non-2xx response or connection timeout) are retried with exponential backoff: immediately, then after 5 minutes, 30 minutes, 2 hours, and 24 hours (5 attempts total). The **Webhook Delivery Log** in the cloud dashboard shows each delivery attempt with response code, latency, and request/response body for debugging.
+
+---
+
+### PR Risk Score
+
+**What it does:** Runs a multi-dimensional automated risk assessment on every pull request and posts the result as a GitHub check with a pass/fail status and a detailed comment. The score combines four risk dimensions — impact, regression probability, security findings, and coupling violations — into a single composite score. Pull requests above a configurable threshold are blocked from merging until the risk is addressed.
+
+**Risk dimensions:**
+
+- **Impact score** — How widely the changed files propagate through the dependency graph. High-impact changes that touch core modules score higher risk.
+- **Regression probability** — Likelihood of introducing regressions based on historical regression patterns for the modified files and their callers.
+- **Security findings** — Count and severity of security issues detected in the changed files by `massu_security_score`, weighted by severity (critical 4x, high 2x, medium 1x, low 0.25x).
+- **Coupling violations** — Number of architectural coupling rule violations introduced by the diff, compared against the current baseline.
+
+**Composite score:**
+
+```
+PR Risk Score = (impact × 0.25) + (regression × 0.30) + (security × 0.30) + (coupling × 0.15)
+```
+
+Scores are normalized to 0-100. A score above 70 is considered high risk and blocks the merge by default (threshold is configurable).
+
+**Example PR comment:**
+
+```
+## Massu PR Risk Assessment
+
+Risk Score: 62/100 (Medium)  ⚠️ Review recommended
+
+### Breakdown
+| Dimension      | Score | Weight | Contribution |
+|----------------|-------|--------|--------------|
+| Impact         |  55   |  25%   |    13.75     |
+| Regression     |  70   |  30%   |    21.00     |
+| Security       |  60   |  30%   |    18.00     |
+| Coupling       |  62   |  15%   |     9.30     |
+
+### Security Findings (2)
+- [HIGH] src/server/routers/orders.ts:45 — publicProcedure mutation (no auth)
+- [MEDIUM] src/lib/api-client.ts:78 — Error details exposed in response
+
+### Coupling Violations (1)
+- src/features/orders/ → src/features/users/ violates domain boundary rule
+
+### High-Impact Files
+- src/server/routers/orders.ts (affects 23 downstream modules)
+- src/lib/pricing.ts (affects 18 downstream modules)
+```
+
+**Setup:**
+
+The PR Risk Score action is available from the GitHub Actions marketplace. Add the following workflow file to your repository:
+
+```yaml
+# .github/workflows/massu-pr-risk.yml
+name: Massu PR Risk Score
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  risk-score:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Massu PR Risk Score
+        uses: massu-ai/pr-risk-action@v1
+        with:
+          massu-api-key: ${{ secrets.MASSU_API_KEY }}
+          block-threshold: 70        # Block PRs scoring above this
+          post-comment: true         # Post detailed breakdown as PR comment
+          fail-on-critical-security: true  # Always block on critical security findings
+```
+
+Store your Massu API key as a repository secret under **Settings > Secrets and variables > Actions** with the name `MASSU_API_KEY`.
+
+---
+
+## Getting Started
+
+**Cloud Pro (REST API + Quality Badges):**
+
+1. Sign up for a Cloud Pro plan at [massu.ai/pricing](https://massu.ai/pricing)
+2. Navigate to **Settings > API Keys** and create a new key with a descriptive label
+3. Test your key: `curl -H "Authorization: Bearer <key>" https://api.massu.ai/v1/ping`
+4. For badges, navigate to **Settings > Badges**, copy your organization slug and project identifier, and paste the badge Markdown into your README
+
+**Cloud Team (Webhooks + PR Risk Score):**
+
+1. Upgrade to or sign up for a Cloud Team plan
+2. For webhooks: navigate to **Settings > Webhooks**, click **Add endpoint**, paste your endpoint URL, select the events to subscribe to, and copy the signing secret
+3. For PR Risk Score: create a `MASSU_API_KEY` secret in your GitHub repository, then add the workflow file shown above to `.github/workflows/`
+4. Open a draft pull request to verify the check appears
+
+---
+
+## Tips
+
+- Store API keys in environment variables or a secrets manager — never commit them to source control. Use `MASSU_API_KEY` as the conventional variable name.
+- When building webhook consumers, always return HTTP 200 quickly (under 3 seconds) and process the payload asynchronously. Massu retries any non-2xx response, which can cause duplicate processing if your handler is slow.
+- The PR Risk Score `block-threshold` default of 70 works well for most teams. Lower it to 50 for security-critical repositories, or raise it to 85 for fast-moving early-stage projects where some risk is acceptable.
+- Use the Quality Badges `?days=7` parameter to show the most recent week's average rather than the 30-day default, giving stakeholders a fresher signal on current code health.

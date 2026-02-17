@@ -1,0 +1,114 @@
+---
+title: "Welcome to Massu AI"
+description: "AI Engineering Governance Platform - bring structure, memory, and accountability to AI-assisted development"
+order: 0
+---
+
+# Welcome to Massu AI
+
+Massu AI is an **AI Engineering Governance Platform** that transforms how your team works with AI coding assistants. It is an MCP server and Claude Code plugin that provides cross-session memory, automated quality tracking, compliance audit trails, and 51 specialized tools -- all running locally with zero cloud dependencies.
+
+## What is Massu AI?
+
+When you use AI coding assistants like Claude Code, every session starts from scratch. The AI has no memory of what happened yesterday, no knowledge of which approaches already failed, and no awareness of your team's coding standards. Massu AI fixes this.
+
+Massu AI sits between your AI assistant and your codebase, providing:
+
+- **Cross-session memory** that persists decisions, failures, and context across sessions
+- **11 lifecycle hooks** that automatically capture observations, inject context, and enforce rules
+- **51 MCP tools** for code intelligence, security scoring, cost tracking, and more
+- **12 canonical rules** that ensure verified, auditable AI-generated code
+- **Config-driven architecture** that adapts to any TypeScript or JavaScript project
+
+## Who is Massu AI For?
+
+Massu AI is built for **developers and engineering teams who use AI coding assistants at scale**. If any of these describe your situation, Massu AI is for you:
+
+- You use Claude Code (or plan to) and want your AI assistant to remember context across sessions
+- Your team needs governance and compliance tracking for AI-generated code changes
+- You want automated quality scoring that tracks improvement (or regression) over time
+- You need to know what your AI assistant costs per feature, per session, and per model
+- You care about security and want automated scanning of AI-generated code
+- Your team collaborates on the same codebase and needs conflict detection
+
+## What Makes Massu AI Unique
+
+### Memory That Persists
+
+Most AI coding tools treat every session as a blank slate. Massu AI maintains a local SQLite database that stores observations, decisions, failed attempts, and session summaries. When you start a new session, the `session-start` hook automatically injects relevant context -- including warnings about approaches that already failed.
+
+### Zero-Effort Automation
+
+Massu AI's 11 lifecycle hooks run automatically. You do not need to remember to log decisions, capture observations, or save session state. The hooks handle all of this in the background, completing in under 500ms to avoid slowing down your workflow.
+
+### 51 Purpose-Built Tools
+
+Massu AI provides tools organized across thirteen categories:
+
+| Category | Tools | What They Do |
+|----------|-------|-------------|
+| **Memory & Learning** | 6 | Search past sessions, view timelines, track failed attempts |
+| **Code Intelligence** | 7 | Sync indexes, get file context, analyze impact, check coupling |
+| **Feature Registry** | 6 | Register features, track dependencies, validate implementation |
+| **Analytics & Quality** | 5 | Quality scores, trends, reports, prompt effectiveness |
+| **Cost Tracking** | 7 | Session costs, trends, feature attribution, budget alerts |
+| **Governance & Compliance** | 10 | Audit trails, validation, ADRs, rule marketplace |
+| **Security** | 7 | Security scoring, heatmaps, dependency risk, monitoring |
+| **Observability** | 4 | Session replay, prompt analysis, tool patterns, stats |
+| **Documentation** | 2 | Documentation audit and coverage analysis |
+| **Team Intelligence** | 4 | Weekly digests, code review insights, prompt library |
+| **Enterprise** | 9 | Team knowledge, compliance, evidence packages, private rules |
+| **Workflow Commands** | 7 | Testing, debugging, refactoring, security, performance, releases |
+| **Integrations** | 4 | REST API, webhooks, PR risk scores, quality badges |
+
+### Config-Driven Architecture
+
+Everything is configured through a single `massu.config.yaml` file. Define your project's framework, domains, coding rules, security thresholds, quality weights, and team settings in one place. Massu AI adapts its behavior to your project.
+
+### Verification-First Workflow
+
+Massu AI includes 26 workflow commands across 7 categories — Implementation Workflow, Development Tools, Quality & Security, Release & Ops, Diagnostics, Productivity, and Insights — that enforce a verification-first approach to AI-assisted development. Every claim of completion requires proof. Every removal requires negative verification. Every plan item gets tracked.
+
+## Quick Navigation
+
+| Section | What You Will Find |
+|---------|-------------------|
+| [Installation](/docs/getting-started/installation) | Prerequisites and step-by-step setup |
+| [Quick Start](/docs/getting-started/quick-start) | 5-minute tutorial from install to first use |
+| [Configuration](/docs/getting-started/configuration) | Complete config reference |
+| [Features](/docs/features/memory) | Detailed feature documentation |
+| [Hooks](/docs/hooks) | The 11-hook lifecycle system |
+| [Commands](/docs/commands) | Workflow commands for plan-driven development |
+| [Reference](/docs/reference/tool-reference) | Complete tool reference with parameters |
+| [Guides](/docs/guides/nextjs-setup) | Step-by-step guides for common scenarios |
+
+## How It Works
+
+```
+Your Prompt --> Claude Code --> Massu AI Hooks --> Memory DB
+                    |                                     |
+                    v                                     v
+              51 MCP Tools <-- Context Injection <-- Past Sessions
+                    |
+                    v
+              Governed, Verified, Auditable Code
+```
+
+1. **You write a prompt** in Claude Code
+2. **The `user-prompt` hook** captures it for search and task linking
+3. **Claude Code calls tools** -- Massu AI's 51 MCP tools provide code intelligence, memory search, quality scoring, and more
+4. **The `post-tool-use` hook** captures observations from every tool call
+5. **The `post-edit-context` hook** surfaces relevant rules when files are edited
+6. **When the session ends**, the `session-end` hook generates a summary and archives state
+7. **Next session**, the `session-start` hook injects all that context back in
+
+The result: your AI assistant gets smarter with every session, your code quality improves over time, and you have a complete audit trail of every AI-assisted change.
+
+## System Requirements
+
+- **Node.js** 18 or later
+- **Claude Code** CLI (installed and authenticated)
+- **Git** repository (Massu AI uses git for branch detection)
+- **Operating System**: macOS, Linux, or Windows (WSL)
+
+Ready to get started? Head to the [Installation Guide](/docs/getting-started/installation).

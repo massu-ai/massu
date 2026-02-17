@@ -1,0 +1,80 @@
+---
+title: "Onboarding Guides"
+description: "Auto-generated onboarding documentation from team knowledge"
+order: 22
+---
+
+# Onboarding Guides
+
+Automatically generate onboarding documentation for new team members from your team's collective AI session knowledge.
+
+## Requirements
+
+- **Plan**: Cloud Team or higher
+
+## How It Works
+
+The onboarding guide is built from your team's shared memory, observations, and session data. Massu analyzes this data to extract:
+
+1. **Key Patterns** -- Common coding patterns your team uses, extracted from shared memory observations
+2. **Common Mistakes** -- Frequent errors and anti-patterns with prevention strategies, sourced from failure observations
+3. **Important Files** -- Critical files and entry points identified by frequency of access across sessions
+4. **Domain Map** -- A guide to the codebase's logical domains and their boundaries
+5. **Learning Path** -- A personalized progression from beginner to productive contributor
+
+## Generating a Guide
+
+### 1. Navigate to Onboarding
+
+Go to **Dashboard > Team > Onboarding** to access the onboarding guide generator.
+
+### 2. Generate or Regenerate
+
+Click **Generate Guide** to create a new onboarding guide from current team data. Guides can be regenerated at any time to incorporate new knowledge.
+
+### 3. Share with New Members
+
+When a new member joins your organization, they automatically receive a welcome email with a link to the onboarding guide. You can also share the guide URL directly.
+
+## Guide Sections
+
+### Key Patterns
+
+Extracted from team observations tagged as patterns or best practices. Includes code examples and explanations of why each pattern matters.
+
+### Common Mistakes
+
+Built from failure observations and incident learnings. Each entry includes:
+
+- What went wrong
+- Why it happened
+- How to prevent it
+
+### Important Files
+
+Files ranked by how frequently they appear in team sessions. Helps new members understand which files are central to the project.
+
+### Domain Map
+
+A visual overview of the project's domain structure as defined in `massu.config.yaml`, enriched with session data showing which domains are most active.
+
+### Learning Path
+
+A suggested progression for new team members:
+
+1. **Week 1** -- Setup, key files, and domain overview
+2. **Week 2** -- Core patterns and common workflows
+3. **Week 3** -- Advanced patterns and edge cases
+4. **Week 4** -- Independent contribution with team conventions
+
+## Keeping Guides Updated
+
+Onboarding guides reflect your team's current knowledge. As your team accumulates more sessions and observations, regenerate the guide to keep it fresh.
+
+## Welcome Emails
+
+When enabled, new team members automatically receive a welcome email with:
+
+- A personalized greeting
+- A link to the onboarding guide
+- A summary of what the guide contains

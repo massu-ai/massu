@@ -1,0 +1,78 @@
+---
+title: "post-tool-use Hook"
+description: "Captures observations from every tool call - file changes, bugs, decisions, and failed attempts"
+order: 3
+---
+
+# post-tool-use Hook
+
+The post-tool-use hook fires after every tool call in Claude Code. It classifies each tool call into an observation type (file change, bugfix, feature, decision, failed attempt, etc.) and stores it in the memory database. This is the primary mechanism by which Massu AI learns from your sessions.
+
+## Trigger Event
+
+Fires after every tool call: Read, Write, Edit, Bash, Grep, Glob, and all MCP tools.
+
+## What It Does
+
+1. **Receives tool call details** (tool name, input, response)
+2. **Classifies the tool call** into an observation type using pattern matching:
+   - Write/Edit calls become `file_change` observations
+   - Bash commands with error output become `failed_attempt` observations
+   - Bash commands with test results become `vr_check` observations
+   - Tool calls referencing decisions become `decision` observations
+3. **Deduplicates failed attempts** (increments recurrence count instead of creating duplicates)
+4. **Detects plan progress** from tool responses and updates the session summary
+5. **Stores the observation** in the memory database
+
+## Performance
+
+This hook must complete in under 500ms to avoid slowing down the AI workflow. It achieves this by:
+
+- Using lightweight pattern matching (no AI calls)
+- Deduplicating Read calls within a session (in-memory set)
+- Batch-writing to SQLite in a single transaction
+
+## Example Input
+
+```json
+{
+  "session_id": "abc123-def456",
+  "transcript_path": "/path/to/transcript.jsonl",
+  "cwd": "/Users/dev/my-app",
+  "hook_event_name": "post_tool_use",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/Users/dev/my-app/src/server/routers/orders.ts",
+    "old_string": "publicProcedure.mutation",
+    "new_string": "protectedProcedure.mutation"
+  },
+  "tool_response": "File edited successfully"
+}
+```
+
+## Observation Types
+
+| Type | When Created | Importance |
+|------|-------------|------------|
+| `file_change` | Write or Edit tool called | 3 |
+| `bugfix` | Edit fixes a known error pattern | 7 |
+| `feature` | New file created for a feature | 6 |
+| `refactor` | Rename or restructure patterns | 5 |
+| `decision` | Decision language detected | 8 |
+| `failed_attempt` | Bash command fails or error detected | 9 |
+| `vr_check` | Test or build command results | 6 |
+| `discovery` | Read/Grep reveals new information | 5 |
+
+## Configuration
+
+No explicit configuration is needed. The hook uses:
+
+- Memory database for storage (`getMemoryDb()`)
+- Observation extractor for classification (`classifyRealTimeToolCall()`)
+- Plan progress detector for tracking completion
+
+## Tips
+
+- The hook filters out duplicate Read calls within a session to reduce noise
+- Failed attempts are the most valuable observations -- they prevent repeating mistakes
+- Plan progress is auto-detected from tool responses containing plan item references

@@ -1,0 +1,264 @@
+---
+title: "Feature Registry"
+description: "Track every feature in your codebase - its components, procedures, pages, and health status"
+order: 2
+---
+
+# Feature Registry (Sentinel)
+
+The Sentinel feature registry is Massu AI's system for tracking every feature in your application. It maps features to their implementation files -- components, procedures, pages -- and monitors their health. When someone tries to delete a file, Sentinel checks if it would orphan a feature. When you validate your codebase, Sentinel tells you which features have dead or missing implementation files.
+
+## Why This Matters
+
+As codebases grow, it becomes impossible to mentally track which files belong to which features. Without a registry:
+
+- Deleting a "unused" file might break a critical feature
+- Features silently degrade as components are removed or renamed
+- Nobody knows the full scope of a feature without manual investigation
+- Feature parity across portals (internal, customer-facing, factory) is unverifiable
+
+Sentinel solves all of this by maintaining a live registry of features and their implementation footprint.
+
+## Tools
+
+### `massu_sentinel_search`
+
+**What it does:** Search and list features in the registry. Supports full-text search (FTS5) and filtering by domain, status, portal, and page route.
+
+**Usage:**
+
+```
+massu_sentinel_search --query "order management"
+massu_sentinel_search --domain "orders" --status "active"
+massu_sentinel_search --portal "factory"
+```
+
+**Example output:**
+
+```
+## Feature Search Results (4 matches)
+
+orders.list [active] - Order List & Filtering
+  Domain: orders | Portal: internal, factory, customer
+  Components: 5 | Procedures: 3 | Pages: 3
+
+orders.detail [active] - Order Detail View
+  Domain: orders | Portal: internal, factory
+  Components: 8 | Procedures: 4 | Pages: 2
+
+orders.create [active] - Order Creation Flow
+  Domain: orders | Portal: internal
+  Components: 6 | Procedures: 2 | Pages: 1
+
+orders.archive [deprecated] - Order Archival
+  Domain: orders | Portal: internal
+  Components: 2 | Procedures: 1 | Pages: 0
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | no | Full-text search query |
+| `domain` | string | no | Filter by domain |
+| `subdomain` | string | no | Filter by subdomain |
+| `status` | string | no | `planned`, `active`, `deprecated`, `removed` |
+| `portal` | string | no | Filter by portal scope |
+| `page_route` | string | no | Filter by page route |
+
+---
+
+### `massu_sentinel_detail`
+
+**What it does:** Get complete feature details including all linked components (with roles), procedures, pages, dependencies, and the full changelog.
+
+**Usage:**
+
+```
+massu_sentinel_detail --feature_key "orders.create"
+```
+
+**Example output:**
+
+```
+## Feature: orders.create
+Title: Order Creation Flow
+Status: active | Priority: P1
+Domain: orders | Portal: internal
+
+### Components (6)
+- src/components/orders/CreateOrderForm.tsx [primary]
+- src/components/orders/ProductSelector.tsx [supporting]
+- src/components/orders/CustomerSearch.tsx [supporting]
+- src/components/orders/OrderSummary.tsx [supporting]
+- src/components/shared/FormActions.tsx [shared]
+- src/components/shared/AddressForm.tsx [shared]
+
+### Procedures (2)
+- orders.create (mutation)
+- orders.validateDraft (query)
+
+### Pages (1)
+- /orders/new (src/app/orders/new/page.tsx)
+
+### Changelog
+- 2026-02-10: Added CustomerSearch component (session abc123)
+- 2026-02-08: Initial registration (auto-scan)
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `feature_key` | string | no | Feature key (e.g., `orders.create`) |
+| `feature_id` | number | no | Feature ID (alternative to key) |
+
+---
+
+### `massu_sentinel_impact`
+
+**What it does:** Pre-deletion impact analysis. Before deleting files, this tool checks which features would be orphaned (no primary components left), degraded (some components removed), or unaffected. Blocks when critical features would be orphaned.
+
+**Usage:**
+
+```
+massu_sentinel_impact --files ["src/components/orders/CreateOrderForm.tsx", "src/components/orders/OrderSummary.tsx"]
+```
+
+**Example output:**
+
+```
+## Sentinel Impact Analysis
+
+### BLOCKED: 1 feature would be ORPHANED
+- orders.create [P1]: Order Creation Flow
+  Primary component removed: CreateOrderForm.tsx
+  No other primary components remain!
+
+### DEGRADED: 1 feature
+- orders.detail: Order Detail View
+  Supporting component removed: OrderSummary.tsx (also used here)
+
+### SAFE: 24 features unaffected
+
+ACTION REQUIRED: Create a migration plan before deleting these files.
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `files` | string[] | yes | File paths to analyze for deletion impact |
+
+---
+
+### `massu_sentinel_validate`
+
+**What it does:** Validates all active features have living implementation files. Reports features as alive, orphaned (implementation missing), or degraded (partial implementation). Can auto-mark dead features as deprecated.
+
+**Usage:**
+
+```
+massu_sentinel_validate
+massu_sentinel_validate --domain "orders"
+massu_sentinel_validate --fix true
+```
+
+**Example output:**
+
+```
+## Feature Validation Report
+
+### Summary
+Total active features: 28
+Alive: 25
+Degraded: 2
+Orphaned: 1
+
+### Degraded Features
+- reports.pdf-export: Missing component src/components/reports/PdfViewer.tsx
+- users.profile: Missing page src/app/settings/profile/page.tsx
+
+### Orphaned Features
+- notifications.email: All implementation files deleted
+  Components: 0/3 alive | Procedures: 0/1 alive
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `domain` | string | no | Only validate features in this domain |
+| `fix` | boolean | no | Auto-mark dead features as deprecated |
+
+---
+
+### `massu_sentinel_register`
+
+**What it does:** Register a new feature or update an existing one. Links components, procedures, and pages to the feature.
+
+**Usage:**
+
+```
+massu_sentinel_register --feature_key "orders.export" --title "Order Export to CSV" --domain "orders" --status "active" --priority "P2" --components [{"file": "src/components/orders/ExportButton.tsx", "role": "primary"}] --procedures ["orders.exportCsv"]
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `feature_key` | string | yes | Unique feature identifier |
+| `title` | string | yes | Human-readable title |
+| `domain` | string | no | Business domain |
+| `subdomain` | string | no | Subdomain |
+| `status` | string | no | `planned`, `active`, `deprecated`, `removed` |
+| `priority` | string | no | `P0`, `P1`, `P2`, `P3` |
+| `components` | array | no | Components with file path and role |
+| `procedures` | string[] | no | tRPC procedure names |
+| `pages` | string[] | no | Page routes |
+
+---
+
+### `massu_sentinel_parity`
+
+**What it does:** Checks feature parity across portals. If a feature exists in the internal portal, does it also exist in the factory and customer portals where expected?
+
+**Usage:**
+
+```
+massu_sentinel_parity
+```
+
+**Example output:**
+
+```
+## Feature Parity Report
+
+### Missing from Factory Portal
+- orders.create: Available in internal but not factory
+- orders.export: Available in internal but not factory
+
+### Missing from Customer Portal
+- orders.tracking: Available in internal, factory but not customer
+
+### Full Parity: 22/28 features
+```
+
+**Parameters:** None.
+
+## Auto-Discovery
+
+When you run `massu_sync`, Massu AI automatically discovers features from:
+
+- **tRPC procedures**: Groups procedures by router name into features
+- **Page routes**: Maps pages to features based on route patterns
+- **Component patterns**: Identifies feature components from directory structure
+
+Auto-discovered features are registered with `auto-scan` status and can be refined manually.
+
+## Tips
+
+- Run `massu_sentinel_validate` weekly to catch feature degradation early
+- Use `massu_sentinel_impact` before any large refactoring or file cleanup
+- Register features manually for important business capabilities -- auto-discovery catches structure but not business intent
+- The `pre-delete-check` hook automatically runs impact analysis when files are being deleted

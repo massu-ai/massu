@@ -1,0 +1,74 @@
+---
+title: "/massu-cleanup"
+description: "Dead code removal — unused imports, orphaned files, dead exports, and stale references across the codebase"
+order: 20
+---
+
+# /massu-cleanup
+
+A systematic dead code removal command that identifies and removes unused imports, orphaned files, dead exports, and stale references. It performs blast radius analysis before every removal and verifies with negative grep after to ensure no references remain.
+
+## What It Does
+
+The cleanup command runs in five phases:
+
+1. **Unused import detection** -- Scans all source files for imports that are never referenced in the file body
+2. **Dead export identification** -- Finds exported functions, types, and constants that have no import sites anywhere in the codebase
+3. **Orphaned file detection** -- Identifies source files that are never imported and not entry points
+4. **Stale reference cleanup** -- Removes references to deleted or renamed symbols that were missed during refactoring
+5. **Verification** -- After each removal, runs `grep -rn` to confirm 0 remaining references
+
+Each removal is staged and verified individually. The command never removes a file or symbol without first confirming it has zero callers.
+
+## Usage
+
+```
+/massu-cleanup
+```
+
+To limit cleanup to a specific directory:
+
+```
+/massu-cleanup src/components
+```
+
+To run in dry-run mode (report without removing):
+
+```
+/massu-cleanup --dry-run
+```
+
+## Output
+
+The command produces a structured report:
+
+```
+## Cleanup Report
+
+### Unused Imports (12 found, 12 removed)
+- src/components/orders/OrderList.tsx: removed `useState` (never referenced)
+- src/server/routers/users.ts: removed `type AdminUser` (never used in file)
+...
+
+### Dead Exports (3 found, 3 removed)
+- src/lib/utils.ts: `formatCurrency` — 0 import sites (removed)
+- src/hooks/useDeprecatedAuth.ts — entire file orphaned (removed)
+...
+
+### Orphaned Files (1 found, 1 removed)
+- src/components/legacy/OldDashboard.tsx — 0 import sites (removed)
+
+### Stale References (2 found, 2 removed)
+- src/types/index.ts: reference to `LegacyUser` (deleted type) removed
+
+### Verification
+All 18 removals confirmed with negative grep.
+```
+
+## Tips
+
+- Run `/massu-cleanup` before a release to reduce bundle size and improve maintainability
+- Use `--dry-run` first to review findings before committing to removals
+- For large codebases, run cleanup on one directory at a time to keep changes reviewable
+- After cleanup, run `/massu-commit` to verify build and tests pass before committing
+- Cleanup does not touch test files unless `--include-tests` is specified

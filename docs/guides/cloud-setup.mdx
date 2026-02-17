@@ -1,0 +1,89 @@
+---
+title: Cloud Setup Guide
+description: Setting up Massu AI Cloud sync, generating API keys, and connecting your dashboard.
+---
+
+# Cloud Setup Guide
+
+This guide walks you through setting up Massu AI Cloud — the optional cloud layer that adds sync, dashboards, and team features on top of the open-source core.
+
+## Prerequisites
+
+- Massu AI core installed and running locally
+- A Massu AI Cloud subscription (Cloud Pro or Cloud Team)
+- Node.js 18 or later
+
+## Step 1: Create Your Cloud Account
+
+1. Visit [massu.ai/pricing](/pricing) and choose Cloud Pro or Cloud Team
+2. Complete the checkout process
+3. You'll receive a welcome email with your dashboard URL
+
+## Step 2: Generate an API Key
+
+1. Log in to your Cloud dashboard
+2. Navigate to **Settings → API Keys**
+3. Click **Generate New Key**
+4. Copy the key — you'll need it in the next step
+
+> **Security note:** Your API key should be stored securely and never committed to version control.
+
+## Step 3: Configure Local Sync
+
+Add your API key to your environment:
+
+```bash
+export MASSU_CLOUD_API_KEY=your-api-key-here
+```
+
+Or add it to your `massu.config.yaml`:
+
+```yaml
+cloud:
+  enabled: true
+  apiKey: ${MASSU_CLOUD_API_KEY}
+  syncInterval: 300 # seconds
+```
+
+## Step 4: Verify the Connection
+
+Run a sync check:
+
+```bash
+claude /massu-loop
+# Look for: "Cloud sync: connected"
+```
+
+## What Gets Synced
+
+| Data Type | Synced? | Notes |
+|-----------|---------|-------|
+| Quality scores | Yes | Aggregated per session |
+| Observations | Yes | Memory entries |
+| Audit trail | Yes | Compliance-ready |
+| Session summaries | Yes | For dashboard analytics |
+| Source code | **Never** | Code stays local |
+| Credentials | **Never** | Keys stay local |
+
+## Step 5: Explore the Dashboard
+
+Your Cloud dashboard provides:
+
+- **Session history** — Browse past coding sessions with quality metrics
+- **Quality trends** — Track improvement over time
+- **Cost tracking** — Monitor AI API costs per feature
+- **Team activity** (Cloud Team) — See what your team is working on
+
+## Troubleshooting
+
+### "Cloud sync failed: unauthorized"
+
+Your API key may be expired or invalid. Generate a new one from the dashboard.
+
+### "Cloud sync failed: network error"
+
+Check your internet connection. Cloud sync requires HTTPS access to `api.massu.ai`.
+
+### Data not appearing in dashboard
+
+Sync happens at configurable intervals (default: 5 minutes). Wait for the next sync cycle or trigger a manual sync.

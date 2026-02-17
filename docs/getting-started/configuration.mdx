@@ -1,0 +1,355 @@
+---
+title: "Configuration"
+description: "Complete reference for massu.config.yaml - configure every aspect of Massu AI for your project"
+order: 3
+---
+
+# Configuration
+
+Massu AI is configured through a single `massu.config.yaml` file in your project root. This file controls everything from your tool prefix to security thresholds, quality scoring weights, and team collaboration settings.
+
+## Minimal Configuration
+
+The smallest valid configuration:
+
+```yaml
+project:
+  name: my-project
+
+framework:
+  type: typescript
+```
+
+Massu AI uses sensible defaults for everything not explicitly configured.
+
+## Complete Configuration Reference
+
+### project
+
+Basic project identification.
+
+```yaml
+project:
+  name: my-app              # Project name (used in reports)
+  root: auto                 # "auto" detects from package.json or .git
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `name` | string | required | Project identifier |
+| `root` | string | `"auto"` | Project root path or `"auto"` for detection |
+
+### framework
+
+Framework and tooling detection. Enables framework-specific tools.
+
+```yaml
+framework:
+  type: typescript           # typescript | javascript
+  router: trpc               # trpc | graphql | rest | none
+  orm: prisma                # prisma | drizzle | typeorm | none
+  ui: nextjs                 # nextjs | sveltekit | nuxt | none
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `type` | string | `"typescript"` | Language type |
+| `router` | string | `"none"` | API router framework. Enables `massu_trpc_map` and `massu_coupling_check` when set to `trpc` |
+| `orm` | string | `"none"` | ORM. Enables `massu_schema` when set to `prisma` |
+| `ui` | string | `"none"` | UI framework |
+
+### paths
+
+File path conventions for your project.
+
+```yaml
+paths:
+  source: src                # Source directory
+  aliases:
+    "@": src                 # Import alias mappings
+    "@/components": src/components
+  middleware: src/middleware.ts   # Middleware entry point (optional)
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `source` | string | `"src"` | Source root directory |
+| `aliases` | object | `{}` | Import alias to path mappings |
+| `middleware` | string | - | Middleware entry file (enables middleware tree analysis) |
+
+### toolPrefix
+
+The prefix for all MCP tool names. Change this if you have multiple MCP servers or want project-specific naming.
+
+```yaml
+toolPrefix: massu             # Tools become massu_sync, massu_context, etc.
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `toolPrefix` | string | `"massu"` | Prefix for all tool names |
+
+### domains
+
+Business domain definitions for cross-domain import analysis. Enables the `massu_domains` tool.
+
+```yaml
+domains:
+  - name: orders
+    routers:
+      - "src/server/routers/orders*"
+    pages:
+      - "src/app/orders/**"
+    components:
+      - "src/components/orders/**"
+    allowedImportsFrom:
+      - shared
+      - auth
+
+  - name: auth
+    routers:
+      - "src/server/routers/auth*"
+    pages:
+      - "src/app/auth/**"
+      - "src/app/login/**"
+    components:
+      - "src/components/auth/**"
+    allowedImportsFrom:
+      - shared
+
+  - name: shared
+    routers: []
+    pages: []
+    components:
+      - "src/components/ui/**"
+      - "src/lib/**"
+    allowedImportsFrom: []   # System domain - can import from anywhere
+```
+
+Each domain defines file patterns and import restrictions. Massu AI detects cross-domain imports and flags violations.
+
+### rules
+
+Coding rules applied based on file patterns. These are surfaced by `massu_context` and the `post-edit-context` hook.
+
+```yaml
+rules:
+  - pattern: "src/server/**/*.ts"
+    severity: CRITICAL
+    rules:
+      - "All mutations must use protectedProcedure"
+      - "Never expose raw error details to clients"
+
+  - pattern: "src/components/**/*.tsx"
+    severity: HIGH
+    rules:
+      - "Use React.memo for list item components"
+      - "Avoid inline function definitions in JSX props"
+
+  - pattern: "src/hooks/**/*.ts"
+    rules:
+      - "Hooks must be prefixed with 'use'"
+      - "No direct API calls - use tRPC hooks"
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `pattern` | string | required | Glob pattern for matching files |
+| `severity` | string | - | `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` |
+| `rules` | string[] | required | List of rule descriptions |
+| `patternFile` | string | - | Reference to a detailed rule file in `.claude/` |
+
+### analytics
+
+Quality scoring, cost tracking, and prompt effectiveness analysis.
+
+```yaml
+analytics:
+  quality:
+    weights:
+      bug_found: -5
+      vr_failure: -10
+      incident: -20
+      cr_violation: -3
+      vr_pass: 2
+      clean_commit: 5
+      successful_verification: 3
+    categories:
+      - security
+      - architecture
+      - coupling
+      - tests
+      - rule_compliance
+
+  cost:
+    models:
+      claude-opus-4-6:
+        input_per_million: 15
+        output_per_million: 75
+        cache_read_per_million: 1.5
+        cache_write_per_million: 3.75
+      claude-sonnet-4-5-20250929:
+        input_per_million: 3
+        output_per_million: 15
+        cache_read_per_million: 0.3
+        cache_write_per_million: 0.75
+    currency: USD
+
+  prompts:
+    success_indicators:
+      - committed
+      - approved
+      - looks good
+      - perfect
+      - great
+      - thanks
+    failure_indicators:
+      - revert
+      - wrong
+      - "that's not"
+      - undo
+      - incorrect
+    max_turns_for_success: 2
+```
+
+Quality weights determine how events affect the quality score (base: 50, range: 0-100). Cost models define per-million-token pricing. Prompt indicators help determine prompt effectiveness.
+
+### governance
+
+Audit trail, validation, and architecture decision record (ADR) settings.
+
+```yaml
+governance:
+  audit:
+    formats:
+      - summary
+      - detailed
+      - soc2
+    retention_days: 365
+    auto_log:
+      code_changes: true
+      rule_enforcement: true
+      approvals: true
+      commits: true
+
+  validation:
+    realtime: true
+    checks:
+      rule_compliance: true
+      import_existence: true
+      naming_conventions: true
+
+  adr:
+    detection_phrases:
+      - chose
+      - decided
+      - switching to
+      - moving from
+      - going with
+    storage: database
+```
+
+| Section | Key | Description |
+|---------|-----|-------------|
+| `audit.formats` | string[] | Available report formats |
+| `audit.retention_days` | number | How long to keep audit entries |
+| `audit.auto_log` | object | Which events to auto-log |
+| `validation.realtime` | boolean | Enable real-time validation |
+| `validation.checks` | object | Which validation checks to run |
+| `adr.detection_phrases` | string[] | Phrases that trigger ADR auto-detection |
+
+### security
+
+Security scanning and dependency risk analysis.
+
+```yaml
+security:
+  auto_score_on_edit: true
+  score_threshold_alert: 50
+  severity_weights:
+    critical: 25
+    high: 15
+    medium: 8
+    low: 3
+  restrictive_licenses:
+    - GPL
+    - AGPL
+    - SSPL
+  dependencies:
+    package_manager: npm
+    blocked_packages: []
+    max_bundle_size_kb: 500
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `auto_score_on_edit` | boolean | `true` | Auto-score files when edited |
+| `score_threshold_alert` | number | `50` | Alert when score exceeds this |
+| `severity_weights` | object | see above | Points per severity level |
+| `restrictive_licenses` | string[] | `["GPL","AGPL","SSPL"]` | Licenses flagged as risky |
+
+### team
+
+Team collaboration and knowledge sharing settings.
+
+```yaml
+team:
+  enabled: false
+  sync_backend: local        # local | shared
+  expertise_weights:
+    session: 20
+    observation: 10
+  privacy:
+    share_file_paths: true
+    share_code_snippets: false
+    share_observations: true
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | boolean | `false` | Enable team features |
+| `sync_backend` | string | `"local"` | Where to sync team data |
+| `expertise_weights` | object | see above | How to calculate expertise scores |
+| `privacy` | object | see above | What data to share with team |
+
+### regression
+
+Regression detection and feature health monitoring.
+
+```yaml
+regression:
+  test_runner: "npm test"
+  test_patterns:
+    - "{dir}/__tests__/{name}.test.{ext}"
+    - "{dir}/{name}.spec.{ext}"
+  health_thresholds:
+    healthy: 80
+    warning: 50
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `test_runner` | string | `"npm test"` | Command to run tests |
+| `test_patterns` | string[] | see above | Patterns to find test files |
+| `health_thresholds.healthy` | number | `80` | Score above this is healthy |
+| `health_thresholds.warning` | number | `50` | Score below this triggers warning |
+
+## Environment Variables
+
+Massu AI respects these environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `MASSU_CONFIG` | Custom path to config file |
+| `MASSU_DB_DIR` | Custom directory for databases |
+| `MASSU_LOG_LEVEL` | Logging level (debug, info, warn, error) |
+
+## Validating Your Configuration
+
+Check your configuration for errors:
+
+```bash
+npx @massu/core validate-config
+```
+
+This parses the YAML, checks for required fields, and validates all values against expected types.

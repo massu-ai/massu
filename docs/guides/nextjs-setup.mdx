@@ -1,0 +1,160 @@
+---
+title: "Next.js + tRPC Setup"
+description: "Step-by-step guide for setting up Massu AI with a Next.js and tRPC project"
+order: 0
+---
+
+# Next.js + tRPC Setup
+
+This guide walks you through configuring Massu AI for a Next.js project that uses tRPC for API routing and Prisma for database access. This is the configuration that enables the most Massu AI features.
+
+## Prerequisites
+
+- Next.js 13+ with App Router
+- tRPC v10 or v11
+- Prisma ORM
+- Massu AI installed ([Installation Guide](/docs/getting-started/installation))
+
+## Step 1: Configuration
+
+Create `massu.config.yaml` in your project root:
+
+```yaml
+project:
+  name: my-nextjs-app
+  root: auto
+
+framework:
+  type: typescript
+  router: trpc
+  orm: prisma
+  ui: nextjs
+
+paths:
+  source: src
+  aliases:
+    "@": src
+    "@/components": src/components
+    "@/lib": src/lib
+  middleware: src/middleware.ts
+
+toolPrefix: massu
+
+domains:
+  - name: orders
+    routers:
+      - "src/server/routers/orders*"
+    pages:
+      - "src/app/orders/**"
+      - "src/app/(dashboard)/orders/**"
+    components:
+      - "src/components/orders/**"
+    allowedImportsFrom:
+      - shared
+      - auth
+
+  - name: auth
+    routers:
+      - "src/server/routers/auth*"
+    pages:
+      - "src/app/auth/**"
+      - "src/app/login/**"
+    components:
+      - "src/components/auth/**"
+    allowedImportsFrom:
+      - shared
+
+  - name: shared
+    routers: []
+    pages: []
+    components:
+      - "src/components/ui/**"
+      - "src/lib/**"
+    allowedImportsFrom: []
+
+rules:
+  - pattern: "src/server/**/*.ts"
+    severity: CRITICAL
+    rules:
+      - "All mutations must use protectedProcedure"
+      - "Never expose raw error details to clients"
+      - "Validate all inputs with Zod schemas"
+
+  - pattern: "src/app/**/page.tsx"
+    severity: HIGH
+    rules:
+      - "Pages must be server components by default"
+      - "Use Suspense boundaries for dynamic content"
+
+  - pattern: "src/middleware.ts"
+    severity: CRITICAL
+    rules:
+      - "No Node.js dependencies (Edge Runtime only)"
+      - "Keep middleware lightweight"
+
+security:
+  auto_score_on_edit: true
+  score_threshold_alert: 40
+
+analytics:
+  cost:
+    models:
+      claude-opus-4-6:
+        input_per_million: 15
+        output_per_million: 75
+        cache_read_per_million: 1.5
+        cache_write_per_million: 3.75
+    currency: USD
+```
+
+## Step 2: Initial Sync
+
+Start Claude Code and run the initial sync:
+
+```
+> Run massu_sync to index the codebase
+```
+
+With tRPC configured, you should see tRPC procedure mapping in the output:
+
+```
+Indexes rebuilt:
+Import edges: 342
+tRPC procedures: 84 (62 with UI, 22 without)
+Page deps: 31 pages
+Middleware tree: 12 files
+```
+
+## Step 3: Verify tRPC Mapping
+
+Check that tRPC mapping is working:
+
+```
+> Run massu_trpc_map with uncoupled: true
+```
+
+This shows procedures without UI callers -- potential dead code in your API layer.
+
+## Step 4: Verify Domain Boundaries
+
+```
+> Run massu_domains with crossings: true
+```
+
+This shows cross-domain import violations based on your domain configuration.
+
+## Step 5: Check Middleware Tree
+
+```
+> Run massu_context for src/middleware.ts
+```
+
+Verify the middleware tree analysis is working. Any file in the middleware import chain will get Edge Runtime warnings.
+
+## Tips for Next.js Projects
+
+- Set `paths.middleware` to enable middleware tree analysis and Edge Runtime warnings
+- Configure domains to match your Next.js route groups
+- The `massu_schema` tool works with Prisma to catch column name mismatches
+- Use `massu_coupling_check` to find tRPC procedures that no UI component calls
+- The `post-edit-context` hook will warn about Edge Runtime restrictions when editing middleware-tree files

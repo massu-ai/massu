@@ -1,0 +1,87 @@
+---
+title: "/massu-loop"
+description: "The implementation loop - execute plan items with mandatory verification until complete"
+order: 3
+---
+
+# /massu-loop
+
+The `/massu-loop` command is the implementation engine. It takes a plan document and executes each deliverable with mandatory verification, looping until every item is complete. This is where code actually gets written, tested, and verified.
+
+## Usage
+
+```
+/massu-loop docs/plans/2026-02-13-user-profile.md
+```
+
+## How It Works
+
+The loop follows this cycle for each plan item:
+
+```
+1. Read the plan file (from disk, not memory)
+2. Find the next incomplete deliverable
+3. Implement the deliverable
+4. Run the specified verification (VR-FILE, VR-GREP, VR-BUILD, VR-TEST)
+5. Show verification command and output as PROOF
+6. If verification fails: fix and re-verify
+7. Mark item as complete
+8. Go to step 1
+9. When all items complete: run full verification suite
+```
+
+## Mandatory Behaviors
+
+### Proof, Not Claims
+
+For every completed item, the loop shows the verification command and its output:
+
+```
+## Deliverable D-001: ProfileForm.tsx
+
+Created src/components/settings/ProfileForm.tsx
+
+### Verification: VR-FILE
+$ ls -la src/components/settings/ProfileForm.tsx
+-rw-r--r-- 1 dev staff 2847 Feb 13 14:23 ProfileForm.tsx
+VERIFIED
+```
+
+### Negative Verification for Removals
+
+If a plan item involves removing something, the loop runs negative verification:
+
+```
+## Deliverable D-008: Remove legacy profile component
+
+Deleted src/components/legacy/OldProfile.tsx
+
+### Verification: VR-NEGATIVE
+$ grep -rn "OldProfile" src/
+(no output - 0 matches)
+VERIFIED: Pattern removed from codebase
+```
+
+### All Items Required
+
+The loop continues until every plan item is verified. Stopping at "most items" is a protocol violation. The loop must process every deliverable in the plan.
+
+### Re-Read Plan Each Iteration
+
+The plan file is re-read from disk on each iteration, not from memory. This ensures any updates to the plan (from `/massu-plan` auditing) are picked up.
+
+## Final Verification
+
+After all items are complete, the loop runs:
+
+1. `npx tsc --noEmit` -- Type safety check
+2. `npm test` -- All tests must pass
+3. `npm run build` -- Build must succeed
+4. Pattern scanner -- All patterns must comply
+
+## Tips
+
+- Long plans may require multiple sessions -- task linking ensures continuity
+- If a deliverable proves impossible, update the plan document first, then continue
+- The loop tracks progress in the memory database for cross-session visibility
+- Plan progress is visible via `massu_memory_sessions`

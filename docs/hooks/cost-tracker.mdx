@@ -1,0 +1,68 @@
+---
+title: "cost-tracker Hook"
+description: "Tracks token usage and estimates costs per tool call, storing data for session cost reporting and feature attribution"
+order: 9
+---
+
+# cost-tracker Hook
+
+The cost-tracker hook fires after every tool call and records an estimated cost event based on the size of the tool input and output. These events accumulate in the memory database and power the cost analytics tools (`massu_cost_session`, `massu_cost_trend`, `massu_cost_by_feature`).
+
+## Trigger Event
+
+Fires as a PostToolUse hook after every tool call completes:
+
+- All tool types: `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, and MCP tools
+
+## What It Does
+
+1. **Reads the completed tool call** from JSON stdin (tool name, input, output)
+2. **Estimates token usage** using the ~4 characters per token heuristic applied to input + output sizes
+3. **Calculates estimated cost** based on the current model's per-token pricing
+4. **Writes a cost event** to the `tool_cost_events` table in the memory database
+5. **Exits silently** -- no output to stdout
+
+Cost events include the session ID, tool name, estimated input tokens, estimated output tokens, and a UTC timestamp. They are never blocked by or surfaced to Claude Code.
+
+## Token Estimation Heuristic
+
+The hook uses a simple approximation: **1 token per 4 characters** of text content. This is a rough estimate based on typical English-language tokenization. Actual token counts from the model API may differ.
+
+For tool inputs, the heuristic is applied to the JSON-serialized tool input. For outputs, it is applied to the text content of the tool result.
+
+## Data Storage
+
+Cost events are stored in the `tool_cost_events` table in the memory database (`.massu/memory.db`):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `session_id` | TEXT | The current session identifier |
+| `tool_name` | TEXT | The name of the tool that was called |
+| `input_tokens` | INTEGER | Estimated input token count |
+| `output_tokens` | INTEGER | Estimated output token count |
+| `estimated_cost_usd` | REAL | Estimated cost in US dollars |
+| `created_at` | TEXT | UTC timestamp of the event |
+
+## Integration with Cost Analytics
+
+The stored events power several MCP tools:
+
+- **`massu_cost_session`** -- Total cost for the current session broken down by model tier
+- **`massu_cost_trend`** -- Cost trends across sessions over time
+- **`massu_cost_by_feature`** -- Cost attribution per feature or task (when tasks are linked)
+- **`massu_cost_alert`** -- Alerts when session cost exceeds a configurable threshold
+
+## Performance
+
+This hook must complete within 500ms. It achieves this with:
+
+- In-process cost calculation (no network calls)
+- Single SQLite insert per tool call
+- Early exit if the memory database is unavailable
+
+## Tips
+
+- Cost estimates are approximations -- use them for relative comparison, not billing reconciliation
+- Use `massu_cost_session` at the end of a session to see a breakdown by tool type
+- Set a budget alert threshold in `massu.config.yaml` under `cost.alertThresholdUsd` to be warned when sessions run expensive
+- The `massu_cost_by_feature` tool is most useful after running `massu_sync` to establish feature boundaries

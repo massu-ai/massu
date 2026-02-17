@@ -1,0 +1,64 @@
+---
+title: "/massu-plan"
+description: "Audit and improve a plan document to the zero-gap standard"
+order: 2
+---
+
+# /massu-plan
+
+The `/massu-plan` command audits an existing plan document against the zero-gap standard. It checks for missing deliverables, unclear verification requirements, incomplete blast radius analysis, and other plan quality issues.
+
+## Usage
+
+```
+/massu-plan docs/plans/2026-02-13-user-profile.md
+```
+
+## What It Does
+
+1. **Opens and reads** the plan document (from the file, not from memory)
+2. **Checks every section** against the plan quality standard:
+   - Are all deliverables specific and verifiable?
+   - Does every deliverable have a verification type?
+   - Is the blast radius analysis complete?
+   - Are there any ambiguous or vague items?
+   - Are file paths specified for every deliverable?
+3. **Identifies gaps** and lists them as findings
+4. **Suggests improvements** to close each gap
+5. **Updates the plan document** with improvements (plan doc only, not source code)
+
+## The Zero-Gap Standard
+
+A plan meets the zero-gap standard when:
+
+- Every deliverable has a specific file path
+- Every deliverable has a verification type (VR-FILE, VR-GREP, VR-BUILD, VR-TEST, etc.)
+- The blast radius section accounts for ALL files that will be touched
+- Removals specify what to grep for in negative verification
+- No ambiguous language ("maybe," "consider," "possibly")
+- Every dependency is listed with version
+- Risk mitigations are actionable, not vague
+
+## Example Findings
+
+```
+## Plan Audit: 2026-02-13-user-profile.md
+
+### Findings (3)
+
+1. [GAP] D-003: No validation schema specified for updateProfile input
+   Suggestion: Add D-005a for Zod schema validation
+
+2. [GAP] Blast radius: Missing src/server/routers/_app.ts which must
+   import the new profile router
+   Suggestion: Add to blast radius section
+
+3. [AMBIGUOUS] D-002: "with crop" is vague - which crop library?
+   Suggestion: Specify react-image-crop or similar
+```
+
+## Important Notes
+
+- This command only modifies the plan document, never source code
+- Run `/massu-plan` iteratively until the plan has zero findings
+- A plan with findings should not proceed to `/massu-loop`

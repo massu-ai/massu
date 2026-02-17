@@ -1,0 +1,108 @@
+---
+title: "Documentation Tools"
+description: "Audit documentation freshness and track coverage across your help site and codebase"
+order: 7
+---
+
+# Documentation Tools
+
+Massu AI includes tools for keeping your documentation in sync with your codebase. When code changes, these tools identify which documentation pages need updating and measure overall documentation coverage.
+
+## Why This Matters
+
+Documentation drift is one of the most common problems in software projects. Code changes daily, but docs lag behind. Massu AI maps your code to documentation pages, so when a file changes, you know exactly which docs need attention.
+
+## Tools
+
+### `massu_docs_audit`
+
+**What it does:** Audit which help site pages need updating based on changed files. Uses a `docs-map.json` file that maps code paths to documentation pages.
+
+**Usage:**
+
+```
+massu_docs_audit --changed_files ["src/server/routers/orders.ts"]
+```
+
+**Example output:**
+
+```
+## Documentation Audit
+
+### STALE Pages (2)
+- /help/orders/creating-orders
+  Changed files: src/server/routers/orders.ts
+  Sections affected: API endpoints, validation rules
+  Action: Update procedure descriptions and parameter list
+
+- /help/orders/order-lifecycle
+  Changed files: src/server/routers/orders.ts
+  Sections affected: Status transitions
+  Action: Verify status flow diagram matches new code
+
+### OK Pages (12)
+All other mapped pages are up to date.
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `changed_files` | string[] | no | Files to check (default: all recent changes) |
+
+---
+
+### `massu_docs_coverage`
+
+**What it does:** Measure documentation coverage -- which features and code paths have corresponding documentation and which have gaps.
+
+**Usage:**
+
+```
+massu_docs_coverage
+```
+
+**Example output:**
+
+```
+## Documentation Coverage Report
+
+Total mappings: 24
+Pages existing: 20
+Pages with content: 18
+Coverage: 75%
+
+### Gaps (4 unmapped features)
+- orders.export: No documentation page
+- auth.sso: No documentation page
+- reports.pdf-export: Page exists but empty
+- users.bulk-import: Page exists but empty
+```
+
+**Parameters:** None.
+
+## Configuration
+
+Documentation tools use a `docs-map.json` file in your project root that maps code paths to documentation pages:
+
+```json
+{
+  "version": 1,
+  "mappings": [
+    {
+      "id": "orders-creating",
+      "helpPage": "/help/orders/creating-orders",
+      "appRoutes": ["/orders/new"],
+      "routers": ["orders.create", "orders.validateDraft"],
+      "components": ["src/components/orders/CreateOrderForm.tsx"],
+      "keywords": ["create order", "new order"]
+    }
+  ]
+}
+```
+
+## Tips
+
+- Run `massu_docs_audit` after every major code change to catch documentation drift early
+- Include `massu_docs_coverage` in your CI pipeline to track coverage over time
+- The docs map file should be maintained alongside your code -- update it when you add new features

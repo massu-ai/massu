@@ -1,0 +1,85 @@
+---
+title: "session-start Hook"
+description: "Injects cross-session memory context when a new Claude Code session begins"
+order: 1
+---
+
+# session-start Hook
+
+The session-start hook fires when a Claude Code session begins (startup, resume, or after compaction). It reads the memory database and injects relevant context from previous sessions directly into the conversation, giving your AI assistant immediate awareness of past decisions, failures, and progress.
+
+## Trigger Events
+
+| Source | When | Token Budget |
+|--------|------|-------------|
+| `startup` | New session starts | 2,000 tokens |
+| `resume` | Session is resumed | 1,000 tokens |
+| `compact` | After context compaction | 4,000 tokens |
+| `clear` | After context clear | 2,000 tokens |
+
+The compact source gets the highest token budget because compaction destroys context that needs to be restored.
+
+## What It Does
+
+1. **Creates a session record** in the memory database with the current git branch
+2. **Links to task** if a plan file reference is detected
+3. **Builds prioritized context** from multiple sources:
+   - Failed attempts (highest priority -- DO NOT RETRY warnings)
+   - Current session observations (after compaction)
+   - Recent session summaries
+   - Cross-task progress tracking
+   - Recent observations sorted by importance
+4. **Fills token budget** from highest-importance sections first
+5. **Outputs plain text** that Claude Code injects into the conversation
+
+## Example Input
+
+```json
+{
+  "session_id": "abc123-def456",
+  "transcript_path": "/Users/dev/.claude/projects/my-app/transcript.jsonl",
+  "cwd": "/Users/dev/my-app",
+  "hook_event_name": "session_start",
+  "source": "startup"
+}
+```
+
+## Example Output
+
+```
+=== CS MEMORY: Previous Session Context ===
+
+### Failed Attempts (DO NOT RETRY)
+- drizzle-kit push fails with RLS-enabled tables (2x)
+- next-auth getServerSession returns null in middleware
+
+### Session (2026-02-10)
+**Task**: Implement database migration system
+**Completed**: Added migration CI check, fixed timeout handling
+**Plan**: 4/5 complete
+
+### Recent Observations
+- [decision|imp:8] Chose Prisma migrate over raw SQL (2026-02-10)
+- [bugfix|imp:7] Fixed migration timeout with lock_timeout (2026-02-09)
+
+=== END CS MEMORY ===
+```
+
+## Context Priority Order
+
+| Priority | Section | Why |
+|----------|---------|-----|
+| 10 | Failed attempts | Prevents repeating known-bad approaches |
+| 9 | Current session observations | Restores context after compaction |
+| 8 | Cross-task progress | Maintains task continuity |
+| 7 | Session summaries | Provides background context |
+| 5 | Recent observations | General knowledge |
+
+## Configuration
+
+The session-start hook uses these config sections:
+
+- `team.enabled`: If true, includes team-shared observations
+- Session and observation data comes from the memory database
+
+No explicit hook configuration is needed -- it works automatically.

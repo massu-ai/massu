@@ -1,0 +1,63 @@
+---
+title: "/massu-hotfix"
+description: "Quick scoped fix workflow with branch, test, commit, push, and PR creation"
+order: 16
+---
+
+# /massu-hotfix
+
+A streamlined workflow for small, urgent fixes that automates branch creation, testing, committing, and pull request creation with built-in scope guards to prevent hotfix scope creep.
+
+## Usage
+
+```
+/massu-hotfix
+```
+
+The command will prompt for a brief description of the fix to create an appropriate branch name.
+
+## Scope Guard
+
+Hotfixes are strictly limited to **maximum 3 files**. If the fix requires modifying more than 3 files, the command will abort and recommend using `/massu-create-plan` instead for proper planning and implementation.
+
+## Workflow Steps
+
+### 1. Create Hotfix Branch
+Creates a new branch with format `hotfix/[description-slug]` from the current main branch.
+
+### 2. Identify and Fix Issue
+Analyzes the issue, locates the root cause, and implements the minimal fix required.
+
+### 3. Run Verification
+Executes three verification gates:
+- **Type Check**: `npx tsc --noEmit` must pass
+- **Test Suite**: All tests must pass
+- **Pattern Scanner**: `bash scripts/massu-pattern-scanner.sh` must pass
+
+### 4. Commit with Conventional Format
+Creates a commit using conventional commit format:
+```
+fix([scope]): [description]
+
+[details if needed]
+```
+
+### 5. Push and Create PR
+Pushes the branch to remote and creates a pull request with:
+- Title matching commit message
+- Description detailing the fix
+- Links to related issues if applicable
+
+## Abort Conditions
+
+The hotfix workflow will abort if:
+
+- **Scope exceeds 3 files**: More than 3 files need modification
+- **Unrelated changes detected**: Working directory has uncommitted changes unrelated to the fix
+- **Tests fail after fix**: The fix introduces new test failures
+
+## When to Use
+
+- **Quick bug fixes**: Production bugs that need immediate attention and touch 1-3 files
+- **Typo corrections**: Documentation, comments, or code typos
+- **Small targeted changes**: Minor improvements that don't require architectural planning

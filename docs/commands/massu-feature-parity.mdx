@@ -1,0 +1,63 @@
+---
+title: "/massu-feature-parity"
+description: "Check feature parity across portals and environments"
+order: 6
+---
+
+# /massu-feature-parity
+
+The `/massu-feature-parity` command checks feature parity across your application portals. If a feature exists in one portal (e.g., internal admin), it checks whether equivalent functionality exists in other portals where it should be available.
+
+## Usage
+
+```
+/massu-feature-parity
+/massu-feature-parity --domain "orders"
+```
+
+## What It Checks
+
+For each feature in the Sentinel registry:
+
+1. **Which portals** the feature is registered in
+2. **Which portals** should have the feature (based on domain configuration)
+3. **Implementation status** in each portal (active, missing, degraded)
+
+## Example Output
+
+```
+## Feature Parity Report
+
+### Missing from Factory Portal (2)
+- orders.create: Available in internal but not factory
+  Expected components: CreateOrderForm, ProductSelector
+  Status: NOT IMPLEMENTED
+
+- orders.export: Available in internal but not factory
+  Expected components: ExportButton
+  Status: NOT IMPLEMENTED
+
+### Missing from Customer Portal (1)
+- orders.tracking: Available in internal and factory but not customer
+  Expected components: OrderTracker, StatusTimeline
+  Status: NOT IMPLEMENTED
+
+### Full Parity (22/25 features)
+22 features are available in all expected portals.
+
+### Summary
+Parity score: 88%
+Missing implementations: 3
+```
+
+## When to Use
+
+- After completing a feature in one portal, check if it needs to be replicated
+- During sprint planning, to identify parity gaps
+- Before releases, to ensure consistent functionality across portals
+
+## Tips
+
+- Feature parity depends on the Sentinel registry being up to date -- run `massu_sync` first
+- Not all features need to be in all portals -- the check is based on registered expectations
+- Use `massu_sentinel_register` to set portal expectations for features

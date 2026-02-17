@@ -1,0 +1,76 @@
+---
+title: "/massu-audit-deps"
+description: "Comprehensive dependency audit for vulnerabilities, outdated packages, and licenses"
+order: 17
+---
+
+# /massu-audit-deps
+
+A read-only comprehensive dependency audit that scans for security vulnerabilities, outdated packages, license compliance issues, unused dependencies, and bundle impact across all npm packages.
+
+## Usage
+
+```
+/massu-audit-deps
+```
+
+## Audit Phases
+
+The command performs 5 distinct audit phases:
+
+### 1. Vulnerability Scan
+Identifies security vulnerabilities using two data sources:
+- **npm audit**: Official npm vulnerability database
+- **OSV.dev**: Open Source Vulnerabilities database
+
+Reports vulnerabilities by severity (critical, high, moderate, low) with CVE identifiers and remediation guidance.
+
+### 2. Outdated Packages
+Compares installed package versions against latest available versions:
+- Current version installed
+- Latest stable version
+- Breaking changes indicator
+- Release recency
+
+Flags packages more than 6 months behind latest stable release.
+
+### 3. License Compliance
+Scans all dependencies for license types and identifies:
+- **Restrictive licenses**: GPL, AGPL, or custom licenses requiring legal review
+- **Permissive licenses**: MIT, Apache, BSD
+- **Unknown licenses**: Packages without clear license metadata
+
+Generates a license inventory report grouped by license type.
+
+### 4. Unused Dependencies
+Detects packages declared in `package.json` but not actually imported or used:
+- Greps codebase for import statements
+- Cross-references with dependency list
+- Flags candidates for removal
+
+Estimates disk space and bundle size savings from removing unused dependencies.
+
+### 5. Bundle Impact
+Analyzes contribution of each dependency to final bundle size:
+- Package size (unpacked)
+- Transitive dependency count
+- Tree-shaking effectiveness
+- Client-side vs server-side usage
+
+Identifies heavy dependencies suitable for lazy loading or replacement.
+
+## Health Score
+
+The audit concludes with an overall dependency health score from A to F:
+
+- **A**: No vulnerabilities, all packages current, compliant licenses
+- **B**: Minor warnings, mostly up-to-date
+- **C**: Some outdated packages or low-severity vulnerabilities
+- **D**: High-severity vulnerabilities or significantly outdated packages
+- **F**: Critical vulnerabilities or major compliance issues
+
+## When to Use
+
+- **Before releases**: Verify no known vulnerabilities before deploying to production
+- **Periodic security reviews**: Monthly or quarterly dependency health checks
+- **When adding new dependencies**: Audit impact of new packages on security, bundle size, and license compliance

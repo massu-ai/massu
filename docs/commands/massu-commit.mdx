@@ -1,0 +1,82 @@
+---
+title: "/massu-commit"
+description: "Pre-commit verification gate - ensures code quality before any commit"
+order: 4
+---
+
+# /massu-commit
+
+The `/massu-commit` command is a pre-commit verification gate. Before creating a git commit, it runs a series of checks to ensure the code meets quality standards. If issues are found, it fixes them (where possible) before allowing the commit to proceed.
+
+## Usage
+
+```
+/massu-commit
+```
+
+## Verification Checks
+
+The command runs these checks in order:
+
+### 1. Security Check
+
+```
+$ git diff --cached --name-only | grep -E '\.(env|pem|key|secret)'
+```
+
+Verifies no secret files are staged. If found, the commit is blocked.
+
+### 2. Type Safety
+
+```
+$ npx tsc --noEmit
+```
+
+All TypeScript must compile without errors.
+
+### 3. Test Suite
+
+```
+$ npm test
+```
+
+All tests must pass.
+
+### 4. Build Check
+
+```
+$ npm run build
+```
+
+The project must build successfully.
+
+### 5. Pattern Compliance
+
+```
+$ bash scripts/massu-pattern-scanner.sh
+```
+
+All Massu AI patterns must be followed (ESM imports, config access patterns, etc.).
+
+### 6. Staged File Review
+
+Reviews all staged files for:
+- Hardcoded credentials or secrets
+- Debug console.log statements left in production code
+- TODO comments that should be resolved
+
+## Fix-Then-Commit Flow
+
+If a check fails, the command:
+
+1. Identifies the issue
+2. Fixes it if possible (e.g., fixing a type error, removing a debug statement)
+3. Re-stages the fixed files
+4. Re-runs the failed check
+5. Proceeds with the commit only when all checks pass
+
+## Important Notes
+
+- This command may edit source files to fix issues, but only as fixes -- no new features
+- The commit message follows conventional commit format
+- The audit trail is automatically updated with the commit event

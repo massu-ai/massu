@@ -1,0 +1,118 @@
+---
+title: "Webhooks"
+description: "Set up real-time webhook notifications for Massu events."
+order: 12
+---
+
+# Webhooks
+
+Receive real-time HTTP notifications when events occur in your Massu organization.
+
+## Requirements
+
+- **Plan**: Cloud Team or higher
+- **API Key**: With `webhooks` scope
+
+## Setting Up Webhooks
+
+### 1. Create an Endpoint
+
+Navigate to **Dashboard > Webhooks** or use the REST API:
+
+```bash
+curl -X POST https://massu.ai/api/v1/webhooks \
+  -H "Authorization: Bearer ms_live_XXXXXXXX_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://your-server.com/webhooks/massu",
+    "events": ["session.completed", "quality.score_changed"],
+    "description": "Production webhook"
+  }'
+```
+
+### 2. Verify Signatures
+
+Every webhook delivery includes an HMAC-SHA256 signature in the `X-Massu-Signature-256` header:
+
+```
+X-Massu-Signature-256: sha256=<hex_signature>
+```
+
+Verify it in your handler:
+
+```typescript
+import { createHmac } from 'crypto'
+
+function verifySignature(payload: string, signature: string, secret: string): boolean {
+  const expected = 'sha256=' + createHmac('sha256', secret).update(payload).digest('hex')
+  return signature === expected
+}
+```
+
+## Event Types
+
+| Event | Description |
+|-------|-------------|
+| `session.completed` | A session sync completed |
+| `quality.score_changed` | Quality score updated |
+| `security.alert` | Security issue detected |
+| `cost.budget_exceeded` | Budget threshold crossed |
+| `team.member_joined` | New team member joined |
+| `compliance.report_ready` | Compliance report generated |
+
+## Payload Format
+
+All webhook payloads follow this structure:
+
+```json
+{
+  "type": "session.completed",
+  "data": { ... },
+  "timestamp": "2026-02-15T10:30:00.000Z"
+}
+```
+
+## Delivery Headers
+
+| Header | Description |
+|--------|-------------|
+| `X-Massu-Signature-256` | HMAC-SHA256 signature |
+| `X-Massu-Event` | Event type |
+| `X-Massu-Delivery` | Unique delivery ID |
+| `Content-Type` | `application/json` |
+
+## Retry Policy
+
+Failed deliveries (non-2xx response) are retried up to 3 times with exponential backoff:
+
+1. First retry: after 1 minute
+2. Second retry: after 5 minutes
+3. Third retry: after 30 minutes
+
+After 3 failed attempts, the delivery is marked as failed. View delivery history in the dashboard.
+
+## Testing
+
+Use the "Send Test" button in the dashboard or the test endpoint to verify your integration before going live.
+
+## Managing Endpoints
+
+### List endpoints
+```bash
+curl https://massu.ai/api/v1/webhooks \
+  -H "Authorization: Bearer ms_live_XXXXXXXX_your_key"
+```
+
+### Update endpoint
+```bash
+curl -X PATCH https://massu.ai/api/v1/webhooks/{id} \
+  -H "Authorization: Bearer ms_live_XXXXXXXX_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"events": ["*"]}'
+```
+
+### Delete endpoint
+```bash
+curl -X DELETE https://massu.ai/api/v1/webhooks/{id} \
+  -H "Authorization: Bearer ms_live_XXXXXXXX_your_key"
+```

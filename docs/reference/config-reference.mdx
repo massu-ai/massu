@@ -1,0 +1,154 @@
+---
+title: "Configuration Reference"
+description: "Complete YAML reference for every configuration option in massu.config.yaml"
+order: 0
+---
+
+# Configuration Reference
+
+Complete reference for all configuration options in `massu.config.yaml`.
+
+## Full Schema
+
+```yaml
+# Required: Project identification
+project:
+  name: string              # Project name (required)
+  root: string              # "auto" or absolute path (default: "auto")
+
+# Required: Framework detection
+framework:
+  type: string              # "typescript" | "javascript" (default: "typescript")
+  router: string            # "trpc" | "graphql" | "rest" | "none" (default: "none")
+  orm: string               # "prisma" | "drizzle" | "typeorm" | "none" (default: "none")
+  ui: string                # "nextjs" | "sveltekit" | "nuxt" | "none" (default: "none")
+
+# Path conventions
+paths:
+  source: string            # Source root directory (default: "src")
+  aliases:                  # Import alias mappings
+    string: string          # e.g., "@": "src"
+  middleware: string         # Middleware entry file path (optional)
+
+# Tool prefix
+toolPrefix: string          # MCP tool name prefix (default: "massu")
+
+# Business domains
+domains:                    # Array of domain definitions (default: [])
+  - name: string            # Domain name
+    routers: string[]       # Glob patterns for router files
+    pages: string[]         # Glob patterns for page files
+    components: string[]    # Glob patterns for component files
+    allowedImportsFrom: string[]  # Which domains can import from this one
+
+# Coding rules
+rules:                      # Array of rule sets (default: [])
+  - pattern: string         # Glob pattern for file matching
+    severity: string        # "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" (optional)
+    rules: string[]         # List of rule descriptions
+    patternFile: string     # Reference to detailed rule file (optional)
+
+# Analytics
+analytics:
+  quality:
+    weights:                # Event scoring weights
+      bug_found: number     # Points for bug found (default: -5)
+      vr_failure: number    # Points for verification failure (default: -10)
+      incident: number      # Points for incident (default: -20)
+      cr_violation: number  # Points for canonical rule violation (default: -3)
+      vr_pass: number       # Points for verification pass (default: 2)
+      clean_commit: number  # Points for clean commit (default: 5)
+      successful_verification: number  # Points for verification (default: 3)
+    categories: string[]    # Quality categories to track
+  cost:
+    models:                 # Model pricing (per million tokens)
+      string:               # Model name (e.g., "claude-opus-4-6")
+        input_per_million: number
+        output_per_million: number
+        cache_read_per_million: number
+        cache_write_per_million: number
+    currency: string        # Currency code (default: "USD")
+  prompts:
+    success_indicators: string[]    # Words indicating prompt success
+    failure_indicators: string[]    # Words indicating prompt failure
+    max_turns_for_success: number   # Max follow-ups for success (default: 2)
+
+# Governance
+governance:
+  audit:
+    formats: string[]       # Report formats: "summary", "detailed", "soc2"
+    retention_days: number  # Days to keep audit entries (default: 365)
+    auto_log:
+      code_changes: boolean
+      rule_enforcement: boolean
+      approvals: boolean
+      commits: boolean
+  validation:
+    realtime: boolean       # Enable real-time validation (default: true)
+    checks:
+      rule_compliance: boolean
+      import_existence: boolean
+      naming_conventions: boolean
+    custom_patterns:        # Custom validation patterns (optional)
+      - pattern: string
+        severity: string
+        message: string
+  adr:
+    detection_phrases: string[]  # Phrases triggering ADR auto-detection
+    storage: string         # "database" (default: "database")
+
+# Security
+security:
+  auto_score_on_edit: boolean      # Auto-scan on edit (default: true)
+  score_threshold_alert: number    # Alert threshold (default: 50)
+  severity_weights:
+    critical: number        # Points per critical finding (default: 25)
+    high: number            # Points per high finding (default: 15)
+    medium: number          # Points per medium finding (default: 8)
+    low: number             # Points per low finding (default: 3)
+  restrictive_licenses: string[]   # Flagged licenses (default: ["GPL","AGPL","SSPL"])
+  dependencies:
+    package_manager: string # "npm" | "yarn" | "pnpm" (default: "npm")
+    blocked_packages: string[]     # Always-flagged packages (default: [])
+    max_bundle_size_kb: number     # Size alert threshold (default: 500)
+
+# Team
+team:
+  enabled: boolean          # Enable team features (default: false)
+  sync_backend: string      # "local" | "shared" (default: "local")
+  expertise_weights:
+    session: number         # Points per session (default: 20)
+    observation: number     # Points per observation (default: 10)
+  privacy:
+    share_file_paths: boolean      # (default: true)
+    share_code_snippets: boolean   # (default: false)
+    share_observations: boolean    # (default: true)
+
+# Regression
+regression:
+  test_runner: string       # Test command (default: "npm test")
+  test_patterns: string[]   # Test file patterns
+  health_thresholds:
+    healthy: number         # Green threshold (default: 80)
+    warning: number         # Yellow threshold (default: 50)
+```
+
+## Conditional Features
+
+Some tools are only available when specific configuration is set:
+
+| Config Setting | Tools Enabled |
+|---------------|---------------|
+| `framework.router: trpc` | `massu_trpc_map`, `massu_coupling_check` |
+| `framework.orm: prisma` | `massu_schema` |
+| `domains: []` (non-empty) | `massu_domains` |
+| `paths.middleware` set | Middleware tree analysis |
+| `team.enabled: true` | Team knowledge tools |
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `MASSU_CONFIG` | Custom path to config file |
+| `MASSU_DB_DIR` | Custom directory for databases |
+| `MASSU_LOG_LEVEL` | Logging level |

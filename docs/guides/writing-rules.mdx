@@ -1,0 +1,123 @@
+---
+title: "Writing Custom Rules"
+description: "How to create coding rules that Massu AI enforces through context injection and validation"
+order: 2
+---
+
+# Writing Custom Rules
+
+Rules are the coding standards that Massu AI enforces in your project. When your AI assistant edits a file, applicable rules are automatically surfaced through the `post-edit-context` hook. Rules also power the `massu_context` and `massu_validation_check` tools.
+
+## Basic Rule Structure
+
+Rules are defined in your `massu.config.yaml`:
+
+```yaml
+rules:
+  - pattern: "src/server/**/*.ts"
+    severity: CRITICAL
+    rules:
+      - "All mutations must use protectedProcedure"
+      - "Never expose raw error details to clients"
+      - "Validate all inputs with Zod schemas"
+```
+
+### Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `pattern` | Yes | Glob pattern matching file paths |
+| `severity` | No | CRITICAL, HIGH, MEDIUM, LOW |
+| `rules` | Yes | Array of rule descriptions |
+| `patternFile` | No | Path to detailed rule file in `.claude/` |
+
+## Severity Levels
+
+| Level | When to Use | Hook Behavior |
+|-------|-------------|---------------|
+| CRITICAL | Security issues, breaking changes | Always surfaced by post-edit-context |
+| HIGH | Important patterns, architectural rules | Surfaced by post-edit-context |
+| MEDIUM | Best practices | Only shown in massu_context |
+| LOW | Nice-to-have suggestions | Only shown in massu_context |
+
+## Writing Effective Rules
+
+### Be Specific
+
+```yaml
+# Bad - too vague
+rules:
+  - "Write good code"
+
+# Good - specific and actionable
+rules:
+  - "All mutations must use protectedProcedure, not publicProcedure"
+  - "Database queries must use parameterized values, never string concatenation"
+```
+
+### Include the Why
+
+```yaml
+rules:
+  - "Use protectedProcedure for mutations (prevents unauthenticated data modification)"
+  - "Never import Node.js modules in middleware (Edge Runtime limitation)"
+```
+
+### Group by File Pattern
+
+```yaml
+rules:
+  - pattern: "src/server/routers/**/*.ts"
+    severity: CRITICAL
+    rules:
+      - "All mutations must use protectedProcedure"
+      - "Validate all inputs with Zod schemas"
+
+  - pattern: "src/components/**/*.tsx"
+    severity: HIGH
+    rules:
+      - "Use React.memo for list item components"
+      - "No direct API calls - use tRPC hooks"
+
+  - pattern: "src/hooks/**/*.ts"
+    severity: MEDIUM
+    rules:
+      - "Custom hooks must be prefixed with 'use'"
+      - "Return cleanup functions from useEffect"
+
+  - pattern: "src/middleware.ts"
+    severity: CRITICAL
+    rules:
+      - "No Node.js dependencies (Edge Runtime only)"
+      - "No database calls (use Edge-compatible auth)"
+```
+
+## Pattern File References
+
+For complex rules with examples and details, reference a pattern file:
+
+```yaml
+rules:
+  - pattern: "src/server/**/*.ts"
+    severity: CRITICAL
+    patternFile: "patterns/server-rules.md"
+    rules:
+      - "See .claude/patterns/server-rules.md for complete server coding rules"
+```
+
+The pattern file can include code examples, anti-patterns, and detailed explanations.
+
+## How Rules Are Used
+
+1. **post-edit-context hook**: Surfaces CRITICAL and HIGH rules when a matching file is edited
+2. **massu_context tool**: Shows all rules for any file when explicitly requested
+3. **massu_validation_check tool**: Validates file content against rules (where possible)
+4. **Audit trail**: Records which rules were in effect when changes were made
+
+## Tips
+
+- Start with a small set of CRITICAL rules and expand over time
+- Rules that prevent security issues should always be CRITICAL
+- Test your glob patterns with `massu_context` to verify they match the right files
+- Use `patternFile` for rules that need examples and detailed explanation
+- Keep rule descriptions under 100 characters for readability in hook output

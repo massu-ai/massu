@@ -1,0 +1,50 @@
+---
+title: "user-prompt Hook"
+description: "Captures every user prompt for full-text search and automatic task linking"
+order: 4
+---
+
+# user-prompt Hook
+
+The user-prompt hook fires when the user submits a prompt to Claude Code. It captures the prompt text for future full-text search, detects references to plan files, and automatically links sessions to tasks.
+
+## Trigger Event
+
+Fires on every user prompt submission.
+
+## What It Does
+
+1. **Creates session record** if it does not exist, including the current git branch
+2. **Scans for plan file references** (e.g., `docs/plans/2026-02-10-feature.md`)
+3. **Links session to task** if a plan file is detected (auto-extracts task ID from filename)
+4. **Counts prompt number** (sequential within the session)
+5. **Stores the prompt** in the `user_prompts` table for FTS5 search
+
+## Example Input
+
+```json
+{
+  "session_id": "abc123-def456",
+  "transcript_path": "/path/to/transcript.jsonl",
+  "cwd": "/Users/dev/my-app",
+  "hook_event_name": "user_prompt",
+  "prompt": "Implement P3-002 from docs/plans/2026-02-10-migration.md"
+}
+```
+
+## Task Linking
+
+When a prompt mentions a plan file, the hook:
+
+1. Extracts the file path from the prompt
+2. Derives a task ID from the plan filename (e.g., `2026-02-10-migration`)
+3. Links the session to that task ID
+4. Enables cross-session task progress tracking via `massu_memory_sessions`
+
+This means all sessions working on the same plan automatically share progress information.
+
+## Tips
+
+- Reference your plan file in your first prompt to enable task linking
+- All prompts are searchable via `massu_prompt_analysis` (observability tool)
+- Empty or whitespace-only prompts are silently ignored

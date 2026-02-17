@@ -1,0 +1,101 @@
+---
+title: "Team Intelligence"
+description: "Weekly digests, code review insights, onboarding guides, and prompt library for teams"
+order: 11
+---
+
+# Team Intelligence
+
+As teams scale AI-assisted development, individual productivity gains can vanish without shared visibility. One developer builds a library of effective prompts; no one else knows it exists. A new hire spends weeks learning patterns that were already documented in AI sessions. A risky refactor ships because nobody noticed the coupling change hidden in last week's activity. Team Intelligence closes these gaps by surfacing what your team knows, aggregating what your AI sessions produce, and making that knowledge available to every member automatically.
+
+## Why This Matters
+
+Without team-level intelligence, AI-assisted development creates silos instead of leverage:
+
+- Quality trends are invisible -- no one knows if the codebase is improving or degrading week over week
+- New team members onboard slowly because tribal knowledge lives in individual AI session histories
+- Effective prompts get rediscovered repeatedly instead of shared once and reused everywhere
+- Cost and risk alerts go unnoticed until they become incidents
+- Code review lacks the data to distinguish routine changes from structural risk
+
+## Cloud Team Features
+
+### Weekly Digest
+
+**What it does:** Automatically generates and delivers a weekly summary of your team's AI development activity, including quality trends, cost breakdown, and risk alerts.
+
+**How it works:** At the end of each week, Massu AI aggregates session data across all team members -- quality scores, cost totals, rule violations, coupling changes, and commit activity. This data is compiled into a structured digest and delivered to your inbox so you stay informed without manually checking dashboards.
+
+**What you get:**
+
+- Quality score trends across the week with session-by-session breakdowns
+- Total AI cost by team member, feature area, and model
+- Risk alerts for coupling violations, rule failures, and security findings
+- Top files modified by AI and their associated quality signals
+- Week-over-week comparison so you can spot regressions early
+- Highlighted wins: clean commits, successful verifications, and high-scoring sessions
+
+---
+
+### Code Review Insights
+
+**What it does:** Provides aggregated analytics about codebase health across all AI sessions, helping you identify risk hotspots, track coupling changes, and understand where developer activity is concentrated.
+
+**How it works:** As sessions run, Massu AI records which files are touched, what rule violations occur, where coupling changes happen, and which areas accumulate quality debt. Code Review Insights aggregates this data into heatmaps and trend views so reviewers can focus attention where it matters most.
+
+**Key metrics:**
+
+- Risk hotspots: files with the highest concentration of violations and quality debt
+- Coupling change detection: modules that gained or lost dependencies in recent sessions
+- Developer activity heatmaps: which files and domains each team member is working in
+- Quality score distribution across files and feature areas
+- Rule violation frequency by rule ID, file, and author
+- Aggregate verification pass/fail rates per area of the codebase
+
+---
+
+### Onboarding Guide
+
+**What it does:** Automatically generates onboarding documentation for new team members by extracting knowledge from your team's AI session history.
+
+**How it works:** Massu AI analyzes session memory, architecture decision records, rule violations, and common patterns across your team's work. From this data, it assembles an onboarding guide covering how the codebase works in practice -- not just what the architecture diagram says, but what patterns AI sessions have learned to follow, what mistakes are commonly made, and which files are most central to daily work.
+
+**Generated content includes:**
+
+- Common coding patterns and the rules that govern them
+- Frequent mistakes and how to avoid them (sourced from actual violation history)
+- Key files and their roles, ranked by AI session activity
+- Architecture decisions and their rationale from your ADR history
+- Team conventions that have emerged from session data
+- Recommended first tasks for new members based on complexity and coupling analysis
+
+## Cloud Pro Features
+
+### Prompt Library
+
+**What it does:** A shared, searchable library for saving, rating, and reusing effective prompts across your team. Available as part of the Cloud Pro tier.
+
+**How it works:** When you or a teammate writes a prompt that produces an excellent result, it can be saved to the shared library with a title, category, and effectiveness rating. The library supports full-text search so any team member can find proven prompts for their current task. Over time, the library becomes a compounding asset -- each good prompt saved makes the whole team more effective.
+
+**Features:**
+
+- Save prompts with titles, categories, and descriptive tags
+- Rate prompts based on outcome quality (1-5 scale)
+- Automatic effectiveness scoring based on session outcome data
+- Full-text search across the entire prompt collection
+- Browse by category (feature, bugfix, refactor, test, question, command)
+- See usage counts and average ratings to identify the most reliable prompts
+- Share individual prompts or curated collections with teammates
+
+## Getting Started
+
+Team Intelligence features are enabled automatically when your team is on the Cloud Team tier (or Cloud Pro for Prompt Library). No additional configuration is required to start receiving weekly digests -- Massu AI begins collecting session data immediately and delivers the first digest at the end of your first complete week.
+
+To start building your prompt library on Cloud Pro, save your first prompt using the Massu AI dashboard or the `massu_prompt_save` tool during any session.
+
+## Tips
+
+- Review the weekly digest on Monday mornings to set priorities for the week based on what happened the previous week -- risk alerts and quality regressions are easier to address when caught early
+- Use Code Review Insights before sprint planning to identify which areas of the codebase need attention and which are stable; this data is more reliable than intuition
+- Prompt the generation of a fresh Onboarding Guide whenever a major refactor ships or a new domain is added -- the guide stays current only when you regenerate it from recent session data
+- When building the Prompt Library, focus first on your highest-frequency task types (the prompt categories your team uses most); even a small curated library of 10-20 proven prompts can meaningfully reduce rework across the team

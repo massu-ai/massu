@@ -1,0 +1,72 @@
+---
+title: "/massu-debug"
+description: "Systematic debugging with hypothesis testing and root cause tracing"
+order: 8
+---
+
+# /massu-debug
+
+Systematic debugging protocol with hypothesis testing, root cause tracing, and learning capture for complex bugs.
+
+## Usage
+
+```
+/massu-debug
+```
+
+## Protocol Steps
+
+### 1. Symptom Capture
+- Record exact error message and stack trace
+- Document reproduction steps
+- Capture environment context (test vs production, browser, etc.)
+- Screenshot or log output if visual/console issue
+
+### 2. Locate Error
+- Identify the failing module/function from stack trace
+- Read the source file where error occurs
+- Note line number and surrounding context
+
+### 3. Trace Call Chain
+- Follow the execution path backwards
+- Identify caller functions
+- Map data flow from entry point to error
+- Note any transformations or validations
+
+### 4. Hypothesis Formation
+- Generate 2-4 plausible root cause hypotheses
+- Rank by likelihood based on evidence
+- Document assumptions for each hypothesis
+
+### 5. Hypothesis Testing
+- Design minimal tests to prove/disprove each hypothesis
+- Execute tests in order of likelihood
+- Record results for each test
+- Eliminate disproven hypotheses
+
+### 6. Root Cause Identification
+- Confirm the validated hypothesis
+- Document the exact cause (bad input, logic error, race condition, etc.)
+- Identify why existing safeguards didn't catch it
+
+### 7. Fix Implementation
+- Implement minimal fix for root cause
+- Add defensive checks if safeguards were missing
+- Follow CR-9: search codebase for same pattern and fix all instances
+
+### 8. Verification
+- Verify fix with original reproduction steps
+- Run related tests (`/massu-test --affected`)
+- Confirm no regressions introduced
+
+### 9. Learning Record
+- Document the bug, root cause, and fix in session state
+- Add regression test if none existed
+- Update validation rules if pattern should be caught earlier
+
+## When to Use
+
+- **For non-obvious bugs**: When the error message or stack trace doesn't immediately reveal the cause
+- **When hotfix scope guard fails**: If `/massu-hotfix` identifies >3 files affected, use systematic debugging
+- **For intermittent issues**: Race conditions, timing bugs, or environment-specific failures
+- **Vs /massu-hotfix**: Use `/massu-hotfix` for obvious, small-scope fixes; use `/massu-debug` for complex investigations

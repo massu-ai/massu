@@ -1,0 +1,151 @@
+---
+title: "Enterprise"
+description: "Team knowledge sharing, conflict detection, feature health monitoring, and regression risk analysis"
+order: 8
+---
+
+# Enterprise
+
+The enterprise tools in Massu AI support teams working together on the same codebase with AI assistants. Track developer expertise across modules, detect when two developers are working on the same files, monitor feature health scores, and identify regression risks before they become production incidents.
+
+## Why This Matters
+
+When multiple developers use AI assistants on the same codebase, coordination becomes critical:
+
+- Two people editing the same file without knowing leads to merge conflicts and wasted effort
+- Nobody knows who has expertise in which module, so questions go to the wrong person
+- Features degrade silently when code is modified without running related tests
+- Regressions slip through when there is no systematic tracking of test-to-feature relationships
+
+## Team Knowledge Tools
+
+### `massu_team_search`
+
+**What it does:** Search the team knowledge graph to find developers with expertise in specific modules, files, or domains.
+
+**Usage:**
+
+```
+massu_team_search --module "orders"
+massu_team_search --file "src/server/routers/auth.ts"
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `module` | string | no | Module name to search |
+| `file` | string | no | File path to find experts for |
+| `developer` | string | no | Find all modules for a developer |
+
+---
+
+### `massu_team_expertise`
+
+**What it does:** View expertise scores for developers across modules. Expertise is calculated from session depth (number of sessions touching a module) and observation quality (meaningful work vs. just reading).
+
+**Usage:**
+
+```
+massu_team_expertise
+massu_team_expertise --developer "alice"
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `developer` | string | no | Specific developer to show |
+| `min_score` | number | no | Minimum expertise score |
+
+---
+
+### `massu_team_conflicts`
+
+**What it does:** Detect potential conflicts between developers working on the same files. Looks for concurrent edits within a configurable time window (default: 7 days).
+
+**Usage:**
+
+```
+massu_team_conflicts
+massu_team_conflicts --days 14
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `days` | number | no | Lookback window (default: 7) |
+
+## Regression Detection Tools
+
+### `massu_feature_health`
+
+**What it does:** Calculate health scores for features based on test coverage, test pass rates, modifications since last test, and time gaps between modifications and test runs. Score ranges from 0 (critical) to 100 (healthy).
+
+**Usage:**
+
+```
+massu_feature_health
+massu_feature_health --feature_key "orders.create"
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `feature_key` | string | no | Specific feature to check |
+
+---
+
+### `massu_regression_risk`
+
+**What it does:** Identify features at risk of regression based on recent modifications without corresponding test runs. Combines health scores with modification frequency to prioritize testing.
+
+**Usage:**
+
+```
+massu_regression_risk
+massu_regression_risk --min_risk 50
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `min_risk` | number | no | Only show features above this risk score |
+| `days` | number | no | Lookback period for modifications |
+
+## Configuration
+
+```yaml
+# Team knowledge settings
+team:
+  enabled: true
+  sync_backend: local
+  expertise_weights:
+    session: 20        # Points per session touching a module
+    observation: 10    # Points per meaningful observation
+  privacy:
+    share_file_paths: true
+    share_code_snippets: false
+    share_observations: true
+
+# Regression detection settings
+regression:
+  test_runner: "npm test"
+  test_patterns:
+    - "{dir}/__tests__/{name}.test.{ext}"
+    - "{dir}/{name}.spec.{ext}"
+  health_thresholds:
+    healthy: 80        # Score above this is green
+    warning: 50        # Score below this is yellow/red
+```
+
+## Tips
+
+- Enable team features when you have 2+ developers using AI assistants on the same codebase
+- Expertise scores use logarithmic scaling, so depth of experience matters more than volume
+- Run `massu_team_conflicts` at the start of each day to catch overlapping work early
+- Health thresholds are configurable -- lower them for less critical projects
+- Privacy controls let you share observations without exposing code snippets

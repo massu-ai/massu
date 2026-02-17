@@ -1,0 +1,58 @@
+---
+title: "pre-compact Hook"
+description: "Preserves session state before context window compaction destroys it"
+order: 5
+---
+
+# pre-compact Hook
+
+The pre-compact hook fires before Claude Code compacts the context window. Compaction discards older conversation content to make room for new context. This hook snapshots the current session state into the database so nothing is lost.
+
+## Trigger Event
+
+Fires when Claude Code is about to compact the context window (typically when the conversation exceeds the context limit).
+
+## What It Does
+
+1. **Collects all observations** for the current session
+2. **Collects all user prompts** from the session
+3. **Generates a mid-session summary** including:
+   - Work completed so far
+   - Failed attempts
+   - Decisions made
+   - Files created and modified
+   - Verification results
+   - Plan progress (marked as `pre_compact` snapshot)
+4. **Stores the summary** in the database
+
+After compaction, the session-start hook re-fires with `source: "compact"` and a higher token budget (4,000 tokens) to restore this captured state.
+
+## Example Input
+
+```json
+{
+  "session_id": "abc123-def456",
+  "transcript_path": "/path/to/transcript.jsonl",
+  "cwd": "/Users/dev/my-app",
+  "hook_event_name": "pre_compact"
+}
+```
+
+## The Compact-Restore Cycle
+
+```
+1. Context window fills up
+2. [pre-compact hook] snapshots state to database
+3. Claude Code compacts (discards old context)
+4. [session-start hook] fires with source="compact"
+5. Hook restores state with 4,000 token budget
+6. Session continues with full context awareness
+```
+
+This cycle can happen multiple times in a long session. Each snapshot is cumulative, so no information is lost across multiple compactions.
+
+## Tips
+
+- Long sessions (1+ hours) will typically trigger 2-3 compactions
+- The pre-compact snapshot includes plan progress, so task tracking survives compaction
+- You do not need to do anything -- this happens automatically

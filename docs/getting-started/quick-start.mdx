@@ -1,0 +1,182 @@
+---
+title: "Quick Start"
+description: "Get up and running with Massu AI in 5 minutes - from installation to your first governed session"
+order: 2
+---
+
+# Quick Start
+
+This tutorial takes you from a fresh Massu AI installation to using its core capabilities in about 5 minutes. You will sync your codebase, explore file context, search memory, check coupling, and generate a quality score.
+
+## Before You Begin
+
+Make sure you have completed the [Installation](/docs/getting-started/installation) steps. You should have:
+
+- Massu AI installed (`npm install @massu/core`)
+- Initialization complete (`npx massu init`)
+- All checks passing (`npx massu doctor`)
+
+## Step 1: Sync Your Codebase
+
+Start a Claude Code session and run the sync tool to build Massu AI's indexes:
+
+```
+> Run massu_sync to index the codebase
+```
+
+Massu AI will analyze your codebase and build several indexes:
+
+```
+Indexes rebuilt:
+Import edges: 247
+tRPC procedures: 84 (62 with UI, 22 without)
+Page deps: 31 pages
+Middleware tree: 12 files
+
+Feature scan: 28 features registered (16 from procedures, 8 from pages, 4 from components)
+```
+
+This step builds the import graph, maps tRPC procedures to their UI call sites (if you use tRPC), traces page dependency chains, and auto-discovers features. It only needs to run after significant code changes -- Massu AI auto-detects staleness and rebuilds as needed.
+
+## Step 2: Get Context for a File
+
+Pick any source file in your project and ask for its context:
+
+```
+> Use massu_context for src/server/routers/orders.ts
+```
+
+Massu AI returns rich context about the file:
+
+```
+## CodeGraph Nodes
+- function: getOrderById (L12-L45)
+- function: listOrders (L47-L89)
+- function: createOrder (L91-L134)
+
+## Applicable Rules
+- [CRITICAL] All mutations must use protectedProcedure
+- [HIGH] Validate all inputs with Zod schemas
+
+## Domain: orders
+
+## Imports (from this file)
+- src/server/db.ts: db
+- src/lib/validators.ts: orderSchema, paginationSchema
+
+## Imported By
+- src/server/routers/_app.ts
+- src/components/orders/OrderList.tsx
+```
+
+This is the same context that the `post-edit-context` hook surfaces automatically when you edit files.
+
+## Step 3: Search Memory
+
+After a few sessions, Massu AI builds up a knowledge base. Search it:
+
+```
+> Use massu_memory_search with query "database migration"
+```
+
+```
+## Search Results (3 matches)
+
+#42 [decision] Chose Prisma migrate over raw SQL for schema changes
+    Session: 2026-02-10 | Importance: 8
+    Files: src/server/db.ts
+
+#38 [bugfix] Fixed migration timeout by increasing lock_timeout
+    Session: 2026-02-09 | Importance: 7
+    Files: prisma/migrations/20260209_add_orders.sql
+
+#15 [failed_attempt] DO NOT RETRY: drizzle-kit push fails with RLS tables
+    Session: 2026-02-05 | Importance: 9
+```
+
+Notice the failed attempt with "DO NOT RETRY" -- this is automatically surfaced at the start of every new session to prevent repeating known-bad approaches.
+
+## Step 4: Check Coupling
+
+Run a coupling check to find dead code and orphaned components:
+
+```
+> Run massu_coupling_check
+```
+
+```
+## Coupling Check Results
+
+### Uncoupled Procedures: 3
+- orders.archiveOrder (mutation) in src/server/routers/orders.ts
+- users.deactivateUser (mutation) in src/server/routers/users.ts
+- reports.generatePdf (query) in src/server/routers/reports.ts
+
+### RESULT: FAIL (3 issues)
+```
+
+These are tRPC procedures with zero UI call sites -- potential dead code or missing frontend integration.
+
+## Step 5: Generate a Quality Score
+
+Check the quality score for your current session:
+
+```
+> Use massu_quality_score for the current session
+```
+
+```
+## Quality Score: 72/100
+
+### Breakdown
+- Security: +5 (no security findings)
+- Architecture: -3 (1 coupling violation)
+- Tests: +2 (verification passed)
+- Rule Compliance: +8 (all rules followed)
+
+### Score Factors
+- clean_commit: +5
+- vr_pass: +2 (3 verifications)
+- cr_violation: -3 (1 violation)
+```
+
+Quality scores start at 50 and adjust based on weighted events. The weights are configurable in your `massu.config.yaml`.
+
+## Step 6: Check Session Cost
+
+Track how much your AI sessions cost:
+
+```
+> Use massu_cost_session
+```
+
+```
+## Session Cost Summary
+
+Model: claude-opus-4-6
+Input tokens: 45,230 ($0.68)
+Output tokens: 12,450 ($0.93)
+Cache read: 128,000 ($0.19)
+Cache write: 8,500 ($0.03)
+
+Total: $1.83 USD
+```
+
+## What Happened Behind the Scenes
+
+While you were working through these steps, Massu AI's hooks were silently doing their job:
+
+1. **`session-start`** injected context from previous sessions when you started Claude Code
+2. **`user-prompt`** captured every prompt you typed for future search
+3. **`post-tool-use`** recorded observations from every tool call (file reads, edits, bash commands)
+4. **`post-edit-context`** surfaced applicable rules whenever you edited source files
+
+When you end this session, the **`session-end`** hook will generate a structured summary and archive it for future sessions.
+
+## Next Steps
+
+- **[Configuration](/docs/getting-started/configuration)**: Customize Massu AI for your specific project
+- **[Memory & Learning](/docs/features/memory)**: Deep dive into cross-session memory
+- **[Hooks](/docs/hooks)**: Understand the 11-hook lifecycle
+- **[Commands](/docs/commands)**: Learn the verification-first workflow
+- **[Security](/docs/features/security)**: Set up automated security scanning

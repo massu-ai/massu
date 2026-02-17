@@ -1,0 +1,136 @@
+---
+title: "Security Best Practices"
+description: "How to use Massu AI's security tools effectively to catch vulnerabilities in AI-generated code"
+order: 4
+---
+
+# Security Best Practices
+
+AI coding assistants can introduce security vulnerabilities that look correct at first glance. This guide covers how to use Massu AI's security tools to catch issues early and build a security-aware development process.
+
+## Setting Up Security Scanning
+
+### Enable Auto-Scoring
+
+In your `massu.config.yaml`:
+
+```yaml
+security:
+  auto_score_on_edit: true
+  score_threshold_alert: 40   # Lower = more sensitive
+  severity_weights:
+    critical: 25
+    high: 15
+    medium: 8
+    low: 3
+```
+
+### Define Restrictive Licenses
+
+```yaml
+security:
+  restrictive_licenses:
+    - GPL
+    - AGPL
+    - SSPL
+    - EUPL
+```
+
+### Block Known-Bad Packages
+
+```yaml
+security:
+  dependencies:
+    blocked_packages:
+      - event-stream     # Known supply chain attack
+      - flatmap-stream   # Known supply chain attack
+```
+
+## Daily Security Workflow
+
+### 1. Start of Day: Run Security Heatmap
+
+```
+> Use massu_security_heatmap
+```
+
+This shows which parts of your codebase have the highest risk scores. Focus your attention on high-risk files.
+
+### 2. During Development: Auto-Scanning
+
+With `auto_score_on_edit: true`, Massu AI automatically scans files as they are edited. The `post-edit-context` hook surfaces security-related rules when you edit sensitive files.
+
+### 3. Before Commits: Dependency Check
+
+```
+> Use massu_dep_score
+```
+
+Check that no high-risk dependencies were added during the session.
+
+### 4. Weekly: Security Trend Review
+
+```
+> Use massu_security_trend --days 7
+```
+
+Verify that your security posture is improving or at least stable.
+
+## Common Vulnerabilities to Watch For
+
+### 1. Unprotected Mutations
+
+The most common AI-generated vulnerability: using `publicProcedure` instead of `protectedProcedure` for mutations.
+
+**Rule to add:**
+
+```yaml
+rules:
+  - pattern: "src/server/**/*.ts"
+    severity: CRITICAL
+    rules:
+      - "All mutations must use protectedProcedure, never publicProcedure"
+```
+
+### 2. Hardcoded Secrets
+
+AI assistants sometimes embed API keys or tokens directly in code.
+
+**Prevention:** Massu AI's security scorer automatically detects patterns matching credentials, tokens, and API keys.
+
+### 3. SQL Injection via Template Literals
+
+When using raw SQL, AI may interpolate user input directly.
+
+**Prevention:** The security scorer detects `.raw(\`` patterns in code.
+
+### 4. Missing Input Validation
+
+AI may skip Zod or other input validation on API endpoints.
+
+**Rule to add:**
+
+```yaml
+rules:
+  - pattern: "src/server/routers/**/*.ts"
+    severity: HIGH
+    rules:
+      - "Every procedure must have .input(z.object(...))"
+```
+
+## Interpreting Security Scores
+
+| Score Range | Risk Level | Action |
+|-------------|-----------|--------|
+| 0-10 | Low | No immediate action needed |
+| 11-30 | Medium | Review findings at next opportunity |
+| 31-50 | High | Fix before merging to main |
+| 51-100 | Critical | Fix immediately, block deployment |
+
+## Tips
+
+- Set `score_threshold_alert` to 30-40 for security-sensitive projects
+- Run `massu_security_heatmap` after major refactoring to catch introduced vulnerabilities
+- Keep `blocked_packages` updated with known compromised packages
+- Use `massu_dep_alternatives` to find safer replacements for high-risk dependencies
+- The `/massu-commit` command includes a security check that blocks commits with staged secret files

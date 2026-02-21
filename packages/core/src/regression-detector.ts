@@ -271,6 +271,7 @@ function handleRegressionCheck(_args: Record<string, unknown>, db: Database.Data
     FROM feature_health
     WHERE modifications_since_test > 0
     ORDER BY modifications_since_test DESC
+    LIMIT 500
   `).all() as Array<Record<string, unknown>>;
 
   if (recentlyModified.length === 0) {

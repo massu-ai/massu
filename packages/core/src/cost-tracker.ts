@@ -137,6 +137,7 @@ export function backfillSessionCosts(db: Database.Database): number {
     FROM sessions s
     LEFT JOIN session_costs c ON s.session_id = c.session_id
     WHERE c.session_id IS NULL
+    LIMIT 1000
   `).all() as Array<{ session_id: string }>;
 
   // Backfilling requires transcript data which may not be available

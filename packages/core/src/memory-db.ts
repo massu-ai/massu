@@ -583,13 +583,7 @@ export function dequeuePendingSync(
   limit: number = 10
 ): Array<{ id: number; payload: string; retry_count: number }> {
   // First, discard items that have exceeded max retries
-  const stale = db.prepare(
-    'SELECT id FROM pending_sync WHERE retry_count >= 10'
-  ).all() as Array<{ id: number }>;
-  if (stale.length > 0) {
-    const ids = stale.map(s => s.id);
-    db.prepare(`DELETE FROM pending_sync WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
-  }
+  db.prepare('DELETE FROM pending_sync WHERE retry_count >= 10').run();
 
   return db.prepare(
     'SELECT id, payload, retry_count FROM pending_sync ORDER BY created_at ASC LIMIT ?'

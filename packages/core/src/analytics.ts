@@ -122,6 +122,7 @@ export function backfillQualityScores(db: Database.Database): number {
     FROM sessions s
     LEFT JOIN session_quality_scores q ON s.session_id = q.session_id
     WHERE q.session_id IS NULL
+    LIMIT 1000
   `).all() as Array<{ session_id: string }>;
 
   let backfilled = 0;

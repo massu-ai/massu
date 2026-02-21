@@ -166,22 +166,26 @@ export async function syncToCloud(
  * Successfully synced items are removed; failed items get their retry count incremented.
  */
 export async function drainSyncQueue(db: Database.Database): Promise<void> {
-  const config = getConfig();
-  if (!config.cloud?.enabled || !config.cloud?.apiKey) return;
+  try {
+    const config = getConfig();
+    if (!config.cloud?.enabled || !config.cloud?.apiKey) return;
 
-  const pending = dequeuePendingSync(db, 10);
-  for (const item of pending) {
-    try {
-      const payload = JSON.parse(item.payload) as SyncPayload;
-      const result = await syncToCloud(db, payload);
-      if (result.success) {
-        removePendingSync(db, item.id);
-      } else {
-        incrementRetryCount(db, item.id, result.error ?? 'Unknown error');
+    const pending = dequeuePendingSync(db, 10);
+    for (const item of pending) {
+      try {
+        const payload = JSON.parse(item.payload) as SyncPayload;
+        const result = await syncToCloud(db, payload);
+        if (result.success) {
+          removePendingSync(db, item.id);
+        } else {
+          incrementRetryCount(db, item.id, result.error ?? 'Unknown error');
+        }
+      } catch (err) {
+        incrementRetryCount(db, item.id, err instanceof Error ? err.message : String(err));
       }
-    } catch (err) {
-      incrementRetryCount(db, item.id, err instanceof Error ? err.message : String(err));
     }
+  } catch (err) {
+    process.stderr.write(`massu: drainSyncQueue failed: ${err instanceof Error ? err.message : String(err)}\n`);
   }
 }
 

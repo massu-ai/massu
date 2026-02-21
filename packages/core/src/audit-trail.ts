@@ -129,18 +129,18 @@ export function getFileChain(
  */
 export function backfillAuditLog(db: Database.Database): number {
   const observations = db.prepare(`
-    SELECT o.id, o.type, o.description, o.files, o.session_id, o.created_at
+    SELECT o.id, o.type, o.detail, o.files_involved, o.session_id, o.created_at
     FROM observations o
-    LEFT JOIN audit_log a ON a.evidence = o.description AND a.session_id = o.session_id
+    LEFT JOIN audit_log a ON a.evidence = o.detail AND a.session_id = o.session_id
     WHERE a.id IS NULL
-    AND o.type IN ('bugfix', 'cr_violation', 'vr_check', 'incident', 'decision')
+    AND o.type IN ('bugfix', 'cr_violation', 'vr_check', 'incident_near_miss', 'decision')
     ORDER BY o.created_at ASC
     LIMIT 1000
   `).all() as Array<Record<string, unknown>>;
 
   let backfilled = 0;
   for (const obs of observations) {
-    const files = obs.files ? JSON.parse(obs.files as string) : [];
+    const files = obs.files_involved ? JSON.parse(obs.files_involved as string) : [];
     const eventType = (obs.type === 'cr_violation') ? 'rule_enforced' as const
       : (obs.type === 'vr_check') ? 'review' as const
       : 'code_change' as const;
@@ -150,7 +150,7 @@ export function backfillAuditLog(db: Database.Database): number {
       actor: 'ai',
       filePath: files[0] ?? undefined,
       changeType: 'edit',
-      evidence: obs.description as string,
+      evidence: obs.detail as string,
       sessionId: obs.session_id as string,
       metadata: { original_type: obs.type, backfilled: true },
     });

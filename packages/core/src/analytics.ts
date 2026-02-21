@@ -63,8 +63,8 @@ export function calculateQualityScore(
   const categories = getCategories();
 
   const observations = db.prepare(
-    'SELECT type, description FROM observations WHERE session_id = ?'
-  ).all(sessionId) as Array<{ type: string; description: string }>;
+    'SELECT type, detail FROM observations WHERE session_id = ?'
+  ).all(sessionId) as Array<{ type: string; detail: string }>;
 
   let score = 50; // Base score
   const breakdown: QualityBreakdown = Object.fromEntries(
@@ -76,7 +76,7 @@ export function calculateQualityScore(
     score += weight;
 
     // Categorize observation
-    const desc = obs.description.toLowerCase();
+    const desc = (obs.detail ?? '').toLowerCase();
     for (const category of categories) {
       if (desc.includes(category)) {
         breakdown[category] += weight;

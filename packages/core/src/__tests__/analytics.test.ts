@@ -30,7 +30,7 @@ function createTestDb(): Database.Database {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL,
       type TEXT NOT NULL,
-      description TEXT NOT NULL,
+      detail TEXT,
       created_at TEXT NOT NULL
     );
 
@@ -112,13 +112,13 @@ describe('analytics', () => {
       );
 
       // Insert observations
-      db.prepare('INSERT INTO observations (session_id, type, description, created_at) VALUES (?, ?, ?, ?)').run(
+      db.prepare('INSERT INTO observations (session_id, type, detail, created_at) VALUES (?, ?, ?, ?)').run(
         sessionId, 'vr_pass', 'Security check passed', new Date().toISOString()
       );
-      db.prepare('INSERT INTO observations (session_id, type, description, created_at) VALUES (?, ?, ?, ?)').run(
+      db.prepare('INSERT INTO observations (session_id, type, detail, created_at) VALUES (?, ?, ?, ?)').run(
         sessionId, 'clean_commit', 'Clean commit with security improvements', new Date().toISOString()
       );
-      db.prepare('INSERT INTO observations (session_id, type, description, created_at) VALUES (?, ?, ?, ?)').run(
+      db.prepare('INSERT INTO observations (session_id, type, detail, created_at) VALUES (?, ?, ?, ?)').run(
         sessionId, 'bug_found', 'Bug found in architecture', new Date().toISOString()
       );
 
@@ -153,7 +153,7 @@ describe('analytics', () => {
 
       // Add many negative observations
       for (let i = 0; i < 10; i++) {
-        db.prepare('INSERT INTO observations (session_id, type, description, created_at) VALUES (?, ?, ?, ?)').run(
+        db.prepare('INSERT INTO observations (session_id, type, detail, created_at) VALUES (?, ?, ?, ?)').run(
           sessionId, 'incident', 'Critical incident', new Date().toISOString()
         );
       }
@@ -205,7 +205,7 @@ describe('analytics', () => {
           new Date().toISOString(),
           Math.floor(Date.now() / 1000)
         );
-        db.prepare('INSERT INTO observations (session_id, type, description, created_at) VALUES (?, ?, ?, ?)').run(
+        db.prepare('INSERT INTO observations (session_id, type, detail, created_at) VALUES (?, ?, ?, ?)').run(
           sid, 'vr_pass', 'Test passed', new Date().toISOString()
         );
       }
@@ -249,7 +249,7 @@ describe('analytics', () => {
         new Date().toISOString(),
         Math.floor(Date.now() / 1000)
       );
-      db.prepare('INSERT INTO observations (session_id, type, description, created_at) VALUES (?, ?, ?, ?)').run(
+      db.prepare('INSERT INTO observations (session_id, type, detail, created_at) VALUES (?, ?, ?, ?)').run(
         sessionId, 'vr_pass', 'Security tests passed', new Date().toISOString()
       );
 

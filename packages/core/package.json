@@ -3,7 +3,14 @@
   "version": "0.1.0",
   "type": "module",
   "description": "AI Engineering Governance MCP Server - Session memory, feature registry, code intelligence, and rule enforcement",
+  "license": "BSL-1.1",
+  "author": "Massu AI <hello@massu.ai>",
   "main": "src/server.ts",
+  "types": "src/server.ts",
+  "exports": {
+    ".": "./src/server.ts",
+    "./cli": "./src/cli.ts"
+  },
   "bin": {
     "massu": "./src/cli.ts"
   },
@@ -15,7 +22,6 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3": "^12.6.2",
     "yaml": "^2.4.0",
     "zod": "^3.23.0"
@@ -44,11 +50,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ethankowen-73/massu.git",
+    "url": "https://github.com/massu-ai/massu.git",
     "directory": "packages/core"
   },
   "bugs": {
-    "url": "https://github.com/ethankowen-73/massu/issues"
+    "url": "https://github.com/massu-ai/massu/issues"
   },
-  "homepage": "https://github.com/ethankowen-73/massu#readme"
+  "homepage": "https://massu.ai"
 }

@@ -30,8 +30,8 @@ function createTestDb(): Database.Database {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL,
       type TEXT NOT NULL,
-      description TEXT NOT NULL,
-      files TEXT,
+      detail TEXT,
+      files_involved TEXT,
       created_at TEXT NOT NULL
     );
 
@@ -288,7 +288,7 @@ describe('audit-trail', () => {
         Math.floor(Date.now() / 1000)
       );
 
-      db.prepare('INSERT INTO observations (session_id, type, description, files, created_at) VALUES (?, ?, ?, ?, ?)').run(
+      db.prepare('INSERT INTO observations (session_id, type, detail, files_involved, created_at) VALUES (?, ?, ?, ?, ?)').run(
         sessionId,
         'bugfix',
         'Fixed critical bug',
@@ -296,7 +296,7 @@ describe('audit-trail', () => {
         new Date().toISOString()
       );
 
-      db.prepare('INSERT INTO observations (session_id, type, description, files, created_at) VALUES (?, ?, ?, ?, ?)').run(
+      db.prepare('INSERT INTO observations (session_id, type, detail, files_involved, created_at) VALUES (?, ?, ?, ?, ?)').run(
         sessionId,
         'cr_violation',
         'Rule violation detected',
@@ -320,7 +320,7 @@ describe('audit-trail', () => {
       );
 
       const description = 'Fixed bug in auth';
-      db.prepare('INSERT INTO observations (session_id, type, description, files, created_at) VALUES (?, ?, ?, ?, ?)').run(
+      db.prepare('INSERT INTO observations (session_id, type, detail, files_involved, created_at) VALUES (?, ?, ?, ?, ?)').run(
         sessionId,
         'bugfix',
         description,

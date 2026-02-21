@@ -63,9 +63,9 @@ async function main(): Promise<void> {
 
       // 4.6. Calculate and store quality score
       try {
-        const breakdown = calculateQualityScore(db, session_id);
-        if (breakdown.observations_total > 0) {
-          storeQualityScore(db, session_id, 'massu', breakdown);
+        const { score, breakdown } = calculateQualityScore(db, session_id);
+        if (score > 0) {
+          storeQualityScore(db, session_id, score, breakdown);
         }
         backfillQualityScores(db);
       } catch (_qualityErr) {

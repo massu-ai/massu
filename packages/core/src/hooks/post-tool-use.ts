@@ -101,9 +101,9 @@ async function main(): Promise<void> {
           if (filePath && (filePath.endsWith('.ts') || filePath.endsWith('.tsx'))) {
             const projectRoot = hookInput.cwd;
             const checks = validateFile(filePath, projectRoot);
-            const violations = checks.filter(c => !c.passed);
+            const violations = checks.filter(c => c.severity === 'error' || c.severity === 'critical');
             if (violations.length > 0) {
-              storeValidationResult(db, session_id, filePath, checks);
+              storeValidationResult(db, filePath, checks, session_id);
             }
           }
         }

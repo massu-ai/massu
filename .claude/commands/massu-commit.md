@@ -5,17 +5,9 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-commit
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+
 # CS Commit: Pre-Commit Verification Gate
-
-## POST-COMPACTION SAFETY CHECK (MANDATORY)
-
-**If this session was continued from a previous conversation (compaction/continuation), you MUST:**
-
-1. **Verify the user explicitly invoked `/massu-commit`** - Check the user's LAST ACTUAL message.
-2. **Verify no plan is awaiting approval** - If a `/massu-create-plan` was the last user action and no explicit approval was given, this commit is UNAUTHORIZED.
-3. **Verify there are actual code changes to commit** - If `git diff --stat` shows no staged/unstaged source changes, question whether this commit was actually requested.
-
----
 
 ## Objective
 
@@ -381,6 +373,23 @@ If changes span 3+ unrelated areas (e.g., `packages/core/` + `website/` + `scrip
 
 ---
 
+## START NOW
+
+**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
+
+Update `session-state/CURRENT.md` to include `AUTHORIZED_COMMAND: massu-commit`.
+
+1. Check work to commit: `git status && git diff --stat`
+2. If Plan exists, begin PASS A
+3. If no Plan, audit against CLAUDE.md patterns only
+4. Run full audit loop until ZERO gaps
+5. Run ALL verification gates
+6. Execute AUTO-LEARNING PROTOCOL
+7. Commit only when ALL conditions met
+8. Report completion, await push instruction
+
+---
+
 ## AUTO-LEARNING PROTOCOL
 
 After committing, if any issues were fixed during this audit:
@@ -388,6 +397,7 @@ After committing, if any issues were fixed during this audit:
 1. **Record the pattern** - What went wrong and how it was fixed
 2. **Check if pattern scanner should be updated** - Can the check be automated?
 3. **Update session state** - Record in `.claude/session-state/CURRENT.md`
+4. **Search codebase-wide** - Verify no other instances of same bad pattern (CR-9)
 
 ---
 

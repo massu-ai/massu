@@ -1,0 +1,72 @@
+---
+title: "/massu-push-light"
+description: "Fast pre-push verification (~90s) covering patterns, types, tests, and hooks"
+order: 37
+---
+
+# /massu-push-light
+
+A fast pre-push verification gate that runs five critical checks in approximately 90 seconds. Designed to catch the most common CI failures without the overhead of full builds or end-to-end tests.
+
+## Usage
+
+```
+/massu-push-light
+```
+
+No arguments required. Runs all five checks sequentially and stops on the first failure.
+
+## What It Does
+
+The command executes five checks in order:
+
+### 1. Pattern Scanner (~5s)
+Runs `bash scripts/massu-pattern-scanner.sh` to catch code pattern violations, import issues, and config anti-patterns.
+
+### 2. TypeScript Check (~30s)
+Runs `npx tsc --noEmit` to catch type errors, missing imports, and interface mismatches.
+
+### 3. Hook Compilation (~5s)
+Runs `npm run build:hooks` to verify all hooks in `packages/core/src/hooks/` compile with esbuild.
+
+### 4. Unit Tests (~30s)
+Runs the full vitest test suite to catch regressions, broken logic, and handler errors.
+
+### 5. Build (~20s)
+Runs `npm run build` to verify the full project compiles without errors.
+
+## Output
+
+```
+==============================================
+MASSU PUSH LIGHT - Fast Pre-Push Verification
+==============================================
+
+[1/5] Pattern Scanner...    PASS
+[2/5] TypeScript Check...   PASS
+[3/5] Hook Compilation...   PASS
+[4/5] Unit Tests...         PASS
+[5/5] Build...              PASS
+
+==============================================
+ALL CHECKS PASSED - Safe to push
+==============================================
+```
+
+## When to Use
+
+- **Before every `git push`** to catch roughly 90% of CI failures locally
+- **After significant changes** as a quick sanity check
+- **Before creating a pull request** to ensure a clean state
+
+## When to Use Full Verification Instead
+
+Use `/massu-push` (full) when making config schema changes, modifying tool registration patterns, changing core infrastructure, or preparing a major release.
+
+## What This Skips
+
+| Skipped Check | Risk Level |
+|---------------|------------|
+| Full integration tests | Medium |
+| Security scanner | Low (run for security changes) |
+| Coverage report | Low |

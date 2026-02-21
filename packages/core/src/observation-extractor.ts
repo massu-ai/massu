@@ -13,6 +13,7 @@ import {
 } from './transcript-parser.ts';
 import type { AddObservationOpts } from './memory-db.ts';
 import { assignImportance } from './memory-db.ts';
+import { detectDecisionPatterns } from './adr-generator.ts';
 import { getProjectRoot } from './config.ts';
 
 // ============================================================
@@ -373,6 +374,25 @@ export function classifyRealTimeToolCall(
   };
 
   if (isNoisyToolCall(tc, seenReads)) return null;
+
+  // P2-003: Detect architecture decision patterns in tool responses
+  if (toolResponse && detectDecisionPatterns(toolResponse)) {
+    const firstLine = toolResponse.split('\n')[0].slice(0, 200);
+    const title = `Architecture decision: ${firstLine}`;
+    const detail = toolResponse.slice(0, 1000);
+    return {
+      type: 'decision',
+      title,
+      detail,
+      visibility: classifyVisibility(title, detail),
+      opts: {
+        importance: assignImportance('decision'),
+        originalTokens: estimateTokens(toolResponse),
+        ...extractLinkedReferences(toolResponse),
+      },
+    };
+  }
+
   return classifyToolCall(tc);
 }
 

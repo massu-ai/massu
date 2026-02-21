@@ -1,0 +1,61 @@
+---
+title: "/massu-api-contract"
+description: "MCP tool contract audit with handler-schema verification and consistency checks"
+order: 27
+---
+
+# /massu-api-contract
+
+A read-only audit protocol that verifies MCP tool contracts are consistent between tool schemas and handlers, checks pattern compliance across all tool modules, and ensures type safety across tool boundaries.
+
+## Usage
+
+```
+/massu-api-contract
+```
+
+## What It Does
+
+The command runs a 7-section audit loop that must achieve zero issues in a single complete pass before declaring the API contract verified. If any issues are found, they are fixed and the entire audit re-runs from the beginning.
+
+### Section 1: Tool Module Inventory
+Lists all tool definition files, builds a registration matrix showing which modules are imported in `tools.ts`, which have definitions spread, and which have handlers wired.
+
+### Section 2: Tool Definition Inventory
+Catalogs every tool name, its input schema, required properties, and verifies config-driven prefixes. Flags any hardcoded `massu_` prefixes that should use `getConfig().toolPrefix`.
+
+### Section 3: Handler-Schema Consistency
+For each tool, extracts `inputSchema.properties` from the definition and compares against the handler function to verify all required properties are destructured and types match.
+
+### Section 4: Pattern Compliance
+Runs 5 critical pattern checks:
+- **P-001**: ESM imports with `.ts` extensions
+- **P-002**: Config-driven tool prefix (no hardcoding)
+- **P-003**: `getConfig()` usage (no direct YAML parsing)
+- **P-004**: Memory DB lifecycle (`try/finally` with `.close()`)
+- **P-005**: Pattern scanner passes (`bash scripts/massu-pattern-scanner.sh`)
+
+### Section 5: Output Consistency
+Verifies all tool handlers return the standard MCP response format: `{ content: [{ type: 'text', text: string }] }`.
+
+### Section 6: Error Handling
+Audits try-catch coverage in tool handlers and verifies error responses follow consistent patterns.
+
+### Section 7: Type Check and Tests
+Runs `npx tsc --noEmit` for type safety and `npm test` to verify all tests pass.
+
+## Output
+
+Produces an API Contract Report with:
+- Total tool modules and tools counted
+- Tool registration status (CR-11 compliance)
+- Pattern compliance matrix
+- Schema-handler sync results
+- Issues found with severity and recommended fixes
+- Overall status: HEALTHY, NEEDS ATTENTION, or CRITICAL
+
+## When to Use
+
+- **After adding or modifying MCP tools**: Verify new tools are properly registered and schemas match handlers
+- **Periodic contract audits**: Catch schema drift before it causes runtime errors
+- **Before releases**: Ensure all tool contracts are consistent and type-safe

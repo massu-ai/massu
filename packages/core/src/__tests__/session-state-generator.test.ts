@@ -833,7 +833,7 @@ describe('session-state-generator', () => {
       insertObservation(db, SESSION_ID, 'decision', 'Use ORDER BY created_at_epoch for observation ordering', null, [], 4);
       insertObservation(db, SESSION_ID, 'failed_attempt', 'Attempted to use getMemoryDb in tests', 'Config dependency caused failures', [], 5);
       insertObservation(db, SESSION_ID, 'vr_check', 'VR-BUILD: npm run build exits 0', null, [], 6);
-      insertObservation(db, SESSION_ID, 'vr_check', 'VR-TEST: all 523 tests pass', null, [], 7);
+      insertObservation(db, SESSION_ID, 'vr_check', 'VR-TEST: all 880 tests pass', null, [], 7);
 
       insertSummary(db, SESSION_ID, {
         completed: 'generateCurrentMd fully implemented and tested',
@@ -879,7 +879,7 @@ describe('session-state-generator', () => {
       // Verification evidence
       expect(result).toContain('## VERIFICATION EVIDENCE');
       expect(result).toContain('- VR-BUILD: npm run build exits 0');
-      expect(result).toContain('- VR-TEST: all 523 tests pass');
+      expect(result).toContain('- VR-TEST: all 880 tests pass');
 
       // Pending
       expect(result).toContain('## PENDING');

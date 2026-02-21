@@ -5,6 +5,8 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Task(*)
 ---
 name: massu-plan
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+
 # CS Plan: Continuous Verification Audit Loop (ZERO-GAP STANDARD)
 
 ## CRITICAL: THIS IS A PLAN-AUDIT COMMAND, NOT AN IMPLEMENTATION COMMAND
@@ -31,6 +33,14 @@ name: massu-plan
 3. **WAIT** for explicit user instruction to implement (e.g., "run /massu-loop")
 
 **This command AUDITS plans. It does NOT implement them. Implementation requires /massu-loop.**
+
+---
+
+## START NOW
+
+**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
+
+Update `session-state/CURRENT.md` to include `AUTHORIZED_COMMAND: massu-plan`.
 
 ---
 

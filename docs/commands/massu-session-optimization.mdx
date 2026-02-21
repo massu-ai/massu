@@ -1,0 +1,65 @@
+---
+title: "/massu-session-optimization"
+description: "Audit and optimize session context overhead including CLAUDE.md, commands, MCP, hooks, and memory"
+order: 40
+---
+
+# /massu-session-optimization
+
+A six-section audit of Claude Code session context overhead that measures, detects duplication, and recommends reductions. It produces a structured report with estimated token savings and optionally applies approved fixes.
+
+## Usage
+
+```
+/massu-session-optimization
+```
+
+No arguments required. The command reads configuration files, measures sizes, and produces a report.
+
+## What It Does
+
+### Section 1: Context Budget Measurement
+Measures the character count of each context component and flags any that exceed thresholds:
+
+| Component | Threshold |
+|-----------|-----------|
+| CLAUDE.md | < 20,000 chars |
+| Project memory | < 4,000 chars |
+| Rules files | 0 files in `~/.claude/rules/` |
+| MCP deferred tools | < 150 |
+| Largest command | < 40,000 chars |
+| Autocompact setting | >= 90% |
+
+Calculates estimated total session overhead in tokens (chars / 4).
+
+### Section 2: Duplication Detection
+Cross-references project memory content against CLAUDE.md using key phrase matching. Flags canonical rules, build patterns, and architecture notes that appear in multiple files. Reports a duplication percentage score.
+
+### Section 3: Command Bloat Analysis
+Measures all command files by size, checks shared preamble adoption, and detects inline boilerplate that should be centralized. Flags any command over 40K characters.
+
+### Section 4: MCP Server Audit
+Lists all active MCP servers with tool counts, identifies servers with zero usage as disable candidates, and reports total deferred tool count.
+
+### Section 5: Hook Overhead Analysis
+Counts hooks per event type, flags wildcard PostToolUse matchers that fire on every tool call, and checks whether the pattern scanner is properly scoped to code files.
+
+### Section 6: Autocompact and Session Health
+Reads the current autocompact percentage override, flags values below 90%, and checks session state file staleness.
+
+## Safe Auto-Apply
+
+After presenting the report, the command offers to apply recommended optimizations:
+1. Shows exact changes before applying each action
+2. Creates backups before modifying CLAUDE.md or memory files
+3. Never deletes content that does not exist elsewhere
+4. Never modifies slash command protocol logic
+5. Never disables MCP servers without asking
+6. Re-measures after applying to show before/after comparison
+
+## When to Use
+
+- Sessions feel slow or context windows fill up faster than expected
+- After adding new commands, hooks, or MCP servers
+- Periodic maintenance to keep session overhead under control
+- When debugging context-related compaction or truncation issues

@@ -5,6 +5,8 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-debug
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+
 # CS Debug: Systematic Debugging Protocol
 
 ## Objective
@@ -23,6 +25,18 @@ Trace errors to root cause systematically using hypothesis-driven investigation.
 - **Record each hypothesis and its outcome**
 - **FIX ALL ISSUES ENCOUNTERED (CR-9)** — if you find additional bugs while debugging, fix those too
 - **Proof > reasoning. Commands > assumptions.**
+
+---
+
+## STEP 0: MEMORY CHECK
+
+Before investigating, search for past failures related to this issue:
+
+- Check session state (`.claude/session-state/CURRENT.md`) for recent failures
+- Search codebase for similar error patterns
+- Check if this is a known issue with an established fix pattern
+
+If matches found: read the previous failures and avoid repeating failed approaches.
 
 ---
 

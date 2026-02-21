@@ -8,6 +8,7 @@
 // ============================================================
 
 import { getMemoryDb, addSummary, createSession } from '../memory-db.ts';
+import { logAuditEntry } from '../audit-trail.ts';
 import type { SessionSummary } from '../memory-db.ts';
 
 interface HookInput {
@@ -43,6 +44,18 @@ async function main(): Promise<void> {
 
       // 4. Store with pre_compact marker in plan_progress
       addSummary(db, session_id, summary);
+
+      // Log compaction event for audit trail continuity
+      try {
+        logAuditEntry(db, {
+          sessionId: session_id,
+          eventType: 'compaction',
+          actor: 'hook',
+          metadata: { observations_count: observations.length, prompts_count: prompts.length },
+        });
+      } catch (_auditErr) {
+        // Best-effort: never block compaction
+      }
     } finally {
       db.close();
     }

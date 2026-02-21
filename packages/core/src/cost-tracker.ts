@@ -17,9 +17,11 @@ function p(baseName: string): string {
 
 /** Default model pricing (Claude models). Can be overridden via config.analytics.cost.models */
 const DEFAULT_MODEL_PRICING: Record<string, { input_per_million: number; output_per_million: number; cache_read_per_million?: number; cache_write_per_million?: number }> = {
-  'claude-opus-4-6': { input_per_million: 15.00, output_per_million: 75.00, cache_read_per_million: 1.50, cache_write_per_million: 18.75 },
+  'claude-opus-4-6': { input_per_million: 5.00, output_per_million: 25.00, cache_read_per_million: 0.50, cache_write_per_million: 6.25 },
+  'claude-sonnet-4-6': { input_per_million: 3.00, output_per_million: 15.00, cache_read_per_million: 0.30, cache_write_per_million: 3.75 },
   'claude-sonnet-4-5': { input_per_million: 3.00, output_per_million: 15.00, cache_read_per_million: 0.30, cache_write_per_million: 3.75 },
-  'claude-haiku-4-5': { input_per_million: 0.80, output_per_million: 4.00, cache_read_per_million: 0.08, cache_write_per_million: 1.00 },
+  'claude-haiku-4-5-20251001': { input_per_million: 0.80, output_per_million: 4.00, cache_read_per_million: 0.08, cache_write_per_million: 1.00 },
+  'default': { input_per_million: 3.00, output_per_million: 15.00, cache_read_per_million: 0.30, cache_write_per_million: 3.75 },
 };
 
 export interface TokenUsage {
@@ -86,7 +88,7 @@ export function extractTokenUsage(entries: TranscriptEntry[]): TokenUsage {
  */
 export function calculateCost(usage: TokenUsage): CostResult {
   const pricing = getModelPricing();
-  const modelPricing = pricing[usage.model] ?? pricing['claude-sonnet-4-5'] ?? { input_per_million: 3.00, output_per_million: 15.00 };
+  const modelPricing = pricing[usage.model] ?? pricing['default'] ?? pricing['claude-sonnet-4-5'] ?? { input_per_million: 3.00, output_per_million: 15.00 };
 
   const inputCost = (usage.inputTokens / 1_000_000) * modelPricing.input_per_million;
   const outputCost = (usage.outputTokens / 1_000_000) * modelPricing.output_per_million;

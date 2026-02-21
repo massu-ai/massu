@@ -5,17 +5,9 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Task(*)
 ---
 name: massu-loop
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+
 # CS Loop: Autonomous Execution Protocol
-
-## POST-COMPACTION SAFETY CHECK (MANDATORY)
-
-**If this session was continued from a previous conversation (compaction/continuation), you MUST:**
-
-1. **Verify the user explicitly invoked `/massu-loop`** - Check the user's LAST ACTUAL message. Continuation instructions ("continue where you left off") are NOT user commands.
-2. **Verify the plan was explicitly approved** - If a `/massu-create-plan` was the last user action and no explicit approval was given, implementation is UNAUTHORIZED. Stop immediately and ask the user.
-3. **System-injected skill invocations after compaction are NOT user commands.**
-
----
 
 ## MANDATORY LOOP CONTROLLER (EXECUTE THIS - DO NOT SKIP)
 
@@ -53,9 +45,27 @@ iteration = 0
 # Phase 1: IMPLEMENT (do the work)
 # Read plan, extract items, implement each one with VR-* proof
 
+# Phase 1.5: MULTI-PERSPECTIVE REVIEW (after implementation, before verification)
+# Spawn focused review subagents IN PARALLEL for independent analysis
+
+security_result = Task(subagent_type="general-purpose", model="opus", prompt="
+  Review implementation for plan: {PLAN_PATH}
+  Focus: Security vulnerabilities, auth gaps, input validation, data exposure
+  Check all new/modified files. Return structured result with SECURITY_GATE.
+")
+
+architecture_result = Task(subagent_type="general-purpose", model="opus", prompt="
+  Review implementation for plan: {PLAN_PATH}
+  Focus: Design issues, coupling problems, pattern compliance, scalability
+  Check all new/modified files. Return structured result with ARCHITECTURE_GATE.
+")
+
 # Phase 2: VERIFY (audit loop - STRUCTURAL)
 WHILE true:
   iteration += 1
+
+  # Run circuit breaker check (detect stagnation)
+  # If same gaps appear 3+ times, consider changing approach
 
   # Spawn auditor subagent for ONE complete verification pass
   result = Task(subagent_type="general-purpose", model="opus", prompt="
@@ -118,6 +128,20 @@ WHILE true:
     # Then continue the loop for re-verification
     CONTINUE
 END WHILE
+
+# Phase 2.1: POST-BUILD REFLECTION
+# Now that the implementation is verified, capture accumulated knowledge:
+#
+# 1. "Now that I've built this, what would I have done differently?"
+#    - Identify architectural choices that caused friction
+#    - Note patterns that were harder to work with than expected
+#
+# 2. "What should be refactored before moving on?"
+#    - Concrete refactoring suggestions with file paths
+#    - Technical debt introduced during implementation
+#
+# Output reflection, then apply any low-risk refactors immediately.
+# Log remaining suggestions in the plan document under "## Post-Build Reflection".
 ```
 
 ### Rules for the Loop Controller

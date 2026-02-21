@@ -12589,6 +12589,254 @@ function sleep(ms) {
   return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 
+// src/analytics.ts
+var DEFAULT_WEIGHTS = {
+  bug_found: -5,
+  vr_failure: -10,
+  incident: -20,
+  cr_violation: -3,
+  vr_pass: 2,
+  clean_commit: 5,
+  successful_verification: 3
+};
+var DEFAULT_CATEGORIES = ["security", "architecture", "coupling", "tests", "rule_compliance"];
+function getWeights() {
+  return getConfig().analytics?.quality?.weights ?? DEFAULT_WEIGHTS;
+}
+function getCategories() {
+  return getConfig().analytics?.quality?.categories ?? DEFAULT_CATEGORIES;
+}
+function calculateQualityScore(db, sessionId) {
+  const weights = getWeights();
+  const categories = getCategories();
+  const observations = db.prepare(
+    "SELECT type, description FROM observations WHERE session_id = ?"
+  ).all(sessionId);
+  let score = 50;
+  const breakdown = Object.fromEntries(
+    categories.map((c) => [c, 0])
+  );
+  for (const obs of observations) {
+    const weight = weights[obs.type] ?? 0;
+    score += weight;
+    const desc = obs.description.toLowerCase();
+    for (const category of categories) {
+      if (desc.includes(category)) {
+        breakdown[category] += weight;
+      }
+    }
+  }
+  return {
+    score: Math.max(0, Math.min(100, score)),
+    breakdown
+  };
+}
+function storeQualityScore(db, sessionId, score, breakdown) {
+  db.prepare(`
+    INSERT INTO session_quality_scores
+    (session_id, score, security_score, architecture_score, coupling_score, test_score, rule_compliance_score)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    sessionId,
+    score,
+    breakdown.security ?? 0,
+    breakdown.architecture ?? 0,
+    breakdown.coupling ?? 0,
+    breakdown.tests ?? 0,
+    breakdown.rule_compliance ?? 0
+  );
+}
+function backfillQualityScores(db) {
+  const sessions = db.prepare(`
+    SELECT DISTINCT s.session_id
+    FROM sessions s
+    LEFT JOIN session_quality_scores q ON s.session_id = q.session_id
+    WHERE q.session_id IS NULL
+  `).all();
+  let backfilled = 0;
+  for (const session of sessions) {
+    const { score, breakdown } = calculateQualityScore(db, session.session_id);
+    storeQualityScore(db, session.session_id, score, breakdown);
+    backfilled++;
+  }
+  return backfilled;
+}
+
+// src/cost-tracker.ts
+var DEFAULT_MODEL_PRICING = {
+  "claude-opus-4-6": { input_per_million: 5, output_per_million: 25, cache_read_per_million: 0.5, cache_write_per_million: 6.25 },
+  "claude-sonnet-4-6": { input_per_million: 3, output_per_million: 15, cache_read_per_million: 0.3, cache_write_per_million: 3.75 },
+  "claude-sonnet-4-5": { input_per_million: 3, output_per_million: 15, cache_read_per_million: 0.3, cache_write_per_million: 3.75 },
+  "claude-haiku-4-5-20251001": { input_per_million: 0.8, output_per_million: 4, cache_read_per_million: 0.08, cache_write_per_million: 1 },
+  "default": { input_per_million: 3, output_per_million: 15, cache_read_per_million: 0.3, cache_write_per_million: 3.75 }
+};
+function getModelPricing() {
+  return getConfig().analytics?.cost?.models ?? DEFAULT_MODEL_PRICING;
+}
+function getCurrency() {
+  return getConfig().analytics?.cost?.currency ?? "USD";
+}
+function extractTokenUsage(entries) {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
+  let model = "unknown";
+  for (const entry of entries) {
+    const msg = entry.message;
+    if (entry.type === "assistant" && msg?.usage) {
+      const usage = msg.usage;
+      inputTokens += usage.input_tokens ?? 0;
+      outputTokens += usage.output_tokens ?? 0;
+      cacheReadTokens += usage.cache_read_input_tokens ?? usage.cache_read_tokens ?? 0;
+      cacheWriteTokens += usage.cache_creation_input_tokens ?? usage.cache_write_tokens ?? 0;
+    }
+    if (entry.type === "assistant" && msg?.model) {
+      model = msg.model;
+    }
+  }
+  return { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, model };
+}
+function calculateCost(usage) {
+  const pricing = getModelPricing();
+  const modelPricing = pricing[usage.model] ?? pricing["default"] ?? pricing["claude-sonnet-4-5"] ?? { input_per_million: 3, output_per_million: 15 };
+  const inputCost = usage.inputTokens / 1e6 * modelPricing.input_per_million;
+  const outputCost = usage.outputTokens / 1e6 * modelPricing.output_per_million;
+  const cacheReadCost = usage.cacheReadTokens / 1e6 * (modelPricing.cache_read_per_million ?? 0);
+  const cacheWriteCost = usage.cacheWriteTokens / 1e6 * (modelPricing.cache_write_per_million ?? 0);
+  return {
+    totalCost: inputCost + outputCost + cacheReadCost + cacheWriteCost,
+    inputCost,
+    outputCost,
+    cacheReadCost,
+    cacheWriteCost,
+    currency: getCurrency()
+  };
+}
+function storeSessionCost(db, sessionId, usage, cost) {
+  const totalTokens = usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+  db.prepare(`
+    INSERT INTO session_costs
+    (session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+     total_tokens, estimated_cost_usd)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    sessionId,
+    usage.model,
+    usage.inputTokens,
+    usage.outputTokens,
+    usage.cacheReadTokens,
+    usage.cacheWriteTokens,
+    totalTokens,
+    cost.totalCost
+  );
+}
+
+// src/prompt-analyzer.ts
+import { createHash } from "crypto";
+
+// src/security-utils.ts
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function redactSensitiveContent(text) {
+  return text.replace(/\b(sk-|ghp_|gho_|xoxb-|xoxp-|AKIA)[A-Za-z0-9_-]{10,}\b/g, "[REDACTED_KEY]").replace(/Bearer\s+[A-Za-z0-9._~+/=-]{20,}/gi, "Bearer [REDACTED_TOKEN]").replace(/:\/\/[^:]+:[^@\s]+@/g, "://[REDACTED_CREDENTIALS]@").replace(/(https?:\/\/[^\s]+[?&](?:token|key|secret|password|auth)=)[^\s&]*/gi, "$1[REDACTED]").replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[REDACTED_EMAIL]").replace(/(?:\/Users\/|\/home\/|C:\\Users\\)[^\s"'`]+/g, "[REDACTED_PATH]");
+}
+
+// src/prompt-analyzer.ts
+var DEFAULT_SUCCESS_INDICATORS = ["committed", "approved", "looks good", "perfect", "great", "thanks"];
+var DEFAULT_ABANDON_PATTERNS = /\b(nevermind|forget it|skip|let's move on|different|instead)\b/i;
+function categorizePrompt(promptText) {
+  const lower = promptText.toLowerCase();
+  if (/\b(fix|bug|error|broken|issue|crash|fail)\b/.test(lower)) return "bugfix";
+  if (/\b(refactor|rename|move|extract|cleanup|reorganize)\b/.test(lower)) return "refactor";
+  if (/\b(what|how|why|where|when|explain|describe|tell me)\b/.test(lower)) return "question";
+  if (/^\/\w+/.test(promptText.trim())) return "command";
+  if (/\b(add|create|implement|build|new|feature)\b/.test(lower)) return "feature";
+  return "feature";
+}
+function hashPrompt(promptText) {
+  const normalized = promptText.toLowerCase().replace(/\s+/g, " ").trim();
+  return createHash("sha256").update(normalized).digest("hex").slice(0, 16);
+}
+function detectOutcome(followUpPrompts, assistantResponses) {
+  let correctionsNeeded = 0;
+  let outcome = "success";
+  const correctionPatterns = /\b(no|wrong|that's not|fix this|try again|revert|undo|incorrect|not what)\b/i;
+  const config = getConfig();
+  const successIndicators = config.analytics?.prompts?.success_indicators ?? DEFAULT_SUCCESS_INDICATORS;
+  const escapedIndicators = successIndicators.map(escapeRegex);
+  const successRegex = new RegExp(`\\b(${escapedIndicators.join("|")})\\b`, "i");
+  for (const prompt of followUpPrompts) {
+    if (correctionPatterns.test(prompt)) {
+      correctionsNeeded++;
+    }
+    if (DEFAULT_ABANDON_PATTERNS.test(prompt)) {
+      outcome = "abandoned";
+      break;
+    }
+  }
+  for (const response of assistantResponses) {
+    if (/\b(error|failed|cannot|unable to)\b/i.test(response) && response.length < 200) {
+      outcome = "failure";
+    }
+  }
+  if (outcome === "abandoned") {
+  } else if (correctionsNeeded >= 3) {
+    outcome = "partial";
+  } else if (correctionsNeeded > 0) {
+    outcome = "partial";
+  } else {
+    for (const prompt of followUpPrompts) {
+      if (successRegex.test(prompt)) {
+        outcome = "success";
+        break;
+      }
+    }
+  }
+  return {
+    outcome,
+    correctionsNeeded,
+    followUpCount: followUpPrompts.length
+  };
+}
+function analyzeSessionPrompts(db, sessionId) {
+  const prompts = db.prepare(
+    "SELECT prompt_text, prompt_number FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC"
+  ).all(sessionId);
+  if (prompts.length === 0) return 0;
+  let stored = 0;
+  for (let i = 0; i < prompts.length; i++) {
+    const prompt = prompts[i];
+    const followUps = prompts.slice(i + 1, i + 4).map((p) => p.prompt_text);
+    const category = categorizePrompt(prompt.prompt_text);
+    const hash = hashPrompt(prompt.prompt_text);
+    const { outcome, correctionsNeeded, followUpCount } = detectOutcome(followUps, []);
+    const existing = db.prepare(
+      "SELECT id FROM prompt_outcomes WHERE session_id = ? AND prompt_hash = ?"
+    ).get(sessionId, hash);
+    if (existing) continue;
+    const redactedText = redactSensitiveContent(prompt.prompt_text.slice(0, 2e3));
+    db.prepare(`
+      INSERT INTO prompt_outcomes
+      (session_id, prompt_hash, prompt_text, prompt_category, word_count, outcome,
+       corrections_needed, follow_up_prompts)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      sessionId,
+      hash,
+      redactedText,
+      category,
+      prompt.prompt_text.split(/\s+/).length,
+      outcome,
+      correctionsNeeded,
+      followUpCount
+    );
+    stored++;
+  }
+  return stored;
+}
+
 // src/hooks/session-end.ts
 async function main() {
   try {
@@ -12609,6 +12857,25 @@ async function main() {
       try {
         await captureConversationData(db, session_id, hookInput.transcript_path);
       } catch (_captureErr) {
+      }
+      try {
+        const breakdown = calculateQualityScore(db, session_id);
+        if (breakdown.observations_total > 0) {
+          storeQualityScore(db, session_id, "massu", breakdown);
+        }
+        backfillQualityScores(db);
+      } catch (_qualityErr) {
+      }
+      try {
+        const { entries } = await parseTranscriptFrom(hookInput.transcript_path, 0);
+        const tokenUsage = extractTokenUsage(entries);
+        const cost = calculateCost(tokenUsage);
+        storeSessionCost(db, session_id, tokenUsage, cost);
+      } catch (_costErr) {
+      }
+      try {
+        analyzeSessionPrompts(db, session_id);
+      } catch (_promptErr) {
       }
       endSession(db, session_id, "completed");
       archiveAndRegenerate(db, session_id);

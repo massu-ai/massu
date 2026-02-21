@@ -1,0 +1,64 @@
+---
+title: "/massu-import-audit"
+description: "Import chain audit preventing build issues from heavy or circular dependencies and ESM violations"
+order: 32
+---
+
+# /massu-import-audit
+
+A read-only audit that prevents build failures and runtime crashes by verifying import chains across the codebase. Checks ESM compliance, hook import safety, circular dependencies, and heavy package isolation.
+
+## Usage
+
+```
+/massu-import-audit
+```
+
+## What It Does
+
+The audit is built on the principle that a single wrong import in a chain can cause build failures or runtime crashes. It runs 5 sections of checks.
+
+### Section 1: Import Chain Analysis
+Runs the pattern scanner and checks for ESM extension violations. All local imports must include the `.ts` extension. Also verifies hook files do not import heavy packages.
+
+**Import Safety Rules:**
+
+| Package | Allowed In | Not Allowed In |
+|---------|-----------|---------------|
+| better-sqlite3 | `src/*.ts` | `src/hooks/*.ts` |
+| @modelcontextprotocol/sdk | `server.ts`, `tools.ts` | `hooks/` |
+| yaml | `config.ts` | `hooks/` |
+| esbuild | build scripts | `src/` runtime |
+
+### Section 2: Circular Dependency Check
+Uses `madge --circular` to detect circular imports. For each cycle found, identifies the files involved and recommends a fix strategy (extract shared types, lazy import, or dependency injection).
+
+### Section 3: Hook Import Safety (CR-12)
+Verifies all hooks compile with `npm run build:hooks`. Lists every import in hook files and classifies each as safe (Node.js built-in, lightweight local) or unsafe (heavy package like better-sqlite3 or yaml).
+
+### Section 4: Dependency Weight Analysis
+Reviews direct dependencies and identifies heavy transitive dependencies being pulled into the project.
+
+### Section 5: Import Audit Report
+Produces a prioritized report of violations:
+- **Critical**: Heavy import in hook file (blocks build)
+- **High**: Missing `.ts` extension or circular dependency
+- **Medium**: Unused import (code quality)
+
+## Completion Criteria
+
+The audit passes when:
+- Pattern scanner exits 0
+- Hook compilation exits 0
+- Zero local imports missing `.ts` extension
+- Zero heavy package imports in hook files
+- Zero circular dependencies
+- Full build succeeds
+
+## When to Use
+
+- **After adding new imports**: Verify the import chain is safe
+- **When builds fail unexpectedly**: Diagnose import-related build issues
+- **After adding new hook files**: Ensure hooks remain lightweight
+- **Periodic maintenance**: Catch import chain issues before they cause problems
+- **Vs `/massu-codebase-audit`**: Use `/massu-import-audit` for a focused import chain review; use `/massu-codebase-audit` for a comprehensive multi-phase audit

@@ -14,6 +14,7 @@
 import { getCodeGraphDb, getDataDb } from './db.ts';
 import { getConfig } from './config.ts';
 import { getToolDefinitions, handleToolCall } from './tools.ts';
+import { getMemoryDb, pruneOldConversationTurns, pruneOldObservations } from './memory-db.ts';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -101,6 +102,36 @@ function handleRequest(request: JsonRpcRequest): JsonRpcResponse {
     }
   }
 }
+
+// === Startup: prune stale memory data (non-blocking) ===
+
+function pruneMemoryOnStartup(): void {
+  try {
+    const memDb = getMemoryDb();
+    try {
+      const turns = pruneOldConversationTurns(memDb, 7);
+      const obsDeleted = pruneOldObservations(memDb, 90);
+
+      const totalPruned = turns.turnsDeleted + turns.detailsDeleted + obsDeleted;
+      if (totalPruned > 0) {
+        process.stderr.write(
+          `massu: Pruned memory DB on startup — ` +
+          `${turns.turnsDeleted} conversation turns, ` +
+          `${turns.detailsDeleted} tool call details (>7d), ` +
+          `${obsDeleted} observations (>90d)\n`
+        );
+      }
+    } finally {
+      memDb.close();
+    }
+  } catch (error) {
+    process.stderr.write(
+      `massu: Memory pruning failed (non-fatal): ${error instanceof Error ? error.message : String(error)}\n`
+    );
+  }
+}
+
+pruneMemoryOnStartup();
 
 // === stdio JSON-RPC transport ===
 

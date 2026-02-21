@@ -1,0 +1,72 @@
+---
+title: "/massu-verify"
+description: "Run all VR-* verification checks for current work with mandatory proof output"
+order: 43
+---
+
+# /massu-verify
+
+Runs all applicable VR-* verification checks against the current work and produces a report with actual command output as proof. It enforces a zero-gap audit loop where all checks must pass in a single run before verification is complete.
+
+## Usage
+
+```
+/massu-verify
+```
+
+No arguments required. The command automatically determines which VR-* checks are applicable based on the work being verified.
+
+## What It Does
+
+### Verification Planning
+Before running any checks, the command enumerates all applicable VR-* checks based on the domains touched (tools, config, hooks, build, tests) and creates a verification strategy.
+
+### Core Checks (Always Run)
+
+| Check | Command | What It Catches |
+|-------|---------|-----------------|
+| VR-BUILD | `npm run build` | Build failures, compilation errors |
+| VR-TYPE | `npx tsc --noEmit` | Type errors, interface mismatches |
+| VR-TEST | `npm test` | Regressions, broken logic |
+| Pattern Scanner | `bash scripts/massu-pattern-scanner.sh` | Pattern violations |
+| Security | Scan for staged secrets and credentials in code | Leaked credentials |
+
+### Conditional Checks
+
+| Check | Runs When | What It Verifies |
+|-------|-----------|------------------|
+| VR-FILE | Files created or modified | File existence with non-zero size |
+| VR-GREP | Code patterns added | Pattern present with line number proof |
+| VR-NEGATIVE | Code removed | Zero remaining references via grep |
+| VR-CONFIG | Config changes made | Config-code alignment for every key |
+| VR-TOOL-REG | New MCP tools added | Tool registered in tools.ts, not just created |
+| VR-HOOK-BUILD | Hooks modified | Hook compilation with esbuild |
+| VR-HANDLER | Tool handlers added | Handler exists and returns a result |
+| VR-PLAN-COVERAGE | Implementing a plan | 100% of plan items verified |
+
+### Dual Gate System
+
+Verification uses two independent gates that both must pass:
+
+1. **Code Quality Gate** -- All VR-* checks pass, patterns comply, no security issues
+2. **Plan Coverage Gate** -- Every plan deliverable is verified (100% coverage required)
+
+### Zero-Gap Audit Loop
+
+If any check fails, all issues are fixed and the entire audit re-runs from the beginning. Partial re-checks are not valid. The command only reports VERIFIED when a single complete pass finds zero issues.
+
+## Output
+
+Produces a structured report showing:
+- Each VR-* check with its command, expected result, actual result, and PASS/FAIL status
+- Pass/fail counts per category
+- Plan coverage percentage (if applicable)
+- Overall dual verification status
+- List of gaps found (if any) with required fixes
+
+## When to Use
+
+- Before claiming any work is complete
+- After implementing a plan to verify all deliverables
+- As the final gate before `/massu-commit`
+- When you need verifiable proof that changes are correct and complete

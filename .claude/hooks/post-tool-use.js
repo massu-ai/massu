@@ -12215,6 +12215,17 @@ function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
+// src/adr-generator.ts
+var DEFAULT_DETECTION_PHRASES = ["chose", "decided", "switching to", "moving from", "going with"];
+function getDetectionPhrases() {
+  return getConfig().governance?.adr?.detection_phrases ?? DEFAULT_DETECTION_PHRASES;
+}
+function detectDecisionPatterns(text) {
+  const phrases = getDetectionPhrases();
+  const lower = text.toLowerCase();
+  return phrases.some((phrase) => lower.includes(phrase));
+}
+
 // src/observation-extractor.ts
 var PRIVATE_PATTERNS = [
   /\/Users\/\w+/,
@@ -12415,6 +12426,22 @@ function classifyRealTimeToolCall(toolName, toolInput, toolResponse, seenReads2)
     isError: false
   };
   if (isNoisyToolCall(tc, seenReads2)) return null;
+  if (toolResponse && detectDecisionPatterns(toolResponse)) {
+    const firstLine = toolResponse.split("\n")[0].slice(0, 200);
+    const title = `Architecture decision: ${firstLine}`;
+    const detail = toolResponse.slice(0, 1e3);
+    return {
+      type: "decision",
+      title,
+      detail,
+      visibility: classifyVisibility(title, detail),
+      opts: {
+        importance: assignImportance("decision"),
+        originalTokens: estimateTokens(toolResponse),
+        ...extractLinkedReferences(toolResponse)
+      }
+    };
+  }
   return classifyToolCall(tc);
 }
 function detectPlanProgress(toolResponse) {
@@ -12425,6 +12452,441 @@ function detectPlanProgress(toolResponse) {
     results.push({ planItem: match[1], status: "complete" });
   }
   return results;
+}
+
+// src/audit-trail.ts
+function logAuditEntry(db, entry) {
+  db.prepare(`
+    INSERT INTO audit_log (session_id, event_type, actor, model_id, file_path, change_type, rules_in_effect, approval_status, evidence, metadata)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    entry.sessionId ?? null,
+    entry.eventType,
+    entry.actor,
+    entry.modelId ?? null,
+    entry.filePath ?? null,
+    entry.changeType ?? null,
+    entry.rulesInEffect ?? null,
+    entry.approvalStatus ?? null,
+    entry.evidence ?? null,
+    entry.metadata ? JSON.stringify(entry.metadata) : null
+  );
+}
+
+// src/regression-detector.ts
+function calculateHealthScore(testsPassing, testsFailing, modificationsSinceTest, lastTested, lastModified) {
+  let score = 100;
+  if (testsFailing > 0) {
+    score -= Math.min(40, testsFailing * 10);
+  }
+  if (modificationsSinceTest > 0) {
+    score -= Math.min(30, modificationsSinceTest * 5);
+  }
+  if (lastModified && lastTested) {
+    const modDate = new Date(lastModified).getTime();
+    const testDate = new Date(lastTested).getTime();
+    if (modDate > testDate) {
+      const daysSinceTest = (modDate - testDate) / (1e3 * 60 * 60 * 24);
+      score -= Math.min(20, Math.floor(daysSinceTest * 2));
+    }
+  } else if (lastModified && !lastTested) {
+    score -= 30;
+  }
+  return Math.max(0, score);
+}
+function trackModification(db, featureKey) {
+  const existing = db.prepare(
+    "SELECT * FROM feature_health WHERE feature_key = ?"
+  ).get(featureKey);
+  if (existing) {
+    db.prepare(`
+      UPDATE feature_health
+      SET last_modified = datetime('now'),
+          modifications_since_test = modifications_since_test + 1,
+          health_score = ?
+      WHERE feature_key = ?
+    `).run(
+      calculateHealthScore(
+        existing.tests_passing ?? 0,
+        existing.tests_failing ?? 0,
+        (existing.modifications_since_test ?? 0) + 1,
+        existing.last_tested,
+        (/* @__PURE__ */ new Date()).toISOString()
+      ),
+      featureKey
+    );
+  } else {
+    db.prepare(`
+      INSERT INTO feature_health
+      (feature_key, last_modified, modifications_since_test, health_score, tests_passing, tests_failing)
+      VALUES (?, datetime('now'), 1, 70, 0, 0)
+    `).run(featureKey);
+  }
+}
+
+// src/import-resolver.ts
+import { readFileSync as readFileSync2, existsSync as existsSync3, statSync } from "fs";
+import { resolve as resolve3, dirname as dirname3, join } from "path";
+function resolveImportPath(specifier, fromFile) {
+  if (!specifier.startsWith(".") && !specifier.startsWith("@/")) {
+    return null;
+  }
+  let basePath;
+  if (specifier.startsWith("@/")) {
+    const paths = getResolvedPaths();
+    basePath = resolve3(paths.pathAlias["@"] ?? paths.srcDir, specifier.slice(2));
+  } else {
+    basePath = resolve3(dirname3(fromFile), specifier);
+  }
+  if (existsSync3(basePath) && !isDirectory(basePath)) {
+    return toRelative(basePath);
+  }
+  const resolvedPaths = getResolvedPaths();
+  for (const ext of resolvedPaths.extensions) {
+    const withExt = basePath + ext;
+    if (existsSync3(withExt)) {
+      return toRelative(withExt);
+    }
+  }
+  for (const indexFile of resolvedPaths.indexFiles) {
+    const indexPath = join(basePath, indexFile);
+    if (existsSync3(indexPath)) {
+      return toRelative(indexPath);
+    }
+  }
+  return null;
+}
+function isDirectory(path) {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function toRelative(absPath) {
+  const root = getProjectRoot();
+  if (absPath.startsWith(root)) {
+    return absPath.slice(root.length + 1);
+  }
+  return absPath;
+}
+
+// src/validation-engine.ts
+import { existsSync as existsSync4, readFileSync as readFileSync3 } from "fs";
+
+// src/security-utils.ts
+import { resolve as resolve4, normalize } from "path";
+function ensureWithinRoot(filePath, projectRoot) {
+  const resolvedRoot = resolve4(projectRoot);
+  const resolvedPath = resolve4(resolvedRoot, filePath);
+  const normalizedPath = normalize(resolvedPath);
+  const normalizedRoot = normalize(resolvedRoot);
+  if (!normalizedPath.startsWith(normalizedRoot + "/") && normalizedPath !== normalizedRoot) {
+    throw new Error(`Path traversal blocked: "${filePath}" resolves outside project root`);
+  }
+  return normalizedPath;
+}
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function safeRegex(pattern, flags) {
+  if (pattern.length > 500) return null;
+  if (/(\([^)]*[+*}][^)]*\))[+*{]/.test(pattern)) return null;
+  if (/\([^)]*\|[^)]*\)[+*]{1,2}/.test(pattern) && pattern.length > 100) return null;
+  try {
+    return new RegExp(pattern, flags);
+  } catch {
+    return null;
+  }
+}
+function globToSafeRegex(glob) {
+  const escaped = glob.split("**").map(
+    (segment) => segment.split("*").map((part) => escapeRegex(part)).join("[^/]*")
+  ).join(".*");
+  return new RegExp(`^${escaped}$`);
+}
+var MINIMUM_SEVERITY_WEIGHTS = {
+  critical: 10,
+  high: 5,
+  medium: 2,
+  low: 1
+};
+function enforceSeverityFloors(configWeights, defaults) {
+  const result = { ...defaults };
+  for (const [severity, configValue] of Object.entries(configWeights)) {
+    const floor = MINIMUM_SEVERITY_WEIGHTS[severity] ?? 1;
+    result[severity] = Math.max(configValue, floor);
+  }
+  return result;
+}
+
+// src/validation-engine.ts
+function getValidationChecks() {
+  return getConfig().governance?.validation?.checks ?? {
+    rule_compliance: true,
+    import_existence: true,
+    naming_conventions: true
+  };
+}
+function getCustomPatterns() {
+  return getConfig().governance?.validation?.custom_patterns ?? [];
+}
+function validateFile(filePath, projectRoot) {
+  const checks = [];
+  const config = getConfig();
+  const activeChecks = getValidationChecks();
+  const customPatterns = getCustomPatterns();
+  let absPath;
+  try {
+    absPath = ensureWithinRoot(filePath, projectRoot);
+  } catch {
+    checks.push({
+      name: "path_traversal",
+      severity: "critical",
+      message: `Path traversal blocked: ${filePath}`,
+      file: filePath
+    });
+    return checks;
+  }
+  if (!existsSync4(absPath)) {
+    checks.push({
+      name: "file_exists",
+      severity: "error",
+      message: `File not found: ${filePath}`,
+      file: filePath
+    });
+    return checks;
+  }
+  const source = readFileSync3(absPath, "utf-8");
+  const lines = source.split("\n");
+  if (activeChecks.rule_compliance !== false) {
+    for (const ruleSet of config.rules) {
+      const rulePattern = globToSafeRegex(ruleSet.pattern);
+      if (rulePattern.test(filePath)) {
+        for (const rule of ruleSet.rules) {
+          checks.push({
+            name: "rule_applicable",
+            severity: "info",
+            message: `Rule applies: ${rule}`,
+            file: filePath
+          });
+        }
+      }
+    }
+  }
+  if (activeChecks.import_existence !== false) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const importMatch = line.match(/^\s*import\s+.*from\s+['"]([^'"]+)['"]/);
+      if (importMatch) {
+        const specifier = importMatch[1];
+        if (specifier.startsWith(".") || specifier.startsWith("@/")) {
+          const resolved = resolveImportPath(specifier, filePath);
+          if (!resolved) {
+            checks.push({
+              name: "import_hallucination",
+              severity: "error",
+              message: `Import target does not exist: ${specifier}`,
+              line: i + 1,
+              file: filePath
+            });
+          }
+        }
+      }
+    }
+  }
+  for (const customPattern of customPatterns) {
+    const regex = safeRegex(customPattern.pattern);
+    if (!regex) {
+      checks.push({
+        name: "config_warning",
+        severity: "warning",
+        message: `Custom pattern rejected (invalid or unsafe regex): ${customPattern.pattern.slice(0, 50)}`,
+        file: filePath
+      });
+      continue;
+    }
+    for (let i = 0; i < lines.length; i++) {
+      if (regex.test(lines[i])) {
+        checks.push({
+          name: "custom_pattern",
+          severity: customPattern.severity,
+          message: customPattern.message,
+          line: i + 1,
+          file: filePath
+        });
+      }
+    }
+  }
+  if (config.dbAccessPattern) {
+    const wrongPattern = config.dbAccessPattern === "ctx.db.{table}" ? /ctx\.prisma\./ : null;
+    if (wrongPattern) {
+      for (let i = 0; i < lines.length; i++) {
+        if (wrongPattern.test(lines[i])) {
+          checks.push({
+            name: "db_access_pattern",
+            severity: "error",
+            message: `Wrong DB access pattern. Use ${config.dbAccessPattern}`,
+            line: i + 1,
+            file: filePath
+          });
+        }
+      }
+    }
+  }
+  return checks;
+}
+function storeValidationResult(db, filePath, checks, sessionId, validationType = "file_validation") {
+  const errors = checks.filter((c) => c.severity === "error" || c.severity === "critical");
+  const warnings = checks.filter((c) => c.severity === "warning");
+  const passed = errors.length === 0;
+  const rulesViolated = [...errors, ...warnings].map((c) => c.name).join(", ");
+  db.prepare(`
+    INSERT INTO validation_results (session_id, file_path, validation_type, passed, details, rules_violated)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    sessionId ?? null,
+    filePath,
+    validationType,
+    passed ? 1 : 0,
+    JSON.stringify(checks),
+    rulesViolated || null
+  );
+}
+
+// src/security-scorer.ts
+import { existsSync as existsSync5, readFileSync as readFileSync4 } from "fs";
+var DEFAULT_SECURITY_PATTERNS = [
+  {
+    regex: /\bexec\s*\(\s*[`"'].*\$\{/,
+    severity: "critical",
+    description: "Potential command injection via template literal in exec()"
+  },
+  {
+    regex: /publicProcedure\s*\.\s*mutation/,
+    severity: "critical",
+    description: "Mutation without authentication (publicProcedure)",
+    fileFilter: /\.(ts|tsx)$/
+  },
+  {
+    regex: /(password|secret|token|api_key)\s*[:=]\s*['"][^'"]{8,}['"]/i,
+    severity: "critical",
+    description: "Hardcoded credential or secret"
+  },
+  {
+    regex: /\bdangerouslySetInnerHTML\b/,
+    severity: "high",
+    description: "XSS risk via dangerouslySetInnerHTML",
+    fileFilter: /\.tsx$/
+  },
+  {
+    regex: /\.raw\s*\(`/,
+    severity: "high",
+    description: "Raw SQL query with template literal (SQL injection risk)"
+  },
+  {
+    regex: /eval\s*\(/,
+    severity: "high",
+    description: "Use of eval() - code injection risk"
+  },
+  {
+    regex: /process\.env\.\w+.*\bconsole\.(log|info|debug)/,
+    severity: "medium",
+    description: "Environment variable logged to console"
+  },
+  {
+    regex: /catch\s*\([^)]*\)\s*\{[^}]*res\.(json|send)\([^)]*err/,
+    severity: "medium",
+    description: "Error details exposed in response"
+  },
+  {
+    regex: /Access-Control-Allow-Origin.*\*/,
+    severity: "medium",
+    description: "Overly permissive CORS (allows all origins)"
+  },
+  {
+    regex: /new\s+URL\s*\(\s*(?:req|input|params|query)/,
+    severity: "medium",
+    description: "URL constructed from user input (SSRF risk)"
+  },
+  {
+    regex: /JSON\.parse\s*\(\s*(?:req|input|body|params)/,
+    severity: "low",
+    description: "JSON.parse on user input without try/catch"
+  },
+  {
+    regex: /prototype\s*:/,
+    severity: "high",
+    description: "Prototype key in object literal (prototype pollution risk)"
+  }
+];
+var DEFAULT_SEVERITY_WEIGHTS = {
+  critical: 25,
+  high: 15,
+  medium: 8,
+  low: 3
+};
+function getSeverityWeights() {
+  const configWeights = getConfig().security?.severity_weights;
+  if (!configWeights) return DEFAULT_SEVERITY_WEIGHTS;
+  return enforceSeverityFloors(configWeights, DEFAULT_SEVERITY_WEIGHTS);
+}
+function scoreFileSecurity(filePath, projectRoot) {
+  let absPath;
+  try {
+    absPath = ensureWithinRoot(filePath, projectRoot);
+  } catch {
+    return {
+      riskScore: 100,
+      findings: [{
+        pattern: "path_traversal",
+        severity: "critical",
+        line: 0,
+        description: `Path traversal blocked: "${filePath}" resolves outside project root`
+      }]
+    };
+  }
+  if (!existsSync5(absPath)) {
+    return { riskScore: 0, findings: [] };
+  }
+  let source;
+  try {
+    source = readFileSync4(absPath, "utf-8");
+  } catch {
+    return { riskScore: 0, findings: [] };
+  }
+  const findings = [];
+  const lines = source.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    for (const pattern of DEFAULT_SECURITY_PATTERNS) {
+      if (pattern.fileFilter && !pattern.fileFilter.test(filePath)) continue;
+      if (pattern.regex.test(line)) {
+        findings.push({
+          pattern: pattern.regex.source.slice(0, 50),
+          severity: pattern.severity,
+          line: i + 1,
+          description: pattern.description
+        });
+      }
+    }
+  }
+  const severityWeights = getSeverityWeights();
+  let riskScore = 0;
+  for (const finding of findings) {
+    riskScore += severityWeights[finding.severity] ?? 0;
+  }
+  return {
+    riskScore: Math.min(100, riskScore),
+    findings
+  };
+}
+function storeSecurityScore(db, sessionId, filePath, riskScore, findings) {
+  db.prepare(`
+    INSERT INTO security_scores
+    (session_id, file_path, risk_score, findings)
+    VALUES (?, ?, ?, ?)
+  `).run(sessionId, filePath, riskScore, JSON.stringify(findings));
 }
 
 // src/hooks/post-tool-use.ts
@@ -12458,6 +12920,53 @@ async function main() {
           updatePlanProgress(db, session_id, progress);
         }
       }
+      try {
+        if (tool_name === "Edit" || tool_name === "Write") {
+          const filePath = tool_input.file_path ?? "";
+          logAuditEntry(db, {
+            sessionId: session_id,
+            eventType: "code_change",
+            actor: "ai",
+            filePath,
+            changeType: tool_name === "Write" ? "create" : "edit"
+          });
+          if (filePath) {
+            const featureMatch = filePath.match(/(?:routers|components|app\/\(([^)]+)\))\/([^/.]+)/);
+            if (featureMatch) {
+              const featureKey = featureMatch[1] ?? featureMatch[2];
+              trackModification(db, featureKey);
+            }
+          }
+        }
+      } catch (_auditErr) {
+      }
+      try {
+        if (tool_name === "Edit" || tool_name === "Write") {
+          const filePath = tool_input.file_path ?? "";
+          if (filePath && (filePath.endsWith(".ts") || filePath.endsWith(".tsx"))) {
+            const projectRoot = hookInput.cwd;
+            const checks = validateFile(filePath, projectRoot);
+            const violations = checks.filter((c) => !c.passed);
+            if (violations.length > 0) {
+              storeValidationResult(db, session_id, filePath, checks);
+            }
+          }
+        }
+      } catch (_validationErr) {
+      }
+      try {
+        if (tool_name === "Edit" || tool_name === "Write") {
+          const filePath = tool_input.file_path ?? "";
+          if (filePath && (filePath.includes("routers/") || filePath.includes("api/"))) {
+            const projectRoot = hookInput.cwd;
+            const { riskScore, findings } = scoreFileSecurity(filePath, projectRoot);
+            if (findings.length > 0) {
+              storeSecurityScore(db, session_id, filePath, riskScore, findings);
+            }
+          }
+        }
+      } catch (_securityErr) {
+      }
     } finally {
       db.close();
     }
@@ -12487,14 +12996,14 @@ function updatePlanProgress(db, sessionId, progress) {
   }
 }
 function readStdin() {
-  return new Promise((resolve3) => {
+  return new Promise((resolve5) => {
     let data = "";
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (chunk) => {
       data += chunk;
     });
-    process.stdin.on("end", () => resolve3(data));
-    setTimeout(() => resolve3(data), 3e3);
+    process.stdin.on("end", () => resolve5(data));
+    setTimeout(() => resolve5(data), 3e3);
   });
 }
 main();

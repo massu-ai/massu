@@ -38,15 +38,13 @@ domains:                    # Array of domain definitions (default: [])
   - name: string            # Domain name
     routers: string[]       # Glob patterns for router files
     pages: string[]         # Glob patterns for page files
-    components: string[]    # Glob patterns for component files
+    tables: string[]        # Database table names in this domain
     allowedImportsFrom: string[]  # Which domains can import from this one
 
 # Coding rules
 rules:                      # Array of rule sets (default: [])
-  - pattern: string         # Glob pattern for file matching
-    severity: string        # "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" (optional)
+  - pattern: string         # Glob pattern to match files (default: "**")
     rules: string[]         # List of rule descriptions
-    patternFile: string     # Reference to detailed rule file (optional)
 
 # Analytics
 analytics:

@@ -5,6 +5,8 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-test
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+
 # CS Test: Intelligent Test Runner
 
 ## Objective
@@ -12,6 +14,16 @@ name: massu-test
 Run tests intelligently, analyze failures, detect coverage gaps, and generate missing tests. Supports multiple modes for targeted testing workflows.
 
 **Usage**: `/massu-test` (run all) or `/massu-test [--affected | --coverage | --generate [module] | --fix]`
+
+## Workflow Position
+
+```
+/massu-test                    (standalone test runner)
+/massu-test --fix              (test + auto-fix failures)
+/massu-test --generate [mod]   (generate missing tests)
+/massu-test --coverage         (coverage analysis)
+/massu-test --affected          (only tests for changed files)
+```
 
 ---
 

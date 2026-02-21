@@ -1,0 +1,61 @@
+---
+title: "/massu-sync-public"
+description: "Sync public files to the massu public repo after quality gates"
+order: 41
+---
+
+# /massu-sync-public
+
+Runs quality gates on the internal repository, syncs approved public files to the massu public repo using the sync script, and performs a leak audit to verify no private content was exposed.
+
+## Usage
+
+```
+/massu-sync-public
+```
+
+No arguments required. The public repo path defaults to `../massu`.
+
+## Workflow Steps
+
+### Step 1: Quality Gates
+Runs all quality checks on the internal repository before syncing:
+- **Pattern scanner** must exit 0
+- **TypeScript check** must show 0 errors
+- **Test suite** must pass all tests
+- **Hook build** must compile successfully
+
+If any gate fails, the sync is blocked until the issue is fixed.
+
+### Step 2: Run Sync Script
+Executes `bash scripts/sync-public.sh` which copies approved public files to the target repository. The script handles file selection, ensuring only files designated for public release are included.
+
+### Step 3: Verify Public Repo
+After syncing, runs the same quality gates on the public repository:
+- Install dependencies
+- Pattern scanner, type check, test suite, and hook build must all pass
+
+### Step 4: Leak Audit
+Performs a security check on the public repo to verify:
+- No private documentation directories exist (strategy, security, plans)
+- No website directory is present
+- Command count matches the expected public subset
+- The sync script itself is not included
+- No trade secret markers appear in any files
+
+### Step 5: Review and Push
+Shows the diff of what changed in the public repo. Pushing is a manual step after reviewing the changes.
+
+## What It Does
+
+- Ensures internal quality before any public sync
+- Copies only approved files via the sync script
+- Verifies the public repo builds and passes tests independently
+- Audits for accidental leaks of private content
+- Produces a completion report with source commit hash, gate results, and leak audit status
+
+## When to Use
+
+- After completing a feature or fix that should be published to the public repo
+- Before a public release to ensure the open-source version is current
+- When the internal and public repos have diverged and need re-synchronization

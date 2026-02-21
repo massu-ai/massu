@@ -1,0 +1,64 @@
+---
+title: "/massu-rollback"
+description: "Safe rollback protocol with state preservation and verification for code changes"
+order: 39
+---
+
+# /massu-rollback
+
+A safe rollback protocol that reverts code, dependency, or config changes with full state preservation, impact assessment, and post-rollback verification. It documents the current state before acting and verifies system stability after.
+
+## Usage
+
+```
+/massu-rollback
+```
+
+The command will prompt for the type and scope of the rollback.
+
+## Rollback Types
+
+| Type | Scope | Risk |
+|------|-------|------|
+| **Code Only** | Git revert of specific commits | Low |
+| **Dependencies** | Restore package.json and lock file | Medium |
+| **Config** | Restore massu.config.yaml | Low |
+| **Full** | Code + config + dependencies combined | Medium |
+
+## Workflow Steps
+
+### Phase 1: Assessment
+Identifies what needs to be rolled back, examines commit history and file changes, and builds an impact matrix showing what each area looks like before and after the rollback.
+
+### Phase 2: State Preservation
+Captures the current git state, branch, HEAD, recent commits, build status, test status, and last successful commit hash. This snapshot enables recovery if the rollback itself causes issues.
+
+### Phase 3: Code Rollback
+Applies the rollback using the safest available method:
+- **Git revert** (preferred) -- creates revert commits preserving history
+- **Git reset** (when necessary) -- with appropriate caution levels (soft, mixed, hard)
+
+Force pushes to main are never executed without explicit approval.
+
+### Phase 4: Dependency Rollback
+If packages changed, restores `package.json` and `package-lock.json` from the target commit and reinstalls dependencies.
+
+### Phase 5: Config Rollback
+If config changed, restores `massu.config.yaml` from the target commit and validates the YAML structure.
+
+### Phase 6: Verification
+Runs all verification checks in a single pass:
+- TypeScript compilation (`npx tsc --noEmit`)
+- Full build (`npm run build`)
+- Pattern scanner
+- Hook compilation
+- Test suite
+
+The rollback is not complete until all checks pass in a single run.
+
+## When to Use
+
+- A recent commit introduced a regression that needs immediate reversal
+- A dependency update caused build or runtime failures
+- Config changes broke tool behavior or prefix resolution
+- An emergency requires returning to the last known good state

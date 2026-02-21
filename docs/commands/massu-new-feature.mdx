@@ -1,0 +1,69 @@
+---
+title: "/massu-new-feature"
+description: "Feature scaffolding with correct patterns pre-applied and verification gates"
+order: 35
+---
+
+# /massu-new-feature
+
+A guided feature scaffolding workflow that creates new features with all established patterns pre-applied from the start. Includes a mandatory pattern alignment gate before coding and a zero-gap verification loop after implementation.
+
+## Usage
+
+```
+/massu-new-feature
+```
+
+The command will prompt for the feature name and requirements.
+
+## Workflow Steps
+
+### Pre-Scaffolding: Pattern Alignment Gate
+Before writing any code, the command reads all applicable pattern files and builds a pattern alignment matrix. Every feature must comply with established patterns for tool registration, database access, config usage, and hook I/O. If no existing pattern covers a requirement, a new pattern must be created and approved before implementation begins.
+
+**Patterns verified:**
+- Tool registration (3-function pattern with `getDefs`, `isTool`, `handleCall`)
+- Config-driven tool prefix via `getConfig().toolPrefix`
+- Memory DB lifecycle (`getMemoryDb()` with `try/finally`)
+- CodeGraph DB read-only access
+- Hook JSON stdin/stdout with esbuild-compatible imports
+- ESM import extensions
+
+### Phase 1: Tool Module Creation
+Scaffolds the tool module file using the 3-function pattern:
+1. `getFeatureToolDefinitions()` -- returns tool definitions with config-driven prefix
+2. `isFeatureTool()` -- matches tool names
+3. `handleFeatureToolCall()` -- handles tool execution with proper error responses
+
+Registers the module in `tools.ts` with definitions spread into `getToolDefinitions()` and handler wired into `handleToolCall()`.
+
+### Phase 2: Test Creation
+Creates a test file at `packages/core/src/__tests__/[feature].test.ts` with tests for tool definitions, name matching, and handler behavior.
+
+### Phase 3: Verification
+Runs the full verification suite:
+- Pattern scanner (`bash scripts/massu-pattern-scanner.sh`)
+- TypeScript type check (`npx tsc --noEmit`)
+- Build verification (`npm run build`)
+- Hook compilation (`npm run build:hooks`)
+- Test suite (`npm test`)
+- Tool registration verification (VR-TOOL-REG)
+
+The verification loop repeats until a single complete pass finds zero issues.
+
+### Component Reuse Check
+Before creating any new module, the command searches for existing modules with similar functionality. New modules are only created when nothing suitable exists.
+
+## What It Produces
+
+- Tool module file at `packages/core/src/[feature].ts`
+- Test file at `packages/core/src/__tests__/[feature].test.ts`
+- Registration entries in `packages/core/src/tools.ts`
+- Feature scaffolding report with verification results
+
+## When to Use
+
+- **Adding new MCP tools**: The primary use case for pattern-compliant tool creation
+- **Starting a new feature from scratch**: Ensures correct architecture from the first line of code
+- **When `/massu-create-plan` is too heavy**: For features that are well-defined and do not need a multi-phase plan
+- **Vs `/massu-loop`**: Use `/massu-new-feature` for single-feature scaffolding; use `/massu-loop` for multi-phase plan implementation

@@ -1,0 +1,68 @@
+---
+title: "/massu-new-pattern"
+description: "Create and save new patterns with approval workflow and CLAUDE.md integration"
+order: 36
+---
+
+# /massu-new-pattern
+
+A pattern creation protocol that guides the process of defining, approving, and saving new development patterns. It ensures every new pattern includes WRONG/CORRECT examples, user approval, and is persisted to documentation before any code uses it.
+
+## Usage
+
+```
+/massu-new-pattern
+```
+
+The command will prompt you to describe the functionality that needs a new pattern.
+
+## Workflow Steps
+
+### 1. Verify No Existing Pattern
+
+Searches all pattern sources before creating anything new:
+- `CLAUDE.md` for existing rules
+- `.claude/patterns/` for domain-specific patterns
+- `.claude/commands/` for related command documentation
+
+If an existing pattern covers the use case, the command stops and points to it.
+
+### 2. Define the New Pattern
+
+Drafts a structured pattern definition including:
+- **Pattern name and ID** (e.g., `TOOL-015`, `HOOK-005`)
+- **Domain** (Tool, Config, Hook, Build, or Test)
+- **Purpose and when to use**
+- **WRONG example** with explanation of what breaks
+- **CORRECT example** with explanation of why it works
+- **Verification commands** to detect violations via grep
+
+### 3. User Approval
+
+Presents the full pattern definition for explicit user review. The pattern is not saved until the user approves. If modifications are requested, the pattern is updated and re-presented.
+
+### 4. Save Pattern
+
+After approval, the pattern is saved to the appropriate location:
+- Domain-specific file in `.claude/patterns/` (e.g., `tool-patterns.md`, `hook-patterns.md`)
+- Added to `CLAUDE.md` if marked as CRITICAL (violation blocks deployment)
+
+### 5. Verification
+
+Confirms the pattern exists in documentation with grep proof. Updates session state with the new pattern metadata.
+
+## What It Does
+
+- Searches all existing patterns to avoid duplication
+- Enforces WRONG/CORRECT examples for every pattern
+- Requires explicit user approval before persisting
+- Saves patterns to the correct domain file
+- Escalates critical patterns to CLAUDE.md
+- Produces a pattern creation report with verification proof
+
+## When to Use
+
+- You need functionality with no existing pattern in CLAUDE.md
+- Existing patterns do not fit a specific use case
+- A recurring mistake needs to be codified as a rule with examples
+- A new module or tool introduces conventions that should be documented

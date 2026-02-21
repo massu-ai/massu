@@ -5,6 +5,8 @@ allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
 name: massu-retrospective
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+
 # CS Retrospective: Session & Sprint Retrospective
 
 ## Objective

@@ -5,11 +5,21 @@ allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
 name: massu-audit-deps
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+
 # CS Audit Deps: Comprehensive Dependency Audit
 
 ## Objective
 
 Run a multi-phase dependency audit covering security vulnerabilities, outdated packages, license compliance, unused dependencies, and bundle size analysis. This is a READ-ONLY audit - no packages are modified.
+
+## Workflow Position
+
+Dependency audit is a diagnostic command. Produces a report of vulnerabilities, license issues, and unused packages.
+
+```
+/massu-audit-deps  ->  dependency report  ->  /massu-create-plan (if updates needed)
+```
 
 ---
 

@@ -10,6 +10,10 @@
 
 import { getMemoryDb, addObservation, createSession, deduplicateFailedAttempt, addSummary } from '../memory-db.ts';
 import { classifyRealTimeToolCall, detectPlanProgress } from '../observation-extractor.ts';
+import { logAuditEntry } from '../audit-trail.ts';
+import { trackModification } from '../regression-detector.ts';
+import { validateFile, storeValidationResult } from '../validation-engine.ts';
+import { scoreFileSecurity, storeSecurityScore } from '../security-scorer.ts';
 
 interface HookInput {
   session_id: string;
@@ -63,6 +67,64 @@ async function main(): Promise<void> {
           // Update plan_progress in session summary
           updatePlanProgress(db, session_id, progress);
         }
+      }
+
+      // Audit trail logging for file changes
+      try {
+        if (tool_name === 'Edit' || tool_name === 'Write') {
+          const filePath = (tool_input.file_path as string) ?? '';
+          logAuditEntry(db, {
+            sessionId: session_id,
+            eventType: 'code_change',
+            actor: 'ai',
+            filePath,
+            changeType: tool_name === 'Write' ? 'create' : 'edit',
+          });
+
+          // Track modification for regression detection
+          if (filePath) {
+            const featureMatch = filePath.match(/(?:routers|components|app\/\(([^)]+)\))\/([^/.]+)/);
+            if (featureMatch) {
+              const featureKey = featureMatch[1] ?? featureMatch[2];
+              trackModification(db, featureKey);
+            }
+          }
+        }
+      } catch (_auditErr) {
+        // Best-effort: never block post-tool-use
+      }
+
+      // Real-time validation for Edit/Write
+      try {
+        if (tool_name === 'Edit' || tool_name === 'Write') {
+          const filePath = (tool_input.file_path as string) ?? '';
+          if (filePath && (filePath.endsWith('.ts') || filePath.endsWith('.tsx'))) {
+            const projectRoot = hookInput.cwd;
+            const checks = validateFile(filePath, projectRoot);
+            const violations = checks.filter(c => !c.passed);
+            if (violations.length > 0) {
+              storeValidationResult(db, session_id, filePath, checks);
+            }
+          }
+        }
+      } catch (_validationErr) {
+        // Best-effort: never block post-tool-use
+      }
+
+      // Auto-security scoring for router/API files
+      try {
+        if (tool_name === 'Edit' || tool_name === 'Write') {
+          const filePath = (tool_input.file_path as string) ?? '';
+          if (filePath && (filePath.includes('routers/') || filePath.includes('api/'))) {
+            const projectRoot = hookInput.cwd;
+            const { riskScore, findings } = scoreFileSecurity(filePath, projectRoot);
+            if (findings.length > 0) {
+              storeSecurityScore(db, session_id, filePath, riskScore, findings);
+            }
+          }
+        }
+      } catch (_securityErr) {
+        // Best-effort: never block post-tool-use
       }
     } finally {
       db.close();

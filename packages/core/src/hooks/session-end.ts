@@ -13,6 +13,9 @@ import { generateCurrentMd } from '../session-state-generator.ts';
 import { archiveAndRegenerate } from '../session-archiver.ts';
 import { parseTranscriptFrom, extractUserMessages, extractAssistantMessages, extractToolCalls, estimateTokens } from '../transcript-parser.ts';
 import { syncToCloud, drainSyncQueue } from '../cloud-sync.ts';
+import { calculateQualityScore, storeQualityScore, backfillQualityScores } from '../analytics.ts';
+import { extractTokenUsage, calculateCost, storeSessionCost } from '../cost-tracker.ts';
+import { analyzeSessionPrompts } from '../prompt-analyzer.ts';
 import type { SyncPayload } from '../cloud-sync.ts';
 import type { SessionSummary } from '../memory-db.ts';
 import type { TranscriptEntry, TranscriptContentBlock } from '../transcript-parser.ts';
@@ -55,6 +58,35 @@ async function main(): Promise<void> {
       try {
         await captureConversationData(db, session_id, hookInput.transcript_path);
       } catch (_captureErr) {
+        // Best-effort: never block session end
+      }
+
+      // 4.6. Calculate and store quality score
+      try {
+        const breakdown = calculateQualityScore(db, session_id);
+        if (breakdown.observations_total > 0) {
+          storeQualityScore(db, session_id, 'massu', breakdown);
+        }
+        backfillQualityScores(db);
+      } catch (_qualityErr) {
+        // Best-effort: never block session end
+      }
+
+      // 4.7. Calculate and store session cost
+      try {
+        const { entries } = await parseTranscriptFrom(hookInput.transcript_path, 0);
+        const tokenUsage = extractTokenUsage(entries);
+        const cost = calculateCost(tokenUsage);
+
+        storeSessionCost(db, session_id, tokenUsage, cost);
+      } catch (_costErr) {
+        // Best-effort: never block session end
+      }
+
+      // 4.8. Analyze prompt effectiveness
+      try {
+        analyzeSessionPrompts(db, session_id);
+      } catch (_promptErr) {
         // Best-effort: never block session end
       }
 

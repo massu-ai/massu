@@ -5,6 +5,8 @@ allowed-tools: Bash(*), Read(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-push
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+
 # CS Push: Full Verification Gate Before Remote Push
 
 ## Objective
@@ -12,6 +14,14 @@ name: massu-push
 Execute COMPREHENSIVE verification including ALL tests and security checks before pushing to remote. This is the final gate - code MUST pass every check before leaving your machine.
 
 **Philosophy**: Commit often (quality checks), push verified (full checks + security + regression).
+
+---
+
+## START NOW
+
+**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
+
+Update `session-state/CURRENT.md` to include `AUTHORIZED_COMMAND: massu-push`.
 
 ---
 

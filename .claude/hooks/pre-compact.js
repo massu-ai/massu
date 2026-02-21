@@ -12148,6 +12148,25 @@ function addSummary(db, sessionId, summary) {
   );
 }
 
+// src/audit-trail.ts
+function logAuditEntry(db, entry) {
+  db.prepare(`
+    INSERT INTO audit_log (session_id, event_type, actor, model_id, file_path, change_type, rules_in_effect, approval_status, evidence, metadata)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    entry.sessionId ?? null,
+    entry.eventType,
+    entry.actor,
+    entry.modelId ?? null,
+    entry.filePath ?? null,
+    entry.changeType ?? null,
+    entry.rulesInEffect ?? null,
+    entry.approvalStatus ?? null,
+    entry.evidence ?? null,
+    entry.metadata ? JSON.stringify(entry.metadata) : null
+  );
+}
+
 // src/hooks/pre-compact.ts
 async function main() {
   try {
@@ -12165,6 +12184,15 @@ async function main() {
       ).all(session_id);
       const summary = buildSnapshotSummary(observations, prompts);
       addSummary(db, session_id, summary);
+      try {
+        logAuditEntry(db, {
+          sessionId: session_id,
+          eventType: "compaction",
+          actor: "hook",
+          metadata: { observations_count: observations.length, prompts_count: prompts.length }
+        });
+      } catch (_auditErr) {
+      }
     } finally {
       db.close();
     }

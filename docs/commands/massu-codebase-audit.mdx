@@ -1,0 +1,77 @@
+---
+title: "/massu-codebase-audit"
+description: "Run comprehensive multi-phase codebase audit covering patterns, security, types, tests, and performance"
+order: 29
+---
+
+# /massu-codebase-audit
+
+A comprehensive 13-phase codebase audit designed for periodic execution (weekly or monthly) that covers pattern compliance, security, type safety, test suites, build integrity, import chains, tool registration, config validation, dead code, coverage, error handling, and performance.
+
+## Usage
+
+```
+/massu-codebase-audit
+```
+
+## Audit Phases
+
+### Critical Priority (Must Pass)
+
+| Phase | Check | Command |
+|-------|-------|---------|
+| 1 | Pattern Compliance | `bash scripts/massu-pattern-scanner.sh` |
+| 2 | Security Audit | `bash scripts/massu-security-scanner.sh` |
+| 3 | Type Safety | `cd packages/core && npx tsc --noEmit` |
+| 4 | Test Suite | `npm test` |
+
+### High Priority (Should Pass)
+
+| Phase | Check | What It Verifies |
+|-------|-------|-----------------|
+| 5 | Hook Compilation | All hooks compile with esbuild |
+| 6 | Build Verification | Full build succeeds |
+| 7 | Import Chain Safety | No circular or heavy imports in hooks |
+| 8 | Tool Registration | All tool modules wired in `tools.ts` (CR-11) |
+
+### Medium Priority (Review)
+
+| Phase | Check | What It Verifies |
+|-------|-------|-----------------|
+| 9 | Config Validation | `massu.config.yaml` parses correctly |
+| 10 | Dead Code Detection | Unused exports, orphaned files |
+| 11 | Test Coverage | Module-level test coverage report |
+| 12 | Error Handling | Try-catch coverage and error propagation |
+
+### Low Priority (Informational)
+
+| Phase | Check | What It Verifies |
+|-------|-------|-----------------|
+| 13 | Performance Analysis | N+1 patterns, unbounded queries |
+
+## What It Does
+
+Each phase runs actual verification commands and reports results with proof output. Any issue discovered is fixed immediately per CR-9 (fix all issues encountered). Any CRITICAL or HIGH violation blocks the "audit complete" status.
+
+The audit produces a structured report with:
+- Executive summary with overall health classification
+- Phase-by-phase results with pass/fail status
+- Critical and high-priority issue tables with locations and fixes
+- Recommendations for improvements
+- Verification proof from command outputs
+
+## Recommended Frequency
+
+| Check Type | Frequency | Trigger |
+|------------|-----------|---------|
+| Full 13-phase audit | Monthly | Scheduled |
+| Critical only (phases 1-4) | Weekly | After major changes |
+| Pattern scanner alone | Every commit | Pre-commit hook |
+| Security scanner | Before releases | Pre-deployment |
+
+## When to Use
+
+- **Monthly health checks**: Periodic comprehensive review of codebase quality
+- **Before major releases**: Full audit to catch issues before deployment
+- **After large refactors**: Verify nothing was broken across all quality dimensions
+- **Vs `/massu-security-scan`**: Use `/massu-security-scan` for security-only deep dive; use `/massu-codebase-audit` for full-scope review

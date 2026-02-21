@@ -1,0 +1,65 @@
+---
+title: "/massu-checkpoint"
+description: "Execute checkpoint audit for current phase with full 15-step verification"
+order: 28
+---
+
+# /massu-checkpoint
+
+A phase boundary audit protocol that executes a full 15-step verification loop, requiring zero gaps before allowing progression to the next implementation phase. Uses subagent-driven checkpoint passes that repeat until a complete clean pass is achieved.
+
+## Usage
+
+```
+/massu-checkpoint
+```
+
+The command automatically identifies the current phase from the active plan document.
+
+## Workflow Steps
+
+The checkpoint operates as a mandatory loop controller:
+
+1. Spawn a subagent for one complete 15-step checkpoint pass
+2. Parse the `GAPS_DISCOVERED` count from the result
+3. If gaps > 0: fix all gaps, then spawn a fresh checkpoint pass
+4. If gaps == 0: checkpoint passes
+
+A pass that finds 5 gaps and fixes all 5 still reports `GAPS_DISCOVERED: 5`. Only a pass that finds nothing wrong from the start counts as a clean pass.
+
+## Checkpoint Steps
+
+### Step 0: Plan Coverage Gate
+Extracts all plan items, verifies each with proof commands, and calculates coverage. Must reach 100% to proceed.
+
+### Steps 1-4: Structure Verification
+Reads the plan section, verifies project structure, greps source files for exports, and confirms component files exist. Includes tool registration verification (CR-11).
+
+### Step 5: Pattern Compliance
+Runs `bash scripts/massu-pattern-scanner.sh` and requires exit code 0.
+
+### Steps 6-6.7: Build and Quality Gates
+Runs build verification, TypeScript type checking, hook compilation, test suite, tool registration coupling check, and knowledge base health check.
+
+### Steps 7-9: Config, Integration, and API Verification
+Validates config schema, verifies integration points, and confirms tool registrations.
+
+### Step 10: Security Check
+Scans for hardcoded secrets, exposed credentials, and validates `.gitignore` patterns. Any security failure causes a hard stop.
+
+### Steps 11-15: Gap Resolution and Sign-off
+Counts all gaps found, fixes each one, re-runs the entire checkpoint if gaps remain, creates the checkpoint sign-off document, and commits the verified phase.
+
+## Abort Conditions
+
+The checkpoint must abort if:
+- Pattern scanner fails after multiple attempts
+- Security violation detected
+- Build fails after 3 attempts
+- Config file is invalid
+
+## When to Use
+
+- **At phase boundaries**: Run between implementation phases to verify completeness before moving on
+- **Before committing phase work**: Ensures all plan items are implemented and verified
+- **After `/massu-loop` completes a phase**: Validates the phase output meets all quality gates

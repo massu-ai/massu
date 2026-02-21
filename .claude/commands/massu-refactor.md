@@ -5,6 +5,8 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-refactor
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+
 # CS Refactor: Safe Refactoring Workflow
 
 ## Objective
@@ -12,6 +14,13 @@ name: massu-refactor
 Restructure code safely, ensuring behavioral equivalence at every step. Changes are applied incrementally with verification after each batch. If behavioral equivalence cannot be maintained, the refactoring is aborted.
 
 **Usage**: `/massu-refactor [description of the refactoring]`
+
+## Workflow Position
+
+```
+/massu-create-plan -> /massu-plan -> /massu-refactor -> /massu-commit -> /massu-push
+(PLAN)              (AUDIT PLAN)   (EXECUTE REFACTOR)  (COMMIT)        (PUSH)
+```
 
 ---
 

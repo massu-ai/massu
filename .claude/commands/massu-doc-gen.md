@@ -5,6 +5,8 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-doc-gen
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+
 # CS Doc Gen: Documentation Generation
 
 ## Objective
@@ -266,3 +268,12 @@ npm test
 - Review changes: `git diff`
 - Commit: `/massu-commit`
 ```
+
+---
+
+## AUTO-LEARNING
+
+After generating documentation, record the pattern:
+1. Note what documentation was needed and why
+2. Update session state with files generated
+3. If a documentation gap pattern is discovered, note it for future reference

@@ -1,8 +1,33 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { matchRules, globMatch } from '../rules.ts';
+
+// Mock config to avoid interference from parallel tests that change process.cwd()
+// Rules match massu.config.yaml content
+vi.mock('../config.ts', () => ({
+  getConfig: () => ({
+    toolPrefix: 'massu',
+    rules: [
+      {
+        pattern: 'src/**/*.ts',
+        rules: [
+          'Use ESM imports (import/export), not CommonJS (require/module.exports)',
+          'All database operations go through better-sqlite3',
+        ],
+      },
+      {
+        pattern: 'src/hooks/**/*.ts',
+        rules: [
+          'Hooks receive JSON on stdin, output JSON on stdout',
+          'Hooks must exit within 5 seconds',
+          'Never import heavy dependencies - hooks must be fast',
+        ],
+      },
+    ],
+  }),
+}));
 
 describe('globMatch', () => {
   it('matches simple glob patterns', () => {

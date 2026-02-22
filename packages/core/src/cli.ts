@@ -86,7 +86,7 @@ Options:
 Getting started:
   npx massu init    # Full setup in one command
 
-Documentation: https://massu.dev/docs
+Documentation: https://massu.ai/docs
 `);
 }
 

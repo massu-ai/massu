@@ -1,11 +1,11 @@
 ---
 title: "Advanced Commands"
-description: "Guide to debugging, refactoring, security scanning, and performance analysis commands"
+description: "Guide to debugging, refactoring, and advanced development commands"
 ---
 
 # Advanced Commands
 
-Massu AI includes 43 workflow commands. While the [core implementation workflow](/docs/commands) (create-plan, plan, loop, commit, push) handles most development tasks, the additional commands provide specialized tools for testing, debugging, security, and operations.
+Massu AI includes 20 workflow commands. While the [core implementation workflow](/docs/commands) (create-plan, plan, loop, commit, push) handles most development tasks, the additional commands provide specialized tools for testing, debugging, and operations.
 
 ## When to Use Which Command
 
@@ -16,45 +16,24 @@ Use this decision tree to pick the right command:
 - **Quick bug fix (1-3 files)?** Use `/massu-hotfix` — creates a branch, applies fix, runs verification, creates PR
 - **Complex bug?** Use `/massu-debug` — 9-step hypothesis-driven debugging with root cause tracing
 - **Failing tests?** Use `/massu-test --fix` — analyzes failures and applies fixes
-- **Need to undo a change safely?** Use `/massu-rollback` — safe rollback with state preservation and verification
 
 ### I need to change code structure
 
 - **Small refactor (<20 files)?** Use `/massu-refactor` — incremental transforms with behavioral equivalence
 - **Large refactor (>20 files)?** Use `/massu-create-plan` — full plan-audit-implement cycle
 - **Scaffold a new feature?** Use `/massu-new-feature` — feature scaffolding following established patterns
-- **Rebuild a module safely?** Use `/massu-rebuild` — safe rebuild enforcing feature parity with the original
-- **Establish a new codebase pattern?** Use `/massu-new-pattern` — create, document, and save reusable patterns
 
 ### I need to check code quality
 
 - **Quick code review?** Use `/massu-review` — 7-dimension automated review
-- **Security audit?** Use `/massu-security-scan` — deep OWASP/RLS/secrets scan
-- **Performance check?** Use `/massu-perf` — bundle size, queries, edge functions
 - **Dependency health?** Use `/massu-audit-deps` — vulnerabilities, licenses, unused deps
-- **Website health?** Use `/massu-website-check` — Next.js, Supabase, TypeScript verification
-- **MCP tool contracts valid?** Use `/massu-api-contract` — audits tool definitions, schemas, and naming
-- **Full codebase health?** Use `/massu-codebase-audit` — multi-phase audit across the entire codebase
-- **Config correctness?** Use `/massu-config-audit` — validates massu.config.yaml and config usage
-- **Import chains clean?** Use `/massu-import-audit` — traces import chains for cycles and violations
-- **Type safety gaps?** Use `/massu-type-audit` — finds type mismatches, `any` casts, unsafe assertions
-- **Auto-learning working?** Use `/massu-learning-audit` — validates effectiveness of auto-learned observations
 - **Run all verifications?** Use `/massu-verify` — runs every VR-* verification check in one pass
-- **Phase checkpoint?** Use `/massu-checkpoint` — audits the current implementation phase for completeness
-
-### I need to analyze what happened
-
-- **Post-implementation gaps?** Use `/massu-gap-analyzer` — finds gaps between plan and implementation
-- **Something went wrong in production?** Use `/massu-incident` — structured incident post-mortem
-- **Session getting slow or bloated?** Use `/massu-session-optimization` — analyzes and optimizes session context
 
 ### I need to ship
 
 - **Prepare release?** Use `/massu-release` — version bump, changelog, verification, tagging
 - **Generate changelog?** Use `/massu-changelog` — conventional commit parsing
-- **Database changes?** Use `/massu-migrate` — migration creation, RLS verification, rollback
 - **Fast pre-push check?** Use `/massu-push-light` — lightweight verification gate (~90s vs full `/massu-push`)
-- **Sync to public repo?** Use `/massu-sync-public` — syncs public repository after quality gates pass
 
 ## Bootstrapping Test Coverage with /massu-test
 
@@ -103,45 +82,6 @@ The refactor command enforces safety through:
 - **Behavioral Equivalence** — Tests must pass with identical results after refactoring
 - **Negative Verification** — Old patterns must return 0 grep matches after removal
 
-## Security Scanning with /massu-security-scan
-
-The security scan covers 7 dimensions:
-
-| Dimension | What It Checks | Example Findings |
-|-----------|---------------|-----------------|
-| OWASP Top 10 | XSS, injection, SSRF, open redirect | `innerHTML` usage, template literal SQL |
-| API Security | Authentication on all endpoints | Missing `createServerSupabaseClient` call |
-| Supabase RLS | Row-level security on all tables | `CREATE TABLE` without `ENABLE ROW LEVEL SECURITY` |
-| Secret Scanning | Hardcoded credentials in source | API keys, passwords in code |
-| Security Headers | HTTP security headers | Missing CSP, HSTS, X-Frame-Options |
-| Dependencies | Known vulnerabilities | CVEs from OSV.dev database |
-| Webhook Security | HMAC verification on webhook handlers | Missing signature validation |
-
-## Performance Analysis with /massu-perf
-
-The performance command runs 6 read-only checks:
-
-1. **Bundle Size** — Flags routes with first-load JS > 150KB
-2. **Loading States** — Checks for Suspense boundaries and loading.tsx files
-3. **Query Patterns** — Detects N+1 queries and unbounded `.select('*')` calls
-4. **Edge Functions** — Checks Supabase edge function sizes
-5. **Image Optimization** — Verifies Next.js Image component usage
-6. **MCP Server** — Checks tool handler performance patterns
-
-## Database Migrations with /massu-migrate
-
-The migrate command has 3 modes:
-
-- **`/massu-migrate create [name]`** — Generates a new migration with RLS, indexes, and rollback SQL
-- **`/massu-migrate validate`** — Validates all existing migrations (ordering, RLS, types)
-- **`/massu-migrate check`** — Quick health check (runs `scripts/massu-migration-validator.sh`)
-
-Every migration is verified for:
-- Sequential numbering (no gaps)
-- RLS enabled on all tables
-- Type sync with TypeScript interfaces
-- Rollback SQL generation
-
 ## Release Process with /massu-release
 
 The release command runs 6 steps:
@@ -155,65 +95,7 @@ The release command runs 6 steps:
 
 After `/massu-release`, use `/massu-push` to push the release with full verification.
 
-## Quality Audits
-
-Massu includes a suite of focused audit commands that provide read-only analysis without modifying source code. Each targets a specific concern.
-
-### API Contract Audit with /massu-api-contract
-
-Validates MCP tool contracts across the codebase:
-
-- **Schema Compliance** — Verifies every tool definition has valid `inputSchema` with types and descriptions
-- **Naming Consistency** — Checks tool names follow the configured prefix convention
-- **Registration Completeness** — Ensures every tool module is wired into `tools.ts` (CR-11)
-- **Contract Drift** — Detects mismatches between tool definitions and their handler implementations
-
-### Codebase Audit with /massu-codebase-audit
-
-Runs a multi-phase audit across the entire codebase:
-
-1. **Structure Phase** — File organization, orphaned files, naming conventions
-2. **Pattern Phase** — Compliance with established patterns (ESM imports, config access, DB usage)
-3. **Quality Phase** — Dead code, unused exports, TODO/FIXME density
-4. **Consistency Phase** — Cross-module consistency in error handling, logging, and return types
-
-### Config Audit with /massu-config-audit
-
-Validates the `massu.config.yaml` file and its usage throughout the codebase:
-
-- Checks YAML syntax and schema compliance
-- Verifies all config keys referenced in source code exist in the config file
-- Detects hardcoded values that should be config-driven
-- Flags unused config keys
-
-### Import Audit with /massu-import-audit
-
-Traces import chains to find structural issues:
-
-- **Circular Dependencies** — Detects import cycles that can cause runtime failures
-- **Barrel File Bloat** — Flags re-export files that pull in unnecessary modules
-- **Cross-Boundary Imports** — Catches imports that violate package boundaries
-- **Deep Chains** — Warns on import chains longer than a configurable threshold
-
-### Type Audit with /massu-type-audit
-
-Finds type safety gaps that `tsc --noEmit` alone may miss:
-
-- Explicit `any` casts and unsafe assertions (`as unknown as T`)
-- `@ts-ignore` and `@ts-expect-error` suppressions
-- Mismatches between function signatures and their call sites
-- Generic parameters defaulting to `any`
-
-### Learning Audit with /massu-learning-audit
-
-Validates the effectiveness of auto-learned observations:
-
-- Checks observation extraction accuracy against ground truth
-- Measures observation reuse rate across sessions
-- Flags stale or contradictory observations
-- Reports on learning coverage by module
-
-### Verification Runner with /massu-verify
+## Verification Runner with /massu-verify
 
 Runs every VR-* verification check from the canonical rules in a single pass:
 
@@ -221,16 +103,7 @@ Runs every VR-* verification check from the canonical rules in a single pass:
 /massu-verify
 ```
 
-This executes VR-BUILD, VR-TYPE, VR-TEST, VR-PATTERN, VR-SECURITY, and all other registered verification types, producing a consolidated pass/fail report.
-
-### Checkpoint Audit with /massu-checkpoint
-
-Audits the current implementation phase for completeness:
-
-- Reads the active plan and determines the current phase
-- Checks every deliverable in the current phase for evidence of completion
-- Flags items with no verification proof
-- Produces a phase readiness score
+This executes VR-BUILD, VR-TYPE, VR-TEST, VR-PATTERN, and all other registered verification types, producing a consolidated pass/fail report.
 
 ## Lightweight Pre-Push with /massu-push-light
 
@@ -240,7 +113,7 @@ A faster alternative to `/massu-push` for situations where the full verification
 2. **Test Suite** — Full vitest run
 3. **Pattern Scanner** — `massu-pattern-scanner.sh`
 
-Skips the deeper security scan, migration validation, and blast radius analysis that the full `/massu-push` performs. Use this for incremental pushes during active development; use `/massu-push` before merging to main.
+Use this for incremental pushes during active development; use `/massu-push` before merging to main.
 
 ## Feature Scaffolding with /massu-new-feature
 
@@ -254,76 +127,3 @@ Generates boilerplate for new features following established project patterns:
 ```
 /massu-new-feature [feature-name]
 ```
-
-## Safe Rebuild with /massu-rebuild
-
-When a module needs to be rewritten from scratch, `/massu-rebuild` enforces feature parity with the original:
-
-1. **Snapshot** — Captures the existing module's exports, tests, and behavior
-2. **Rebuild** — Rewrites the module (you provide the implementation)
-3. **Parity Check** — Verifies the new module exports the same public API
-4. **Regression Test** — Runs all existing tests against the rebuilt module
-5. **Diff Report** — Shows what changed between old and new implementations
-
-## Safe Rollback with /massu-rollback
-
-Reverts changes while preserving important state:
-
-- Creates a backup branch before rolling back
-- Preserves session observations and learning data
-- Rolls back source changes to a specified commit or phase
-- Runs verification after rollback to confirm a clean state
-- Records the rollback reason in the session state
-
-## Gap Analysis with /massu-gap-analyzer
-
-Runs after implementation to find gaps between the plan and what was actually delivered:
-
-- Parses the plan document for all deliverables
-- Searches the codebase for evidence of each deliverable
-- Categorizes gaps as MISSING, PARTIAL, or DIVERGENT
-- Produces a gap report with remediation suggestions
-
-## Incident Post-Mortem with /massu-incident
-
-Structured incident analysis for when something goes wrong:
-
-1. **Timeline Construction** — Builds a timeline from git history and logs
-2. **Impact Assessment** — What was affected and for how long
-3. **Root Cause Analysis** — Traces the causal chain
-4. **Contributing Factors** — Identifies systemic issues that enabled the incident
-5. **Action Items** — Concrete follow-ups to prevent recurrence
-
-Incident reports are saved to `.claude/incidents/` for future reference.
-
-## Session Optimization with /massu-session-optimization
-
-Analyzes the current session context and recommends optimizations:
-
-- Measures context window usage and token consumption
-- Identifies redundant or stale context that can be compacted
-- Suggests when to start a fresh session vs. continue
-- Reports on observation extraction efficiency
-
-## Pattern Creation with /massu-new-pattern
-
-Creates and saves reusable patterns for the codebase:
-
-```
-/massu-new-pattern [pattern-name]
-```
-
-This will:
-1. Analyze the code you reference as the pattern exemplar
-2. Extract the generalizable structure
-3. Save the pattern definition to `.claude/reference/`
-4. Register the pattern so future commands can scaffold from it
-
-## Public Repo Sync with /massu-sync-public
-
-Syncs the internal repository to a public-facing repository after quality gates:
-
-1. **Pre-Sync Verification** — Runs the full verification suite (types, tests, patterns, security)
-2. **Content Filtering** — Strips internal-only files, credentials, and private configuration
-3. **Sync Execution** — Pushes filtered content to the public remote
-4. **Post-Sync Verification** — Confirms the public repo builds and tests pass

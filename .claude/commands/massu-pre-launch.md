@@ -42,7 +42,7 @@ cd /Users/eko3/massu-internal/website
 npx tsc --noEmit
 npx vitest run
 npx vitest run src/__tests__/integration/
-npm audit --audit-level=high
+npm audit
 ```
 
 ## STEP 3: Business Logic Audit

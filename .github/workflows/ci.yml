@@ -54,8 +54,8 @@ jobs:
       - run: npm ci
       - name: Build Hooks (Core)
         run: cd packages/core && npm run build:hooks
-      - name: npm audit
-        run: npm audit --audit-level=high
+      - name: npm audit (CR-9: ALL severities)
+        run: npm audit
 
   integration-test:
     name: Integration Tests

@@ -38,19 +38,20 @@ Dependency audit is a diagnostic command. Produces a report of vulnerabilities, 
 # Run npm audit with full detail
 npm audit 2>&1
 
-# Separate by severity
-npm audit --audit-level=critical 2>&1 || true
-npm audit --audit-level=high 2>&1 || true
+# CR-9: ALL severities must be fixed. No filtering.
+# The full `npm audit` above shows everything needed.
 ```
 
-### Vulnerability Classification
+### Vulnerability Classification (CR-9: ALL Severities)
 
 | Severity | Action Required | Blocks Push? |
 |----------|----------------|--------------|
-| Critical | MUST fix before any deployment | YES |
+| Critical | MUST fix immediately | YES |
 | High | MUST fix before push | YES |
-| Moderate | Document, create fix plan | NO |
-| Low | Informational only | NO |
+| Moderate | MUST fix before push (CR-9) | YES |
+| Low | MUST fix before push (CR-9) | YES |
+
+**CR-9 applies to ALL npm audit severities. There is no "document and defer" tier.**
 
 ### For Each Vulnerability
 

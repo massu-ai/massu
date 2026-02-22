@@ -423,33 +423,12 @@ docs/plans/YYYY-MM-DD-feature-name.md
 | `/massu-refactor` | Safe refactoring | **YES** |
 | `/massu-release` | Release preparation | **YES** (version bump, tag) |
 | `/massu-new-feature` | Pattern-compliant feature scaffolding | **YES** (scaffolding) |
-| `/massu-new-pattern` | Create and save new patterns with approval workflow | **YES** |
-| `/massu-rebuild` | Safe rebuild/replacement with feature parity enforcement | **YES** |
-| `/massu-migrate` | Database migration creation, validation, and rollback generation | **YES** (migrations) |
-| `/massu-rollback` | Safe rollback protocol with state preservation | **YES** |
 
-### Code Review & Audits
+### Code Review & Verification
 | Command | Purpose | Edits Source Code? |
 |---------|---------|-------------------|
 | `/massu-review` | Automated code review across 7 dimensions | **NO** |
-| `/massu-codebase-audit` | Comprehensive multi-phase codebase audit | **NO** |
-| `/massu-api-contract` | MCP tool contract audit with handler-schema verification | **NO** |
-| `/massu-config-audit` | Config validation and config-code alignment check | **NO** |
-| `/massu-import-audit` | Import chain audit for heavy/circular deps and ESM violations | **NO** |
-| `/massu-type-audit` | Type mismatch audit across module boundaries | **NO** |
-| `/massu-learning-audit` | Validate auto-learning effectiveness and memory coverage | **NO** |
-| `/massu-feature-parity` | Feature parity check between source systems | **NO** |
-| `/massu-gap-analyzer` | Analyze plan implementation for gaps (post-massu-loop) | **NO** |
-| `/massu-checkpoint` | Checkpoint audit for current phase with full verification | **NO** |
 | `/massu-verify` | Run all VR-* verification checks with mandatory proof | **NO** |
-
-### Security & Compliance
-| Command | Purpose | Edits Source Code? |
-|---------|---------|-------------------|
-| `/massu-security-scan` | Deep security audit (OWASP, API auth, RLS, secrets) | **NO** |
-| `/massu-accessibility` | WCAG 2.1 AA accessibility audit | **NO** |
-| `/massu-pre-launch` | Comprehensive pre-launch/pre-deploy verification | **NO** |
-| `/massu-website-check` | Website-specific verification (TS, Next.js, Supabase) | **NO** |
 
 ### Diagnostics & Utilities
 | Command | Purpose | Edits Source Code? |
@@ -457,25 +436,14 @@ docs/plans/YYYY-MM-DD-feature-name.md
 | `/massu-audit-deps` | Dependency audit (vulns, licenses, unused) | **NO** |
 | `/massu-changelog` | Generate changelog from commits | CHANGELOG.md only |
 | `/massu-hotfix` | Quick scoped fix workflow | **YES** (small fixes) |
-| `/massu-incident` | Automated incident post-mortem with prevention pipeline | **NO** |
 | `/massu-status` | Read-only project health dashboard with 14 health checks | **NO** |
-| `/massu-sync-public` | Run quality gates, then sync public files to public repo | **NO** |
 
-### Productivity
+### Productivity & Insights
 | Command | Purpose | Edits Source Code? |
 |---------|---------|-------------------|
 | `/massu-cleanup` | Dead code removal, unused imports, orphaned files | **YES** |
 | `/massu-doc-gen` | Generate JSDoc, README, API docs | **YES** (docs only) |
-| `/massu-onboard` | Generate onboarding guide for new team members | **NO** |
-| `/massu-session-optimization` | Audit and optimize session context overhead | **YES** (optional) |
-
-### Insights
-| Command | Purpose | Edits Source Code? |
-|---------|---------|-------------------|
-| `/massu-retrospective` | Session/sprint retrospective with learnings | **NO** |
-| `/massu-benchmark` | Performance benchmarking with baselines | **NO** |
 | `/massu-estimate` | Effort estimation with complexity scoring | **NO** |
-| `/massu-perf` | Performance analysis (bundle, queries, edge functions) | **NO** |
 
 ---
 

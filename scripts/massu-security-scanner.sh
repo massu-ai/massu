@@ -3,7 +3,7 @@
 # massu-security-scanner.sh - Massu Quick Security Scanner
 #
 # Fast grep-based security checks across the codebase.
-# Complements the deeper /massu-security-scan command.
+# Fast standalone security checks that can run as a pre-commit gate.
 # Exit 0 = PASS (no violations), Exit 1 = FAIL (violations found)
 #
 # Usage: bash scripts/massu-security-scanner.sh

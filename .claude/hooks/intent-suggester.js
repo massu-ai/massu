@@ -19,16 +19,6 @@ var COMMAND_MAPPINGS = [
     description: "Guided refactoring workflow"
   },
   {
-    keywords: ["security", "vulnerability"],
-    command: "/massu-security-scan",
-    description: "Run a security scan"
-  },
-  {
-    keywords: ["benchmark", "performance", "slow"],
-    command: "/massu-benchmark",
-    description: "Run performance benchmarks"
-  },
-  {
     keywords: ["cleanup", "dead code", "unused"],
     command: "/massu-cleanup",
     description: "Clean up dead code and unused exports"
@@ -42,21 +32,6 @@ var COMMAND_MAPPINGS = [
     keywords: ["estimate", "effort", "how long"],
     command: "/massu-estimate",
     description: "Estimate implementation effort"
-  },
-  {
-    keywords: ["accessibility", "a11y", "wcag"],
-    command: "/massu-accessibility",
-    description: "Run accessibility checks"
-  },
-  {
-    keywords: ["retrospective", "retro", "learnings"],
-    command: "/massu-retrospective",
-    description: "Run a session retrospective"
-  },
-  {
-    keywords: ["onboard", "new member"],
-    command: "/massu-onboard",
-    description: "Onboard a new team member"
   },
   {
     keywords: ["release", "deploy"],

@@ -41,7 +41,7 @@ Restructure code safely, ensuring behavioral equivalence at every step. Changes 
 | Condition | Why It's Too Big | Alternative |
 |-----------|-----------------|-------------|
 | Refactoring touches > 20 files | Needs structured plan | `/massu-create-plan` |
-| Changes database schema | Needs migration workflow | `/massu-migrate` |
+| Changes database schema | Needs migration workflow | Use a database migration workflow |
 | Changes public API contracts | Needs blast radius plan | `/massu-create-plan` |
 | Renames MCP tool names | Affects all consumers | `/massu-create-plan` |
 | Changes config interface fields | Affects all config users | `/massu-create-plan` |
@@ -55,7 +55,7 @@ SCOPE CHECK:
        OUTPUT: "Refactoring scope is too large ([N] files). Use /massu-create-plan instead."
        ABORT
   5. IF changes database schema:
-       OUTPUT: "Refactoring involves schema changes. Use /massu-migrate instead."
+       OUTPUT: "Refactoring involves schema changes. Use a database migration workflow instead."
        ABORT
   6. IF changes public API contracts:
        OUTPUT: "Refactoring changes public API. Use /massu-create-plan for blast radius analysis."

@@ -72,13 +72,13 @@ bash scripts/massu-pattern-scanner.sh 2>&1
 ### 5. Dependency Health
 
 ```bash
-npm audit --audit-level=high 2>&1 || true
+npm audit 2>&1 || true
 npm outdated 2>&1 || true
 ```
 
 | Metric | Value | Status |
 |--------|-------|--------|
-| High/Critical vulns | [N] | PASS/FAIL |
+| Vulnerabilities (ALL severities) | [N] | PASS/FAIL |
 | Outdated packages | [N] | INFO |
 
 ### 6. Git State

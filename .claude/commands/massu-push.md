@@ -200,16 +200,16 @@ grep "getToolDefinitions\|isToolName\|handleToolCall" packages/core/src/tools.ts
 
 ### Tier 3: Security & Compliance
 
-#### 3.1 npm Audit
+#### 3.1 npm Audit (CR-9: ALL Severities)
 ```bash
-npm audit --audit-level=high
-# MUST have 0 high/critical vulnerabilities
+npm audit
+# MUST have 0 vulnerabilities at ANY severity level
 ```
 
-**Vulnerability Handling:**
-- **Critical/High**: MUST fix before push
-- **Moderate**: Document and create ticket
-- **Low**: Informational only
+**Vulnerability Handling (CR-9 — no exceptions):**
+- **Critical/High/Moderate/Low**: ALL MUST be fixed before push
+- There is NO "document and defer" tier — fix everything
+- Do NOT use `--audit-level=high` to filter out lower severities
 
 #### 3.2 Secrets Scan
 ```bash
@@ -230,7 +230,7 @@ grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|password.*=.*["\x27][^"\x27]\{8,\}' --include="
 ```bash
 # Check if package.json or package-lock.json changed
 git diff origin/main..HEAD --name-only | grep -E 'package(-lock)?\.json' && \
-  npm audit --audit-level=high 2>&1 || true
+  npm audit 2>&1 || true
 ```
 
 #### 3.3 Plan Coverage (if from plan)
@@ -250,7 +250,7 @@ git diff origin/main..HEAD --name-only | grep -E 'package(-lock)?\.json' && \
 ### Tier 3: Security & Compliance
 | Check | Command | Result | Status |
 |-------|---------|--------|--------|
-| npm audit | npm audit --audit-level=high | [X] vulns | PASS/FAIL |
+| npm audit | npm audit (ALL severities) | [X] vulns | PASS/FAIL |
 | Secrets Scan | grep check | [X] found | PASS/FAIL |
 | Plan Coverage | item-by-item | [X]/[X] = [X]% | PASS/FAIL |
 
@@ -361,7 +361,7 @@ After pushing, if any issues were fixed during this verification:
 |------|--------|--------|
 | Tier 1 | Patterns, Types, Hooks | PASS |
 | Tier 2 | Tests ([X] passed), Regression (0) | PASS |
-| Tier 3 | npm audit (0 high/critical), Secrets (0) | PASS |
+| Tier 3 | npm audit (0 vulnerabilities, ALL severities), Secrets (0) | PASS |
 
 ### Dual Verification
 | Gate | Status |

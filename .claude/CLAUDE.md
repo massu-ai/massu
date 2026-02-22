@@ -65,6 +65,8 @@ AI Engineering Governance Platform - an MCP server and Claude Code plugin.
 
 **ANY issue discovered during work MUST be fixed immediately, whether from current changes or pre-existing.** "Not in scope" and "pre-existing" are NEVER valid reasons to skip. When fixing a bug, search entire codebase for the same pattern and fix ALL instances.
 
+**npm audit: ALL severities MUST be fixed.** `npm audit` vulnerabilities at ANY level (low, moderate, high, critical) block push/commit/release. Do NOT use `--audit-level=high` to filter. Do NOT dismiss moderate/low as "informational" or "dev-only". Fix all vulnerabilities before proceeding.
+
 ### CR-10: Blast Radius Analysis for Value Changes
 
 **When ANY plan changes a constant value, export name, config key, or tool name, ALL codebase references MUST be identified and categorized.**

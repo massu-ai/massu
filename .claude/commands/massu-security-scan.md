@@ -117,8 +117,8 @@ grep -rn 'debug.*true\|DEBUG.*true' website/src/ --include="*.ts" --include="*.t
 ### A06 Vulnerable Components
 
 ```bash
-npm audit --audit-level=high 2>&1 || true
-cd website && npm audit --audit-level=high 2>&1 || true
+npm audit 2>&1 || true
+cd website && npm audit 2>&1 || true
 ```
 
 ### A07 Authentication Failures

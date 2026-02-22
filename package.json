@@ -1,6 +1,7 @@
 {
   "name": "massu",
   "version": "0.1.0",
+  "private": true,
   "description": "AI Engineering Governance Platform - Session memory, feature registry, code intelligence, and rule enforcement for AI coding assistants",
   "workspaces": [
     "packages/core",

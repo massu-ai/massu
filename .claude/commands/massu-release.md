@@ -3,9 +3,8 @@ name: massu-release
 description: Release preparation — version bump, changelog, full verification, tagging
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-release
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Release: Release Preparation Gate
 

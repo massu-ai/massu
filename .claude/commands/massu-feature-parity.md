@@ -4,7 +4,7 @@ description: "Comprehensive Feature Parity Check: Massu vs Limn Systems source"
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*), Write(*), Task(*)
 ---
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Feature Parity Check: Massu vs Limn Systems
 
@@ -17,12 +17,13 @@ Run periodically (weekly recommended) to maintain 100% feature parity.
 ## Configuration
 
 ```
-LIMN_ROOT=/Users/eko3/limn-systems-enterprise
-LIMN_MCP=/Users/eko3/limn-systems-enterprise/scripts/mcp/limn-codegraph
-LIMN_CLAUDE=/Users/eko3/limn-systems-enterprise/.claude
-MASSU_ROOT=/Users/eko3/massu-internal
-MASSU_MCP=/Users/eko3/massu-internal/packages/core/src
-MASSU_CLAUDE=/Users/eko3/massu-internal/.claude
+# Override via environment variables or $ARGUMENTS
+LIMN_ROOT="${LIMN_ROOT:-${ARGUMENTS:-/path/to/limn-systems}}"
+LIMN_MCP="$LIMN_ROOT/scripts/mcp/limn-codegraph"
+LIMN_CLAUDE="$LIMN_ROOT/.claude"
+MASSU_ROOT="${MASSU_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
+MASSU_MCP="$MASSU_ROOT/packages/core/src"
+MASSU_CLAUDE="$MASSU_ROOT/.claude"
 ```
 
 ---
@@ -266,6 +267,6 @@ Show the user:
 
 **Classification for each gap:**
 - **CRITICAL**: Core functionality, pricing/cost data, crash/hang fixes
-- **HIGH**: Context optimization, safety features (CR-35), agent capabilities
+- **HIGH**: Context optimization, safety features, agent capabilities
 - **MEDIUM**: Additional commands, KB templates, shell hooks
 - **LOW**: Nice-to-have, cosmetic differences

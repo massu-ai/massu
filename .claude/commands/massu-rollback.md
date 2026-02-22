@@ -3,9 +3,8 @@ name: massu-rollback
 description: Safe rollback protocol with state preservation and verification for code changes
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-rollback
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu Rollback: Safe Rollback Protocol
 

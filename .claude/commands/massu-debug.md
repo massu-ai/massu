@@ -3,9 +3,8 @@ name: massu-debug
 description: Systematic debugging with hypothesis testing, root cause tracing, and verified fixes
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-debug
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Debug: Systematic Debugging Protocol
 

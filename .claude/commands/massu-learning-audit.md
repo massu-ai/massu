@@ -3,9 +3,8 @@ name: massu-learning-audit
 description: Validate auto-learning effectiveness - memory coverage, pattern scanner coverage, failure recurrence
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-learning-audit
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu Learning Audit: Auto-Learning Effectiveness Validation
 

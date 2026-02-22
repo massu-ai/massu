@@ -25,6 +25,8 @@ jobs:
         run: cd packages/core && npx tsc --noEmit
       - name: Pattern Scanner
         run: bash scripts/massu-pattern-scanner.sh
+      - name: Security Scanner
+        run: bash scripts/massu-security-scanner.sh
 
   test:
     name: Test
@@ -52,3 +54,19 @@ jobs:
       - run: npm ci
       - name: Build Hooks (Core)
         run: cd packages/core && npm run build:hooks
+      - name: npm audit
+        run: npm audit --audit-level=high
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Integration Tests
+        run: npm run test:integration

@@ -3,9 +3,8 @@ name: massu-accessibility
 description: WCAG 2.1 AA accessibility audit — ARIA, keyboard, contrast, semantics, screen reader
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
-name: massu-accessibility
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Accessibility: WCAG 2.1 AA Audit
 

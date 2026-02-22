@@ -3,9 +3,8 @@ name: massu-new-pattern
 description: Create and save new patterns with approval workflow and CLAUDE.md integration
 allowed-tools: Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-new-pattern
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu New Pattern: Pattern Creation Protocol
 
@@ -162,14 +161,14 @@ grep -rn "[correct pattern]" packages/core/src/
 **WRONG:**
 ```typescript
 // Hardcoded prefix - breaks for other projects
-name: 'massu_my_tool',
+  name: 'massu_my_tool',
 ```
 
 **CORRECT:**
 ```typescript
 // Config-driven prefix - works for any project
 const p = (name: string) => `${getConfig().toolPrefix}_${name}`;
-name: p('my_tool'),
+  name: p('my_tool'),
 ```
 ```
 

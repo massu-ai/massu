@@ -3,9 +3,8 @@ name: massu-perf
 description: Performance analysis — bundle size, lazy-loading, query optimization, edge function sizing
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
-name: massu-perf
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Perf: Performance Analysis
 

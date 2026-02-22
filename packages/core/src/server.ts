@@ -182,6 +182,7 @@ process.stdin.on('end', () => {
 // Handle errors gracefully
 process.on('uncaughtException', (error) => {
   process.stderr.write(`massu: Uncaught exception: ${error.message}\n`);
+  process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {

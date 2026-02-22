@@ -3,9 +3,8 @@ name: massu-onboard
 description: Generate a comprehensive onboarding guide for new team members from live codebase analysis
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
-name: massu-onboard
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Onboard: New Team Member Onboarding Guide
 

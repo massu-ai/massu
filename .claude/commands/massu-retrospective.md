@@ -3,9 +3,8 @@ name: massu-retrospective
 description: Session or sprint retrospective — what worked, what didn't, patterns learned, and follow-up actions
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
-name: massu-retrospective
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Retrospective: Session & Sprint Retrospective
 

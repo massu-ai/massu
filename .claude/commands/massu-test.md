@@ -3,9 +3,8 @@ name: massu-test
 description: Intelligent test runner with failure analysis, coverage gaps, and test generation
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-test
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Test: Intelligent Test Runner
 

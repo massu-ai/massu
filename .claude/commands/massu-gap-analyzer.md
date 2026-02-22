@@ -3,9 +3,8 @@ name: massu-gap-analyzer
 description: Analyze plan implementation for gaps and enhancement opportunities (post-massu-loop)
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-gap-analyzer
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu Gap & Enhancement Analyzer
 

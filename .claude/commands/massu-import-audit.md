@@ -3,9 +3,8 @@ name: massu-import-audit
 description: Import chain audit - prevents build issues from heavy/circular deps and ESM violations
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-import-audit
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu Import Audit: Build Safety & Import Chain Compliance
 

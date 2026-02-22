@@ -3,9 +3,8 @@ name: massu-commit
 description: Pre-commit verification audit with zero-fail release gate
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-commit
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Commit: Pre-Commit Verification Gate
 
@@ -45,7 +44,7 @@ Run a continuous AUDIT -> FIX -> VERIFY -> RE-AUDIT loop that proves (with evide
 
 ```
 COMMIT AUDIT LOOP:
-  1. Run ALL pre-commit checks (Gates 1-7)
+  1. Run ALL pre-commit checks (Gates 1-8)
   2. Count total gaps/failures found
   3. IF gaps > 0:
        - Fix ALL gaps
@@ -251,6 +250,12 @@ grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|password.*=.*["\x27][^"\x27]\{8,\}' --include="
 **PLAN COVERAGE GATE: PASS / FAIL**
 ```
 
+### Gate 8: Integration Tests (if integration tests exist)
+```bash
+# Only run if test:integration script exists
+npm run test:integration 2>/dev/null || echo "SKIP: No integration tests configured"
+```
+
 ---
 
 ## GATE SUMMARY
@@ -267,6 +272,7 @@ grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|password.*=.*["\x27][^"\x27]\{8,\}' --include="
 | 5. No Secrets Staged | git diff --cached check | [result] | PASS/FAIL |
 | 6. No Credentials | grep check | [X] found | PASS/FAIL |
 | 7. Plan Coverage | item-by-item | [X]/[X] = [X]% | PASS/FAIL |
+| 8. Integration Tests | npm run test:integration | [X] pass | PASS/FAIL |
 
 **OVERALL: PASS / FAIL**
 ```
@@ -375,7 +381,7 @@ If changes span 3+ unrelated areas (e.g., `packages/core/` + `website/` + `scrip
 
 ## START NOW
 
-**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
+**Step 0: Write AUTHORIZED_COMMAND to session state**
 
 Update `session-state/CURRENT.md` to include `AUTHORIZED_COMMAND: massu-commit`.
 

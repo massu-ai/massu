@@ -2,7 +2,8 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import type Database from 'better-sqlite3';
-import type { ToolDefinition, ToolResult } from './tools.ts';
+import type { ToolDefinition, ToolResult } from './tool-helpers.ts';
+import { p, text } from './tool-helpers.ts';
 import {
   searchFeatures,
   getFeatureDetail,
@@ -18,17 +19,19 @@ import {
 import type { ComponentRole, FeatureStatus, FeaturePriority } from './sentinel-types.ts';
 import { getConfig } from './config.ts';
 
-/** Prefix a base tool name with the configured tool prefix. */
-function p(baseName: string): string {
-  return `${getConfig().toolPrefix}_${baseName}`;
-}
-
 // ============================================================
 // Sentinel: MCP Tool Definitions & Handlers
 // ============================================================
 
-function text(content: string): ToolResult {
-  return { content: [{ type: 'text', text: content }] };
+const SENTINEL_BASE_NAMES = new Set([
+  'sentinel_search', 'sentinel_detail', 'sentinel_impact',
+  'sentinel_validate', 'sentinel_register', 'sentinel_parity',
+]);
+
+export function isSentinelTool(name: string): boolean {
+  const pfx = getConfig().toolPrefix + '_';
+  const baseName = name.startsWith(pfx) ? name.slice(pfx.length) : name;
+  return SENTINEL_BASE_NAMES.has(baseName);
 }
 
 export function getSentinelToolDefinitions(): ToolDefinition[] {

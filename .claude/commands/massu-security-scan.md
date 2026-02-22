@@ -3,9 +3,8 @@ name: massu-security-scan
 description: Deep security audit — OWASP, API auth, Supabase RLS, secrets, headers, dependencies
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
-name: massu-security-scan
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Security Scan: Deep Security Audit
 
@@ -342,6 +341,56 @@ If webhook code exists, check:
 |---------|-------------------|-------------|-------------------|-----------------|--------|
 | [name] | YES/NO | YES/NO | YES/NO | YES/NO | PASS/FAIL |
 ```
+
+---
+
+## DIMENSION 8: AUTHORIZATION LOGIC
+
+Check that paid features enforce server-side authorization:
+
+1. Find all dashboard pages: `find src/app/(dashboard) -name "page.tsx" -type f`
+2. For each, check for `requirePlan()` or equivalent server-side check
+3. Find all API routes with tier restrictions and verify enforcement
+4. Check API key scope enforcement
+
+```markdown
+### Dimension 8: Authorization Logic
+| Finding | Severity | File | Details |
+|---------|----------|------|---------|
+| ... | ... | ... | ... |
+```
+
+---
+
+## DIMENSION 9: SSRF PREVENTION
+
+1. Find all `fetch()` calls with dynamic URLs: `grep -rn 'fetch(' src/ --include="*.ts" | grep -v "fetch('https"`
+2. For each, verify URL validation (allowlist, IP blocking)
+3. Check webhook URL inputs specifically
+
+---
+
+## DIMENSION 10: SECRET LEAKAGE
+
+1. Find all API GET handlers: `grep -rn 'export.*function GET' src/app/api/ -l`
+2. For each, check if response includes `secret`, `key`, `password`, `token` fields
+3. Check for `select('*')` usage in GET handlers
+
+---
+
+## DIMENSION 11: AUTH COMPLETENESS
+
+1. Find all auth-related files: `grep -rl 'auth\|sso\|login\|callback' src/ --include="*.ts"`
+2. Grep for `TODO`, `FIXME`, `stub`, `placeholder`, `In a full implementation`
+3. Every auth callback must validate tokens/assertions
+
+---
+
+## DIMENSION 12: ENCRYPTION INTEGRITY
+
+1. Find all encryption/crypto files: `grep -rl 'encrypt\|decrypt\|crypto\|cipher' src/ --include="*.ts"`
+2. Check every `catch` block -- must re-throw or return error, never silently swallow
+3. No plaintext fallback on encryption failure
 
 ---
 

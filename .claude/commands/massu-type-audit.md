@@ -3,9 +3,8 @@ name: massu-type-audit
 description: Comprehensive type mismatch audit across module boundaries, config types, and runtime type safety
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-type-audit
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu Type Audit: Comprehensive Type Safety Verification
 

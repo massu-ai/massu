@@ -3,9 +3,8 @@ name: massu-migrate
 description: Database migration creation, validation, RLS verification, ordering check, and rollback generation
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-migrate
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Migrate: Database Migration Workflow
 

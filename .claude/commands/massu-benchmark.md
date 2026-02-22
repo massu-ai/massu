@@ -3,9 +3,8 @@ name: massu-benchmark
 description: Performance benchmarking — run benchmarks, compare against baselines, detect regressions, and update baselines
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-benchmark
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Benchmark: Performance Benchmarking
 

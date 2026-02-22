@@ -5,20 +5,22 @@
   "description": "AI Engineering Governance MCP Server - Session memory, feature registry, code intelligence, and rule enforcement",
   "license": "BSL-1.1",
   "author": "Massu AI <hello@massu.ai>",
-  "main": "src/server.ts",
+  "main": "dist/server.js",
   "types": "src/server.ts",
   "exports": {
-    ".": "./src/server.ts",
-    "./cli": "./src/cli.ts"
+    ".": "./dist/server.js",
+    "./cli": "./dist/cli.js"
   },
   "bin": {
-    "massu": "./src/cli.ts"
+    "massu": "./dist/cli.js"
   },
   "scripts": {
     "start": "npx tsx src/server.ts",
     "test": "vitest run",
-    "build": "tsc --noEmit && npm run build:hooks",
+    "build": "tsc --noEmit && npm run build:server && npm run build:hooks",
+    "build:server": "esbuild --bundle --platform=node --format=esm --outdir=dist --entry-names=[name] src/server.ts src/cli.ts --external:better-sqlite3 --external:yaml --external:zod --banner:js='import{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
     "build:hooks": "esbuild --bundle --platform=node --format=esm --outdir=dist/hooks src/hooks/*.ts --external:better-sqlite3 --banner:js='import{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
+    "test:integration": "vitest run src/__tests__/integration/",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

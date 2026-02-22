@@ -3,9 +3,8 @@ name: massu-new-feature
 description: Feature scaffolding with correct patterns pre-applied and verification gates
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-new-feature
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu New Feature: Pattern-Compliant Feature Scaffolding
 

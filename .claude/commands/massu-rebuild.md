@@ -3,9 +3,8 @@ name: massu-rebuild
 description: Safe rebuild/replacement protocol enforcing feature parity before deletion
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-rebuild
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu Rebuild: Safe Rebuild/Replacement Protocol
 
@@ -248,7 +247,7 @@ Copy this template to track parity for each rebuild:
 
 ## START NOW
 
-**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
+**Step 0: Write AUTHORIZED_COMMAND to session state**
 
 Before any other work, update `session-state/CURRENT.md` to include:
 ```

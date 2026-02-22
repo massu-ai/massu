@@ -1,6 +1,10 @@
+---
 name: massu-sync-public
+description: "Run quality gates on massu-internal, then sync public files to massu public repo"
+allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
+---
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Sync Public Repo
 

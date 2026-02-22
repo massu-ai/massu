@@ -3,15 +3,16 @@ name: massu-codebase-audit
 description: Run comprehensive multi-phase codebase audit (patterns, security, types, tests, performance)
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-codebase-audit
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu Codebase Audit: Comprehensive Periodic Audit Protocol
 
 ## Objective
 
 Run a full-scope audit of the entire codebase covering **multiple critical areas**. Designed for periodic execution (weekly/monthly) to catch issues before they reach production.
+
+**Recommended cadence**: Run monthly to catch drift before it accumulates. Set a calendar reminder.
 
 ---
 
@@ -32,6 +33,10 @@ Run a full-scope audit of the entire codebase covering **multiple critical areas
 | 11 | Test Coverage | `bash scripts/massu-test-coverage.sh` | MEDIUM |
 | 12 | Error Handling | Try-catch coverage, error propagation | MEDIUM |
 | 13 | Performance Analysis | N+1 patterns, unbounded queries | LOW |
+| 14 | Business Logic Audit | Grep for plan-gating patterns, tier enforcement, auth completeness | HIGH |
+| 15 | Security Logic Audit | Run enhanced security scanner + manual SSRF/auth/encryption review | HIGH |
+| 16 | Marketing Accuracy | Compare feature counts in config vs website display | MEDIUM |
+| 17 | Tooling Self-Check | `bash scripts/massu-verify-tooling.sh` | MEDIUM |
 
 ---
 
@@ -204,6 +209,56 @@ grep -rn "findMany\|SELECT \*" packages/core/src/ | grep -v __tests__ | head -10
 
 ---
 
+## PHASE 14: BUSINESS LOGIC AUDIT (HIGH)
+
+Check that tier-restricted features are properly gated:
+1. Grep website dashboard pages for `requirePlan()` calls
+2. Verify every paid route has server-side plan enforcement
+3. Check pricing constants in code match `massu.config.yaml`
+4. Verify no `TODO` or stub implementations in auth flows
+
+```bash
+# Plan gating coverage
+grep -rn 'requirePlan' /Users/eko3/massu-internal/website/src/app/ --include="*.ts" --include="*.tsx" | wc -l
+# Auth stubs
+grep -rn 'TODO\|FIXME\|stub' /Users/eko3/massu-internal/website/src/ --include="*.ts" | grep -i auth | head -20
+```
+
+---
+
+## PHASE 15: SECURITY LOGIC AUDIT (HIGH)
+
+Run the enhanced security scanner and review output:
+```bash
+bash scripts/massu-security-scanner.sh
+```
+
+Manually review:
+1. SSRF protection on webhook URL inputs
+2. Auth callback completeness (no pass-through)
+3. Encryption error handling (no silent fallback)
+
+---
+
+## PHASE 16: MARKETING ACCURACY (MEDIUM)
+
+Compare `massu.config.yaml` tool counts/tiers against website features page data:
+1. Count tools in config, compare to website display count
+2. Verify tier badges match config tiers
+3. Check pricing values match config
+
+---
+
+## PHASE 17: TOOLING SELF-CHECK (MEDIUM)
+
+```bash
+bash scripts/massu-verify-tooling.sh
+```
+
+Verifies all verification tools are functional (scripts exist, commands have frontmatter, no broken references).
+
+---
+
 ## AUDIT REPORT FORMAT
 
 ```markdown
@@ -216,7 +271,7 @@ grep -rn "findMany\|SELECT \*" packages/core/src/ | grep -v __tests__ | head -10
 
 ## Executive Summary
 - **Overall Health**: PASS / NEEDS ATTENTION / CRITICAL
-- **Phases Passed**: X/13
+- **Phases Passed**: X/17
 - **Critical Issues**: X
 - **Warnings**: X
 
@@ -263,12 +318,16 @@ grep -rn "findMany\|SELECT \*" packages/core/src/ | grep -v __tests__ | head -10
 - [ ] Phase 6: Build Verification - `npm run build`
 - [ ] Phase 7: Import Chain Safety
 - [ ] Phase 8: Tool Registration (CR-11)
+- [ ] Phase 14: Business Logic Audit
+- [ ] Phase 15: Security Logic Audit
 
 ### Medium Priority (Review)
 - [ ] Phase 9: Config Validation
 - [ ] Phase 10: Dead Code Detection
 - [ ] Phase 11: Test Coverage
 - [ ] Phase 12: Error Handling
+- [ ] Phase 16: Marketing Accuracy
+- [ ] Phase 17: Tooling Self-Check
 
 ### Low Priority (Informational)
 - [ ] Phase 13: Performance Analysis

@@ -3,9 +3,8 @@ name: massu-refactor
 description: Safe refactoring with behavioral equivalence, incremental transforms, and automatic rollback
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-refactor
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Refactor: Safe Refactoring Workflow
 

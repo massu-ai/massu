@@ -3,9 +3,8 @@ name: massu-review
 description: Automated code review across 7 dimensions (patterns, security, architecture, website, AI-specific, performance, accessibility)
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
-name: massu-review
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Review: Automated Code Review
 
@@ -200,6 +199,26 @@ For ALL changed files:
 |------|-------|--------|---------|
 | [file] | [check] | PASS/WARN/FAIL | [details] |
 ```
+
+---
+
+## DIMENSION 8: BUSINESS LOGIC REVIEW (for all changed files)
+
+Check business logic correctness in changed files:
+
+| Check | Command | Severity if Violated |
+|-------|---------|---------------------|
+| Plan gating | Verify any new/changed dashboard pages have `requirePlan()` | CRITICAL |
+| Pricing consistency | If pricing constants changed, verify they match `massu.config.yaml` | HIGH |
+| Tier display | If tier/badge UI changed, verify correct tier per config | HIGH |
+| Feature claims | If marketing copy changed, verify counts match actual data | HIGH |
+| Auth completeness | No new TODO/stub in auth flows | CRITICAL |
+
+For each changed file, check:
+1. If it's a dashboard page: does it have plan gating?
+2. If it touches pricing: do values match config?
+3. If it touches auth: is it complete (no stubs)?
+4. If it touches marketing: do claims match data?
 
 ---
 

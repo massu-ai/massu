@@ -3,9 +3,8 @@ name: massu-create-plan
 description: Create a viable implementation plan aligned with Massu architecture and patterns
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
-name: massu-create-plan
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Create Plan: Reality-Based Plan Generation
 

@@ -3,9 +3,8 @@ name: massu-verify
 description: Run all VR-* verification checks for current work with mandatory proof output
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
-name: massu-verify
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu Verify: Comprehensive Verification Protocol
 

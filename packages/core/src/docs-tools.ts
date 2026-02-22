@@ -4,17 +4,21 @@
 import { readFileSync, existsSync } from 'fs';
 import { resolve, basename } from 'path';
 import { getConfig, getResolvedPaths } from './config.ts';
-import type { ToolDefinition, ToolResult } from './tools.ts';
-
-/** Prefix a base tool name with the configured tool prefix. */
-function p(baseName: string): string {
-  return `${getConfig().toolPrefix}_${baseName}`;
-}
+import type { ToolDefinition, ToolResult } from './tool-helpers.ts';
+import { p, text } from './tool-helpers.ts';
 
 // ============================================================
 // Help Site Auto-Sync: MCP Docs Tools
 // docs_audit + docs_coverage
 // ============================================================
+
+const DOCS_BASE_NAMES = new Set(['docs_audit', 'docs_coverage']);
+
+export function isDocsTool(name: string): boolean {
+  const pfx = getConfig().toolPrefix + '_';
+  const baseName = name.startsWith(pfx) ? name.slice(pfx.length) : name;
+  return DOCS_BASE_NAMES.has(baseName);
+}
 
 interface DocsMapping {
   id: string;
@@ -508,10 +512,3 @@ function handleDocsCoverage(args: Record<string, unknown>): ToolResult {
   return text(lines.join('\n'));
 }
 
-// ============================================================
-// Utilities
-// ============================================================
-
-function text(content: string): ToolResult {
-  return { content: [{ type: 'text', text: content }] };
-}

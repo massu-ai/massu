@@ -2,7 +2,8 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import type Database from 'better-sqlite3';
-import type { ToolDefinition, ToolResult } from './tools.ts';
+import type { ToolDefinition, ToolResult } from './tool-helpers.ts';
+import { p, text } from './tool-helpers.ts';
 import type { TranscriptEntry } from './transcript-parser.ts';
 import { getConfig } from './config.ts';
 
@@ -10,17 +11,13 @@ import { getConfig } from './config.ts';
 // Cost Attribution Tracking
 // ============================================================
 
-/** Prefix a base tool name with the configured tool prefix. */
-function p(baseName: string): string {
-  return `${getConfig().toolPrefix}_${baseName}`;
-}
-
 /** Default model pricing (Claude models). Can be overridden via config.analytics.cost.models */
 const DEFAULT_MODEL_PRICING: Record<string, { input_per_million: number; output_per_million: number; cache_read_per_million?: number; cache_write_per_million?: number }> = {
   'claude-opus-4-6': { input_per_million: 5.00, output_per_million: 25.00, cache_read_per_million: 0.50, cache_write_per_million: 6.25 },
   'claude-sonnet-4-6': { input_per_million: 3.00, output_per_million: 15.00, cache_read_per_million: 0.30, cache_write_per_million: 3.75 },
   'claude-sonnet-4-5': { input_per_million: 3.00, output_per_million: 15.00, cache_read_per_million: 0.30, cache_write_per_million: 3.75 },
-  'claude-haiku-4-5-20251001': { input_per_million: 0.80, output_per_million: 4.00, cache_read_per_million: 0.08, cache_write_per_million: 1.00 },
+  'claude-3-5-haiku-20241022': { input_per_million: 0.80, output_per_million: 4.00, cache_read_per_million: 0.08, cache_write_per_million: 1.00 },
+  'claude-haiku-4-5-20251001': { input_per_million: 1.00, output_per_million: 5.00, cache_read_per_million: 0.10, cache_write_per_million: 1.25 },
   'default': { input_per_million: 3.00, output_per_million: 15.00, cache_read_per_million: 0.30, cache_write_per_million: 3.75 },
 };
 
@@ -351,6 +348,3 @@ function handleCostFeature(args: Record<string, unknown>, db: Database.Database)
   return text(lines.join('\n'));
 }
 
-function text(content: string): ToolResult {
-  return { content: [{ type: 'text', text: content }] };
-}

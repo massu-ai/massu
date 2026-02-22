@@ -3,9 +3,11 @@ name: massu-website-check
 description: Website-specific verification (TypeScript, Next.js build, tests, security, Supabase)
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
-name: massu-website-check
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
+
+## Website Repository Location
+The website lives in a separate repo. The default path is `../massu-internal/website/` relative to the massu repo root, or set `WEBSITE_ROOT` environment variable to override.
 
 # CS Website Check: Website Verification Gate
 

@@ -2,7 +2,8 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import type Database from 'better-sqlite3';
-import type { ToolDefinition, ToolResult } from './tools.ts';
+import type { ToolDefinition, ToolResult } from './tool-helpers.ts';
+import { p, text } from './tool-helpers.ts';
 import { getConfig } from './config.ts';
 import { existsSync, readFileSync } from 'fs';
 import { ensureWithinRoot, enforceSeverityFloors } from './security-utils.ts';
@@ -10,11 +11,6 @@ import { ensureWithinRoot, enforceSeverityFloors } from './security-utils.ts';
 // ============================================================
 // Security Risk Scoring
 // ============================================================
-
-/** Prefix a base tool name with the configured tool prefix. */
-function p(baseName: string): string {
-  return `${getConfig().toolPrefix}_${baseName}`;
-}
 
 export interface SecurityFinding {
   pattern: string;
@@ -400,6 +396,3 @@ function handleSecurityTrend(args: Record<string, unknown>, db: Database.Databas
   return text(lines.join('\n'));
 }
 
-function text(content: string): ToolResult {
-  return { content: [{ type: 'text', text: content }] };
-}

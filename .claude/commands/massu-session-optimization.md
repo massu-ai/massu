@@ -3,9 +3,8 @@ name: massu-session-optimization
 description: Audit and optimize session context overhead (CLAUDE.md, commands, MCP, hooks, memory)
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-session-optimization
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Session Context Optimization Audit
 

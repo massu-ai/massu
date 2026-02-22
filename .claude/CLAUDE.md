@@ -23,7 +23,7 @@ AI Engineering Governance Platform - an MCP server and Claude Code plugin.
 ## Tech Stack
 - TypeScript, ESM modules
 - better-sqlite3 for local storage
-- @modelcontextprotocol/sdk for MCP protocol
+- Raw JSON-RPC 2.0 over stdio (MCP protocol)
 - yaml for config parsing
 - esbuild for hook compilation
 - vitest for testing
@@ -46,6 +46,11 @@ AI Engineering Governance Platform - an MCP server and Claude Code plugin.
 | CR-10 | Blast radius analysis for value changes | VR-BLAST-RADIUS |
 | CR-11 | New MCP tools MUST be registered in tools.ts | VR-TOOL-REG |
 | CR-12 | Hooks MUST compile with esbuild | VR-HOOK-BUILD |
+| CR-13 | No stub/TODO auth code in production | VR-GREP |
+| CR-14 | All paid features must be server-side gated | VR-GREP |
+| CR-15 | Security mechanisms must fail hard | VR-GREP |
+| CR-16 | Marketing claims must match source data | VR-TEST |
+| CR-17 | API responses must not leak secrets | VR-GREP |
 
 ### CR-8: Protocol Commands Are Mandatory Execution Instructions
 
@@ -107,6 +112,46 @@ cd packages/core && npm run build:hooks
 ```
 
 Hooks receive JSON on stdin, output JSON on stdout, and must exit within 5 seconds. Never import heavy dependencies in hooks.
+
+### CR-13: No Stub Auth Code in Production
+
+**Authentication and authorization code MUST be complete. TODO/stub implementations in auth flows are CRITICAL security violations.**
+
+- `grep -rn 'TODO\|FIXME\|stub\|placeholder' src/ | grep -i auth` must return 0 results
+- SSO callbacks must validate tokens/assertions (not pass-through)
+- Auth middleware must not have bypass paths outside explicit allowlists
+
+### CR-14: All Paid Features Must Be Server-Side Gated
+
+**Every dashboard page and API route that is tier-restricted MUST enforce `requirePlan()` server-side. Client-side nav hiding is NOT sufficient.**
+
+- Every page under `(dashboard)/` that shows paid features must call `requirePlan()` or equivalent
+- API routes returning tier-restricted data must verify plan server-side
+- Client-side hiding is supplementary only, never the sole gate
+
+### CR-15: No Silent Security Fallbacks
+
+**Security mechanisms (encryption, auth, validation) MUST fail hard. Silent fallback to weaker security is prohibited.**
+
+- Encryption failure must throw, never fall back to plaintext
+- Auth failure must return 401/403, never serve content anyway
+- Validation failure must reject input, never accept silently
+
+### CR-16: Marketing Claims Must Match Source Data
+
+**Feature counts, tool counts, and tier claims displayed on the website MUST be derived from source data, not hardcoded. Discrepancies between data and display are HIGH severity.**
+
+- Tool counts on marketing pages must come from config/database
+- Tier badges must reflect actual tier from data source
+- Pricing must match `massu.config.yaml` values
+
+### CR-17: API Responses Must Not Leak Secrets
+
+**API GET responses MUST explicitly select fields. `select('*')` is prohibited in API routes that return data to clients.**
+
+- Every Supabase query in API GET handlers must use explicit `.select('field1, field2')`
+- Fields named `secret`, `key`, `password`, `token` must never appear in GET responses
+- Use DTO/projection patterns to control response shape
 
 ---
 
@@ -275,16 +320,16 @@ docs/plans/YYYY-MM-DD-feature-name.md
 
 | Module File | Tool Prefix | Has Tests |
 |-------------|-------------|-----------|
-| `analytics.ts` | `_quality_` | NO |
-| `cost-tracker.ts` | `_cost_` | NO |
-| `prompt-analyzer.ts` | `_prompt_` | NO |
-| `audit-trail.ts` | `_audit_` | NO |
-| `validation-engine.ts` | `_validation_` | NO |
-| `adr-generator.ts` | `_adr_` | NO |
-| `security-scorer.ts` | `_security_` | NO |
-| `dependency-scorer.ts` | `_dependency_` | NO |
-| `team-knowledge.ts` | `_team_` | NO |
-| `regression-detector.ts` | `_regression_` | NO |
+| `analytics.ts` | `_quality_` | YES |
+| `cost-tracker.ts` | `_cost_` | YES |
+| `prompt-analyzer.ts` | `_prompt_` | YES |
+| `audit-trail.ts` | `_audit_` | YES |
+| `validation-engine.ts` | `_validation_` | YES |
+| `adr-generator.ts` | `_adr_` | YES |
+| `security-scorer.ts` | `_security_` | YES |
+| `dependency-scorer.ts` | `_dependency_` | YES |
+| `team-knowledge.ts` | `_team_` | YES |
+| `regression-detector.ts` | `_regression_` | YES |
 | `observability-tools.ts` | `_obs_` | YES |
 
 **2-function pattern (legacy):** `getDefs()` + `handleCall()` (routing inline in tools.ts)
@@ -360,9 +405,11 @@ docs/plans/YYYY-MM-DD-feature-name.md
 | Command | Purpose | Edits Source Code? |
 |---------|---------|-------------------|
 | `/massu-plan` | Audit/improve plan document | **NO** (plan doc only) |
+| `/massu-create-plan` | Create a viable implementation plan from scratch | **NO** (plan doc only) |
 | `/massu-loop` | Implement plan with verification | **YES** |
 | `/massu-commit` | Pre-commit verification gate | Fixes only |
 | `/massu-push` | Pre-push full verification gate | Fixes only |
+| `/massu-push-light` | Fast pre-push verification (~90s) | Fixes only |
 
 **Flow**: plan (audit) -> loop (implement) -> commit -> push
 
@@ -373,6 +420,34 @@ docs/plans/YYYY-MM-DD-feature-name.md
 | `/massu-debug` | Systematic debugging | **YES** (applies fixes) |
 | `/massu-refactor` | Safe refactoring | **YES** |
 | `/massu-release` | Release preparation | **YES** (version bump, tag) |
+| `/massu-new-feature` | Pattern-compliant feature scaffolding | **YES** (scaffolding) |
+| `/massu-new-pattern` | Create and save new patterns with approval workflow | **YES** |
+| `/massu-rebuild` | Safe rebuild/replacement with feature parity enforcement | **YES** |
+| `/massu-migrate` | Database migration creation, validation, and rollback generation | **YES** (migrations) |
+| `/massu-rollback` | Safe rollback protocol with state preservation | **YES** |
+
+### Code Review & Audits
+| Command | Purpose | Edits Source Code? |
+|---------|---------|-------------------|
+| `/massu-review` | Automated code review across 7 dimensions | **NO** |
+| `/massu-codebase-audit` | Comprehensive multi-phase codebase audit | **NO** |
+| `/massu-api-contract` | MCP tool contract audit with handler-schema verification | **NO** |
+| `/massu-config-audit` | Config validation and config-code alignment check | **NO** |
+| `/massu-import-audit` | Import chain audit for heavy/circular deps and ESM violations | **NO** |
+| `/massu-type-audit` | Type mismatch audit across module boundaries | **NO** |
+| `/massu-learning-audit` | Validate auto-learning effectiveness and memory coverage | **NO** |
+| `/massu-feature-parity` | Feature parity check between source systems | **NO** |
+| `/massu-gap-analyzer` | Analyze plan implementation for gaps (post-massu-loop) | **NO** |
+| `/massu-checkpoint` | Checkpoint audit for current phase with full verification | **NO** |
+| `/massu-verify` | Run all VR-* verification checks with mandatory proof | **NO** |
+
+### Security & Compliance
+| Command | Purpose | Edits Source Code? |
+|---------|---------|-------------------|
+| `/massu-security-scan` | Deep security audit (OWASP, API auth, RLS, secrets) | **NO** |
+| `/massu-accessibility` | WCAG 2.1 AA accessibility audit | **NO** |
+| `/massu-pre-launch` | Comprehensive pre-launch/pre-deploy verification | **NO** |
+| `/massu-website-check` | Website-specific verification (TS, Next.js, Supabase) | **NO** |
 
 ### Diagnostics & Utilities
 | Command | Purpose | Edits Source Code? |
@@ -380,18 +455,25 @@ docs/plans/YYYY-MM-DD-feature-name.md
 | `/massu-audit-deps` | Dependency audit (vulns, licenses, unused) | **NO** |
 | `/massu-changelog` | Generate changelog from commits | CHANGELOG.md only |
 | `/massu-hotfix` | Quick scoped fix workflow | **YES** (small fixes) |
+| `/massu-incident` | Automated incident post-mortem with prevention pipeline | **NO** |
+| `/massu-status` | Read-only project health dashboard with 14 health checks | **NO** |
+| `/massu-sync-public` | Run quality gates, then sync public files to public repo | **NO** |
 
 ### Productivity
 | Command | Purpose | Edits Source Code? |
 |---------|---------|-------------------|
 | `/massu-cleanup` | Dead code removal, unused imports, orphaned files | **YES** |
 | `/massu-doc-gen` | Generate JSDoc, README, API docs | **YES** (docs only) |
+| `/massu-onboard` | Generate onboarding guide for new team members | **NO** |
+| `/massu-session-optimization` | Audit and optimize session context overhead | **YES** (optional) |
 
 ### Insights
 | Command | Purpose | Edits Source Code? |
 |---------|---------|-------------------|
 | `/massu-retrospective` | Session/sprint retrospective with learnings | **NO** |
 | `/massu-benchmark` | Performance benchmarking with baselines | **NO** |
+| `/massu-estimate` | Effort estimation with complexity scoring | **NO** |
+| `/massu-perf` | Performance analysis (bundle, queries, edge functions) | **NO** |
 
 ---
 
@@ -408,4 +490,4 @@ docs/plans/YYYY-MM-DD-feature-name.md
 
 ---
 
-**Document Status**: v3.2 | **Updated**: Feb 16, 2026
+**Document Status**: v3.3 | **Updated**: Feb 21, 2026

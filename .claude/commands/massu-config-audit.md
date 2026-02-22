@@ -3,9 +3,8 @@ name: massu-config-audit
 description: Config validation - verify config-code alignment and config map fallback defaults
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-config-audit
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu Config Audit: Config-Code Alignment Validation
 

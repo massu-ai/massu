@@ -3,9 +3,8 @@ name: massu-status
 description: Read-only project health dashboard with 14 health checks
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
-name: massu-status
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Status: Project Health Dashboard
 

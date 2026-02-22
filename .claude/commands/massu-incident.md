@@ -3,9 +3,8 @@ name: massu-incident
 description: Automated incident post-mortem with prevention pipeline
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-incident
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu Incident: Automated Post-Mortem & Prevention Pipeline
 

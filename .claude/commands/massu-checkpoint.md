@@ -3,9 +3,8 @@ name: massu-checkpoint
 description: Execute checkpoint audit for current phase with full 15-step verification
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-checkpoint
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu Checkpoint: Phase Boundary Audit Protocol
 
@@ -18,7 +17,7 @@ Both Code Quality and Plan Coverage gates must pass (see shared preamble). GAPS_
 ### How This Command Works
 
 This command is a **loop controller** for phase boundary verification:
-1. Spawn a `massu-plan-auditor` subagent for ONE complete 15-step checkpoint pass
+1. Spawn a `general-purpose` subagent for ONE complete 15-step checkpoint pass
 2. Parse the structured result (`GAPS_DISCOVERED: N`)
 3. If gaps > 0: fix gaps, then spawn ANOTHER FRESH checkpoint pass
 4. Only when a COMPLETE FRESH PASS discovers ZERO gaps does checkpoint pass
@@ -31,7 +30,7 @@ iteration = 0
 WHILE true:
   iteration += 1
 
-  result = Task(subagent_type="massu-plan-auditor", model="opus", prompt="
+  result = Task(model="opus", prompt="
     Checkpoint iteration {iteration}.
     Execute ONE complete 15-step checkpoint audit.
     Run all verification steps. Fix any gaps you find.
@@ -422,7 +421,7 @@ Verified:
 - Build: PASS
 - Tests: ALL PASS
 
-Co-Authored-By: Claude <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -505,7 +504,7 @@ Independent checks can run simultaneously via Task agents:
 
 ## START NOW
 
-**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
+**Step 0: Write AUTHORIZED_COMMAND to session state**
 
 Update `session-state/CURRENT.md` to include:
 ```
@@ -515,7 +514,7 @@ AUTHORIZED_COMMAND: massu-checkpoint
 **Execute the LOOP CONTROLLER at the top of this file.**
 
 1. Identify current phase number and read the plan section
-2. Spawn `massu-plan-auditor` subagent (via Task tool) for checkpoint iteration 1
+2. Spawn `general-purpose` subagent (via Task tool) for checkpoint iteration 1
 3. Parse `GAPS_FOUND` from the subagent result
 4. If gaps > 0: fix gaps, spawn another iteration
 5. If gaps == 0: checkpoint passes - proceed to commit

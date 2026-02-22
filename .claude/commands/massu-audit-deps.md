@@ -3,9 +3,8 @@ name: massu-audit-deps
 description: Comprehensive dependency audit (vulnerabilities, outdated, licenses, unused, bundle size)
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
-name: massu-audit-deps
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Audit Deps: Comprehensive Dependency Audit
 

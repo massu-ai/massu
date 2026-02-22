@@ -3,9 +3,8 @@ name: massu-push
 description: Full verification gate (all tests, regression detection, security) before remote push
 allowed-tools: Bash(*), Read(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-push
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # CS Push: Full Verification Gate Before Remote Push
 
@@ -19,7 +18,7 @@ Execute COMPREHENSIVE verification including ALL tests and security checks befor
 
 ## START NOW
 
-**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
+**Step 0: Write AUTHORIZED_COMMAND to session state**
 
 Update `session-state/CURRENT.md` to include `AUTHORIZED_COMMAND: massu-push`.
 
@@ -85,11 +84,15 @@ npm test 2>&1 | tee /tmp/current-tests.txt
 #### Step 3: Compare Results
 ```bash
 # Parse vitest output: "Tests  N passed (N)" or "Tests  N failed | N passed (N)"
-BASELINE_PASS=$(grep -oP 'Tests\s+\K\d+(?=\s+passed)' /tmp/baseline-tests.txt || echo 0)
-BASELINE_FAIL=$(grep -oP '\K\d+(?=\s+failed)' /tmp/baseline-tests.txt || echo 0)
+BASELINE_PASS=$(sed -n 's/.*Tests[[:space:]]*\([0-9]*\)[[:space:]]*passed.*/\1/p' /tmp/baseline-tests.txt | head -1)
+[ -z "$BASELINE_PASS" ] && BASELINE_PASS=0
+BASELINE_FAIL=$(sed -n 's/.*\([0-9]*\)[[:space:]]*failed.*/\1/p' /tmp/baseline-tests.txt | head -1)
+[ -z "$BASELINE_FAIL" ] && BASELINE_FAIL=0
 
-CURRENT_PASS=$(grep -oP 'Tests\s+\K\d+(?=\s+passed)' /tmp/current-tests.txt || echo 0)
-CURRENT_FAIL=$(grep -oP '\K\d+(?=\s+failed)' /tmp/current-tests.txt || echo 0)
+CURRENT_PASS=$(sed -n 's/.*Tests[[:space:]]*\([0-9]*\)[[:space:]]*passed.*/\1/p' /tmp/current-tests.txt | head -1)
+[ -z "$CURRENT_PASS" ] && CURRENT_PASS=0
+CURRENT_FAIL=$(sed -n 's/.*\([0-9]*\)[[:space:]]*failed.*/\1/p' /tmp/current-tests.txt | head -1)
+[ -z "$CURRENT_FAIL" ] && CURRENT_FAIL=0
 
 echo "Baseline: $BASELINE_PASS passed, $BASELINE_FAIL failed"
 echo "Current:  $CURRENT_PASS passed, $CURRENT_FAIL failed"
@@ -256,6 +259,29 @@ git diff origin/main..HEAD --name-only | grep -E 'package(-lock)?\.json' && \
 
 ---
 
+### Tier 4: Business Logic Verification
+
+```bash
+# Run integration tests
+npm run test:integration
+
+# Verify tooling self-test
+bash scripts/massu-verify-tooling.sh
+```
+
+**Gate Check:**
+```markdown
+### Tier 4: Business Logic
+| Check | Command | Pass Criteria | Status |
+|-------|---------|---------------|--------|
+| Integration tests | npm run test:integration | All tests pass | PASS/FAIL |
+| Tooling self-test | massu-verify-tooling.sh | Exit 0 | PASS/FAIL |
+
+**Tier 4 Status: PASS/FAIL**
+```
+
+---
+
 ## EXECUTION FLOW
 
 ### Phase 1: Pre-Flight Verification
@@ -270,7 +296,7 @@ If no commits to push, abort with message.
 
 ### Phase 2: Run All Tiers
 
-Run Tier 1, Tier 2, and Tier 3 in order. Stop at first tier failure.
+Run Tier 1, Tier 2, Tier 3, and Tier 4 in order. Stop at first tier failure.
 
 ### Phase 3: Final Gate & Push
 
@@ -283,11 +309,12 @@ Run Tier 1, Tier 2, and Tier 3 in order. Stop at first tier failure.
 | Tier 1 | Quick Checks (patterns, types, hooks) | PASS/FAIL |
 | Tier 2 | Full Test Suite + Regression | PASS/FAIL |
 | Tier 3 | Security & Compliance | PASS/FAIL |
+| Tier 4 | Business Logic Verification | PASS/FAIL |
 
 ### DUAL VERIFICATION GATE
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Code Quality | PASS/FAIL | Tiers 1-3 |
+| Code Quality | PASS/FAIL | Tiers 1-4 |
 | Plan Coverage | PASS/FAIL | X/X items (if plan) |
 
 **OVERALL: PASS / FAIL**

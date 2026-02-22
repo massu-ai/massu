@@ -2,7 +2,8 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import type Database from 'better-sqlite3';
-import type { ToolDefinition, ToolResult } from './tools.ts';
+import type { ToolDefinition, ToolResult } from './tool-helpers.ts';
+import { p, text } from './tool-helpers.ts';
 import { getConfig } from './config.ts';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
@@ -10,11 +11,6 @@ import { resolve } from 'path';
 // ============================================================
 // Dependency Risk Scoring
 // ============================================================
-
-/** Prefix a base tool name with the configured tool prefix. */
-function p(baseName: string): string {
-  return `${getConfig().toolPrefix}_${baseName}`;
-}
 
 export interface DepRiskFactors {
   vulnerabilities: number;
@@ -332,6 +328,3 @@ function handleDepAlternatives(args: Record<string, unknown>, db: Database.Datab
   return text(lines.filter(Boolean).join('\n'));
 }
 
-function text(content: string): ToolResult {
-  return { content: [{ type: 'text', text: content }] };
-}

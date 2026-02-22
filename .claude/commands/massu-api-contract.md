@@ -3,9 +3,8 @@ name: massu-api-contract
 description: MCP tool contract audit with handler-schema verification and consistency checks
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
-name: massu-api-contract
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu API Contract: MCP Tool Audit Protocol
 

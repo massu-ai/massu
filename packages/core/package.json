@@ -12,7 +12,7 @@
     "./cli": "./dist/cli.js"
   },
   "bin": {
-    "massu": "./dist/cli.js"
+    "massu": "dist/cli.js"
   },
   "scripts": {
     "start": "npx tsx src/server.ts",
@@ -51,7 +51,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ethankowen-73/massu.git",
+    "url": "git+https://github.com/ethankowen-73/massu.git",
     "directory": "packages/core"
   },
   "bugs": {

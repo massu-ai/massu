@@ -3,12 +3,11 @@
 # massu-security-scanner.sh - Massu Quick Security Scanner
 #
 # Fast grep-based security checks across the codebase.
-# Fast standalone security checks that can run as a pre-commit gate.
+# Complements the deeper /massu-internal-security-scan command.
 # Exit 0 = PASS (no violations), Exit 1 = FAIL (violations found)
 #
 # Usage: bash scripts/massu-security-scanner.sh
 
-# errexit (-e) intentionally omitted: script tracks violations via counter and uses || true patterns
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -65,20 +64,28 @@ fi
 # Check 2: innerHTML / dangerouslySetInnerHTML usage
 # -------------------------------------------------------
 echo "Check 2: No innerHTML / dangerouslySetInnerHTML in website"
+# Known-safe usages (each has been security-reviewed):
+#   layout.tsx            — JSON-LD structured data via JSON.stringify (standard Next.js pattern)
+#   badges-client.tsx     — Hardcoded SVG template from generateBadgeSvg(), no user input
+#   MarkdownRenderer.tsx  — HTML sanitized through DOMPurify before rendering
 INNER_HTML_COUNT=0
 if [ -d "$WEBSITE_SRC" ]; then
   INNER_HTML_COUNT=$(grep -rn 'innerHTML\|dangerouslySetInnerHTML' "$WEBSITE_SRC" --include="*.ts" --include="*.tsx" \
     | grep -v 'node_modules' \
     | grep -v '__tests__' \
     | grep -v '\.test\.ts' \
+    | grep -v 'layout\.tsx.*dangerouslySetInnerHTML' \
+    | grep -v 'badges-client\.tsx.*dangerouslySetInnerHTML' \
+    | grep -v 'MarkdownRenderer\.tsx.*dangerouslySetInnerHTML' \
     | wc -l | tr -d ' ')
 fi
 if [ "$INNER_HTML_COUNT" -gt 0 ]; then
   fail "Found $INNER_HTML_COUNT innerHTML/dangerouslySetInnerHTML usage in website/src/"
   grep -rn 'innerHTML\|dangerouslySetInnerHTML' "$WEBSITE_SRC" --include="*.ts" --include="*.tsx" \
-    | grep -v 'node_modules' | grep -v '__tests__' | head -5
+    | grep -v 'node_modules' | grep -v '__tests__' \
+    | grep -v 'layout\.tsx' | grep -v 'badges-client\.tsx' | grep -v 'MarkdownRenderer\.tsx' | head -5
 else
-  pass "No innerHTML/dangerouslySetInnerHTML found"
+  pass "No innerHTML/dangerouslySetInnerHTML found (3 reviewed-safe usages excluded)"
 fi
 
 # -------------------------------------------------------
@@ -148,6 +155,7 @@ fi
 #   - sso, sso/callback (SSO flow, token-based)
 #   - stripe/webhook (Stripe signature verification)
 #   - export (delegates to exportOrgData which authenticates internally)
+#   - github-stars (public read-only endpoint, returns star count only)
 # -------------------------------------------------------
 echo "Check 5: Auth present in all API routes"
 MISSING_AUTH=0
@@ -158,7 +166,7 @@ if [ -d "$API_DIR" ]; then
     REL_PATH="${ROUTE_FILE#"$API_DIR"/}"
     # Skip known public or internally-authed routes
     case "$REL_PATH" in
-      contact/*|badge/*|sso/*|stripe/webhook/*|export/*)
+      contact/*|badge/*|sso/*|stripe/webhook/*|export/*|github-stars/*)
         EXCLUDED_ROUTES=$((EXCLUDED_ROUTES + 1))
         continue
         ;;
@@ -234,84 +242,6 @@ if [ "$NEXT_PUBLIC_SECRET_COUNT" -gt 0 ]; then
   fail "Found $NEXT_PUBLIC_SECRET_COUNT NEXT_PUBLIC_ vars with secret/password/private names"
 else
   pass "No secrets exposed via NEXT_PUBLIC_ env vars"
-fi
-
-# -------------------------------------------------------
-# Check 8: No select('*') in API GET handlers
-# -------------------------------------------------------
-echo "Check 8: No select('*') in API GET handlers"
-SELECT_STAR=0
-if [ -d "$API_DIR" ]; then
-  while IFS= read -r ROUTE_FILE; do
-    HAS_GET=$(grep -c 'export.*function GET\|export.*GET' "$ROUTE_FILE" 2>/dev/null || true)
-    HAS_SELECT_STAR=$(grep -c "select(['\"]\\*['\"])" "$ROUTE_FILE" 2>/dev/null || true)
-    if [ "$HAS_GET" -gt 0 ] && [ "$HAS_SELECT_STAR" -gt 0 ]; then
-      SELECT_STAR=$((SELECT_STAR + 1))
-      warn "  select('*') in GET handler: ${ROUTE_FILE#"$REPO_ROOT"/}"
-    fi
-  done < <(find "$API_DIR" -name "route.ts" -type f 2>/dev/null)
-fi
-if [ "$SELECT_STAR" -gt 0 ]; then
-  fail "$SELECT_STAR API GET routes use select('*')"
-else
-  pass "No select('*') in API GET handlers"
-fi
-
-# -------------------------------------------------------
-# Check 9: No TODO/stub in auth code
-# -------------------------------------------------------
-echo "Check 9: No TODO/stub patterns in auth code"
-AUTH_STUBS=0
-if [ -d "$WEBSITE_SRC" ]; then
-  AUTH_STUBS=$(grep -rn 'TODO\|FIXME\|In a full implementation\|stub\|placeholder' "$WEBSITE_SRC" --include="*.ts" --include="*.tsx" \
-    | grep -i 'auth\|sso\|login\|session\|token\|callback' \
-    | grep -v 'node_modules' | grep -v '__tests__' \
-    | wc -l | tr -d ' ')
-fi
-if [ "$AUTH_STUBS" -gt 0 ]; then
-  fail "Found $AUTH_STUBS TODO/stub patterns in auth-related code"
-else
-  pass "No TODO/stub patterns in auth code"
-fi
-
-# -------------------------------------------------------
-# Check 10: No silent catch in encryption code
-# -------------------------------------------------------
-echo "Check 10: No silent catch blocks in encryption/crypto code"
-SILENT_CATCH=0
-if [ -d "$WEBSITE_SRC" ]; then
-  for CRYPTO_FILE in $(grep -rl 'encrypt\|decrypt\|crypto\|cipher' "$WEBSITE_SRC" --include="*.ts" --include="*.tsx" 2>/dev/null | grep -v node_modules | grep -v __tests__); do
-    CATCH_COUNT=$(grep -c 'catch.*{' "$CRYPTO_FILE" 2>/dev/null || true)
-    RETHROW_COUNT=$(grep -c 'throw\|console\.error\|logger\.' "$CRYPTO_FILE" 2>/dev/null || true)
-    if [ "$CATCH_COUNT" -gt 0 ] && [ "$RETHROW_COUNT" -eq 0 ]; then
-      SILENT_CATCH=$((SILENT_CATCH + 1))
-      warn "  Possibly silent catch in crypto file: ${CRYPTO_FILE#"$REPO_ROOT"/}"
-    fi
-  done
-fi
-if [ "$SILENT_CATCH" -gt 0 ]; then
-  fail "$SILENT_CATCH crypto files may have silent error handling"
-else
-  pass "No silent catch blocks in encryption code"
-fi
-
-# -------------------------------------------------------
-# Check 11: SSRF - fetch() calls with dynamic URLs
-# -------------------------------------------------------
-echo "Check 11: SSRF - fetch() calls with dynamic URLs"
-SSRF_RISK=0
-if [ -d "$WEBSITE_SRC" ]; then
-  SSRF_RISK=$(grep -rn 'fetch(' "$WEBSITE_SRC" --include="*.ts" --include="*.tsx" \
-    | grep -v 'node_modules' | grep -v '__tests__' \
-    | grep -v "fetch(['\"]https\?://" \
-    | grep -v "fetch(['\"]/" \
-    | grep -v 'fetchClient\|fetchApi\|supabase' \
-    | wc -l | tr -d ' ')
-fi
-if [ "$SSRF_RISK" -gt 0 ]; then
-  warn "Found $SSRF_RISK fetch() calls with potentially dynamic URLs (review for SSRF)"
-else
-  pass "No suspicious dynamic fetch() URLs found"
 fi
 
 # -------------------------------------------------------

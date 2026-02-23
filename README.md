@@ -1,5 +1,10 @@
 # Massu
 
+[![npm version](https://img.shields.io/npm/v/@massu/core)](https://www.npmjs.com/package/@massu/core)
+[![CI](https://github.com/ethankowen-73/massu/actions/workflows/ci.yml/badge.svg)](https://github.com/ethankowen-73/massu/actions/workflows/ci.yml)
+[![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org)
+
 **AI Engineering Governance Platform**
 
 Session memory, feature registry, code intelligence, and rule enforcement for AI coding assistants.
@@ -64,6 +69,8 @@ Full documentation is available in the [`docs/`](docs/) directory:
 - [Hooks](docs/hooks/) — Lifecycle hook documentation
 - [Reference](docs/reference/) — API and configuration reference
 
+Or visit the full docs site at [massu.ai/docs](https://massu.ai/docs).
+
 ## Cloud Features
 
 For team collaboration, cloud sync, and advanced analytics, visit [massu.ai](https://massu.ai).
@@ -77,26 +84,35 @@ Massu is configured via `massu.config.yaml` in your project root. See `examples/
 ## Architecture
 
 ```
-@massu/core          # MCP Server (npm package)
-  src/
-    server.ts               # MCP JSON-RPC transport
-    config.ts               # YAML config loader
-    memory/                 # Session memory subsystem
-    sentinel/               # Feature registry subsystem
-    intelligence/           # Code analysis subsystem
-    observability/          # Analytics subsystem
-    hooks/                  # Lifecycle hooks
-
-@massu/plugin        # Claude Code Plugin
-  commands/                 # Slash commands
-  agents/                   # Specialized subagents
-  hooks/hooks.json          # Hook definitions
+massu/
+  packages/
+    core/                    # MCP Server (published as @massu/core)
+      src/
+        server.ts            # MCP JSON-RPC transport over stdio
+        tools.ts             # Tool definitions and routing (51 MCP tools)
+        config.ts            # YAML config loader
+        memory-*.ts          # Session memory subsystem
+        sentinel-*.ts        # Feature registry subsystem
+        *-tools.ts           # Tool modules (3-function pattern)
+        hooks/               # 11 lifecycle hooks (esbuild-compiled)
+      dist/                  # Compiled output
+    plugin/                  # Claude Code plugin (private)
+  .claude/
+    commands/                # 20 workflow slash commands
+  scripts/                   # Build and quality scripts
+  docs/                      # Documentation (mirrors massu.ai/docs)
+  examples/                  # Example configurations
+  massu.config.yaml          # Project configuration
 ```
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and contribution guidelines.
 
+## Security
+
+To report a security vulnerability, please see [SECURITY.md](SECURITY.md).
+
 ## License
 
-See [LICENSE](LICENSE) file (Business Source License 1.1).
+[Business Source License 1.1](LICENSE) — free for non-commercial and limited production use. Converts to Apache 2.0 on February 14, 2029.

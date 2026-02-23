@@ -45,4 +45,4 @@ By submitting a pull request or other contribution to this repository, you signi
 
 **Project**: Massu AI
 **License**: BSL 1.1 (converts to Apache 2.0 on 2029-02-14)
-**Contact**: GitHub Issues at https://github.com/massu-ai/massu
+**Contact**: GitHub Issues at https://github.com/ethankowen-73/massu

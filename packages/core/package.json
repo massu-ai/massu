@@ -51,11 +51,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ethankowen-73/massu.git",
+    "url": "git+https://github.com/massu-ai/massu.git",
     "directory": "packages/core"
   },
   "bugs": {
-    "url": "https://github.com/ethankowen-73/massu/issues"
+    "url": "https://github.com/massu-ai/massu/issues"
   },
   "homepage": "https://massu.ai"
 }

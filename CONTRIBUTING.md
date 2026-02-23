@@ -29,7 +29,7 @@ This means your PR will not be merged directly via GitHub's merge button — but
 
 ```bash
 # Clone the repository
-git clone https://github.com/ethankowen-73/massu.git
+git clone https://github.com/massu-ai/massu.git
 cd massu
 
 # Install dependencies
@@ -109,7 +109,7 @@ All three functions must be wired into `packages/core/src/tools.ts`.
 
 ## Reporting Issues
 
-- Use [GitHub Issues](https://github.com/ethankowen-73/massu/issues) to report bugs
+- Use [GitHub Issues](https://github.com/massu-ai/massu/issues) to report bugs
 - Include steps to reproduce, expected behavior, and actual behavior
 - For security vulnerabilities, please email security@massu.ai instead of opening a public issue
 

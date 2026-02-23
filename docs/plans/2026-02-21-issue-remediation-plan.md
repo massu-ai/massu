@@ -200,7 +200,7 @@ Important issues that affect correctness, adoption, or code quality.
 
 ### P2-004: Fix Repository URL Mismatch [1.11]
 
-**Problem**: Root package.json uses `ethankowen-73/massu`, core uses `massu-ai/massu`.
+**Problem**: Root package.json uses `massu-ai/massu`, core uses `massu-ai/massu`.
 
 **Files**:
 - `/Users/eko3/massu/package.json` (line 21)

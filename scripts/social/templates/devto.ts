@@ -24,7 +24,7 @@ ${cleanBody}
 
 ${article.ctaDescription}
 
-**[Read the original on massu.ai](${article.canonicalUrl})** | **[GitHub](https://github.com/ethankowen-73/massu)**
+**[Read the original on massu.ai](${article.canonicalUrl})** | **[GitHub](https://github.com/massu-ai/massu)**
 
 *Part ${article.number}/10 of "${article.series}"*`;
 

@@ -18,10 +18,10 @@
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ethankowen-73/massu.git"
+    "url": "https://github.com/massu-ai/massu.git"
   },
   "bugs": {
-    "url": "https://github.com/ethankowen-73/massu/issues"
+    "url": "https://github.com/massu-ai/massu/issues"
   },
   "homepage": "https://massu.ai",
   "devDependencies": {

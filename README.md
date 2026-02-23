@@ -1,7 +1,7 @@
 # Massu
 
 [![npm version](https://img.shields.io/npm/v/@massu/core)](https://www.npmjs.com/package/@massu/core)
-[![CI](https://github.com/ethankowen-73/massu/actions/workflows/ci.yml/badge.svg)](https://github.com/ethankowen-73/massu/actions/workflows/ci.yml)
+[![CI](https://github.com/massu-ai/massu/actions/workflows/ci.yml/badge.svg)](https://github.com/massu-ai/massu/actions/workflows/ci.yml)
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org)
 

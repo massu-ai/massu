@@ -147,7 +147,7 @@ Despite heavy emphasis on pre-commit checks throughout CLAUDE.md and 43 command 
 
 **Files**: Root `package.json` vs `packages/core/package.json`
 
-Root uses `ethankowen-73/massu`, core uses `massu-ai/massu`. Different GitHub organizations.
+Root uses `massu-ai/massu`, core uses `massu-ai/massu`. Different GitHub organizations.
 
 **Fix**: Align both to the correct, canonical repository URL.
 

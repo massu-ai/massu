@@ -3,8 +3,9 @@ name: massu-estimate
 description: Effort estimation with complexity scoring, codebase impact analysis, and historical comparison
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
+name: massu-estimate
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 
 # CS Estimate: Effort Estimation
 

@@ -3,8 +3,9 @@ name: massu-push-light
 description: Fast pre-push verification (~90s) - patterns, types, tests, hooks
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
+name: massu-push-light
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 
 # Massu Push Light: Fast Pre-Push Verification
 

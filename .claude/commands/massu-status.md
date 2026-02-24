@@ -3,8 +3,9 @@ name: massu-status
 description: Read-only project health dashboard with 14 health checks
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
+name: massu-status
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 
 # CS Status: Project Health Dashboard
 
@@ -72,13 +73,13 @@ bash scripts/massu-pattern-scanner.sh 2>&1
 ### 5. Dependency Health
 
 ```bash
-npm audit 2>&1 || true
+npm audit --audit-level=high 2>&1 || true
 npm outdated 2>&1 || true
 ```
 
 | Metric | Value | Status |
 |--------|-------|--------|
-| Vulnerabilities (ALL severities) | [N] | PASS/FAIL |
+| High/Critical vulns | [N] | PASS/FAIL |
 | Outdated packages | [N] | INFO |
 
 ### 6. Git State

@@ -12,11 +12,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { resolve, basename, dirname } from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { resolve, basename } from 'path';
 import { stringify as yamlStringify } from 'yaml';
 
 // ============================================================

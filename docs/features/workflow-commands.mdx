@@ -22,7 +22,7 @@ The workflow commands eliminate these failure modes by requiring proof at every 
 
 ## Implementation Workflow
 
-The core pipeline for structured feature development. Every non-trivial change should flow through all five stages in order. Two additional commands handle fast pre-push checks and feature scaffolding.
+The core pipeline for structured feature development. Every non-trivial change should flow through all five stages in order. Two additional commands handle scaffolding and fast pre-push verification.
 
 ```
 /massu-create-plan  -->  /massu-plan  -->  /massu-loop  -->  /massu-commit  -->  /massu-push
@@ -73,7 +73,7 @@ See [/massu-new-feature](/docs/commands/massu-new-feature) for full documentatio
 
 ## Development Tools
 
-Five commands for day-to-day development tasks that require more than a one-shot prompt.
+Four commands for day-to-day development tasks that require more than a one-shot prompt.
 
 ### `/massu-test`
 
@@ -99,15 +99,9 @@ A scoped quick-fix workflow for urgent production issues. It creates a branch, i
 
 See [/massu-hotfix](/docs/commands/massu-hotfix) for full documentation.
 
-### `/massu-release`
+## Quality & Verification
 
-Release preparation with full verification. It runs the complete verification suite, generates a changelog diff, checks that all planned items are complete, and prepares the release artifacts. Use it as the final gate before tagging a release.
-
-See [/massu-release](/docs/commands/massu-release) for full documentation.
-
-## Code Review & Verification
-
-Two commands for code quality assurance. Neither edits source code.
+Four analysis commands for code quality. None of these edit source code.
 
 ### `/massu-review`
 
@@ -115,33 +109,17 @@ Automated code review across 7 dimensions: correctness, security, performance, m
 
 See [/massu-review](/docs/commands/massu-review) for full documentation.
 
-### `/massu-verify`
-
-Runs all VR-* verification checks with proof output. It executes every verification requirement defined in the canonical rules -- VR-FILE, VR-GREP, VR-BUILD, VR-TYPE, VR-TEST, VR-NEGATIVE, and all others -- and produces a structured pass/fail report with the actual command output as evidence. Use it as a comprehensive verification gate or to audit the current state of all verification requirements.
-
-See [/massu-verify](/docs/commands/massu-verify) for full documentation.
-
-## Diagnostics & Utilities
-
-Four commands for project health, dependency management, and planning.
-
-### `/massu-status`
-
-A read-only project health dashboard that runs 14 checks across type safety, tests, build, security, dependencies, feature registry health, and recent audit activity. Produces a structured report with pass/fail status per check. Use it at the start of a session to understand the current state of the project.
-
-See [/massu-status](/docs/commands/massu-status) for full documentation.
-
 ### `/massu-audit-deps`
 
 Dependency audit covering known vulnerabilities (via npm audit), license compatibility, and unused packages. It surfaces transitive vulnerabilities and flags licenses that may conflict with your project's requirements. Use it before releases or when adding new dependencies.
 
 See [/massu-audit-deps](/docs/commands/massu-audit-deps) for full documentation.
 
-### `/massu-changelog`
+### `/massu-verify`
 
-Generates a structured changelog from git commits grouped by type (features, fixes, breaking changes). Writes to `CHANGELOG.md` only -- no source code changes. Use it as part of the release workflow or to update the changelog after a sprint.
+Runs all VR-* verification checks with proof output. It executes every verification requirement defined in the canonical rules -- VR-FILE, VR-GREP, VR-BUILD, VR-TYPE, VR-TEST, VR-NEGATIVE, and all others -- and produces a structured pass/fail report with the actual command output as evidence. Use it as a comprehensive verification gate or to audit the current state of all verification requirements.
 
-See [/massu-changelog](/docs/commands/massu-changelog) for full documentation.
+See [/massu-verify](/docs/commands/massu-verify) for full documentation.
 
 ### `/massu-estimate`
 
@@ -149,7 +127,29 @@ Effort estimation with complexity scoring and historical comparison. Analyzes a 
 
 See [/massu-estimate](/docs/commands/massu-estimate) for full documentation.
 
-## Productivity & Insights
+## Release & Ops
+
+Three commands for release preparation and operational tasks.
+
+### `/massu-release`
+
+Release preparation with full verification. It runs the complete verification suite, generates a changelog diff, checks that all planned items are complete, and prepares the release artifacts. Use it as the final gate before tagging a release.
+
+See [/massu-release](/docs/commands/massu-release) for full documentation.
+
+### `/massu-changelog`
+
+Generates a structured changelog from git commits grouped by type (features, fixes, breaking changes). Writes to `CHANGELOG.md` only -- no source code changes. Use it as part of the release workflow or to update the changelog after a sprint.
+
+See [/massu-changelog](/docs/commands/massu-changelog) for full documentation.
+
+### `/massu-status`
+
+A read-only project health dashboard that runs 14 checks across type safety, tests, build, security, dependencies, feature registry health, and recent audit activity. Produces a structured report with pass/fail status per check. Use it at the start of a session to understand the current state of the project.
+
+See [/massu-status](/docs/commands/massu-status) for full documentation.
+
+## Productivity
 
 Two commands for codebase hygiene and documentation generation.
 

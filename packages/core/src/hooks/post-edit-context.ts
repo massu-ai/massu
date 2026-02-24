@@ -54,12 +54,12 @@ async function main(): Promise<void> {
       }
     }
 
-    // 2. Check middleware tree membership (CR-16)
+    // 2. Check middleware tree membership
     try {
       const dataDb = new Database(getResolvedPaths().dataDbPath, { readonly: true });
       try {
         if (isInMiddlewareTree(dataDb, rel)) {
-          warnings.push('[CRITICAL] CR-16: This file is in the middleware import tree. No Node.js deps allowed.');
+          warnings.push('[CRITICAL] This file is in the middleware import tree. No Node.js deps allowed.');
         }
       } finally {
         dataDb.close();
@@ -70,7 +70,7 @@ async function main(): Promise<void> {
 
     // 3. Output warnings if any
     if (warnings.length > 0) {
-      console.log(`[CS CONTEXT] ${warnings.join(' | ')}`);
+      console.log(`[Massu] ${warnings.join(' | ')}`);
     }
   } catch (_e) {
     // Best-effort: never block Claude Code

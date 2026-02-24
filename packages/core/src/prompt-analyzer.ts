@@ -2,8 +2,7 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import type Database from 'better-sqlite3';
-import type { ToolDefinition, ToolResult } from './tool-helpers.ts';
-import { p, text } from './tool-helpers.ts';
+import type { ToolDefinition, ToolResult } from './tools.ts';
 import { createHash } from 'crypto';
 import { getConfig } from './config.ts';
 import { escapeRegex, redactSensitiveContent } from './security-utils.ts';
@@ -11,6 +10,11 @@ import { escapeRegex, redactSensitiveContent } from './security-utils.ts';
 // ============================================================
 // Prompt Effectiveness Analysis
 // ============================================================
+
+/** Prefix a base tool name with the configured tool prefix. */
+function p(baseName: string): string {
+  return `${getConfig().toolPrefix}_${baseName}`;
+}
 
 /** Default success/failure indicators. Can be overridden via config.analytics.prompts */
 const DEFAULT_SUCCESS_INDICATORS = ['committed', 'approved', 'looks good', 'perfect', 'great', 'thanks'];
@@ -323,3 +327,6 @@ function handleSuggestions(args: Record<string, unknown>, db: Database.Database)
   return text(lines.join('\n'));
 }
 
+function text(content: string): ToolResult {
+  return { content: [{ type: 'text', text: content }] };
+}

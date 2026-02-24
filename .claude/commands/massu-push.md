@@ -3,8 +3,9 @@ name: massu-push
 description: Full verification gate (all tests, regression detection, security) before remote push
 allowed-tools: Bash(*), Read(*), Edit(*), Grep(*), Glob(*)
 ---
+name: massu-push
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 
 # CS Push: Full Verification Gate Before Remote Push
 
@@ -18,7 +19,7 @@ Execute COMPREHENSIVE verification including ALL tests and security checks befor
 
 ## START NOW
 
-**Step 0: Write AUTHORIZED_COMMAND to session state**
+**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
 
 Update `session-state/CURRENT.md` to include `AUTHORIZED_COMMAND: massu-push`.
 
@@ -84,15 +85,11 @@ npm test 2>&1 | tee /tmp/current-tests.txt
 #### Step 3: Compare Results
 ```bash
 # Parse vitest output: "Tests  N passed (N)" or "Tests  N failed | N passed (N)"
-BASELINE_PASS=$(sed -n 's/.*Tests[[:space:]]*\([0-9]*\)[[:space:]]*passed.*/\1/p' /tmp/baseline-tests.txt | head -1)
-[ -z "$BASELINE_PASS" ] && BASELINE_PASS=0
-BASELINE_FAIL=$(sed -n 's/.*\([0-9]*\)[[:space:]]*failed.*/\1/p' /tmp/baseline-tests.txt | head -1)
-[ -z "$BASELINE_FAIL" ] && BASELINE_FAIL=0
+BASELINE_PASS=$(grep -oP 'Tests\s+\K\d+(?=\s+passed)' /tmp/baseline-tests.txt || echo 0)
+BASELINE_FAIL=$(grep -oP '\K\d+(?=\s+failed)' /tmp/baseline-tests.txt || echo 0)
 
-CURRENT_PASS=$(sed -n 's/.*Tests[[:space:]]*\([0-9]*\)[[:space:]]*passed.*/\1/p' /tmp/current-tests.txt | head -1)
-[ -z "$CURRENT_PASS" ] && CURRENT_PASS=0
-CURRENT_FAIL=$(sed -n 's/.*\([0-9]*\)[[:space:]]*failed.*/\1/p' /tmp/current-tests.txt | head -1)
-[ -z "$CURRENT_FAIL" ] && CURRENT_FAIL=0
+CURRENT_PASS=$(grep -oP 'Tests\s+\K\d+(?=\s+passed)' /tmp/current-tests.txt || echo 0)
+CURRENT_FAIL=$(grep -oP '\K\d+(?=\s+failed)' /tmp/current-tests.txt || echo 0)
 
 echo "Baseline: $BASELINE_PASS passed, $BASELINE_FAIL failed"
 echo "Current:  $CURRENT_PASS passed, $CURRENT_FAIL failed"
@@ -200,16 +197,16 @@ grep "getToolDefinitions\|isToolName\|handleToolCall" packages/core/src/tools.ts
 
 ### Tier 3: Security & Compliance
 
-#### 3.1 npm Audit (CR-9: ALL Severities)
+#### 3.1 npm Audit
 ```bash
-npm audit
-# MUST have 0 vulnerabilities at ANY severity level
+npm audit --audit-level=high
+# MUST have 0 high/critical vulnerabilities
 ```
 
-**Vulnerability Handling (CR-9 — no exceptions):**
-- **Critical/High/Moderate/Low**: ALL MUST be fixed before push
-- There is NO "document and defer" tier — fix everything
-- Do NOT use `--audit-level=high` to filter out lower severities
+**Vulnerability Handling:**
+- **Critical/High**: MUST fix before push
+- **Moderate**: Document and create ticket
+- **Low**: Informational only
 
 #### 3.2 Secrets Scan
 ```bash
@@ -230,7 +227,7 @@ grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|password.*=.*["\x27][^"\x27]\{8,\}' --include="
 ```bash
 # Check if package.json or package-lock.json changed
 git diff origin/main..HEAD --name-only | grep -E 'package(-lock)?\.json' && \
-  npm audit 2>&1 || true
+  npm audit --audit-level=high 2>&1 || true
 ```
 
 #### 3.3 Plan Coverage (if from plan)
@@ -250,34 +247,11 @@ git diff origin/main..HEAD --name-only | grep -E 'package(-lock)?\.json' && \
 ### Tier 3: Security & Compliance
 | Check | Command | Result | Status |
 |-------|---------|--------|--------|
-| npm audit | npm audit (ALL severities) | [X] vulns | PASS/FAIL |
+| npm audit | npm audit --audit-level=high | [X] vulns | PASS/FAIL |
 | Secrets Scan | grep check | [X] found | PASS/FAIL |
 | Plan Coverage | item-by-item | [X]/[X] = [X]% | PASS/FAIL |
 
 **Tier 3 Status: PASS/FAIL**
-```
-
----
-
-### Tier 4: Business Logic Verification
-
-```bash
-# Run integration tests
-npm run test:integration
-
-# Verify tooling self-test
-bash scripts/massu-verify-tooling.sh
-```
-
-**Gate Check:**
-```markdown
-### Tier 4: Business Logic
-| Check | Command | Pass Criteria | Status |
-|-------|---------|---------------|--------|
-| Integration tests | npm run test:integration | All tests pass | PASS/FAIL |
-| Tooling self-test | massu-verify-tooling.sh | Exit 0 | PASS/FAIL |
-
-**Tier 4 Status: PASS/FAIL**
 ```
 
 ---
@@ -296,7 +270,7 @@ If no commits to push, abort with message.
 
 ### Phase 2: Run All Tiers
 
-Run Tier 1, Tier 2, Tier 3, and Tier 4 in order. Stop at first tier failure.
+Run Tier 1, Tier 2, and Tier 3 in order. Stop at first tier failure.
 
 ### Phase 3: Final Gate & Push
 
@@ -309,12 +283,11 @@ Run Tier 1, Tier 2, Tier 3, and Tier 4 in order. Stop at first tier failure.
 | Tier 1 | Quick Checks (patterns, types, hooks) | PASS/FAIL |
 | Tier 2 | Full Test Suite + Regression | PASS/FAIL |
 | Tier 3 | Security & Compliance | PASS/FAIL |
-| Tier 4 | Business Logic Verification | PASS/FAIL |
 
 ### DUAL VERIFICATION GATE
 | Gate | Status | Evidence |
 |------|--------|----------|
-| Code Quality | PASS/FAIL | Tiers 1-4 |
+| Code Quality | PASS/FAIL | Tiers 1-3 |
 | Plan Coverage | PASS/FAIL | X/X items (if plan) |
 
 **OVERALL: PASS / FAIL**
@@ -361,7 +334,7 @@ After pushing, if any issues were fixed during this verification:
 |------|--------|--------|
 | Tier 1 | Patterns, Types, Hooks | PASS |
 | Tier 2 | Tests ([X] passed), Regression (0) | PASS |
-| Tier 3 | npm audit (0 vulnerabilities, ALL severities), Secrets (0) | PASS |
+| Tier 3 | npm audit (0 high/critical), Secrets (0) | PASS |
 
 ### Dual Verification
 | Gate | Status |

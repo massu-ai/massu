@@ -8,10 +8,10 @@
 // Dependencies: P1-002, P5-001, P5-002
 // ============================================================
 
-import { getMemoryDb, endSession, addSummary, getRecentObservations, createSession, addConversationTurn, addToolCallDetail, getLastProcessedLine, setLastProcessedLine } from '../memory-db.ts';
+import { getMemoryDb, endSession, addSummary, createSession, addConversationTurn, addToolCallDetail, getLastProcessedLine, setLastProcessedLine } from '../memory-db.ts';
 import { generateCurrentMd } from '../session-state-generator.ts';
 import { archiveAndRegenerate } from '../session-archiver.ts';
-import { parseTranscriptFrom, extractUserMessages, extractAssistantMessages, extractToolCalls, estimateTokens } from '../transcript-parser.ts';
+import { parseTranscriptFrom, estimateTokens } from '../transcript-parser.ts';
 import { syncToCloud, drainSyncQueue } from '../cloud-sync.ts';
 import { calculateQualityScore, storeQualityScore, backfillQualityScores } from '../analytics.ts';
 import { extractTokenUsage, calculateCost, storeSessionCost } from '../cost-tracker.ts';
@@ -64,7 +64,7 @@ async function main(): Promise<void> {
       // 4.6. Calculate and store quality score
       try {
         const { score, breakdown } = calculateQualityScore(db, session_id);
-        if (score > 0) {
+        if (score !== 50) {
           storeQualityScore(db, session_id, score, breakdown);
         }
         backfillQualityScores(db);

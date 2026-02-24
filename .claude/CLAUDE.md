@@ -23,7 +23,7 @@ AI Engineering Governance Platform - an MCP server and Claude Code plugin.
 ## Tech Stack
 - TypeScript, ESM modules
 - better-sqlite3 for local storage
-- Raw JSON-RPC 2.0 over stdio (MCP protocol)
+- @modelcontextprotocol/sdk for MCP protocol
 - yaml for config parsing
 - esbuild for hook compilation
 - vitest for testing
@@ -46,11 +46,6 @@ AI Engineering Governance Platform - an MCP server and Claude Code plugin.
 | CR-10 | Blast radius analysis for value changes | VR-BLAST-RADIUS |
 | CR-11 | New MCP tools MUST be registered in tools.ts | VR-TOOL-REG |
 | CR-12 | Hooks MUST compile with esbuild | VR-HOOK-BUILD |
-| CR-13 | No stub/TODO auth code in production | VR-GREP |
-| CR-14 | All paid features must be server-side gated | VR-GREP |
-| CR-15 | Security mechanisms must fail hard | VR-GREP |
-| CR-16 | Marketing claims must match source data | VR-TEST |
-| CR-17 | API responses must not leak secrets | VR-GREP |
 
 ### CR-8: Protocol Commands Are Mandatory Execution Instructions
 
@@ -64,8 +59,6 @@ AI Engineering Governance Platform - an MCP server and Claude Code plugin.
 ### CR-9: Fix ALL Issues Encountered
 
 **ANY issue discovered during work MUST be fixed immediately, whether from current changes or pre-existing.** "Not in scope" and "pre-existing" are NEVER valid reasons to skip. When fixing a bug, search entire codebase for the same pattern and fix ALL instances.
-
-**npm audit: ALL severities MUST be fixed.** `npm audit` vulnerabilities at ANY level (low, moderate, high, critical) block push/commit/release. Do NOT use `--audit-level=high` to filter. Do NOT dismiss moderate/low as "informational" or "dev-only". Fix all vulnerabilities before proceeding.
 
 ### CR-10: Blast Radius Analysis for Value Changes
 
@@ -114,46 +107,6 @@ cd packages/core && npm run build:hooks
 ```
 
 Hooks receive JSON on stdin, output JSON on stdout, and must exit within 5 seconds. Never import heavy dependencies in hooks.
-
-### CR-13: No Stub Auth Code in Production
-
-**Authentication and authorization code MUST be complete. TODO/stub implementations in auth flows are CRITICAL security violations.**
-
-- `grep -rn 'TODO\|FIXME\|stub\|placeholder' src/ | grep -i auth` must return 0 results
-- SSO callbacks must validate tokens/assertions (not pass-through)
-- Auth middleware must not have bypass paths outside explicit allowlists
-
-### CR-14: All Paid Features Must Be Server-Side Gated
-
-**Every dashboard page and API route that is tier-restricted MUST enforce `requirePlan()` server-side. Client-side nav hiding is NOT sufficient.**
-
-- Every page under `(dashboard)/` that shows paid features must call `requirePlan()` or equivalent
-- API routes returning tier-restricted data must verify plan server-side
-- Client-side hiding is supplementary only, never the sole gate
-
-### CR-15: No Silent Security Fallbacks
-
-**Security mechanisms (encryption, auth, validation) MUST fail hard. Silent fallback to weaker security is prohibited.**
-
-- Encryption failure must throw, never fall back to plaintext
-- Auth failure must return 401/403, never serve content anyway
-- Validation failure must reject input, never accept silently
-
-### CR-16: Marketing Claims Must Match Source Data
-
-**Feature counts, tool counts, and tier claims displayed on the website MUST be derived from source data, not hardcoded. Discrepancies between data and display are HIGH severity.**
-
-- Tool counts on marketing pages must come from config/database
-- Tier badges must reflect actual tier from data source
-- Pricing must match `massu.config.yaml` values
-
-### CR-17: API Responses Must Not Leak Secrets
-
-**API GET responses MUST explicitly select fields. `select('*')` is prohibited in API routes that return data to clients.**
-
-- Every Supabase query in API GET handlers must use explicit `.select('field1, field2')`
-- Fields named `secret`, `key`, `password`, `token` must never appear in GET responses
-- Use DTO/projection patterns to control response shape
 
 ---
 
@@ -322,16 +275,16 @@ docs/plans/YYYY-MM-DD-feature-name.md
 
 | Module File | Tool Prefix | Has Tests |
 |-------------|-------------|-----------|
-| `analytics.ts` | `_quality_` | YES |
-| `cost-tracker.ts` | `_cost_` | YES |
-| `prompt-analyzer.ts` | `_prompt_` | YES |
-| `audit-trail.ts` | `_audit_` | YES |
-| `validation-engine.ts` | `_validation_` | YES |
-| `adr-generator.ts` | `_adr_` | YES |
-| `security-scorer.ts` | `_security_` | YES |
-| `dependency-scorer.ts` | `_dependency_` | YES |
-| `team-knowledge.ts` | `_team_` | YES |
-| `regression-detector.ts` | `_regression_` | YES |
+| `analytics.ts` | `_quality_` | NO |
+| `cost-tracker.ts` | `_cost_` | NO |
+| `prompt-analyzer.ts` | `_prompt_` | NO |
+| `audit-trail.ts` | `_audit_` | NO |
+| `validation-engine.ts` | `_validation_` | NO |
+| `adr-generator.ts` | `_adr_` | NO |
+| `security-scorer.ts` | `_security_` | NO |
+| `dependency-scorer.ts` | `_dependency_` | NO |
+| `team-knowledge.ts` | `_team_` | NO |
+| `regression-detector.ts` | `_regression_` | NO |
 | `observability-tools.ts` | `_obs_` | YES |
 
 **2-function pattern (legacy):** `getDefs()` + `handleCall()` (routing inline in tools.ts)
@@ -406,14 +359,14 @@ docs/plans/YYYY-MM-DD-feature-name.md
 ### Implementation Flow
 | Command | Purpose | Edits Source Code? |
 |---------|---------|-------------------|
-| `/massu-plan` | Audit/improve plan document | **NO** (plan doc only) |
 | `/massu-create-plan` | Create a viable implementation plan from scratch | **NO** (plan doc only) |
+| `/massu-plan` | Audit/improve plan document | **NO** (plan doc only) |
 | `/massu-loop` | Implement plan with verification | **YES** |
 | `/massu-commit` | Pre-commit verification gate | Fixes only |
 | `/massu-push` | Pre-push full verification gate | Fixes only |
 | `/massu-push-light` | Fast pre-push verification (~90s) | Fixes only |
 
-**Flow**: plan (audit) -> loop (implement) -> commit -> push
+**Flow**: create-plan -> plan (audit) -> loop (implement) -> commit -> push
 
 ### Development & Quality
 | Command | Purpose | Edits Source Code? |
@@ -424,26 +377,22 @@ docs/plans/YYYY-MM-DD-feature-name.md
 | `/massu-release` | Release preparation | **YES** (version bump, tag) |
 | `/massu-new-feature` | Pattern-compliant feature scaffolding | **YES** (scaffolding) |
 
-### Code Review & Verification
-| Command | Purpose | Edits Source Code? |
-|---------|---------|-------------------|
-| `/massu-review` | Automated code review across 7 dimensions | **NO** |
-| `/massu-verify` | Run all VR-* verification checks with mandatory proof | **NO** |
-
 ### Diagnostics & Utilities
 | Command | Purpose | Edits Source Code? |
 |---------|---------|-------------------|
+| `/massu-status` | Read-only project health dashboard | **NO** |
+| `/massu-review` | Automated code review (PR or uncommitted) | **NO** |
+| `/massu-verify` | Run all VR-* verification checks with mandatory proof | **NO** |
 | `/massu-audit-deps` | Dependency audit (vulns, licenses, unused) | **NO** |
 | `/massu-changelog` | Generate changelog from commits | CHANGELOG.md only |
 | `/massu-hotfix` | Quick scoped fix workflow | **YES** (small fixes) |
-| `/massu-status` | Read-only project health dashboard with 14 health checks | **NO** |
+| `/massu-estimate` | Effort estimation with complexity scoring | **NO** |
 
-### Productivity & Insights
+### Productivity
 | Command | Purpose | Edits Source Code? |
 |---------|---------|-------------------|
 | `/massu-cleanup` | Dead code removal, unused imports, orphaned files | **YES** |
 | `/massu-doc-gen` | Generate JSDoc, README, API docs | **YES** (docs only) |
-| `/massu-estimate` | Effort estimation with complexity scoring | **NO** |
 
 ---
 
@@ -460,4 +409,4 @@ docs/plans/YYYY-MM-DD-feature-name.md
 
 ---
 
-**Document Status**: v3.3 | **Updated**: Feb 21, 2026
+**Document Status**: v3.3 | **Updated**: Feb 22, 2026

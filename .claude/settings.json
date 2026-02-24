@@ -14,7 +14,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && if [ -f .claude/session-state/CURRENT.md ]; then echo '=== PREVIOUS SESSION STATE ==='; head -10 .claude/session-state/CURRENT.md; AUTH_CMD=$(grep -m1 '^AUTHORIZED_COMMAND:' .claude/session-state/CURRENT.md 2>/dev/null | sed 's/AUTHORIZED_COMMAND: *//'); if [ -n \"$AUTH_CMD\" ]; then echo ''; echo '========================================'; echo 'AUTHORIZED_COMMAND: '$AUTH_CMD; echo 'DO NOT escalate beyond this command.'; echo 'Escalation requires explicit user instruction.'; echo '========================================'; fi; else echo 'No previous session state'; fi"
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && if [ -f .claude/session-state/CURRENT.md ]; then echo '=== PREVIOUS SESSION STATE ==='; head -10 .claude/session-state/CURRENT.md; AUTH_CMD=$(grep -m1 '^AUTHORIZED_COMMAND:' .claude/session-state/CURRENT.md 2>/dev/null | sed 's/AUTHORIZED_COMMAND: *//'); if [ -n \"$AUTH_CMD\" ]; then echo ''; echo '========================================'; echo 'CR-35 AUTHORIZED_COMMAND: '$AUTH_CMD; echo 'DO NOT escalate beyond this command.'; echo 'Escalation requires explicit user instruction.'; echo '========================================'; fi; else echo 'No previous session state'; fi"
           }
         ]
       }

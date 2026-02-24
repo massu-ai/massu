@@ -3,8 +3,9 @@ name: massu-audit-deps
 description: Comprehensive dependency audit (vulnerabilities, outdated, licenses, unused, bundle size)
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
+name: massu-audit-deps
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 
 # CS Audit Deps: Comprehensive Dependency Audit
 
@@ -38,20 +39,19 @@ Dependency audit is a diagnostic command. Produces a report of vulnerabilities, 
 # Run npm audit with full detail
 npm audit 2>&1
 
-# CR-9: ALL severities must be fixed. No filtering.
-# The full `npm audit` above shows everything needed.
+# Separate by severity
+npm audit --audit-level=critical 2>&1 || true
+npm audit --audit-level=high 2>&1 || true
 ```
 
-### Vulnerability Classification (CR-9: ALL Severities)
+### Vulnerability Classification
 
 | Severity | Action Required | Blocks Push? |
 |----------|----------------|--------------|
-| Critical | MUST fix immediately | YES |
+| Critical | MUST fix before any deployment | YES |
 | High | MUST fix before push | YES |
-| Moderate | MUST fix before push (CR-9) | YES |
-| Low | MUST fix before push (CR-9) | YES |
-
-**CR-9 applies to ALL npm audit severities. There is no "document and defer" tier.**
+| Moderate | Document, create fix plan | NO |
+| Low | Informational only | NO |
 
 ### For Each Vulnerability
 

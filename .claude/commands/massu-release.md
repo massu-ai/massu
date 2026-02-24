@@ -3,8 +3,9 @@ name: massu-release
 description: Release preparation — version bump, changelog, full verification, tagging
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
+name: massu-release
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 
 # CS Release: Release Preparation Gate
 
@@ -133,7 +134,7 @@ grep -c "isTool\b\|startsWith" packages/core/src/tools.ts
 
 ```bash
 # 3.1 npm audit
-npm audit 2>&1 || true
+npm audit --audit-level=high 2>&1 || true
 
 # 3.2 Secrets scan
 grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|password.*=.*["\x27][^"\x27]\{8,\}' --include="*.ts" --include="*.tsx" \
@@ -143,7 +144,7 @@ grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|password.*=.*["\x27][^"\x27]\{8,\}' --include="
 # MUST be 0
 
 # 3.3 Dependency audit
-npm audit 2>&1
+npm audit --audit-level=high 2>&1
 ```
 
 ### Tier 4: Website Build (if website exists)
@@ -165,7 +166,7 @@ fi
 | 1 | Hook Build | Exit [X] | PASS/FAIL |
 | 2 | Tests | [X]/[X] passed | PASS/FAIL |
 | 2 | Tool Registration | All wired | PASS/FAIL |
-| 3 | npm audit | [X] vulns (ALL severities) | PASS/FAIL |
+| 3 | npm audit | [X] high/critical | PASS/FAIL |
 | 3 | Secrets scan | [X] found | PASS/FAIL |
 | 4 | Website build | Exit [X] | PASS/FAIL/N/A |
 

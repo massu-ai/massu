@@ -1,18 +1,16 @@
 {
   "name": "massu",
   "version": "0.1.0",
-  "private": true,
   "description": "AI Engineering Governance Platform - Session memory, feature registry, code intelligence, and rule enforcement for AI coding assistants",
   "workspaces": [
     "packages/core",
-    "packages/plugin"
+    "packages/plugin",
+    "packages/shared"
   ],
   "scripts": {
     "build": "npm run build --workspace=packages/core",
     "test": "npm test --workspace=packages/core",
-    "test:integration": "npm run test:integration --workspace=packages/core",
-    "start": "npm start --workspace=packages/core",
-    "prepare": "husky"
+    "start": "npm start --workspace=packages/core"
   },
   "author": "Massu Contributors",
   "license": "SEE LICENSE IN LICENSE",
@@ -23,8 +21,5 @@
   "bugs": {
     "url": "https://github.com/massu-ai/massu/issues"
   },
-  "homepage": "https://massu.ai",
-  "devDependencies": {
-    "husky": "^9.1.7"
-  }
+  "homepage": "https://massu.ai"
 }

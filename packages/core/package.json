@@ -1,6 +1,6 @@
 {
   "name": "@massu/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "AI Engineering Governance MCP Server - Session memory, feature registry, code intelligence, and rule enforcement",
   "license": "BSL-1.1",

@@ -2,13 +2,17 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import type Database from 'better-sqlite3';
-import type { ToolDefinition, ToolResult } from './tool-helpers.ts';
-import { p, text } from './tool-helpers.ts';
+import type { ToolDefinition, ToolResult } from './tools.ts';
 import { getConfig } from './config.ts';
 
 // ============================================================
 // Regression Detection
 // ============================================================
+
+/** Prefix a base tool name with the configured tool prefix. */
+function p(baseName: string): string {
+  return `${getConfig().toolPrefix}_${baseName}`;
+}
 
 /** Default health thresholds. Configurable via regression.health_thresholds */
 const DEFAULT_HEALTH_THRESHOLDS = {
@@ -267,7 +271,6 @@ function handleRegressionCheck(_args: Record<string, unknown>, db: Database.Data
     FROM feature_health
     WHERE modifications_since_test > 0
     ORDER BY modifications_since_test DESC
-    LIMIT 500
   `).all() as Array<Record<string, unknown>>;
 
   if (recentlyModified.length === 0) {
@@ -311,3 +314,6 @@ function handleRegressionCheck(_args: Record<string, unknown>, db: Database.Data
   return text(lines.join('\n'));
 }
 
+function text(content: string): ToolResult {
+  return { content: [{ type: 'text', text: content }] };
+}

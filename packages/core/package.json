@@ -3,26 +3,19 @@
   "version": "0.1.1",
   "type": "module",
   "description": "AI Engineering Governance MCP Server - Session memory, feature registry, code intelligence, and rule enforcement",
-  "license": "BSL-1.1",
-  "author": "Massu AI <hello@massu.ai>",
-  "main": "dist/server.js",
-  "exports": {
-    ".": "./dist/server.js",
-    "./cli": "./dist/cli.js"
-  },
+  "main": "src/server.ts",
   "bin": {
-    "massu": "dist/cli.js"
+    "massu": "./src/cli.ts"
   },
   "scripts": {
     "start": "npx tsx src/server.ts",
     "test": "vitest run",
-    "build": "tsc --noEmit && npm run build:server && npm run build:hooks",
-    "build:server": "esbuild --bundle --platform=node --format=esm --outdir=dist --entry-names=[name] src/server.ts src/cli.ts --external:better-sqlite3 --external:yaml --external:zod --banner:js='import{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
+    "build": "tsc --noEmit && npm run build:hooks",
     "build:hooks": "esbuild --bundle --platform=node --format=esm --outdir=dist/hooks src/hooks/*.ts --external:better-sqlite3 --external:yaml --external:zod --banner:js='import{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
-    "test:integration": "vitest run src/__tests__/integration/",
     "prepublishOnly": "bash ../../scripts/prepublish-check.sh && npm run build"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3": "^12.6.2",
     "yaml": "^2.4.0",
     "zod": "^3.23.0"
@@ -36,6 +29,7 @@
   },
   "files": [
     "src/**/*",
+    "!src/__tests__/**",
     "dist/**/*",
     "LICENSE"
   ],
@@ -52,11 +46,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/massu-ai/massu.git",
+    "url": "https://github.com/massu-ai/massu.git",
     "directory": "packages/core"
   },
   "bugs": {
     "url": "https://github.com/massu-ai/massu/issues"
   },
-  "homepage": "https://massu.ai"
+  "homepage": "https://github.com/massu-ai/massu#readme"
 }

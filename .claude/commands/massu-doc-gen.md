@@ -3,8 +3,9 @@ name: massu-doc-gen
 description: Generate JSDoc comments, README sections, and API docs for undocumented code
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
+name: massu-doc-gen
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 
 # CS Doc Gen: Documentation Generation
 

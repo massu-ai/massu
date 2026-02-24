@@ -246,41 +246,17 @@ export function getOrphanedFeatures(db: Database.Database): Feature[] {
 }
 
 export function getFeatureImpact(db: Database.Database, filePaths: string[]): ImpactReport {
-  if (filePaths.length === 0) {
-    return { files_analyzed: [], orphaned: [], degraded: [], unaffected: [], blocked: false, block_reason: null };
-  }
-
   const fileSet = new Set(filePaths);
+  const affectedFeatureIds = new Set<number>();
 
-  // Batch: find all features linked to these files in a single query
-  const placeholders = filePaths.map(() => '?').join(',');
-  const featureLinks = db.prepare(
-    `SELECT DISTINCT feature_id FROM massu_sentinel_components WHERE component_file IN (${placeholders})`
-  ).all(...filePaths) as { feature_id: number }[];
-  const affectedFeatureIds = featureLinks.map(l => l.feature_id);
-
-  if (affectedFeatureIds.length === 0) {
-    return { files_analyzed: filePaths, orphaned: [], degraded: [], unaffected: [], blocked: false, block_reason: null };
-  }
-
-  // Batch: load all affected features in a single query
-  const featurePlaceholders = affectedFeatureIds.map(() => '?').join(',');
-  const featureRows = db.prepare(
-    `SELECT * FROM massu_sentinel WHERE id IN (${featurePlaceholders}) AND status = 'active'`
-  ).all(...affectedFeatureIds) as Record<string, unknown>[];
-  const featuresById = new Map(featureRows.map(r => [r.id as number, toFeature(r)]));
-
-  // Batch: load all components for affected features in a single query
-  const allComponents = db.prepare(
-    `SELECT feature_id, component_file, is_primary FROM massu_sentinel_components WHERE feature_id IN (${featurePlaceholders})`
-  ).all(...affectedFeatureIds) as { feature_id: number; component_file: string; is_primary: number }[];
-
-  // Group components by feature
-  const componentsByFeature = new Map<number, typeof allComponents>();
-  for (const comp of allComponents) {
-    let list = componentsByFeature.get(comp.feature_id);
-    if (!list) { list = []; componentsByFeature.set(comp.feature_id, list); }
-    list.push(comp);
+  // Find all features linked to these files
+  for (const filePath of filePaths) {
+    const links = db.prepare(
+      'SELECT feature_id FROM massu_sentinel_components WHERE component_file = ?'
+    ).all(filePath) as { feature_id: number }[];
+    for (const link of links) {
+      affectedFeatureIds.add(link.feature_id);
+    }
   }
 
   const orphaned: ImpactItem[] = [];
@@ -288,12 +264,15 @@ export function getFeatureImpact(db: Database.Database, filePaths: string[]): Im
   const unaffected: ImpactItem[] = [];
 
   for (const featureId of affectedFeatureIds) {
-    const feature = featuresById.get(featureId);
-    if (!feature) continue;
+    const feature = getFeatureById(db, featureId);
+    if (!feature || feature.status !== 'active') continue;
 
-    const comps = componentsByFeature.get(featureId) ?? [];
-    const affected = comps.filter(c => fileSet.has(c.component_file));
-    const remaining = comps.filter(c => !fileSet.has(c.component_file));
+    const allComponents = db.prepare(
+      'SELECT component_file, is_primary FROM massu_sentinel_components WHERE feature_id = ?'
+    ).all(featureId) as { component_file: string; is_primary: number }[];
+
+    const affected = allComponents.filter(c => fileSet.has(c.component_file));
+    const remaining = allComponents.filter(c => !fileSet.has(c.component_file));
     const primaryAffected = affected.some(c => c.is_primary);
 
     const item: ImpactItem = {
@@ -403,7 +382,7 @@ export function validateFeatures(db: Database.Database, domainFilter?: string): 
     sql += ' AND domain = ?';
     params.push(domainFilter);
   }
-  sql += ' ORDER BY domain, feature_key LIMIT 1000';
+  sql += ' ORDER BY domain, feature_key';
 
   const features = db.prepare(sql).all(...params) as Record<string, unknown>[];
   const details: ValidationItem[] = [];
@@ -489,63 +468,39 @@ export function validateFeatures(db: Database.Database, domainFilter?: string): 
 // ============================================================
 
 export function checkParity(db: Database.Database, oldFiles: string[], newFiles: string[]): ParityReport {
-  if (oldFiles.length === 0 && newFiles.length === 0) {
-    return { done: [], gaps: [], new_features: [], parity_percentage: 100 };
-  }
-
-  // Batch: find features linked to old files in a single query
-  const oldFeatureIds = new Set<number>();
-  if (oldFiles.length > 0) {
-    const ph = oldFiles.map(() => '?').join(',');
-    const links = db.prepare(`SELECT DISTINCT feature_id FROM massu_sentinel_components WHERE component_file IN (${ph})`).all(...oldFiles) as { feature_id: number }[];
-    for (const link of links) oldFeatureIds.add(link.feature_id);
-  }
-
-  // Batch: find features linked to new files in a single query
-  const newFeatureIds = new Set<number>();
-  if (newFiles.length > 0) {
-    const ph = newFiles.map(() => '?').join(',');
-    const links = db.prepare(`SELECT DISTINCT feature_id FROM massu_sentinel_components WHERE component_file IN (${ph})`).all(...newFiles) as { feature_id: number }[];
-    for (const link of links) newFeatureIds.add(link.feature_id);
-  }
-
-  // Batch: load all referenced features in a single query
-  const allIds = [...new Set([...oldFeatureIds, ...newFeatureIds])];
-  const featuresById = new Map<number, Feature>();
-  if (allIds.length > 0) {
-    const ph = allIds.map(() => '?').join(',');
-    const rows = db.prepare(`SELECT * FROM massu_sentinel WHERE id IN (${ph})`).all(...allIds) as Record<string, unknown>[];
-    for (const row of rows) {
-      const f = toFeature(row);
-      featuresById.set(f.id, f);
-    }
-  }
-
-  // Batch: load all components for referenced features
-  const componentsByFeature = new Map<number, Array<{ component_file: string }>>();
-  if (allIds.length > 0) {
-    const ph = allIds.map(() => '?').join(',');
-    const comps = db.prepare(`SELECT feature_id, component_file FROM massu_sentinel_components WHERE feature_id IN (${ph})`).all(...allIds) as { feature_id: number; component_file: string }[];
-    for (const comp of comps) {
-      let list = componentsByFeature.get(comp.feature_id);
-      if (!list) { list = []; componentsByFeature.set(comp.feature_id, list); }
-      list.push(comp);
-    }
-  }
-
   const oldFileSet = new Set(oldFiles);
   const newFileSet = new Set(newFiles);
+
+  // Find features linked to old files
+  const oldFeatureIds = new Set<number>();
+  for (const file of oldFiles) {
+    const links = db.prepare('SELECT feature_id FROM massu_sentinel_components WHERE component_file = ?').all(file) as { feature_id: number }[];
+    for (const link of links) {
+      oldFeatureIds.add(link.feature_id);
+    }
+  }
+
+  // Find features linked to new files
+  const newFeatureIds = new Set<number>();
+  for (const file of newFiles) {
+    const links = db.prepare('SELECT feature_id FROM massu_sentinel_components WHERE component_file = ?').all(file) as { feature_id: number }[];
+    for (const link of links) {
+      newFeatureIds.add(link.feature_id);
+    }
+  }
+
   const done: ParityItem[] = [];
   const gaps: ParityItem[] = [];
-  const newFeaturesList: ParityItem[] = [];
+  const newFeatures: ParityItem[] = [];
 
+  // Features in old that are also in new = DONE
+  // Features in old but NOT in new = GAP
   for (const fId of oldFeatureIds) {
-    const feature = featuresById.get(fId);
+    const feature = getFeatureById(db, fId);
     if (!feature) continue;
 
-    const comps = componentsByFeature.get(fId) ?? [];
-    const oldComps = comps.filter(c => oldFileSet.has(c.component_file));
-    const newComps = comps.filter(c => newFileSet.has(c.component_file));
+    const oldComps = db.prepare('SELECT component_file FROM massu_sentinel_components WHERE feature_id = ? AND component_file IN (' + oldFiles.map(() => '?').join(',') + ')').all(fId, ...oldFiles) as { component_file: string }[];
+    const newComps = db.prepare('SELECT component_file FROM massu_sentinel_components WHERE feature_id = ? AND component_file IN (' + newFiles.map(() => '?').join(',') + ')').all(fId, ...newFiles) as { component_file: string }[];
 
     const item: ParityItem = {
       feature_key: feature.feature_key,
@@ -562,15 +517,15 @@ export function checkParity(db: Database.Database, oldFiles: string[], newFiles:
     }
   }
 
+  // Features only in new = NEW
   for (const fId of newFeatureIds) {
     if (oldFeatureIds.has(fId)) continue;
-    const feature = featuresById.get(fId);
+    const feature = getFeatureById(db, fId);
     if (!feature) continue;
 
-    const comps = componentsByFeature.get(fId) ?? [];
-    const newComps = comps.filter(c => newFileSet.has(c.component_file));
+    const newComps = db.prepare('SELECT component_file FROM massu_sentinel_components WHERE feature_id = ? AND component_file IN (' + newFiles.map(() => '?').join(',') + ')').all(fId, ...newFiles) as { component_file: string }[];
 
-    newFeaturesList.push({
+    newFeatures.push({
       feature_key: feature.feature_key,
       title: feature.title,
       status: 'NEW',
@@ -582,7 +537,7 @@ export function checkParity(db: Database.Database, oldFiles: string[], newFiles:
   const total = done.length + gaps.length;
   const parityPercentage = total > 0 ? Math.round((done.length / total) * 100) : 100;
 
-  return { done, gaps, new_features: newFeaturesList, parity_percentage: parityPercentage };
+  return { done, gaps, new_features: newFeatures, parity_percentage: parityPercentage };
 }
 
 // ============================================================

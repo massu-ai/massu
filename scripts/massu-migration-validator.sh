@@ -7,7 +7,6 @@
 #
 # Usage: bash scripts/massu-migration-validator.sh
 
-# errexit (-e) intentionally omitted: script tracks violations via counter and uses || true patterns
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

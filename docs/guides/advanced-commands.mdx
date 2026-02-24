@@ -1,6 +1,6 @@
 ---
 title: "Advanced Commands"
-description: "Guide to debugging, refactoring, and advanced development commands"
+description: "Guide to debugging, refactoring, and specialized development commands"
 ---
 
 # Advanced Commands
@@ -13,27 +13,28 @@ Use this decision tree to pick the right command:
 
 ### I need to fix something
 
-- **Quick bug fix (1-3 files)?** Use `/massu-hotfix` — creates a branch, applies fix, runs verification, creates PR
-- **Complex bug?** Use `/massu-debug` — 9-step hypothesis-driven debugging with root cause tracing
-- **Failing tests?** Use `/massu-test --fix` — analyzes failures and applies fixes
+- **Quick bug fix (1-3 files)?** Use `/massu-hotfix` -- creates a branch, applies fix, runs verification, creates PR
+- **Complex bug?** Use `/massu-debug` -- 9-step hypothesis-driven debugging with root cause tracing
+- **Failing tests?** Use `/massu-test --fix` -- analyzes failures and applies fixes
 
 ### I need to change code structure
 
-- **Small refactor (<20 files)?** Use `/massu-refactor` — incremental transforms with behavioral equivalence
-- **Large refactor (>20 files)?** Use `/massu-create-plan` — full plan-audit-implement cycle
-- **Scaffold a new feature?** Use `/massu-new-feature` — feature scaffolding following established patterns
+- **Small refactor (<20 files)?** Use `/massu-refactor` -- incremental transforms with behavioral equivalence
+- **Large refactor (>20 files)?** Use `/massu-create-plan` -- full plan-audit-implement cycle
+- **Scaffold a new feature?** Use `/massu-new-feature` -- feature scaffolding following established patterns
 
 ### I need to check code quality
 
-- **Quick code review?** Use `/massu-review` — 7-dimension automated review
-- **Dependency health?** Use `/massu-audit-deps` — vulnerabilities, licenses, unused deps
-- **Run all verifications?** Use `/massu-verify` — runs every VR-* verification check in one pass
+- **Quick code review?** Use `/massu-review` -- 7-dimension automated review
+- **Dependency health?** Use `/massu-audit-deps` -- vulnerabilities, licenses, unused deps
+- **Run all verifications?** Use `/massu-verify` -- runs every VR-* verification check in one pass
+- **Effort estimation?** Use `/massu-estimate` -- complexity scoring with historical comparison
 
 ### I need to ship
 
-- **Prepare release?** Use `/massu-release` — version bump, changelog, verification, tagging
-- **Generate changelog?** Use `/massu-changelog` — conventional commit parsing
-- **Fast pre-push check?** Use `/massu-push-light` — lightweight verification gate (~90s vs full `/massu-push`)
+- **Prepare release?** Use `/massu-release` -- version bump, changelog, verification, tagging
+- **Generate changelog?** Use `/massu-changelog` -- conventional commit parsing
+- **Fast pre-push check?** Use `/massu-push-light` -- lightweight verification gate (~90s vs full `/massu-push`)
 
 ## Bootstrapping Test Coverage with /massu-test
 
@@ -59,15 +60,15 @@ Combine with `--coverage` to find all untested modules first:
 
 The debug command follows a 9-step protocol:
 
-1. **Symptom Capture** — What is the exact error? Where does it occur?
-2. **Locate Error** — Find the exact file and line
-3. **Trace Call Chain** — Follow the execution path backward
-4. **Hypothesis Formation** — Form 2-3 testable hypotheses
-5. **Hypothesis Testing** — Test each hypothesis systematically
-6. **Root Cause** — Identify the actual root cause
-7. **Fix Implementation** — Apply the minimal fix
-8. **Verification** — Prove the fix works (tests pass, error gone)
-9. **Learning Record** — Document what was learned for future reference
+1. **Symptom Capture** -- What is the exact error? Where does it occur?
+2. **Locate Error** -- Find the exact file and line
+3. **Trace Call Chain** -- Follow the execution path backward
+4. **Hypothesis Formation** -- Form 2-3 testable hypotheses
+5. **Hypothesis Testing** -- Test each hypothesis systematically
+6. **Root Cause** -- Identify the actual root cause
+7. **Fix Implementation** -- Apply the minimal fix
+8. **Verification** -- Prove the fix works (tests pass, error gone)
+9. **Learning Record** -- Document what was learned for future reference
 
 This prevents the common pattern of guessing and applying random fixes.
 
@@ -75,23 +76,23 @@ This prevents the common pattern of guessing and applying random fixes.
 
 The refactor command enforces safety through:
 
-- **Scope Guard** — Aborts if the refactor would touch more than 20 files
-- **Baseline Snapshot** — Captures the current test state before any changes
-- **Blast Radius Analysis** — Uses CR-10 to identify all references to changed values
-- **Incremental Batches** — Changes at most 3 files per batch, verifying after each
-- **Behavioral Equivalence** — Tests must pass with identical results after refactoring
-- **Negative Verification** — Old patterns must return 0 grep matches after removal
+- **Scope Guard** -- Aborts if the refactor would touch more than 20 files
+- **Baseline Snapshot** -- Captures the current test state before any changes
+- **Blast Radius Analysis** -- Uses CR-10 to identify all references to changed values
+- **Incremental Batches** -- Changes at most 3 files per batch, verifying after each
+- **Behavioral Equivalence** -- Tests must pass with identical results after refactoring
+- **Negative Verification** -- Old patterns must return 0 grep matches after removal
 
 ## Release Process with /massu-release
 
 The release command runs 6 steps:
 
-1. **Version Determination** — Analyzes commit history for major/minor/patch
-2. **Pre-Release Verification** — 4 tiers: types, tests, patterns, security
-3. **Changelog Generation** — From conventional commits since last tag
-4. **Version Bump** — Updates package.json
-5. **Release Notes** — Generates formatted release notes
-6. **Commit + Tag** — Creates release commit and git tag (does NOT push)
+1. **Version Determination** -- Analyzes commit history for major/minor/patch
+2. **Pre-Release Verification** -- 4 tiers: types, tests, patterns, security
+3. **Changelog Generation** -- From conventional commits since last tag
+4. **Version Bump** -- Updates package.json
+5. **Release Notes** -- Generates formatted release notes
+6. **Commit + Tag** -- Creates release commit and git tag (does NOT push)
 
 After `/massu-release`, use `/massu-push` to push the release with full verification.
 
@@ -103,17 +104,17 @@ Runs every VR-* verification check from the canonical rules in a single pass:
 /massu-verify
 ```
 
-This executes VR-BUILD, VR-TYPE, VR-TEST, VR-PATTERN, and all other registered verification types, producing a consolidated pass/fail report.
+This executes VR-BUILD, VR-TYPE, VR-TEST, VR-PATTERN, VR-SECURITY, and all other registered verification types, producing a consolidated pass/fail report.
 
 ## Lightweight Pre-Push with /massu-push-light
 
 A faster alternative to `/massu-push` for situations where the full verification gate is too slow. Completes in approximately 90 seconds by running:
 
-1. **Type Check** — `tsc --noEmit`
-2. **Test Suite** — Full vitest run
-3. **Pattern Scanner** — `massu-pattern-scanner.sh`
+1. **Type Check** -- `tsc --noEmit`
+2. **Test Suite** -- Full vitest run
+3. **Pattern Scanner** -- `massu-pattern-scanner.sh`
 
-Use this for incremental pushes during active development; use `/massu-push` before merging to main.
+Skips the deeper security scan, migration validation, and blast radius analysis that the full `/massu-push` performs. Use this for incremental pushes during active development; use `/massu-push` before merging to main.
 
 ## Feature Scaffolding with /massu-new-feature
 

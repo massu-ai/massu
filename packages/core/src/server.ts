@@ -55,7 +55,7 @@ function handleRequest(request: JsonRpcRequest): JsonRpcResponse {
           },
           serverInfo: {
             name: 'massu',
-            version: '0.1.0',
+            version: '1.0.0',
           },
         },
       };
@@ -182,7 +182,6 @@ process.stdin.on('end', () => {
 // Handle errors gracefully
 process.on('uncaughtException', (error) => {
   process.stderr.write(`massu: Uncaught exception: ${error.message}\n`);
-  process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {

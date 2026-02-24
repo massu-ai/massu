@@ -3,8 +3,9 @@ name: massu-loop
 description: Execute task with CS Loop verification protocol (autonomous execution with mandatory proof)
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Task(*)
 ---
+name: massu-loop
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 
 # CS Loop: Autonomous Execution Protocol
 

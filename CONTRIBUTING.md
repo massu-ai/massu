@@ -54,14 +54,14 @@ bash scripts/massu-pattern-scanner.sh
 massu/
   packages/
     core/          # MCP Server (@massu/core)
-      src/         # TypeScript source (flat module structure)
-      dist/        # Compiled output
-    plugin/        # Claude Code Plugin (private)
+    plugin/        # Claude Code Plugin (@massu/plugin)
+    shared/        # Shared utilities (@massu/shared)
   scripts/         # Build and quality scripts
   docs/            # Documentation
   examples/        # Example configurations
-  .claude/
-    commands/      # 20 workflow slash commands
+  .claude/         # Claude Code configuration
+    commands/      # Slash commands
+    hooks/         # Lifecycle hooks
   massu.config.yaml  # Project configuration
 ```
 

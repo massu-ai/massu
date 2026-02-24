@@ -2,8 +2,7 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import type Database from 'better-sqlite3';
-import type { ToolDefinition, ToolResult } from './tool-helpers.ts';
-import { p, text } from './tool-helpers.ts';
+import type { ToolDefinition, ToolResult } from './tools.ts';
 import {
   getConversationTurns,
   searchConversationTurns,
@@ -13,6 +12,11 @@ import {
   pruneOldConversationTurns,
 } from './memory-db.ts';
 import { getConfig } from './config.ts';
+
+/** Prefix a base tool name with the configured tool prefix. */
+function p(baseName: string): string {
+  return `${getConfig().toolPrefix}_${baseName}`;
+}
 
 // ============================================================
 // Observability MCP Tools (P3-001 through P3-004)
@@ -330,3 +334,10 @@ function handleSessionStats(args: Record<string, unknown>, db: Database.Database
   return text(lines.join('\n'));
 }
 
+// ============================================================
+// Helpers
+// ============================================================
+
+function text(content: string): ToolResult {
+  return { content: [{ type: 'text', text: content }] };
+}

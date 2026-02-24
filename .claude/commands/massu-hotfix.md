@@ -3,8 +3,9 @@ name: massu-hotfix
 description: Quick scoped fix workflow with branch, test, commit, push, and PR creation
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
+name: massu-hotfix
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 
 # CS Hotfix: Quick Scoped Fix Workflow
 
@@ -155,7 +156,7 @@ echo "Hotfix aborted. Reason: [reason]"
 
 ## START NOW
 
-**Step 0: Write AUTHORIZED_COMMAND to session state**
+**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
 
 Update `session-state/CURRENT.md` to include `AUTHORIZED_COMMAND: massu-hotfix`.
 

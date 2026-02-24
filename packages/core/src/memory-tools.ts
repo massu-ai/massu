@@ -2,8 +2,7 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import type Database from 'better-sqlite3';
-import type { ToolDefinition, ToolResult } from './tool-helpers.ts';
-import { p, text } from './tool-helpers.ts';
+import type { ToolDefinition, ToolResult } from './tools.ts';
 import {
   searchObservations,
   getRecentObservations,
@@ -16,20 +15,14 @@ import {
 } from './memory-db.ts';
 import { getConfig } from './config.ts';
 
+/** Prefix a base tool name with the configured tool prefix. */
+function p(baseName: string): string {
+  return `${getConfig().toolPrefix}_${baseName}`;
+}
+
 // ============================================================
 // P4-001 through P4-006: MCP Memory Tools
 // ============================================================
-
-const MEMORY_BASE_NAMES = new Set([
-  'memory_search', 'memory_timeline', 'memory_detail',
-  'memory_sessions', 'memory_failures', 'memory_ingest',
-]);
-
-export function isMemoryTool(name: string): boolean {
-  const pfx = getConfig().toolPrefix + '_';
-  const baseName = name.startsWith(pfx) ? name.slice(pfx.length) : name;
-  return MEMORY_BASE_NAMES.has(baseName);
-}
 
 /**
  * Get all memory tool definitions.
@@ -45,7 +38,7 @@ export function getMemoryToolDefinitions(): ToolDefinition[] {
         properties: {
           query: { type: 'string', description: 'Search text (FTS5 query syntax supported)' },
           type: { type: 'string', description: 'Filter by observation type (decision, bugfix, feature, failed_attempt, cr_violation, vr_check, etc.)' },
-          cr_rule: { type: 'string', description: 'Filter by CR rule (e.g., CR-16)' },
+          cr_rule: { type: 'string', description: 'Filter by CR rule (e.g., CR-9)' },
           date_from: { type: 'string', description: 'Start date (ISO format)' },
           limit: { type: 'number', description: 'Max results (default: 20)' },
         },
@@ -122,7 +115,7 @@ export function getMemoryToolDefinitions(): ToolDefinition[] {
           title: { type: 'string', description: 'Short description' },
           detail: { type: 'string', description: 'Full context' },
           importance: { type: 'number', description: 'Override importance (1-5, default: auto-assigned)' },
-          cr_rule: { type: 'string', description: 'Link to CR rule (e.g., CR-16)' },
+          cr_rule: { type: 'string', description: 'Link to CR rule (e.g., CR-9)' },
           plan_item: { type: 'string', description: 'Link to plan item (e.g., P2-003)' },
           files: {
             type: 'array',
@@ -381,7 +374,13 @@ function handleIngest(args: Record<string, unknown>, db: Database.Database): Too
   return text(`Observation #${id} recorded successfully.\nType: ${type}\nTitle: ${title}\nImportance: ${importance}\nSession: ${activeSession.session_id.slice(0, 8)}...`);
 }
 
+// ============================================================
+// Helpers
+// ============================================================
 
+function text(content: string): ToolResult {
+  return { content: [{ type: 'text', text: content }] };
+}
 
 function safeParseJson(json: string, fallback: unknown): unknown {
   try {

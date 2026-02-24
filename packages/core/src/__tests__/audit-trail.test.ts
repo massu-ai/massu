@@ -30,7 +30,7 @@ function createTestDb(): Database.Database {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL,
       type TEXT NOT NULL,
-      detail TEXT,
+      detail TEXT NOT NULL,
       files_involved TEXT,
       created_at TEXT NOT NULL
     );

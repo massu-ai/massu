@@ -3,8 +3,9 @@ name: massu-cleanup
 description: Dead code removal — unused imports, orphaned files, dead exports, and stale references
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
+name: massu-cleanup
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 
 # CS Cleanup: Dead Code Removal
 

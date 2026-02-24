@@ -12,22 +12,4 @@ coverage/
 .playwright-mcp/
 .vercel
 .claude/session-state/
-.claude/benchmarks/
-.claude/incidents/
-.claude/patterns/
 .massu/
-.husky/
-
-# Local dev artifacts
-.mcp.json
-packages/core/massu.config.yaml
-
-# Screenshots and temporary images
-*.png
-*.jpeg
-!website/**/*.png
-!website/**/*.jpeg
-!packages/**/*.png
-
-# Temporary logs
-network-requests.log

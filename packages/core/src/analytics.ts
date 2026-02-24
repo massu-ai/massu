@@ -2,13 +2,17 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import type Database from 'better-sqlite3';
-import type { ToolDefinition, ToolResult } from './tool-helpers.ts';
-import { p, text } from './tool-helpers.ts';
+import type { ToolDefinition, ToolResult } from './tools.ts';
 import { getConfig } from './config.ts';
 
 // ============================================================
 // Quality Trend Analytics
 // ============================================================
+
+/** Prefix a base tool name with the configured tool prefix. */
+function p(baseName: string): string {
+  return `${getConfig().toolPrefix}_${baseName}`;
+}
 
 export interface QualityBreakdown {
   security: number;
@@ -118,7 +122,6 @@ export function backfillQualityScores(db: Database.Database): number {
     FROM sessions s
     LEFT JOIN session_quality_scores q ON s.session_id = q.session_id
     WHERE q.session_id IS NULL
-    LIMIT 1000
   `).all() as Array<{ session_id: string }>;
 
   let backfilled = 0;
@@ -365,3 +368,6 @@ function handleQualityReport(args: Record<string, unknown>, db: Database.Databas
   return text(lines.join('\n'));
 }
 
+function text(content: string): ToolResult {
+  return { content: [{ type: 'text', text: content }] };
+}

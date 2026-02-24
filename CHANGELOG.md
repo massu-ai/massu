@@ -34,14 +34,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Hook git commands use spawnSync instead of execSync for safety
 
 ### Fixed
-- API routes replace `select('*')` with explicit field lists (CR-17 compliance)
-- `requirePlan()` now rejects canceled/past_due subscriptions (was only checking plan tier)
-- `handleSubscriptionDeleted` resets plan to `free` alongside setting status to canceled
-- `massu.dev` URLs updated to `massu.ai` in CLI and init command
-- `__dirname` ESM compatibility bug in init.ts (was undefined in ESM bundles)
-- npm package `files` field excludes source/test files (ships only `dist/`)
-- Privacy and Terms page titles no longer double-append "| Massu AI"
-- Pricing page now has proper SEO metadata via layout
 - Stripe checkout redirect SSRF vulnerability
 - XSS via javascript: URLs in MarkdownRenderer
 - CSP unsafe-eval removed

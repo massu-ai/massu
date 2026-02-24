@@ -153,7 +153,7 @@ function buildContext(db: Database.Database, sessionId: string, source: string, 
   sections.sort((a, b) => b.importance - a.importance);
 
   let usedTokens = 0;
-  const headerTokens = estimateTokens('=== CS MEMORY: Previous Session Context ===\n\n=== END CS MEMORY ===\n');
+  const headerTokens = estimateTokens('=== Massu Memory: Previous Session Context ===\n\n=== END Massu Memory ===\n');
   usedTokens += headerTokens;
 
   const includedSections: string[] = [];
@@ -167,7 +167,7 @@ function buildContext(db: Database.Database, sessionId: string, source: string, 
 
   if (includedSections.length === 0) return '';
 
-  return `=== CS MEMORY: Previous Session Context ===\n\n${includedSections.join('\n')}\n=== END CS MEMORY ===\n`;
+  return `=== Massu Memory: Previous Session Context ===\n\n${includedSections.join('\n')}\n=== END Massu Memory ===\n`;
 }
 
 function estimateTokens(text: string): number {

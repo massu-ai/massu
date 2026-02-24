@@ -3,8 +3,9 @@ name: massu-refactor
 description: Safe refactoring with behavioral equivalence, incremental transforms, and automatic rollback
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
+name: massu-refactor
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 
 # CS Refactor: Safe Refactoring Workflow
 
@@ -41,7 +42,7 @@ Restructure code safely, ensuring behavioral equivalence at every step. Changes 
 | Condition | Why It's Too Big | Alternative |
 |-----------|-----------------|-------------|
 | Refactoring touches > 20 files | Needs structured plan | `/massu-create-plan` |
-| Changes database schema | Needs migration workflow | Use a database migration workflow |
+| Changes database schema | Needs migration workflow | `/massu-internal-migrate` |
 | Changes public API contracts | Needs blast radius plan | `/massu-create-plan` |
 | Renames MCP tool names | Affects all consumers | `/massu-create-plan` |
 | Changes config interface fields | Affects all config users | `/massu-create-plan` |
@@ -55,7 +56,7 @@ SCOPE CHECK:
        OUTPUT: "Refactoring scope is too large ([N] files). Use /massu-create-plan instead."
        ABORT
   5. IF changes database schema:
-       OUTPUT: "Refactoring involves schema changes. Use a database migration workflow instead."
+       OUTPUT: "Refactoring involves schema changes. Use /massu-internal-migrate instead."
        ABORT
   6. IF changes public API contracts:
        OUTPUT: "Refactoring changes public API. Use /massu-create-plan for blast radius analysis."

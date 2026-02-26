@@ -336,6 +336,37 @@ git checkout -- .
 
 ---
 
+## MANDATORY PLAN DOCUMENT UPDATE (If Refactor From Plan)
+
+**If this refactoring was part of a plan, update the plan document with completion status.**
+
+```markdown
+# IMPLEMENTATION STATUS
+
+**Plan**: [Plan Name]
+**Status**: REFACTOR COMPLETE
+**Last Updated**: [YYYY-MM-DD HH:MM]
+
+## Refactoring Applied
+
+| # | Description | Status | Verification | Date |
+|---|-------------|--------|--------------|------|
+| 1 | [Refactoring desc] | COMPLETE | Behavioral Equivalence: PROVEN | [date] |
+```
+
+---
+
+## AUTO-LEARNING PROTOCOL
+
+After refactoring, if any issues were discovered:
+
+1. **Record the pattern** - What went wrong and how it was fixed
+2. **Check if pattern scanner should be updated** - Can the check be automated?
+3. **Update session state** - Record in `.claude/session-state/CURRENT.md`
+4. **Search codebase-wide** - Verify no other instances of same bad pattern (CR-9)
+
+---
+
 ## COMPLETION REPORT
 
 ```markdown

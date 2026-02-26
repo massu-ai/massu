@@ -11,10 +11,24 @@
  * Tool names are configurable via massu.config.yaml toolPrefix.
  */
 
+import { readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { getCodeGraphDb, getDataDb } from './db.ts';
 import { getConfig } from './config.ts';
 import { getToolDefinitions, handleToolCall } from './tools.ts';
 import { getMemoryDb, pruneOldConversationTurns, pruneOldObservations } from './memory-db.ts';
+import { getCurrentTier } from './license.ts';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PKG_VERSION = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8'));
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -40,7 +54,7 @@ function getDb() {
   return { codegraphDb, dataDb: dataDb };
 }
 
-function handleRequest(request: JsonRpcRequest): JsonRpcResponse {
+async function handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> {
   const { method, params, id } = request;
 
   switch (method) {
@@ -54,8 +68,8 @@ function handleRequest(request: JsonRpcRequest): JsonRpcResponse {
             tools: {},
           },
           serverInfo: {
-            name: 'massu',
-            version: '1.0.0',
+            name: getConfig().toolPrefix || 'massu',
+            version: PKG_VERSION,
           },
         },
       };
@@ -80,7 +94,7 @@ function handleRequest(request: JsonRpcRequest): JsonRpcResponse {
       const toolArgs = (params as { arguments?: Record<string, unknown> })?.arguments ?? {};
 
       const { codegraphDb: cgDb, dataDb: lDb } = getDb();
-      const result = handleToolCall(toolName, toolArgs, lDb, cgDb);
+      const result = await handleToolCall(toolName, toolArgs, lDb, cgDb);
 
       return {
         jsonrpc: '2.0',
@@ -133,12 +147,21 @@ function pruneMemoryOnStartup(): void {
 
 pruneMemoryOnStartup();
 
+// === License init: pre-cache tier status ===
+getCurrentTier().then(tier => {
+  process.stderr.write(`massu: License tier: ${tier}\n`);
+}).catch(error => {
+  process.stderr.write(
+    `massu: License check failed (non-fatal): ${error instanceof Error ? error.message : String(error)}\n`
+  );
+});
+
 // === stdio JSON-RPC transport ===
 
 let buffer = '';
 
 process.stdin.setEncoding('utf-8');
-process.stdin.on('data', (chunk: string) => {
+process.stdin.on('data', async (chunk: string) => {
   buffer += chunk;
 
   // Process complete messages (newline-delimited JSON-RPC)
@@ -151,7 +174,7 @@ process.stdin.on('data', (chunk: string) => {
 
     try {
       const request = JSON.parse(line) as JsonRpcRequest;
-      const response = handleRequest(request);
+      const response = await handleRequest(request);
 
       // Don't send responses for notifications (no id)
       if (request.id !== undefined) {

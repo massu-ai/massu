@@ -35,6 +35,39 @@ Run tests intelligently, analyze failures, detect coverage gaps, and generate mi
 - In `--generate` mode: follow vitest patterns from existing tests exactly
 - Report ALL failures, not just the first one
 - **FIX ALL ISSUES ENCOUNTERED (CR-9)** — in `--fix` mode, fix every failing test, not just one
+- **VR-TEST verification** — `npm test` must pass before commit
+- **Critical paths first** — Tool handlers, config parsing, DB operations need tests
+- **Isolation** — Tests must not depend on external state
+- **Deterministic** — Same code = same result
+
+---
+
+## ZERO-GAP AUDIT LOOP
+
+**Test audit does NOT complete until a SINGLE COMPLETE AUDIT finds ZERO issues.**
+
+### The Rule
+
+```
+TEST AUDIT LOOP:
+  1. Run ALL test coverage and quality checks
+  2. Count gaps and issues found
+  3. IF issues > 0:
+       - Fix ALL issues (add tests, fix anti-patterns)
+       - Re-run ENTIRE audit from Step 1
+  4. IF issues == 0:
+       - TEST COVERAGE VERIFIED
+```
+
+### Completion Requirement
+
+| Scenario | Action |
+|----------|--------|
+| Audit finds 3 untested critical paths | Add tests, re-run ENTIRE audit |
+| Re-audit finds 1 test quality issue | Fix it, re-run ENTIRE audit |
+| Re-audit finds 0 issues | **NOW** test coverage verified |
+
+**Partial re-checks are NOT valid. The ENTIRE test audit must pass in a SINGLE run.**
 
 ---
 
@@ -361,6 +394,82 @@ bash scripts/massu-pattern-scanner.sh
 ```
 
 **If ANY gate fails:** Fix the issue, re-run ALL gates. Repeat until clean.
+
+---
+
+## TEST QUALITY AUDIT
+
+### Check for Anti-Patterns
+```bash
+# Find tests without assertions
+grep -rn "it(.*{" packages/core/src/__tests__/ | grep -v "expect\|assert" | head -10
+
+# Find tests with only console.log
+grep -rn "console.log" packages/core/src/__tests__/ | head -10
+
+# Find flaky patterns (setTimeout, random)
+grep -rn "setTimeout\|Math.random" packages/core/src/__tests__/ | head -10
+```
+
+### Test Quality Matrix
+```markdown
+### Test Quality Audit
+
+| Issue | Files Affected | Severity | Fix |
+|-------|---------------|----------|-----|
+| No assertions | N | HIGH | Add expects |
+| Flaky patterns | N | MEDIUM | Refactor |
+| console.log in tests | N | LOW | Remove |
+```
+
+---
+
+## SESSION STATE UPDATE
+
+After test audit, update `session-state/CURRENT.md`:
+
+```markdown
+## TEST AUDIT SESSION
+
+### Audit
+- **Date**: [timestamp]
+- **Scope**: Full / [specific area]
+- **Mode**: [FULL_RUN / AFFECTED / COVERAGE / GENERATE / FIX]
+
+### Findings
+- Total test files: [N]
+- Total tests: [N]
+- Coverage: [X]% modules with tests
+- Quality issues: [N]
+
+### Tests Added/Fixed
+[List or "None - audit only"]
+
+### Status
+- VR-TEST: PASS/FAIL
+- Coverage target: MET/NOT MET
+```
+
+---
+
+## AUTO-LEARNING PROTOCOL (MANDATORY after every fix/finding)
+
+After EVERY fix or finding during test audit:
+
+### Step 1: Record the Pattern
+Update `.claude/session-state/CURRENT.md` with:
+- What was wrong (the incorrect pattern or missing test)
+- What fixed it (the correct pattern)
+- File(s) affected
+
+### Step 2: Add to Pattern Scanner (if grep-able)
+If the bad pattern is detectable by grep, consider adding it to `scripts/massu-pattern-scanner.sh`.
+
+### Step 3: Search Codebase-Wide (CR-9)
+```bash
+grep -rn "[bad_pattern]" packages/core/src/ --include="*.ts"
+```
+Fix ALL instances found, not just the one that was reported.
 
 ---
 

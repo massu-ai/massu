@@ -15,6 +15,17 @@ Run a continuous AUDIT -> FIX -> VERIFY -> RE-AUDIT loop that proves (with evide
 
 ---
 
+## Workflow Position
+
+```
+/massu-create-plan -> /massu-plan -> /massu-loop -> /massu-commit -> /massu-push
+(CREATE)           (AUDIT)        (IMPLEMENT)   (COMMIT)        (PUSH)
+```
+
+**This command is step 4 of 5 in the standard workflow.**
+
+---
+
 ## RELATIONSHIP WITH /massu-push AND /massu-loop
 
 | Command | Purpose | Speed | Runs Full Tests |
@@ -45,7 +56,7 @@ Run a continuous AUDIT -> FIX -> VERIFY -> RE-AUDIT loop that proves (with evide
 
 ```
 COMMIT AUDIT LOOP:
-  1. Run ALL pre-commit checks (Gates 1-7)
+  1. Run ALL pre-commit checks (Gates 1-8)
   2. Count total gaps/failures found
   3. IF gaps > 0:
        - Fix ALL gaps
@@ -74,6 +85,19 @@ COMMIT AUDIT LOOP:
 | **Plan Coverage** | Did we build everything? (if from plan) | YES |
 
 **Code Quality: PASS + Plan Coverage: FAIL = COMMIT BLOCKED**
+
+---
+
+## DOMAIN-SPECIFIC PATTERN LOADING
+
+Based on work being committed, load relevant pattern sections from CLAUDE.md:
+
+| Domain | Section to Load | Load When |
+|--------|----------------|-----------|
+| Tool modules | Tool Registration Pattern | Adding/modifying MCP tools |
+| Config | Config Access Pattern | Config changes |
+| Hooks | Hook stdin/stdout Pattern | Adding/modifying hooks |
+| Build | Build & Test Commands | Build-related changes |
 
 ---
 
@@ -215,13 +239,19 @@ cd packages/core && npm run build:hooks
 # MUST exit 0
 ```
 
-### Gate 5: Security - No Secrets Staged
+### Gate 5: Generalization Compliance (VR-GENERIC)
+```bash
+bash scripts/massu-generalization-scanner.sh
+# MUST exit 0
+```
+
+### Gate 6: Security - No Secrets Staged
 ```bash
 git diff --cached --name-only | grep -E '\.(env|pem|key|secret)' && echo "FAIL: Secrets staged" && exit 1
 echo "PASS: No secrets staged"
 ```
 
-### Gate 6: Security - No Credentials in Code
+### Gate 7: Security - No Credentials in Code
 ```bash
 # Check packages/core/src/ for hardcoded credentials
 grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|password.*=.*["\x27][^"\x27]\{8,\}' --include="*.ts" --include="*.tsx" \
@@ -237,7 +267,7 @@ grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|password.*=.*["\x27][^"\x27]\{8,\}' --include="
 - `security-utils.ts` - credential redaction regex
 - `*.test.ts` - test fixtures with mock data
 
-### Gate 7: Plan Coverage (if from plan)
+### Gate 8: Plan Coverage (if from plan)
 ```markdown
 ### PLAN COVERAGE GATE
 
@@ -264,9 +294,10 @@ grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|password.*=.*["\x27][^"\x27]\{8,\}' --include="
 | 2. Type Safety | tsc --noEmit | [X] errors | PASS/FAIL |
 | 3. Tests | npm test | [X] pass, [X] fail | PASS/FAIL |
 | 4. Hook Build | build:hooks | Exit [X] | PASS/FAIL |
-| 5. No Secrets Staged | git diff --cached check | [result] | PASS/FAIL |
-| 6. No Credentials | grep check | [X] found | PASS/FAIL |
-| 7. Plan Coverage | item-by-item | [X]/[X] = [X]% | PASS/FAIL |
+| 5. Generalization | massu-generalization-scanner.sh | Exit [X] | PASS/FAIL |
+| 6. No Secrets Staged | git diff --cached check | [result] | PASS/FAIL |
+| 7. No Credentials | grep check | [X] found | PASS/FAIL |
+| 8. Plan Coverage | item-by-item | [X]/[X] = [X]% | PASS/FAIL |
 
 **OVERALL: PASS / FAIL**
 ```
@@ -390,6 +421,16 @@ Update `session-state/CURRENT.md` to include `AUTHORIZED_COMMAND: massu-commit`.
 
 ---
 
+## MANDATORY: PLAN DOCUMENT UPDATE (After Commit)
+
+If commit is from a plan, update the plan document TOP with:
+- IMPLEMENTATION STATUS table (status, last updated, commit hash)
+- Task completion summary with verification evidence
+
+Verify: `grep "IMPLEMENTATION STATUS" [plan_file]` returns match.
+
+---
+
 ## AUTO-LEARNING PROTOCOL
 
 After committing, if any issues were fixed during this audit:
@@ -398,6 +439,9 @@ After committing, if any issues were fixed during this audit:
 2. **Check if pattern scanner should be updated** - Can the check be automated?
 3. **Update session state** - Record in `.claude/session-state/CURRENT.md`
 4. **Search codebase-wide** - Verify no other instances of same bad pattern (CR-9)
+
+If a NEW pattern or utility was created during the commit:
+1. Record in session-state/CURRENT.md with file path and purpose
 
 ---
 
@@ -418,6 +462,7 @@ After committing, if any issues were fixed during this audit:
 | Type Safety | PASS |
 | Tests | PASS ([X] passed) |
 | Hook Build | PASS |
+| Generalization | PASS |
 | No Secrets | PASS |
 | No Credentials | PASS |
 | Plan Coverage | PASS (X/X = 100%) |

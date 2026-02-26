@@ -1,0 +1,232 @@
+---
+title: "Configuration Conventions"
+description: "Customize directory names, session state paths, knowledge categories, and other structural conventions"
+order: 5
+---
+
+# Configuration Conventions
+
+The `conventions` section of `massu.config.yaml` lets you customize Massu AI's directory structure and file conventions. This is useful for projects that use non-standard layouts or need to integrate with existing tooling that expects specific paths.
+
+All convention keys have sensible defaults. Most projects do not need to set any of these values.
+
+## Full Example
+
+```yaml
+conventions:
+  claudeDirName: ".claude"
+  sessionStatePath: ".claude/session-state/CURRENT.md"
+  sessionArchivePath: ".claude/session-state/archive"
+  knowledgeCategories:
+    - patterns
+    - commands
+    - incidents
+    - reference
+    - protocols
+    - checklists
+    - playbooks
+    - critical
+    - scripts
+    - status
+    - templates
+    - loop-state
+    - session-state
+    - agents
+  knowledgeSourceFiles:
+    - CLAUDE.md
+    - MEMORY.md
+    - corrections.md
+  excludePatterns:
+    - /ARCHIVE/
+    - /SESSION-HISTORY/
+```
+
+## Key Reference
+
+### claudeDirName
+
+The name of the Claude Code configuration directory in your project root.
+
+| | |
+|---|---|
+| **Type** | `string` |
+| **Default** | `".claude"` |
+| **Example** | `".ai-config"` |
+
+This directory is where Massu AI looks for patterns, agents, commands, protocols, and other configuration files. Changing this value updates all resolved paths that reference the Claude directory.
+
+```yaml
+conventions:
+  claudeDirName: ".ai-config"
+# Massu AI will now look for patterns in .ai-config/patterns/
+```
+
+### sessionStatePath
+
+Path to the current session state file, relative to the project root.
+
+| | |
+|---|---|
+| **Type** | `string` |
+| **Default** | `".claude/session-state/CURRENT.md"` |
+| **Example** | `".ai-config/state/current-session.md"` |
+
+The session state file is read at session start and written at session end. It captures the current working context for recovery after compaction or session restart.
+
+```yaml
+conventions:
+  sessionStatePath: ".ai-config/state/current-session.md"
+```
+
+### sessionArchivePath
+
+Directory where archived session states are stored, relative to the project root.
+
+| | |
+|---|---|
+| **Type** | `string` |
+| **Default** | `".claude/session-state/archive"` |
+| **Example** | `".ai-config/state/archive"` |
+
+When switching tasks or ending a session, the current state file is moved to this archive directory with a date-stamped filename.
+
+```yaml
+conventions:
+  sessionArchivePath: ".ai-config/state/archive"
+```
+
+### knowledgeCategories
+
+The list of subdirectory names under `claudeDirName` that the knowledge indexer scans for knowledge entries.
+
+| | |
+|---|---|
+| **Type** | `string[]` |
+| **Default** | `["patterns", "commands", "incidents", "reference", "protocols", "checklists", "playbooks", "critical", "scripts", "status", "templates", "loop-state", "session-state", "agents"]` |
+
+Each directory listed here is scanned during knowledge indexing. Files found in these directories become searchable via `massu_knowledge_search` and related tools.
+
+To add a custom category:
+
+```yaml
+conventions:
+  knowledgeCategories:
+    - patterns
+    - commands
+    - incidents
+    - reference
+    - protocols
+    - checklists
+    - playbooks
+    - critical
+    - scripts
+    - status
+    - templates
+    - loop-state
+    - session-state
+    - agents
+    - runbooks          # custom category
+    - post-mortems      # custom category
+```
+
+### knowledgeSourceFiles
+
+Files in the project root (or Claude directory) that are treated as knowledge sources and indexed automatically.
+
+| | |
+|---|---|
+| **Type** | `string[]` |
+| **Default** | `["CLAUDE.md", "MEMORY.md", "corrections.md"]` |
+
+These files are indexed as top-level knowledge entries, separate from the category-based directory scanning.
+
+```yaml
+conventions:
+  knowledgeSourceFiles:
+    - CLAUDE.md
+    - MEMORY.md
+    - corrections.md
+    - ARCHITECTURE.md   # custom knowledge source
+```
+
+### excludePatterns
+
+Path patterns to exclude from knowledge indexing. Any file whose path contains one of these substrings is skipped.
+
+| | |
+|---|---|
+| **Type** | `string[]` |
+| **Default** | `["/ARCHIVE/", "/SESSION-HISTORY/"]` |
+
+Use this to prevent stale or historical files from polluting the knowledge index.
+
+```yaml
+conventions:
+  excludePatterns:
+    - /ARCHIVE/
+    - /SESSION-HISTORY/
+    - /deprecated/       # skip deprecated docs
+    - /vendor/           # skip vendor files
+```
+
+## Default Behavior
+
+If you omit the `conventions` section entirely, Massu AI uses all the defaults listed above. This is the recommended approach for most projects.
+
+```yaml
+# No conventions section needed for standard projects
+project:
+  name: my-app
+
+framework:
+  type: typescript
+```
+
+## Customization for Non-Standard Layouts
+
+### Monorepo with shared AI config
+
+If your monorepo uses a shared AI config directory at a non-standard location:
+
+```yaml
+conventions:
+  claudeDirName: ".ai"
+  sessionStatePath: ".ai/state/CURRENT.md"
+  sessionArchivePath: ".ai/state/archive"
+```
+
+### Project with additional knowledge sources
+
+If your project has runbooks or architecture docs you want indexed:
+
+```yaml
+conventions:
+  knowledgeCategories:
+    - patterns
+    - commands
+    - incidents
+    - reference
+    - protocols
+    - runbooks
+    - architecture
+  knowledgeSourceFiles:
+    - CLAUDE.md
+    - MEMORY.md
+    - corrections.md
+    - ARCHITECTURE.md
+    - RUNBOOK.md
+```
+
+### Excluding large directories from indexing
+
+If your project has large archive directories that slow down indexing:
+
+```yaml
+conventions:
+  excludePatterns:
+    - /ARCHIVE/
+    - /SESSION-HISTORY/
+    - /node_modules/
+    - /dist/
+    - /.git/
+```

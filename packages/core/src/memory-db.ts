@@ -40,7 +40,7 @@ export function getMemoryDb(): Database.Database {
   return db;
 }
 
-function initMemorySchema(db: Database.Database): void {
+export function initMemorySchema(db: Database.Database): void {
   db.exec(`
     -- Sessions table (linked to Claude Code session IDs)
     CREATE TABLE IF NOT EXISTS sessions (
@@ -573,6 +573,19 @@ function initMemorySchema(db: Database.Database): void {
       last_error TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_pending_sync_created ON pending_sync(created_at ASC);
+  `);
+
+  // ============================================================
+  // P3-005: License cache table
+  // ============================================================
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS license_cache (
+      api_key_hash TEXT PRIMARY KEY,
+      tier TEXT NOT NULL,
+      valid_until TEXT NOT NULL,
+      last_validated TEXT NOT NULL,
+      features TEXT DEFAULT '[]'
+    );
   `);
 }
 

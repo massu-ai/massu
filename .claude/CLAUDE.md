@@ -23,7 +23,7 @@ AI Engineering Governance Platform - an MCP server and Claude Code plugin.
 ## Tech Stack
 - TypeScript, ESM modules
 - better-sqlite3 for local storage
-- @modelcontextprotocol/sdk for MCP protocol
+- Raw JSON-RPC 2.0 over stdio for MCP protocol
 - yaml for config parsing
 - esbuild for hook compilation
 - vitest for testing
@@ -273,29 +273,31 @@ docs/plans/YYYY-MM-DD-feature-name.md
 
 **3-function pattern (preferred):** `getDefs()` + `isTool()` + `handleCall()`
 
-| Module File | Tool Prefix | Has Tests |
-|-------------|-------------|-----------|
-| `analytics.ts` | `_quality_` | NO |
-| `cost-tracker.ts` | `_cost_` | NO |
-| `prompt-analyzer.ts` | `_prompt_` | NO |
-| `audit-trail.ts` | `_audit_` | NO |
-| `validation-engine.ts` | `_validation_` | NO |
-| `adr-generator.ts` | `_adr_` | NO |
-| `security-scorer.ts` | `_security_` | NO |
-| `dependency-scorer.ts` | `_dependency_` | NO |
-| `team-knowledge.ts` | `_team_` | NO |
-| `regression-detector.ts` | `_regression_` | NO |
-| `observability-tools.ts` | `_obs_` | YES |
+| Module File | Tool Prefix | Tier | Has Tests |
+|-------------|-------------|------|-----------|
+| `analytics.ts` | `_quality_` | Free | YES |
+| `cost-tracker.ts` | `_cost_` | Free | YES |
+| `prompt-analyzer.ts` | `_prompt_` | Pro | YES |
+| `audit-trail.ts` | `_audit_` | Pro | YES |
+| `validation-engine.ts` | `_validation_` | Pro | YES |
+| `adr-generator.ts` | `_adr_` | Pro | YES |
+| `security-scorer.ts` | `_security_` | Pro | YES |
+| `dependency-scorer.ts` | `_dependency_` | Pro | YES |
+| `knowledge-tools.ts` | `_knowledge_` (12 tools) | Pro | YES |
+| `team-knowledge.ts` | `_team_` (3 tools) | Team | YES |
+| `regression-detector.ts` | `_regression_` | Pro | YES |
+| `observability-tools.ts` | `_obs_` | Free | YES |
+| `license.ts` | `_license_` (1 tool: status) | Free | YES |
 
 **2-function pattern (legacy):** `getDefs()` + `handleCall()` (routing inline in tools.ts)
 
-| Module File | Routing | Has Tests |
-|-------------|---------|-----------|
-| `memory-tools.ts` | `startsWith(pfx + '_memory_')` | YES |
-| `docs-tools.ts` | `startsWith(pfx + '_docs_')` | YES |
-| `sentinel-tools.ts` | `startsWith(pfx + '_sentinel_')` | YES (partial) |
+| Module File | Routing | Tier | Has Tests |
+|-------------|---------|------|-----------|
+| `memory-tools.ts` | `startsWith(pfx + '_memory_')` | Free | YES |
+| `docs-tools.ts` | `startsWith(pfx + '_docs_')` | Free | YES |
+| `sentinel-tools.ts` | `startsWith(pfx + '_sentinel_')` | Free | YES (partial) |
 
-**Core tools** (inline in `tools.ts`): sync, context, trpc_map, coupling_check, impact, domains, schema
+**Core tools** (inline in `tools.ts`): sync, context, trpc_map, coupling_check, impact, domains, schema (all Free tier)
 
 ### Common Patterns & Errors
 
@@ -376,6 +378,8 @@ docs/plans/YYYY-MM-DD-feature-name.md
 | `/massu-refactor` | Safe refactoring | **YES** |
 | `/massu-release` | Release preparation | **YES** (version bump, tag) |
 | `/massu-new-feature` | Pattern-compliant feature scaffolding | **YES** (scaffolding) |
+| `/massu-tdd` | Test-driven development cycle (RED/GREEN/IMPROVE) | **YES** |
+| `/massu-golden-path` | Complete end-to-end workflow from plan to push | **YES** |
 
 ### Diagnostics & Utilities
 | Command | Purpose | Edits Source Code? |
@@ -387,12 +391,18 @@ docs/plans/YYYY-MM-DD-feature-name.md
 | `/massu-changelog` | Generate changelog from commits | CHANGELOG.md only |
 | `/massu-hotfix` | Quick scoped fix workflow | **YES** (small fixes) |
 | `/massu-estimate` | Effort estimation with complexity scoring | **NO** |
+| `/massu-verify-playwright` | Browser-based page verification via Playwright | **NO** |
+| `/massu-deps` | Dependency audit (security, updates, compatibility) | **NO** |
+| `/massu-parity` | Generic feature parity check between two systems | **NO** |
+| `/massu-guide` | Interactive onboarding walkthrough for the codebase | **NO** |
 
 ### Productivity
 | Command | Purpose | Edits Source Code? |
 |---------|---------|-------------------|
 | `/massu-cleanup` | Dead code removal, unused imports, orphaned files | **YES** |
 | `/massu-doc-gen` | Generate JSDoc, README, API docs | **YES** (docs only) |
+| `/massu-dead-code` | Detect and remove dead code, orphaned modules, unused exports | **YES** |
+| `/massu-docs` | Documentation sync ensuring docs align with code changes | **YES** (docs only) |
 
 ---
 
@@ -409,4 +419,4 @@ docs/plans/YYYY-MM-DD-feature-name.md
 
 ---
 
-**Document Status**: v3.3 | **Updated**: Feb 22, 2026
+**Document Status**: v4.0 | **Updated**: Feb 26, 2026

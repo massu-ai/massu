@@ -28,6 +28,11 @@ vi.mock('../config.ts', () => ({
     domains: [],
     rules: [],
   })),
+  getResolvedPaths: vi.fn(() => ({
+    sessionStatePath: '/test/project/.claude/session-state/CURRENT.md',
+    sessionArchivePath: '/test/project/.claude/session-state/archive',
+    claudeDir: '/test/project/.claude',
+  })),
   resetConfig: vi.fn(),
 }));
 

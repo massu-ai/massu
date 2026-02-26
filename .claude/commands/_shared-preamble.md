@@ -14,9 +14,22 @@
 
 ---
 
-## QUALITY STANDARDS
+## QUALITY STANDARDS (CR-14)
 
 All work MUST be production-ready, permanent, professional. No temporary fixes, workarounds, or "quick fixes". If a proper solution requires more work, do that work.
+
+## SIMPLEST CORRECT SOLUTION (Core Principle #18)
+
+Production-grade does NOT mean over-engineered. Choose the simplest approach that is correct and complete. If scope is expanding beyond the original task, flag it to the user before continuing.
+
+## ELEGANCE CHECK (Core Principle #19)
+
+For non-trivial changes (3+ files, new abstractions, design decisions):
+- Pause and ask: "Is there a more elegant way?"
+- If it feels hacky: implement the elegant solution instead
+- Ask: "Would a staff engineer approve this approach?"
+
+For simple, obvious fixes: skip this check. Don't over-engineer.
 
 ---
 

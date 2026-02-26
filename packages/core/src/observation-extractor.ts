@@ -14,7 +14,8 @@ import {
 import type { AddObservationOpts } from './memory-db.ts';
 import { assignImportance } from './memory-db.ts';
 import { detectDecisionPatterns } from './adr-generator.ts';
-import { getProjectRoot } from './config.ts';
+import { getProjectRoot, getConfig, getResolvedPaths } from './config.ts';
+import { homedir } from 'os';
 
 // ============================================================
 // P2-002: Observation Extractor
@@ -209,8 +210,10 @@ function classifyToolCall(tc: ParsedToolCall): ExtractedObservation | null {
 
     case 'Read': {
       const filePath = tc.input.file_path as string ?? 'unknown';
-      // Only keep reads of interesting files (plan files, CLAUDE.md, etc.)
-      if (filePath.includes('/plans/') || filePath.includes('CLAUDE.md') || filePath.includes('CURRENT.md')) {
+      // Only keep reads of interesting files (plan files, knowledge source files, etc.)
+      const knowledgeSourceFiles = getConfig().conventions?.knowledgeSourceFiles ?? ['CLAUDE.md', 'MEMORY.md', 'corrections.md'];
+      const plansDir = getResolvedPaths().plansDir;
+      if (filePath.includes(plansDir) || knowledgeSourceFiles.some(f => filePath.includes(f))) {
         const title = `Read: ${shortenPath(filePath)}`;
         return {
           type: 'discovery',
@@ -352,7 +355,11 @@ function shortenPath(filePath: string): string {
   if (filePath.startsWith(root + '/')) {
     return filePath.slice(root.length + 1);
   }
-  return filePath.replace(/^\/Users\/\w+\//, '~/');
+  const home = homedir();
+  if (filePath.startsWith(home + '/')) {
+    return '~/' + filePath.slice(home.length + 1);
+  }
+  return filePath;
 }
 
 /**

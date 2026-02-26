@@ -151,10 +151,39 @@ regression:
     healthy: 80
     warning: 50
 
+# Conventions (optional — customize directory names and paths)
+# All values have sensible defaults; omit this section for standard behavior.
+# conventions:
+#   claudeDirName: ".claude"                          # Claude Code config directory name
+#   sessionStatePath: ".claude/session-state/CURRENT.md"  # Session state file
+#   sessionArchivePath: ".claude/session-state/archive"   # Session archive directory
+#   knowledgeCategories:                               # Knowledge indexer categories
+#     - patterns
+#     - commands
+#     - incidents
+#     - reference
+#     - protocols
+#     - checklists
+#     - playbooks
+#     - critical
+#     - scripts
+#     - status
+#     - templates
+#     - loop-state
+#     - session-state
+#     - agents
+#   knowledgeSourceFiles:                              # Files treated as knowledge sources
+#     - CLAUDE.md
+#     - MEMORY.md
+#     - corrections.md
+#   excludePatterns:                                   # Patterns to exclude from knowledge indexing
+#     - /ARCHIVE/
+#     - /SESSION-HISTORY/
+
 # Cloud Sync (optional — requires Massu AI Cloud subscription)
 # cloud:
 #   enabled: false
-#   apiKey: "ms_live_your_key_here"
+#   apiKey: "your-api-key-here"
 #   endpoint: "https://your-project.supabase.co/functions/v1/sync"
 #   sync:
 #     memory: true

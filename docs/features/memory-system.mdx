@@ -1,0 +1,200 @@
+---
+title: "Memory System Architecture"
+description: "How Massu AI's memory system works -- SQLite storage, MEMORY.md, corrections, and topic files"
+order: 1
+---
+
+# Memory System Architecture
+
+The memory system is the foundation of cross-session learning in Massu AI. It provides persistent, searchable storage for observations, decisions, failures, session summaries, and corrections -- all stored locally in SQLite with no cloud dependencies.
+
+## Architecture Overview
+
+```
+Claude Code Session
+       |
+       v
+  Lifecycle Hooks
+  (post-tool-use, session-end, user-prompt)
+       |
+       v
+  Memory DB (SQLite, FTS5)
+  ├── observations table
+  ├── sessions table
+  ├── failures table
+  └── FTS5 full-text index
+       |
+       v
+  session-start hook
+  (injects context into next session)
+```
+
+The memory system has two components:
+
+1. **Automatic capture** -- hooks record observations during sessions without any developer action
+2. **Manual lookup** -- 6 MCP tools (`massu_memory_*`) let you query, search, and ingest memory explicitly
+
+## MEMORY.md Structure
+
+`MEMORY.md` is an optional file you can create in your project root to provide persistent background context. Unlike the SQLite database (which grows with every session), `MEMORY.md` is manually maintained and contains information that should always be present at session start.
+
+Recommended structure:
+
+```markdown
+# Project Memory
+
+## Critical Rules
+- Never use `getServerSession` in middleware (Edge runtime limitation)
+- All mutations must go through `protectedProcedure`
+- RLS must be enabled on all user-data tables
+
+## Known-Bad Approaches (DO NOT RETRY)
+- drizzle-kit push: fails with Supabase RLS policies
+- next-auth getServerSession in middleware: returns null in Edge runtime
+
+## Architecture Decisions
+- Using Prisma migrate (not drizzle-kit) for all schema changes
+- Redis for session storage (not database sessions)
+- tRPC for all client-server communication
+
+## Deployment Notes
+- Production: Vercel (Node.js runtime, not Edge)
+- Database: Supabase (PostgreSQL + RLS)
+- Environment: NEXT_PUBLIC_* vars for client, server vars in Vercel dashboard
+```
+
+The `session-start` hook reads `MEMORY.md` and injects its contents at the beginning of each session. Keep this file focused on critical, non-obvious information that would otherwise need to be re-explained every session.
+
+## corrections.md Format
+
+`corrections.md` records AI corrections -- cases where the AI assistant made an error and you corrected it. This file is automatically updated by the `massu_knowledge_correct` tool and surfaced at session start to prevent repeated mistakes.
+
+Format:
+
+```markdown
+# AI Corrections Log
+
+## 2026-02-15: Type assertion pattern
+**Error**: Used `as unknown as X` to bypass type safety
+**Correction**: Use proper type guards and discriminated unions
+**Rule**: Never use double assertion casts
+
+## 2026-02-10: Missing await
+**Error**: Called async DB function without await in tRPC handler
+**Correction**: Always await async calls; use `Promise.all` for parallel queries
+**Rule**: All async DB calls must be awaited
+```
+
+When `massu_knowledge_correct` records a correction, it appends to this file and creates a corresponding entry in the knowledge system FTS5 index so the correction is searchable.
+
+## Topic Files
+
+Topic files are Markdown files in a `.massu/topics/` directory that provide domain-specific context for specific areas of your codebase. Unlike `MEMORY.md` (which is always injected), topic files are selectively injected based on which files are being edited.
+
+### Creating a Topic File
+
+```bash
+mkdir -p .massu/topics
+cat > .massu/topics/auth.md << 'EOF'
+# Authentication Context
+
+## Stack
+- next-auth v5 with Supabase adapter
+- JWT sessions (not database sessions)
+- PKCE flow for OAuth providers
+
+## Critical Rules
+- Never call getServerSession in middleware
+- Always check session.user.id, not session.user.email
+- Session expiry is 7 days; refresh tokens expire in 30 days
+
+## Common Pitfalls
+- getSession() is client-only; use getServerSession() on server
+- auth() helper in Next.js App Router replaces getServerSession()
+EOF
+```
+
+### Topic File Injection
+
+The `post-edit-context` hook automatically injects the relevant topic file when you edit files in a matching domain. Topic matching uses the domain configuration in `massu.config.yaml`:
+
+```yaml
+domains:
+  - name: auth
+    paths: ["src/auth/**", "src/server/auth/**", "pages/api/auth/**"]
+    topic_file: ".massu/topics/auth.md"
+```
+
+When you edit a file matching the `auth` domain paths, the `auth.md` topic file is injected as additional context.
+
+## Database Schema
+
+The memory database uses SQLite with FTS5:
+
+```sql
+-- Core observations table
+CREATE TABLE observations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  type TEXT NOT NULL,         -- decision, bugfix, feature, failed_attempt, etc.
+  title TEXT NOT NULL,
+  detail TEXT,
+  importance INTEGER DEFAULT 5,
+  files TEXT,                  -- JSON array of related file paths
+  plan_item TEXT,
+  cr_rule TEXT,
+  created_at TEXT NOT NULL
+);
+
+-- FTS5 full-text search index
+CREATE VIRTUAL TABLE observations_fts USING fts5(
+  title, detail, type,
+  content=observations,
+  content_rowid=id
+);
+
+-- Sessions table
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  branch TEXT,
+  status TEXT,
+  request TEXT,
+  completed TEXT,             -- JSON array
+  failed TEXT,                -- JSON array
+  plan_progress TEXT,
+  started_at TEXT,
+  ended_at TEXT
+);
+```
+
+## Importance Scoring
+
+Observations are scored 1-10 at capture time based on their type. The `session-start` hook uses importance scores to prioritize which context to inject when the context window is limited.
+
+| Type | Default Score | Rationale |
+|------|--------------|-----------|
+| `failed_attempt` | 9 | Highest priority -- prevents wasted effort |
+| `decision` | 8 | Architectural choices must persist |
+| `incident` | 8 | Prevents recurrence |
+| `bugfix` | 7 | Solutions should be remembered |
+| `feature` | 6 | What was built |
+| `discovery` | 5 | Background context |
+| `vr_check` | 4 | Verification records |
+| `file_change` | 3 | High-volume, lower priority |
+
+Scores can be manually overridden when using `massu_memory_ingest`.
+
+## Memory vs. Knowledge System
+
+The memory system and the knowledge system serve different purposes and should be used accordingly:
+
+| Aspect | Memory System | Knowledge System |
+|--------|--------------|-----------------|
+| **What it stores** | What happened (events, sessions, observations) | What you know (rules, patterns, incidents, verifications) |
+| **How it grows** | Automatically via hooks | Via explicit `massu_knowledge_*` tool calls |
+| **Primary access** | `massu_memory_search` | `massu_knowledge_search` |
+| **Deduplication** | Recurrence counting for failures | Entry-level deduplication by title hash |
+| **Lifespan** | Grows indefinitely; prunable by session | Maintained; entries can be updated or deprecated |
+| **Best for** | "Did we try this before?" | "What is the rule for X?" |
+
+Use the memory system to answer questions about history. Use the knowledge system to answer questions about standards and rules. See [Knowledge System](/docs/features/knowledge) for details.

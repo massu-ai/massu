@@ -12,8 +12,14 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { resolve, basename } from 'path';
+import { resolve, basename, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { homedir } from 'os';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 import { stringify as yamlStringify } from 'yaml';
+import { getConfig } from '../config.ts';
 
 // ============================================================
 // Types
@@ -277,7 +283,8 @@ export function buildHooksConfig(hooksDir: string): HooksConfig {
 }
 
 export function installHooks(projectRoot: string): { installed: boolean; count: number } {
-  const claudeDir = resolve(projectRoot, '.claude');
+  const claudeDirName = getConfig().conventions?.claudeDirName ?? '.claude';
+  const claudeDir = resolve(projectRoot, claudeDirName);
   const settingsPath = resolve(claudeDir, 'settings.local.json');
 
   // Ensure .claude directory exists
@@ -315,6 +322,51 @@ export function installHooks(projectRoot: string): { installed: boolean; count: 
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
 
   return { installed: true, count: hookCount };
+}
+
+// ============================================================
+// Memory Directory Initialization
+// ============================================================
+
+/**
+ * Initialize the memory directory and create an initial MEMORY.md if absent.
+ * The memory directory lives in ~/.claude/projects/<encoded-root>/memory/
+ * matching the path used by memory-db.ts / knowledge-tools.ts.
+ */
+export function initMemoryDir(projectRoot: string): { created: boolean; memoryMdCreated: boolean } {
+  // Encode the project root the same way as getResolvedPaths() in config.ts
+  const encodedRoot = '-' + projectRoot.replace(/\//g, '-');
+  const memoryDir = resolve(homedir(), `.claude/projects/${encodedRoot}/memory`);
+
+  let created = false;
+  if (!existsSync(memoryDir)) {
+    mkdirSync(memoryDir, { recursive: true });
+    created = true;
+  }
+
+  const memoryMdPath = resolve(memoryDir, 'MEMORY.md');
+  let memoryMdCreated = false;
+  if (!existsSync(memoryMdPath)) {
+    const projectName = basename(projectRoot);
+    const memoryContent = `# ${projectName} - Massu Memory
+
+## Key Learnings
+<!-- Important patterns and conventions discovered during development -->
+
+## Common Gotchas
+<!-- Non-obvious issues and how to avoid them -->
+
+## Corrections
+<!-- Wrong behaviors that were corrected and how to prevent them -->
+
+## File Index
+<!-- Significant files and directories -->
+`;
+    writeFileSync(memoryMdPath, memoryContent, 'utf-8');
+    memoryMdCreated = true;
+  }
+
+  return { created, memoryMdCreated };
 }
 
 // ============================================================
@@ -359,7 +411,18 @@ export async function runInit(): Promise<void> {
   const { count: hooksCount } = installHooks(projectRoot);
   console.log(`  Installed ${hooksCount} hooks in .claude/settings.local.json`);
 
-  // Step 5: Databases info
+  // Step 5: Initialize memory directory
+  const { created: memDirCreated, memoryMdCreated } = initMemoryDir(projectRoot);
+  if (memDirCreated) {
+    console.log('  Created memory directory (~/.claude/projects/.../memory/)');
+  } else {
+    console.log('  Memory directory already exists');
+  }
+  if (memoryMdCreated) {
+    console.log('  Created initial MEMORY.md');
+  }
+
+  // Step 6: Databases info
   console.log('  Databases will auto-create on first session');
 
   // Summary

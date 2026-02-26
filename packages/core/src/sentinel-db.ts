@@ -23,6 +23,7 @@ import type {
   ComponentRole,
 } from './sentinel-types.ts';
 import { getProjectRoot } from './config.ts';
+import { sanitizeFts5Query } from './memory-db.ts';
 
 // ============================================================
 // Sentinel: Feature Registry Data Access Layer
@@ -135,7 +136,7 @@ export function searchFeatures(
       JOIN massu_sentinel_fts fts ON s.id = fts.rowid
       WHERE massu_sentinel_fts MATCH ?
     `;
-    params.push(query);
+    params.push(sanitizeFts5Query(query));
   } else {
     sql = `
       SELECT s.*,

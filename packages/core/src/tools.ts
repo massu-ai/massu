@@ -2,7 +2,8 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import { readFileSync, existsSync } from 'fs';
-import { resolve } from 'path';
+import { resolve, basename } from 'path';
+import { ensureWithinRoot } from './security-utils.ts';
 import type Database from 'better-sqlite3';
 import { matchRules } from './rules.ts';
 import { buildImportIndex } from './import-resolver.ts';
@@ -28,12 +29,16 @@ import { getSecurityToolDefinitions, isSecurityTool, handleSecurityToolCall } fr
 import { getDependencyToolDefinitions, isDependencyTool, handleDependencyToolCall } from './dependency-scorer.ts';
 import { getTeamToolDefinitions, isTeamTool, handleTeamToolCall } from './team-knowledge.ts';
 import { getRegressionToolDefinitions, isRegressionTool, handleRegressionToolCall } from './regression-detector.ts';
-import { getConfig, getProjectRoot } from './config.ts';
+import { getKnowledgeToolDefinitions, isKnowledgeTool, handleKnowledgeToolCall } from './knowledge-tools.ts';
+import { getKnowledgeDb } from './knowledge-db.ts';
+import { getConfig, getProjectRoot, getResolvedPaths } from './config.ts';
+import { getCurrentTier, getToolTier, isToolAllowed, annotateToolDefinitions, getLicenseToolDefinitions, isLicenseTool, handleLicenseToolCall } from './license.ts';
 
 export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  tier?: 'free' | 'pro' | 'team' | 'enterprise';
 }
 
 export interface ToolResult {
@@ -101,7 +106,7 @@ function ensureIndexes(dataDb: Database.Database, codegraphDb: Database.Database
 export function getToolDefinitions(): ToolDefinition[] {
   const config = getConfig();
 
-  return [
+  return annotateToolDefinitions([
     // Memory tools
     ...getMemoryToolDefinitions(),
     // Observability tools
@@ -121,9 +126,13 @@ export function getToolDefinitions(): ToolDefinition[] {
     // Security layer (security scoring, dependency risk)
     ...getSecurityToolDefinitions(),
     ...getDependencyToolDefinitions(),
-    // Enterprise layer (team knowledge — cloud-only; regression detection — always)
-    ...(config.cloud?.enabled ? getTeamToolDefinitions() : []),
+    // Enterprise layer (team knowledge, regression detection)
+    ...getTeamToolDefinitions(),
     ...getRegressionToolDefinitions(),
+    // Knowledge layer (indexed .claude/ knowledge — rules, patterns, incidents)
+    ...getKnowledgeToolDefinitions(),
+    // License tools (always available)
+    ...getLicenseToolDefinitions(),
     // Core tools
     {
       name: p('sync'),
@@ -212,18 +221,25 @@ export function getToolDefinitions(): ToolDefinition[] {
         required: [],
       },
     }] : []),
-  ];
+  ]);
 }
 
 /**
  * Handle a tool call and return the result.
  */
-export function handleToolCall(
+export async function handleToolCall(
   name: string,
   args: Record<string, unknown>,
   dataDb: Database.Database,
   codegraphDb: Database.Database
-): ToolResult {
+): Promise<ToolResult> {
+  // P3-017: Tier gate — check before any routing
+  const userTier = await getCurrentTier();
+  const requiredTier = getToolTier(name);
+  if (!isToolAllowed(name, userTier)) {
+    return text(`This tool requires ${requiredTier} tier. Current tier: ${userTier}. Upgrade at https://massu.ai/pricing`);
+  }
+
   // Ensure indexes are built before any tool call
   const syncMessage = ensureIndexes(dataDb, codegraphDb);
   const pfx = prefix();
@@ -305,11 +321,8 @@ export function handleToolCall(
       finally { memDb.close(); }
     }
 
-    // Route enterprise layer tools (team tools require cloud sync)
+    // Route enterprise layer tools
     if (isTeamTool(name)) {
-      if (!getConfig().cloud?.enabled) {
-        return text('This tool requires Cloud Team or Enterprise. Configure cloud sync to enable.');
-      }
       const memDb = getMemoryDb();
       try { return handleTeamToolCall(name, args, memDb); }
       finally { memDb.close(); }
@@ -317,6 +330,20 @@ export function handleToolCall(
     if (isRegressionTool(name)) {
       const memDb = getMemoryDb();
       try { return handleRegressionToolCall(name, args, memDb); }
+      finally { memDb.close(); }
+    }
+
+    // Route knowledge layer tools
+    if (isKnowledgeTool(name)) {
+      const knowledgeDb = getKnowledgeDb();
+      try { return handleKnowledgeToolCall(name, args, knowledgeDb); }
+      finally { knowledgeDb.close(); }
+    }
+
+    // Route license tools
+    if (isLicenseTool(name)) {
+      const memDb = getMemoryDb();
+      try { return await handleLicenseToolCall(name, args, memDb); }
       finally { memDb.close(); }
     }
 
@@ -341,7 +368,10 @@ export function handleToolCall(
         return text(`Unknown tool: ${name}`);
     }
   } catch (error) {
-    return text(`Error in ${name}: ${error instanceof Error ? error.message : String(error)}`);
+    const msg = error instanceof Error ? error.message : String(error);
+    // Strip file paths and stack traces from error messages exposed to clients
+    const safeMsg = msg.split('\n')[0].replace(/\/(Users|home|var|tmp)\/[^\s:]+/g, '<path>');
+    return text(`Error in ${name}: ${safeMsg}`);
   }
 }
 
@@ -437,6 +467,187 @@ function handleContext(file: string, dataDb: Database.Database, codegraphDb: Dat
     }
     lines.push('');
   }
+
+  // 7. Knowledge context (relevant CRs, schema warnings, incidents, corrections)
+  try {
+    const knowledgeDb = getKnowledgeDb();
+    try {
+      const docCount = (knowledgeDb.prepare('SELECT COUNT(*) as cnt FROM knowledge_documents').get() as { cnt: number })?.cnt ?? 0;
+      if (docCount > 0) {
+        // Schema mismatch warnings: check if file references any known-mismatch tables
+        const mismatches = knowledgeDb.prepare('SELECT table_name, wrong_column, correct_column FROM knowledge_schema_mismatches').all() as {
+          table_name: string; wrong_column: string; correct_column: string;
+        }[];
+
+        if (mismatches.length > 0) {
+          if (file.includes('router') || file.includes('server/api')) {
+            lines.push('## Schema Mismatch Warnings');
+            lines.push('Known column name traps (from CLAUDE.md):');
+            for (const m of mismatches.slice(0, 5)) {
+              lines.push(`- \`${m.table_name}.${m.wrong_column}\` → use \`${m.correct_column}\` instead`);
+            }
+            lines.push('');
+          }
+        }
+
+        // Dynamic rule matching — combine file-type defaults with content-based FTS
+        const fileType = file.includes('router') || file.includes('server/api') ? 'router'
+          : file.includes('components') || file.includes('app/') ? 'component'
+          : file.includes('middleware') ? 'middleware'
+          : file.includes('migration') ? 'migration'
+          : 'other';
+
+        const domainDefaultCRs: Record<string, string[]> = {
+          router: ['CR-2', 'CR-6'],
+          component: ['CR-8', 'CR-12'],
+          middleware: ['CR-16', 'CR-19'],
+          migration: ['CR-2', 'CR-36'],
+        };
+
+        const defaultCRs = domainDefaultCRs[fileType] || [];
+
+        // Extract keywords from file content for FTS matching
+        let ftsRuleIds: string[] = [];
+        try {
+          const resolvedPaths = getResolvedPaths();
+          const root = getProjectRoot();
+          const absFilePath = ensureWithinRoot(resolve(resolvedPaths.srcDir, '..', file), root);
+          if (existsSync(absFilePath)) {
+            const fileContent = readFileSync(absFilePath, 'utf-8').slice(0, 3000);
+            const keywords: string[] = [];
+            if (fileContent.includes('ctx.db')) keywords.push('database', 'schema');
+            if (fileContent.includes('BigInt') || fileContent.includes('Decimal')) keywords.push('BigInt', 'serialization');
+            if (fileContent.includes('protectedProcedure') || fileContent.includes('publicProcedure')) keywords.push('procedure', 'mutation');
+            if (fileContent.includes('Select') || fileContent.includes('value=')) keywords.push('Select', 'value');
+            if (fileContent.includes('include:')) keywords.push('include', 'relation');
+            if (fileContent.includes('migration') || fileContent.includes('ALTER TABLE')) keywords.push('migration', 'schema');
+            if (fileContent.includes('RLS') || fileContent.includes('policy')) keywords.push('RLS', 'policy');
+            if (fileContent.includes('onPointerDown') || fileContent.includes('onClick')) keywords.push('stylus', 'pointer');
+
+            if (keywords.length > 0) {
+              const ftsQuery = keywords.slice(0, 5).map(k => `"${k}"`).join(' OR ');
+              try {
+                const ftsResults = knowledgeDb.prepare(`
+                  SELECT DISTINCT kc.heading as rule_id
+                  FROM knowledge_fts kf
+                  JOIN knowledge_chunks kc ON kc.id = kf.rowid
+                  WHERE kf.content MATCH ? AND kc.chunk_type = 'rule'
+                  LIMIT 8
+                `).all(ftsQuery) as { rule_id: string }[];
+                ftsRuleIds = ftsResults.map(r => r.rule_id).filter(id => id.startsWith('CR-'));
+              } catch { /* FTS syntax error — fall back to defaults */ }
+            }
+          }
+        } catch { /* File read error — fall back to defaults */ }
+
+        // Combine: defaults + FTS-discovered, deduplicated
+        const relevantCRs = [...new Set([...defaultCRs, ...ftsRuleIds])].slice(0, 10);
+
+        if (relevantCRs.length > 0) {
+          const placeholders = relevantCRs.map(() => '?').join(',');
+          const crRules = knowledgeDb.prepare(
+            `SELECT rule_id, rule_text, vr_type FROM knowledge_rules WHERE rule_id IN (${placeholders})`
+          ).all(...relevantCRs) as { rule_id: string; rule_text: string; vr_type: string }[];
+
+          if (crRules.length > 0) {
+            lines.push('## Relevant Canonical Rules');
+            for (const cr of crRules) {
+              lines.push(`- **${cr.rule_id}**: ${cr.rule_text} (${cr.vr_type})`);
+            }
+            lines.push('');
+          }
+        }
+
+        // Relevant incidents based on file type
+        const domainKeywords: Record<string, string[]> = {
+          router: ['Schema', 'Migration', 'Database', 'API'],
+          component: ['UI', 'Render', 'Component', 'UX'],
+          middleware: ['Auth', 'Edge', 'Build'],
+          migration: ['Schema', 'Migration', 'Database'],
+        };
+        const incidentKeywords = domainKeywords[fileType] || [];
+        if (incidentKeywords.length > 0) {
+          const kwPlaceholders = incidentKeywords.map(() => '?').join(' OR type LIKE ');
+          const kwParams = incidentKeywords.map(k => `%${k}%`);
+          const incidents = knowledgeDb.prepare(
+            `SELECT incident_num, date, type, gap_found, prevention FROM knowledge_incidents WHERE type LIKE ${kwPlaceholders} ORDER BY incident_num DESC LIMIT 5`
+          ).all(...kwParams) as { incident_num: number; date: string; type: string; gap_found: string; prevention: string }[];
+
+          if (incidents.length > 0) {
+            lines.push('## Related Incidents');
+            for (const inc of incidents) {
+              lines.push(`- **#${inc.incident_num}** (${inc.type}): ${inc.gap_found}`);
+            }
+            lines.push('');
+          }
+        }
+
+        // Active corrections (behavioral learning)
+        try {
+          const corrections = knowledgeDb.prepare(`
+            SELECT heading, content FROM knowledge_chunks
+            WHERE metadata LIKE '%"is_correction":true%'
+            ORDER BY CAST(json_extract(metadata, '$.date') AS TEXT) DESC
+            LIMIT 3
+          `).all() as { heading: string; content: string }[];
+
+          if (corrections.length > 0) {
+            lines.push('## Active Corrections');
+            for (const c of corrections) {
+              const ruleLine = c.content.split('\n').find(l => l.startsWith('Rule:')) || c.content.split('\n')[0];
+              lines.push(`- ${c.heading}: ${ruleLine}`);
+            }
+            lines.push('');
+          }
+        } catch { /* corrections query failed — graceful degradation */ }
+      }
+    } finally {
+      knowledgeDb.close();
+    }
+  } catch {
+    // Knowledge DB not available — graceful degradation
+  }
+
+  // 8. Memory context — past bugs/fixes for this file
+  let memDb: Database.Database | null = null;
+  try {
+    memDb = getMemoryDb();
+    const fileObservations = memDb.prepare(`
+      SELECT o.type, o.title, o.cr_rule, o.importance, o.created_at
+      FROM observations o
+      WHERE o.files_involved LIKE ?
+      ORDER BY o.importance DESC, o.created_at_epoch DESC
+      LIMIT 5
+    `).all(`%${basename(file)}%`) as { type: string; title: string; cr_rule: string | null; importance: number; created_at: string }[];
+
+    if (fileObservations.length > 0) {
+      lines.push('## Past Observations (This File)');
+      for (const obs of fileObservations) {
+        const crTag = obs.cr_rule ? ` [${obs.cr_rule}]` : '';
+        const impTag = obs.importance >= 4 ? ' **HIGH**' : '';
+        lines.push(`- [${obs.type}] ${obs.title}${crTag}${impTag} (${obs.created_at})`);
+      }
+      lines.push('');
+    }
+
+    // Also check for failed attempts on this file
+    const failures = memDb.prepare(`
+      SELECT title, detail
+      FROM observations
+      WHERE type = 'failed_attempt' AND files_involved LIKE ?
+      ORDER BY recurrence_count DESC
+      LIMIT 3
+    `).all(`%${basename(file)}%`) as { title: string; detail: string }[];
+
+    if (failures.length > 0) {
+      lines.push('## Failed Attempts (DO NOT RETRY)');
+      for (const f of failures) {
+        lines.push(`- ${f.title}`);
+      }
+      lines.push('');
+    }
+  } catch { /* Memory DB not available — graceful degradation */ }
+  finally { memDb?.close(); }
 
   return text(lines.join('\n') || 'No context available for this file.');
 }
@@ -796,7 +1007,8 @@ function handleSchema(args: Record<string, unknown>): ToolResult {
     lines.push('Checking all column references against Prisma schema...');
     lines.push('');
 
-    const absPath = resolve(getProjectRoot(), file);
+    const projectRoot = getProjectRoot();
+    const absPath = ensureWithinRoot(resolve(projectRoot, file), projectRoot);
 
     if (!existsSync(absPath)) {
       return text(`File not found: ${file}`);

@@ -9,6 +9,7 @@ import { existsSync as existsSync2, mkdirSync } from "fs";
 // src/config.ts
 import { resolve, dirname } from "path";
 import { existsSync, readFileSync } from "fs";
+import { homedir } from "os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 var DomainConfigSchema = z.object({
@@ -140,6 +141,38 @@ var CloudConfigSchema = z.object({
     audit: z.boolean().default(true)
   }).default({ memory: true, analytics: true, audit: true })
 }).optional();
+var ConventionsConfigSchema = z.object({
+  claudeDirName: z.string().default(".claude").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'claudeDirName must not contain ".." or start with "/"' }
+  ),
+  sessionStatePath: z.string().default(".claude/session-state/CURRENT.md").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'sessionStatePath must not contain ".." or start with "/"' }
+  ),
+  sessionArchivePath: z.string().default(".claude/session-state/archive").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'sessionArchivePath must not contain ".." or start with "/"' }
+  ),
+  knowledgeCategories: z.array(z.string()).default([
+    "patterns",
+    "commands",
+    "incidents",
+    "reference",
+    "protocols",
+    "checklists",
+    "playbooks",
+    "critical",
+    "scripts",
+    "status",
+    "templates",
+    "loop-state",
+    "session-state",
+    "agents"
+  ]),
+  knowledgeSourceFiles: z.array(z.string()).default(["CLAUDE.md", "MEMORY.md", "corrections.md"]),
+  excludePatterns: z.array(z.string()).default(["/ARCHIVE/", "/SESSION-HISTORY/"])
+}).optional();
 var PathsConfigSchema = z.object({
   source: z.string().default("src"),
   aliases: z.record(z.string(), z.string()).default({ "@": "src" }),
@@ -174,7 +207,8 @@ var RawConfigSchema = z.object({
   security: SecurityConfigSchema,
   team: TeamConfigSchema,
   regression: RegressionConfigSchema,
-  cloud: CloudConfigSchema
+  cloud: CloudConfigSchema,
+  conventions: ConventionsConfigSchema
 }).passthrough();
 var _config = null;
 var _projectRoot = null;
@@ -238,13 +272,23 @@ function getConfig() {
     security: parsed.security,
     team: parsed.team,
     regression: parsed.regression,
-    cloud: parsed.cloud
+    cloud: parsed.cloud,
+    conventions: parsed.conventions
   };
+  if (!_config.cloud?.apiKey && process.env.MASSU_API_KEY) {
+    _config.cloud = {
+      enabled: true,
+      sync: { memory: true, analytics: true, audit: true },
+      ..._config.cloud,
+      apiKey: process.env.MASSU_API_KEY
+    };
+  }
   return _config;
 }
 function getResolvedPaths() {
   const config = getConfig();
   const root = getProjectRoot();
+  const claudeDirName = config.conventions?.claudeDirName ?? ".claude";
   return {
     codegraphDbPath: resolve(root, ".codegraph/codegraph.db"),
     dataDbPath: resolve(root, ".massu/data.db"),
@@ -260,11 +304,20 @@ function getResolvedPaths() {
     ),
     extensions: [".ts", ".tsx", ".js", ".jsx"],
     indexFiles: ["index.ts", "index.tsx", "index.js", "index.jsx"],
-    patternsDir: resolve(root, ".claude/patterns"),
-    claudeMdPath: resolve(root, ".claude/CLAUDE.md"),
+    patternsDir: resolve(root, claudeDirName, "patterns"),
+    claudeMdPath: resolve(root, claudeDirName, "CLAUDE.md"),
     docsMapPath: resolve(root, ".massu/docs-map.json"),
     helpSitePath: resolve(root, "../" + config.project.name + "-help"),
-    memoryDbPath: resolve(root, ".massu/memory.db")
+    memoryDbPath: resolve(root, ".massu/memory.db"),
+    knowledgeDbPath: resolve(root, ".massu/knowledge.db"),
+    plansDir: resolve(root, "docs/plans"),
+    docsDir: resolve(root, "docs"),
+    claudeDir: resolve(root, claudeDirName),
+    memoryDir: resolve(homedir(), claudeDirName, "projects", root.replace(/\//g, "-"), "memory"),
+    sessionStatePath: resolve(root, config.conventions?.sessionStatePath ?? `${claudeDirName}/session-state/CURRENT.md`),
+    sessionArchivePath: resolve(root, config.conventions?.sessionArchivePath ?? `${claudeDirName}/session-state/archive`),
+    mcpJsonPath: resolve(root, ".mcp.json"),
+    settingsLocalPath: resolve(root, claudeDirName, "settings.local.json")
   };
 }
 
@@ -745,6 +798,15 @@ function initMemorySchema(db) {
       last_error TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_pending_sync_created ON pending_sync(created_at ASC);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS license_cache (
+      api_key_hash TEXT PRIMARY KEY,
+      tier TEXT NOT NULL,
+      valid_until TEXT NOT NULL,
+      last_validated TEXT NOT NULL,
+      features TEXT DEFAULT '[]'
+    );
   `);
 }
 

@@ -5,6 +5,7 @@ import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import type Database from 'better-sqlite3';
 import { getConfig, getProjectRoot } from './config.ts';
+import { ensureWithinRoot } from './security-utils.ts';
 
 export interface PageChain {
   page: string;
@@ -89,7 +90,7 @@ function findRouterCalls(files: string[]): string[] {
   const projectRoot = getProjectRoot();
 
   for (const file of files) {
-    const absPath = resolve(projectRoot, file);
+    const absPath = ensureWithinRoot(resolve(projectRoot, file), projectRoot);
     if (!existsSync(absPath)) continue;
 
     try {
@@ -120,7 +121,7 @@ function findTablesFromRouters(routerNames: string[], dataDb: Database.Database)
     ).all(routerName) as { router_file: string }[];
 
     for (const proc of procs) {
-      const absPath = resolve(getProjectRoot(), proc.router_file);
+      const absPath = ensureWithinRoot(resolve(getProjectRoot(), proc.router_file), getProjectRoot());
       if (!existsSync(absPath)) continue;
 
       try {

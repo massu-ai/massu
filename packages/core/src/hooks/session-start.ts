@@ -9,7 +9,9 @@
 // ============================================================
 
 import { getMemoryDb, getSessionSummaries, getRecentObservations, getFailedAttempts, getCrossTaskProgress, autoDetectTaskId, linkSessionToTask, createSession } from '../memory-db.ts';
-import { getConfig } from '../config.ts';
+import { getConfig, getResolvedPaths } from '../config.ts';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 import type Database from 'better-sqlite3';
 
 interface HookInput {
@@ -56,7 +58,7 @@ async function main(): Promise<void> {
       }
 
       // Build context
-      const context = buildContext(db, session_id, source ?? 'startup', tokenBudget, session?.task_id ?? null);
+      const context = await buildContext(db, session_id, source ?? 'startup', tokenBudget, session?.task_id ?? null);
 
       if (context.trim()) {
         process.stdout.write(context);
@@ -80,7 +82,7 @@ function getTokenBudget(source: string): number {
   }
 }
 
-function buildContext(db: Database.Database, sessionId: string, source: string, tokenBudget: number, taskId: string | null): string {
+async function buildContext(db: Database.Database, sessionId: string, source: string, tokenBudget: number, taskId: string | null): Promise<string> {
   const sections: Array<{ text: string; importance: number }> = [];
 
   // 1. Failed attempts (highest priority - DON'T RETRY warnings)
@@ -138,7 +140,50 @@ function buildContext(db: Database.Database, sessionId: string, source: string, 
     }
   }
 
-  // 5. Recent observations sorted by importance
+  // 5. Prevention rules from corrections.md
+  const preventionRules = loadCorrectionsPreventionRules();
+  if (preventionRules.length > 0) {
+    let rulesText = '### Active Prevention Rules (from corrections.md)\n';
+    for (const rule of preventionRules) {
+      rulesText += `- ${rule}\n`;
+    }
+    sections.push({ text: rulesText, importance: 9 });
+  }
+
+  // 6. Knowledge index status (warm-up check)
+  try {
+    const knowledgeDbPath = getResolvedPaths().knowledgeDbPath;
+    if (existsSync(knowledgeDbPath)) {
+      const Database = (await import('better-sqlite3')).default;
+      const kdb = new Database(knowledgeDbPath, { readonly: true });
+      try {
+        const stats = kdb.prepare(
+          'SELECT COUNT(*) as doc_count, MAX(indexed_at) as last_indexed FROM knowledge_documents'
+        ).get() as { doc_count: number; last_indexed: string | null };
+        if (stats.doc_count > 0 && stats.last_indexed) {
+          const ageMs = Date.now() - new Date(stats.last_indexed).getTime();
+          const ageHours = Math.round(ageMs / 3600000);
+          if (ageHours > 24) {
+            sections.push({
+              text: `### Knowledge Index Status\nIndex has ${stats.doc_count} documents, last indexed ${ageHours}h ago. Consider re-indexing.\n`,
+              importance: 3,
+            });
+          }
+        } else if (stats.doc_count === 0) {
+          sections.push({
+            text: '### Knowledge Index Status\nKnowledge index is empty. Run knowledge indexing to populate it.\n',
+            importance: 2,
+          });
+        }
+      } finally {
+        kdb.close();
+      }
+    }
+  } catch (_knowledgeErr) {
+    // Best-effort: never block session start
+  }
+
+  // 7. Recent observations sorted by importance
   const recentObs = getRecentObservations(db, 20);
   if (recentObs.length > 0) {
     let obsText = '### Recent Observations\n';
@@ -204,6 +249,54 @@ function safeParseJson(json: string): Record<string, string> | null {
     return JSON.parse(json);
   } catch (_e) {
     return null;
+  }
+}
+
+/**
+ * Load prevention rules from corrections.md in the memory directory.
+ * Parses the markdown table format: | Date | Wrong Behavior | Correction | Prevention Rule |
+ * Returns only the prevention rule column values.
+ * Graceful degradation: returns empty array if file doesn't exist or can't be parsed.
+ */
+function loadCorrectionsPreventionRules(): string[] {
+  try {
+    // Memory path follows Claude's project directory convention
+    const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? '';
+    const cwd = process.cwd();
+    const config = getConfig();
+    const claudeDirName = config.conventions?.claudeDirName ?? '.claude';
+    // Convert cwd to Claude's directory format: /Users/x/project -> -Users-x-project
+    const projectDirName = cwd.replace(/\//g, '-').replace(/^-/, '');
+    const correctionsPath = join(homeDir, claudeDirName, 'projects', projectDirName, 'memory', 'corrections.md');
+
+    if (!existsSync(correctionsPath)) return [];
+
+    const content = readFileSync(correctionsPath, 'utf-8');
+    const lines = content.split('\n');
+    const rules: string[] = [];
+
+    for (const line of lines) {
+      // Match table rows: | date | wrong | correction | prevention |
+      // Skip header row and separator row
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) continue;
+
+      const cells = trimmed.split('|').map(c => c.trim()).filter(c => c.length > 0);
+      if (cells.length < 4) continue;
+
+      // Skip header and separator rows
+      if (cells[0] === 'Date' || cells[0].startsWith('-')) continue;
+
+      const preventionRule = cells[3];
+      if (preventionRule && !preventionRule.startsWith('-') && !preventionRule.startsWith('<!--')) {
+        rules.push(preventionRule);
+      }
+    }
+
+    return rules;
+  } catch (_e) {
+    // Graceful degradation: never block session start
+    return [];
   }
 }
 

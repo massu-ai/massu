@@ -245,6 +245,63 @@ else
 fi
 
 # -------------------------------------------------------
+# Check 8: Knowledge DB access patterns
+# Verifies the CodeGraph DB is never opened for writing directly via new Database()
+# Excludes: db.ts (legitimate accessor), config.ts (path definition only)
+# -------------------------------------------------------
+echo "Check 8: Knowledge DB access patterns (CodeGraph read-only)"
+CODEGRAPH_WRITE_COUNT=0
+if [ -d "$CORE_SRC" ]; then
+  # Look for new Database() constructor calls referencing codegraph.db directly
+  # (bypassing getCodeGraphDb() accessor). Excludes config.ts (path string only).
+  CODEGRAPH_WRITE_COUNT=$(grep -rn 'new Database.*codegraph\|new Database.*\.codegraph' "$CORE_SRC" --include="*.ts" \
+    | grep -v 'node_modules' \
+    | grep -v '__tests__' \
+    | grep -v '\.test\.ts' \
+    | grep -v 'db\.ts' \
+    | grep -v '// ' \
+    | wc -l | tr -d ' ')
+fi
+if [ "$CODEGRAPH_WRITE_COUNT" -gt 0 ]; then
+  fail "Found $CODEGRAPH_WRITE_COUNT direct new Database() calls for codegraph outside db.ts (use getCodeGraphDb())"
+  grep -rn 'new Database.*codegraph\|new Database.*\.codegraph' "$CORE_SRC" --include="*.ts" \
+    | grep -v 'node_modules' | grep -v '__tests__' | grep -v 'db\.ts' | head -5
+else
+  pass "Knowledge DB (codegraph) only opened via getCodeGraphDb() in db.ts"
+fi
+
+# -------------------------------------------------------
+# Check 9: Memory file permission checks
+# Verifies memory-related files don't expose hardcoded absolute user paths
+# Excludes:
+#   hooks/ - session-start hook legitimately resolves Claude's memory directory
+#   backfill-* - standalone migration scripts that need home dir
+#   config.ts / commands/ - already covered by Check 5 (config access)
+# -------------------------------------------------------
+echo "Check 9: Memory system does not hardcode sensitive file paths"
+MEMORY_PATH_COUNT=0
+if [ -d "$CORE_SRC" ]; then
+  # Check for hardcoded absolute paths to home directory in non-hook library code
+  MEMORY_PATH_COUNT=$(grep -rn 'process\.env\.HOME\|\/Users\/\|\/home\/' "$CORE_SRC" --include="*.ts" \
+    | grep -v 'node_modules' \
+    | grep -v '__tests__' \
+    | grep -v '\.test\.ts' \
+    | grep -v '// ' \
+    | grep -v 'getProjectRoot\|config\.ts\|commands/' \
+    | grep -v 'hooks/' \
+    | grep -v 'backfill-' \
+    | wc -l | tr -d ' ')
+fi
+if [ "$MEMORY_PATH_COUNT" -gt 0 ]; then
+  warn "Found $MEMORY_PATH_COUNT hardcoded home-relative paths in library code (use getProjectRoot() from config.ts)"
+  grep -rn 'process\.env\.HOME\|\/Users\/\|\/home\/' "$CORE_SRC" --include="*.ts" \
+    | grep -v 'node_modules' | grep -v '__tests__' | grep -v 'config\.ts' | grep -v 'commands/' \
+    | grep -v 'hooks/' | grep -v 'backfill-' | head -5
+else
+  pass "No hardcoded home-relative paths in library code (hooks and backfill excluded)"
+fi
+
+# -------------------------------------------------------
 # Summary
 # -------------------------------------------------------
 echo ""

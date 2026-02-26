@@ -7,7 +7,9 @@
 // Captures user prompts for search and context.
 // ============================================================
 
-import { getMemoryDb, createSession, addUserPrompt, linkSessionToTask, autoDetectTaskId } from '../memory-db.ts';
+import { getMemoryDb, createSession, addUserPrompt, linkSessionToTask, autoDetectTaskId, addObservation } from '../memory-db.ts';
+import { existsSync } from 'fs';
+import { getResolvedPaths } from '../config.ts';
 
 interface HookInput {
   session_id: string;
@@ -55,6 +57,35 @@ async function main(): Promise<void> {
 
       // 4. Insert prompt
       addUserPrompt(db, session_id, prompt.trim(), promptNumber);
+
+      // 5. Knowledge-aware prompt enrichment: detect file references and check knowledge index
+      try {
+        const fileRefs = extractFileReferences(prompt);
+        if (fileRefs.length > 0) {
+          const knowledgeDbPath = getResolvedPaths().knowledgeDbPath;
+          if (knowledgeDbPath && existsSync(knowledgeDbPath)) {
+            const Database = (await import('better-sqlite3')).default;
+            const kdb = new Database(knowledgeDbPath, { readonly: true });
+            try {
+              const placeholders = fileRefs.map(() => '?').join(',');
+              const matches = kdb.prepare(
+                `SELECT DISTINCT file_path FROM knowledge_documents WHERE file_path IN (${placeholders})`
+              ).all(...fileRefs) as Array<{ file_path: string }>;
+              if (matches.length > 0) {
+                addObservation(db, session_id, 'discovery',
+                  `Knowledge entries exist for referenced files`,
+                  `Files with knowledge context: ${matches.map(m => m.file_path).join(', ')}`,
+                  { importance: 2 }
+                );
+              }
+            } finally {
+              kdb.close();
+            }
+          }
+        }
+      } catch (_knowledgeErr) {
+        // Best-effort: never block prompt capture
+      }
     } finally {
       db.close();
     }
@@ -62,6 +93,20 @@ async function main(): Promise<void> {
     // Best-effort: never block Claude Code
   }
   process.exit(0);
+}
+
+/**
+ * Extract file path references from user prompt text.
+ * Matches patterns like src/foo/bar.ts, packages/core/src/x.ts, etc.
+ */
+function extractFileReferences(prompt: string): string[] {
+  const filePattern = /(?:^|\s)((?:src|packages|lib)\/[\w./-]+\.(?:ts|tsx|js|jsx|md))/g;
+  const matches: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = filePattern.exec(prompt)) !== null) {
+    matches.push(match[1]);
+  }
+  return [...new Set(matches)];
 }
 
 async function getGitBranch(): Promise<string | undefined> {

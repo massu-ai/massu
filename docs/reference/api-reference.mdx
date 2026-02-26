@@ -33,7 +33,7 @@ The MCP server is automatically registered when you run `npx massu init`. It cre
 The server implements the MCP protocol with:
 
 - **Transport**: stdio (stdin/stdout JSON-RPC)
-- **Capabilities**: Tools (51 registered tools)
+- **Capabilities**: Tools (64 registered tools)
 - **No resources or prompts**: All functionality is exposed through tools
 
 ### Tool Call Flow
@@ -42,7 +42,7 @@ The server implements the MCP protocol with:
 Claude Code                    Massu AI MCP Server
     |                                    |
     |-- tools/list ---------------------->|
-    |<-- 51 tool definitions ------------|
+    |<-- 64 tool definitions ------------|
     |                                    |
     |-- tools/call (massu_sync) ----------->|
     |   (ensures indexes are fresh)      |

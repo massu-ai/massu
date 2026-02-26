@@ -9,6 +9,7 @@ import { existsSync as existsSync2, mkdirSync } from "fs";
 // src/config.ts
 import { resolve, dirname } from "path";
 import { existsSync, readFileSync } from "fs";
+import { homedir } from "os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 var DomainConfigSchema = z.object({
@@ -140,6 +141,38 @@ var CloudConfigSchema = z.object({
     audit: z.boolean().default(true)
   }).default({ memory: true, analytics: true, audit: true })
 }).optional();
+var ConventionsConfigSchema = z.object({
+  claudeDirName: z.string().default(".claude").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'claudeDirName must not contain ".." or start with "/"' }
+  ),
+  sessionStatePath: z.string().default(".claude/session-state/CURRENT.md").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'sessionStatePath must not contain ".." or start with "/"' }
+  ),
+  sessionArchivePath: z.string().default(".claude/session-state/archive").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'sessionArchivePath must not contain ".." or start with "/"' }
+  ),
+  knowledgeCategories: z.array(z.string()).default([
+    "patterns",
+    "commands",
+    "incidents",
+    "reference",
+    "protocols",
+    "checklists",
+    "playbooks",
+    "critical",
+    "scripts",
+    "status",
+    "templates",
+    "loop-state",
+    "session-state",
+    "agents"
+  ]),
+  knowledgeSourceFiles: z.array(z.string()).default(["CLAUDE.md", "MEMORY.md", "corrections.md"]),
+  excludePatterns: z.array(z.string()).default(["/ARCHIVE/", "/SESSION-HISTORY/"])
+}).optional();
 var PathsConfigSchema = z.object({
   source: z.string().default("src"),
   aliases: z.record(z.string(), z.string()).default({ "@": "src" }),
@@ -174,7 +207,8 @@ var RawConfigSchema = z.object({
   security: SecurityConfigSchema,
   team: TeamConfigSchema,
   regression: RegressionConfigSchema,
-  cloud: CloudConfigSchema
+  cloud: CloudConfigSchema,
+  conventions: ConventionsConfigSchema
 }).passthrough();
 var _config = null;
 var _projectRoot = null;
@@ -238,13 +272,23 @@ function getConfig() {
     security: parsed.security,
     team: parsed.team,
     regression: parsed.regression,
-    cloud: parsed.cloud
+    cloud: parsed.cloud,
+    conventions: parsed.conventions
   };
+  if (!_config.cloud?.apiKey && process.env.MASSU_API_KEY) {
+    _config.cloud = {
+      enabled: true,
+      sync: { memory: true, analytics: true, audit: true },
+      ..._config.cloud,
+      apiKey: process.env.MASSU_API_KEY
+    };
+  }
   return _config;
 }
 function getResolvedPaths() {
   const config = getConfig();
   const root = getProjectRoot();
+  const claudeDirName = config.conventions?.claudeDirName ?? ".claude";
   return {
     codegraphDbPath: resolve(root, ".codegraph/codegraph.db"),
     dataDbPath: resolve(root, ".massu/data.db"),
@@ -260,11 +304,20 @@ function getResolvedPaths() {
     ),
     extensions: [".ts", ".tsx", ".js", ".jsx"],
     indexFiles: ["index.ts", "index.tsx", "index.js", "index.jsx"],
-    patternsDir: resolve(root, ".claude/patterns"),
-    claudeMdPath: resolve(root, ".claude/CLAUDE.md"),
+    patternsDir: resolve(root, claudeDirName, "patterns"),
+    claudeMdPath: resolve(root, claudeDirName, "CLAUDE.md"),
     docsMapPath: resolve(root, ".massu/docs-map.json"),
     helpSitePath: resolve(root, "../" + config.project.name + "-help"),
-    memoryDbPath: resolve(root, ".massu/memory.db")
+    memoryDbPath: resolve(root, ".massu/memory.db"),
+    knowledgeDbPath: resolve(root, ".massu/knowledge.db"),
+    plansDir: resolve(root, "docs/plans"),
+    docsDir: resolve(root, "docs"),
+    claudeDir: resolve(root, claudeDirName),
+    memoryDir: resolve(homedir(), claudeDirName, "projects", root.replace(/\//g, "-"), "memory"),
+    sessionStatePath: resolve(root, config.conventions?.sessionStatePath ?? `${claudeDirName}/session-state/CURRENT.md`),
+    sessionArchivePath: resolve(root, config.conventions?.sessionArchivePath ?? `${claudeDirName}/session-state/archive`),
+    mcpJsonPath: resolve(root, ".mcp.json"),
+    settingsLocalPath: resolve(root, claudeDirName, "settings.local.json")
   };
 }
 
@@ -746,6 +799,39 @@ function initMemorySchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_pending_sync_created ON pending_sync(created_at ASC);
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS license_cache (
+      api_key_hash TEXT PRIMARY KEY,
+      tier TEXT NOT NULL,
+      valid_until TEXT NOT NULL,
+      last_validated TEXT NOT NULL,
+      features TEXT DEFAULT '[]'
+    );
+  `);
+}
+function assignImportance(type, vrResult) {
+  switch (type) {
+    case "decision":
+    case "failed_attempt":
+      return 5;
+    case "cr_violation":
+    case "incident_near_miss":
+      return 4;
+    case "vr_check":
+      return vrResult === "PASS" ? 2 : 4;
+    case "pattern_compliance":
+      return vrResult === "PASS" ? 2 : 4;
+    case "feature":
+    case "bugfix":
+      return 3;
+    case "refactor":
+      return 2;
+    case "file_change":
+    case "discovery":
+      return 1;
+    default:
+      return 3;
+  }
 }
 function autoDetectTaskId(planFile) {
   if (!planFile) return null;
@@ -759,6 +845,29 @@ function createSession(db, sessionId, opts) {
     INSERT OR IGNORE INTO sessions (session_id, git_branch, plan_file, task_id, started_at, started_at_epoch)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(sessionId, opts?.branch ?? null, opts?.planFile ?? null, taskId, now.toISOString(), Math.floor(now.getTime() / 1e3));
+}
+function addObservation(db, sessionId, type, title, detail, opts) {
+  const now = /* @__PURE__ */ new Date();
+  const importance = opts?.importance ?? assignImportance(type, opts?.evidence?.includes("PASS") ? "PASS" : void 0);
+  const result = db.prepare(`
+    INSERT INTO observations (session_id, type, title, detail, files_involved, plan_item, cr_rule, vr_type, evidence, importance, original_tokens, created_at, created_at_epoch)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    sessionId,
+    type,
+    title,
+    detail,
+    JSON.stringify(opts?.filesInvolved ?? []),
+    opts?.planItem ?? null,
+    opts?.crRule ?? null,
+    opts?.vrType ?? null,
+    opts?.evidence ?? null,
+    importance,
+    opts?.originalTokens ?? 0,
+    now.toISOString(),
+    Math.floor(now.getTime() / 1e3)
+  );
+  return Number(result.lastInsertRowid);
 }
 function addSummary(db, sessionId, summary) {
   const now = /* @__PURE__ */ new Date();
@@ -818,6 +927,23 @@ async function main() {
       ).all(session_id);
       const summary = buildSnapshotSummary(observations, prompts);
       addSummary(db, session_id, summary);
+      try {
+        const knowledgeObs = observations.filter(
+          (o) => o.title?.includes("knowledge") || o.title?.includes("Knowledge") || o.detail?.includes("knowledge")
+        );
+        if (knowledgeObs.length > 0) {
+          const knowledgeContext = knowledgeObs.map((o) => `[${o.type}] ${o.title}`).join("; ");
+          addObservation(
+            db,
+            session_id,
+            "discovery",
+            "Knowledge context preserved before compaction",
+            knowledgeContext,
+            { importance: 4 }
+          );
+        }
+      } catch (_knowledgeErr) {
+      }
       try {
         logAuditEntry(db, {
           sessionId: session_id,

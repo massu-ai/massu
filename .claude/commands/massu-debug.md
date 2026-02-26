@@ -25,10 +25,63 @@ Trace errors to root cause systematically using hypothesis-driven investigation.
 - **Record each hypothesis and its outcome**
 - **FIX ALL ISSUES ENCOUNTERED (CR-9)** — if you find additional bugs while debugging, fix those too
 - **Proof > reasoning. Commands > assumptions.**
+- **No blind changes** — Understand before modifying
 
 ---
 
-## STEP 0: MEMORY CHECK
+## ZERO-GAP AUDIT LOOP
+
+**Debugging does NOT complete until a SINGLE COMPLETE VERIFICATION finds ZERO remaining issues.**
+
+```
+DEBUG VERIFICATION LOOP:
+  1. Apply fix(es)
+  2. Run ALL verification checks for the fix
+  3. Count remaining issues found
+  4. IF issues > 0:
+       - Root cause not fully addressed
+       - Re-investigate and fix
+       - Return to Step 2
+  5. IF issues == 0:
+       - BUG FIXED AND VERIFIED
+```
+
+| Scenario | Action |
+|----------|--------|
+| Fix reveals new issue | Address it, re-verify ENTIRE fix |
+| Re-verify finds 1 issue | Fix it, re-verify ENTIRELY |
+| Re-verify finds 0 issues | **NOW** debug complete |
+
+**Partial verification is NOT valid. The fix must be fully verified in a SINGLE run.**
+
+---
+
+## DOMAIN-SPECIFIC PATTERN LOADING
+
+Based on the bug's domain, load relevant pattern sections from CLAUDE.md:
+
+| Domain | Section | Load When |
+|--------|---------|-----------|
+| Tool modules | Tool Registration Pattern | Tool registration/handler bugs |
+| Config | Config Access Pattern | Config parsing/access bugs |
+| Hooks | Hook stdin/stdout Pattern | Hook compilation/runtime bugs |
+| Build | Build & Test Commands | Build/compilation errors |
+| Database | SQLite Database Pattern | DB access bugs |
+
+---
+
+## STEP 0: REPRODUCE THE FAILURE (MANDATORY)
+
+Before investigating root cause, CONFIRM you can trigger the exact error.
+
+1. Identify the exact reproduction steps from user report
+2. Execute those steps (or equivalent verification commands)
+3. Capture the actual error output
+4. If you CANNOT reproduce: document that and investigate why
+
+WHY: Debugging without reproduction is guessing. Fixes without reproduction cannot be verified.
+
+### 0.2 Memory Check
 
 Before investigating, search for past failures related to this issue:
 
@@ -41,6 +94,18 @@ If matches found: read the previous failures and avoid repeating failed approach
 ---
 
 ## STEP 1: SYMPTOM CAPTURE
+
+### 1.0 Error Category Matrix
+
+| Error Type | Likely Cause | First Check |
+|------------|--------------|-------------|
+| TypeError | Null/undefined value | Null guards in source |
+| Import error | Missing/wrong module path | ESM import path |
+| Config error | Missing config key | massu.config.yaml |
+| Build fail | TypeScript/esbuild error | tsc output |
+| Test fail | Assertion mismatch | Test expectations |
+| Tool not found | Missing registration | tools.ts wiring |
+| Hook timeout | Heavy dependency or infinite loop | Hook source |
 
 Record the exact error from `$ARGUMENTS`:
 
@@ -315,6 +380,53 @@ Update session state with the debugging outcome:
 
 ---
 
+## MANDATORY PLAN DOCUMENT UPDATE (If Debug From Plan)
+
+**If debug session was part of a plan, update the plan document.**
+
+```markdown
+# IMPLEMENTATION STATUS
+
+**Plan**: [Plan Name]
+**Status**: DEBUG COMPLETE / PARTIAL
+**Last Updated**: [YYYY-MM-DD HH:MM]
+
+## Bug Fixes Applied
+
+| # | Bug Description | Status | Verification | Date |
+|---|-----------------|--------|--------------|------|
+| 1 | [Bug from plan] | FIXED | VR-BUILD: Pass | [date] |
+
+## Root Causes Identified
+
+| Bug | Root Cause | Prevention |
+|-----|-----------|------------|
+| [bug] | [cause] | [how to prevent] |
+```
+
+---
+
+## AUTO-LEARNING PROTOCOL (MANDATORY after every fix)
+
+After EVERY bug fix:
+
+### Step 1: Record the Pattern
+Update `.claude/session-state/CURRENT.md` with:
+- What was wrong (the incorrect pattern)
+- What fixed it (the correct pattern)
+- File(s) affected
+
+### Step 2: Add to Pattern Scanner (if grep-able)
+If the incorrect pattern can be detected by grep, consider adding it to `scripts/massu-pattern-scanner.sh`.
+
+### Step 3: Search Codebase-Wide (CR-9)
+```bash
+grep -rn "[bad_pattern]" packages/core/src/ --include="*.ts"
+```
+Fix ALL instances found, not just the one that was reported.
+
+---
+
 ## COMPLETION REPORT
 
 ```markdown
@@ -349,3 +461,24 @@ Update session state with the debugging outcome:
 - **Lesson**: [what was learned]
 - **Prevention**: [how to prevent in future]
 ```
+
+---
+
+## START NOW
+
+1. Capture the symptom with exact error messages
+2. **Reproduce the failure** (Step 0 - MANDATORY)
+3. Categorize the error type using the matrix
+4. Load relevant pattern section from CLAUDE.md
+5. Check session-state for past related failures
+6. Trace the call chain
+7. Form hypotheses and test each
+8. Identify root cause with evidence
+9. Apply minimal fix following CLAUDE.md
+10. Verify fix with VR-* protocols
+11. Check for regressions (full test suite)
+12. **Execute AUTO-LEARNING PROTOCOL** (record, scan, search)
+13. Update session state
+14. Produce debug report
+
+**Remember: Evidence over assumptions. Prove, don't guess. Learn from every fix.**

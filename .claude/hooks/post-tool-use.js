@@ -9,6 +9,7 @@ import { existsSync as existsSync2, mkdirSync } from "fs";
 // src/config.ts
 import { resolve, dirname } from "path";
 import { existsSync, readFileSync } from "fs";
+import { homedir } from "os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 var DomainConfigSchema = z.object({
@@ -140,6 +141,38 @@ var CloudConfigSchema = z.object({
     audit: z.boolean().default(true)
   }).default({ memory: true, analytics: true, audit: true })
 }).optional();
+var ConventionsConfigSchema = z.object({
+  claudeDirName: z.string().default(".claude").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'claudeDirName must not contain ".." or start with "/"' }
+  ),
+  sessionStatePath: z.string().default(".claude/session-state/CURRENT.md").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'sessionStatePath must not contain ".." or start with "/"' }
+  ),
+  sessionArchivePath: z.string().default(".claude/session-state/archive").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'sessionArchivePath must not contain ".." or start with "/"' }
+  ),
+  knowledgeCategories: z.array(z.string()).default([
+    "patterns",
+    "commands",
+    "incidents",
+    "reference",
+    "protocols",
+    "checklists",
+    "playbooks",
+    "critical",
+    "scripts",
+    "status",
+    "templates",
+    "loop-state",
+    "session-state",
+    "agents"
+  ]),
+  knowledgeSourceFiles: z.array(z.string()).default(["CLAUDE.md", "MEMORY.md", "corrections.md"]),
+  excludePatterns: z.array(z.string()).default(["/ARCHIVE/", "/SESSION-HISTORY/"])
+}).optional();
 var PathsConfigSchema = z.object({
   source: z.string().default("src"),
   aliases: z.record(z.string(), z.string()).default({ "@": "src" }),
@@ -174,7 +207,8 @@ var RawConfigSchema = z.object({
   security: SecurityConfigSchema,
   team: TeamConfigSchema,
   regression: RegressionConfigSchema,
-  cloud: CloudConfigSchema
+  cloud: CloudConfigSchema,
+  conventions: ConventionsConfigSchema
 }).passthrough();
 var _config = null;
 var _projectRoot = null;
@@ -238,13 +272,23 @@ function getConfig() {
     security: parsed.security,
     team: parsed.team,
     regression: parsed.regression,
-    cloud: parsed.cloud
+    cloud: parsed.cloud,
+    conventions: parsed.conventions
   };
+  if (!_config.cloud?.apiKey && process.env.MASSU_API_KEY) {
+    _config.cloud = {
+      enabled: true,
+      sync: { memory: true, analytics: true, audit: true },
+      ..._config.cloud,
+      apiKey: process.env.MASSU_API_KEY
+    };
+  }
   return _config;
 }
 function getResolvedPaths() {
   const config = getConfig();
   const root = getProjectRoot();
+  const claudeDirName = config.conventions?.claudeDirName ?? ".claude";
   return {
     codegraphDbPath: resolve(root, ".codegraph/codegraph.db"),
     dataDbPath: resolve(root, ".massu/data.db"),
@@ -260,11 +304,20 @@ function getResolvedPaths() {
     ),
     extensions: [".ts", ".tsx", ".js", ".jsx"],
     indexFiles: ["index.ts", "index.tsx", "index.js", "index.jsx"],
-    patternsDir: resolve(root, ".claude/patterns"),
-    claudeMdPath: resolve(root, ".claude/CLAUDE.md"),
+    patternsDir: resolve(root, claudeDirName, "patterns"),
+    claudeMdPath: resolve(root, claudeDirName, "CLAUDE.md"),
     docsMapPath: resolve(root, ".massu/docs-map.json"),
     helpSitePath: resolve(root, "../" + config.project.name + "-help"),
-    memoryDbPath: resolve(root, ".massu/memory.db")
+    memoryDbPath: resolve(root, ".massu/memory.db"),
+    knowledgeDbPath: resolve(root, ".massu/knowledge.db"),
+    plansDir: resolve(root, "docs/plans"),
+    docsDir: resolve(root, "docs"),
+    claudeDir: resolve(root, claudeDirName),
+    memoryDir: resolve(homedir(), claudeDirName, "projects", root.replace(/\//g, "-"), "memory"),
+    sessionStatePath: resolve(root, config.conventions?.sessionStatePath ?? `${claudeDirName}/session-state/CURRENT.md`),
+    sessionArchivePath: resolve(root, config.conventions?.sessionArchivePath ?? `${claudeDirName}/session-state/archive`),
+    mcpJsonPath: resolve(root, ".mcp.json"),
+    settingsLocalPath: resolve(root, claudeDirName, "settings.local.json")
   };
 }
 
@@ -746,6 +799,15 @@ function initMemorySchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_pending_sync_created ON pending_sync(created_at ASC);
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS license_cache (
+      api_key_hash TEXT PRIMARY KEY,
+      tier TEXT NOT NULL,
+      valid_until TEXT NOT NULL,
+      last_validated TEXT NOT NULL,
+      features TEXT DEFAULT '[]'
+    );
+  `);
 }
 function assignImportance(type, vrResult) {
   switch (type) {
@@ -861,6 +923,7 @@ function detectDecisionPatterns(text) {
 }
 
 // src/observation-extractor.ts
+import { homedir as homedir2 } from "os";
 var PRIVATE_PATTERNS = [
   /\/Users\/\w+/,
   // Absolute macOS paths
@@ -939,7 +1002,9 @@ function classifyToolCall(tc) {
     }
     case "Read": {
       const filePath = tc.input.file_path ?? "unknown";
-      if (filePath.includes("/plans/") || filePath.includes("CLAUDE.md") || filePath.includes("CURRENT.md")) {
+      const knowledgeSourceFiles = getConfig().conventions?.knowledgeSourceFiles ?? ["CLAUDE.md", "MEMORY.md", "corrections.md"];
+      const plansDir = getResolvedPaths().plansDir;
+      if (filePath.includes(plansDir) || knowledgeSourceFiles.some((f) => filePath.includes(f))) {
         const title = `Read: ${shortenPath(filePath)}`;
         return {
           type: "discovery",
@@ -1049,7 +1114,11 @@ function shortenPath(filePath) {
   if (filePath.startsWith(root + "/")) {
     return filePath.slice(root.length + 1);
   }
-  return filePath.replace(/^\/Users\/\w+\//, "~/");
+  const home = homedir2();
+  if (filePath.startsWith(home + "/")) {
+    return "~/" + filePath.slice(home.length + 1);
+  }
+  return filePath;
 }
 function classifyRealTimeToolCall(toolName, toolInput, toolResponse, seenReads2) {
   const tc = {
@@ -1160,59 +1229,13 @@ function trackModification(db, featureKey) {
 
 // src/import-resolver.ts
 import { readFileSync as readFileSync2, existsSync as existsSync3, statSync } from "fs";
-import { resolve as resolve3, dirname as dirname3, join } from "path";
-function resolveImportPath(specifier, fromFile) {
-  if (!specifier.startsWith(".") && !specifier.startsWith("@/")) {
-    return null;
-  }
-  let basePath;
-  if (specifier.startsWith("@/")) {
-    const paths = getResolvedPaths();
-    basePath = resolve3(paths.pathAlias["@"] ?? paths.srcDir, specifier.slice(2));
-  } else {
-    basePath = resolve3(dirname3(fromFile), specifier);
-  }
-  if (existsSync3(basePath) && !isDirectory(basePath)) {
-    return toRelative(basePath);
-  }
-  const resolvedPaths = getResolvedPaths();
-  for (const ext of resolvedPaths.extensions) {
-    const withExt = basePath + ext;
-    if (existsSync3(withExt)) {
-      return toRelative(withExt);
-    }
-  }
-  for (const indexFile of resolvedPaths.indexFiles) {
-    const indexPath = join(basePath, indexFile);
-    if (existsSync3(indexPath)) {
-      return toRelative(indexPath);
-    }
-  }
-  return null;
-}
-function isDirectory(path) {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-function toRelative(absPath) {
-  const root = getProjectRoot();
-  if (absPath.startsWith(root)) {
-    return absPath.slice(root.length + 1);
-  }
-  return absPath;
-}
-
-// src/validation-engine.ts
-import { existsSync as existsSync4, readFileSync as readFileSync3 } from "fs";
+import { resolve as resolve4, dirname as dirname3, join } from "path";
 
 // src/security-utils.ts
-import { resolve as resolve4, normalize } from "path";
+import { resolve as resolve3, normalize } from "path";
 function ensureWithinRoot(filePath, projectRoot) {
-  const resolvedRoot = resolve4(projectRoot);
-  const resolvedPath = resolve4(resolvedRoot, filePath);
+  const resolvedRoot = resolve3(projectRoot);
+  const resolvedPath = resolve3(resolvedRoot, filePath);
   const normalizedPath = normalize(resolvedPath);
   const normalizedRoot = normalize(resolvedRoot);
   if (!normalizedPath.startsWith(normalizedRoot + "/") && normalizedPath !== normalizedRoot) {
@@ -1254,7 +1277,53 @@ function enforceSeverityFloors(configWeights, defaults) {
   return result;
 }
 
+// src/import-resolver.ts
+function resolveImportPath(specifier, fromFile) {
+  if (!specifier.startsWith(".") && !specifier.startsWith("@/")) {
+    return null;
+  }
+  let basePath;
+  if (specifier.startsWith("@/")) {
+    const paths = getResolvedPaths();
+    basePath = resolve4(paths.pathAlias["@"] ?? paths.srcDir, specifier.slice(2));
+  } else {
+    basePath = resolve4(dirname3(fromFile), specifier);
+  }
+  if (existsSync3(basePath) && !isDirectory(basePath)) {
+    return toRelative(basePath);
+  }
+  const resolvedPaths = getResolvedPaths();
+  for (const ext of resolvedPaths.extensions) {
+    const withExt = basePath + ext;
+    if (existsSync3(withExt)) {
+      return toRelative(withExt);
+    }
+  }
+  for (const indexFile of resolvedPaths.indexFiles) {
+    const indexPath = join(basePath, indexFile);
+    if (existsSync3(indexPath)) {
+      return toRelative(indexPath);
+    }
+  }
+  return null;
+}
+function isDirectory(path) {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function toRelative(absPath) {
+  const root = getProjectRoot();
+  if (absPath.startsWith(root)) {
+    return absPath.slice(root.length + 1);
+  }
+  return absPath;
+}
+
 // src/validation-engine.ts
+import { existsSync as existsSync4, readFileSync as readFileSync3 } from "fs";
 function getValidationChecks() {
   return getConfig().governance?.validation?.checks ?? {
     rule_compliance: true,
@@ -1524,6 +1593,9 @@ function storeSecurityScore(db, sessionId, filePath, riskScore, findings) {
 }
 
 // src/hooks/post-tool-use.ts
+import { readFileSync as readFileSync5, existsSync as existsSync6 } from "fs";
+import { join as join2 } from "path";
+import { parse as parseYaml2 } from "yaml";
 var seenReads = /* @__PURE__ */ new Set();
 var currentSessionId = null;
 async function main() {
@@ -1601,6 +1673,41 @@ async function main() {
         }
       } catch (_securityErr) {
       }
+      try {
+        if (tool_name === "Edit" || tool_name === "Write") {
+          const filePath = tool_input.file_path ?? "";
+          if (filePath && filePath.endsWith("MEMORY.md") && filePath.includes("/memory/")) {
+            const issues = checkMemoryFileIntegrity(filePath);
+            if (issues.length > 0) {
+              addObservation(
+                db,
+                session_id,
+                "incident_near_miss",
+                "MEMORY.md integrity issue detected",
+                issues.join("; "),
+                { importance: 4 }
+              );
+            }
+          }
+        }
+      } catch (_memoryErr) {
+      }
+      try {
+        if (tool_name === "Edit" || tool_name === "Write") {
+          const filePath = tool_input.file_path ?? "";
+          if (filePath && isKnowledgeSourceFile(filePath)) {
+            addObservation(
+              db,
+              session_id,
+              "discovery",
+              "Knowledge source file modified - index may be stale",
+              `Edited ${filePath.split("/").pop() ?? filePath}. Run knowledge re-index to update.`,
+              { importance: 3 }
+            );
+          }
+        }
+      } catch (_knowledgeErr) {
+      }
     } finally {
       db.close();
     }
@@ -1639,5 +1746,62 @@ function readStdin() {
     process.stdin.on("end", () => resolve5(data));
     setTimeout(() => resolve5(data), 3e3);
   });
+}
+function readConventions(cwd) {
+  const defaults = {
+    knowledgeSourceFiles: ["CLAUDE.md", "MEMORY.md", "corrections.md"],
+    claudeDirName: ".claude"
+  };
+  try {
+    const projectRoot = cwd ?? process.cwd();
+    const configPath = join2(projectRoot, "massu.config.yaml");
+    if (!existsSync6(configPath)) return defaults;
+    const content = readFileSync5(configPath, "utf-8");
+    const parsed = parseYaml2(content);
+    if (!parsed || typeof parsed !== "object") return defaults;
+    const conventions = parsed.conventions;
+    if (!conventions || typeof conventions !== "object") return defaults;
+    return {
+      knowledgeSourceFiles: Array.isArray(conventions.knowledgeSourceFiles) ? conventions.knowledgeSourceFiles : defaults.knowledgeSourceFiles,
+      claudeDirName: typeof conventions.claudeDirName === "string" ? conventions.claudeDirName : defaults.claudeDirName
+    };
+  } catch {
+    return defaults;
+  }
+}
+function isKnowledgeSourceFile(filePath) {
+  const basename2 = filePath.split("/").pop() ?? "";
+  const conventions = readConventions();
+  const knowledgeSourcePatterns = [
+    ...conventions.knowledgeSourceFiles,
+    "file-index.md",
+    "knowledge-db.ts",
+    "knowledge-indexer.ts",
+    "knowledge-tools.ts"
+  ];
+  return knowledgeSourcePatterns.some((p) => basename2 === p) || filePath.includes("/memory/") || filePath.includes(conventions.claudeDirName + "/");
+}
+function checkMemoryFileIntegrity(filePath) {
+  const issues = [];
+  try {
+    if (!existsSync6(filePath)) {
+      issues.push("MEMORY.md file does not exist after write");
+      return issues;
+    }
+    const content = readFileSync5(filePath, "utf-8");
+    const lines = content.split("\n");
+    const MAX_LINES = 200;
+    if (lines.length > MAX_LINES) {
+      issues.push(`MEMORY.md exceeds ${MAX_LINES} lines (currently ${lines.length}). Consider archiving old entries.`);
+    }
+    const requiredSections = ["# Massu Memory", "## Key Learnings", "## Common Gotchas"];
+    for (const section of requiredSections) {
+      if (!content.includes(section)) {
+        issues.push(`Missing required section: "${section}"`);
+      }
+    }
+  } catch (_e) {
+  }
+  return issues;
 }
 main();

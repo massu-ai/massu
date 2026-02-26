@@ -1,0 +1,101 @@
+---
+title: "API Key Setup"
+description: "Generate and configure your Massu AI API key to unlock Pro, Team, and Enterprise tools"
+order: 4
+---
+
+# API Key Setup
+
+Massu AI works fully offline with 12 free-tier tools. To unlock additional tools -- knowledge search, analytics, cost tracking, security scoring, and more -- you need an API key linked to a paid subscription.
+
+## Step 1: Generate an API Key
+
+1. Sign in to your Massu AI dashboard at [massu.ai/dashboard](https://massu.ai/dashboard)
+2. Navigate to **Settings** then **API Keys**
+3. Click **Generate New Key**
+4. Copy the key immediately -- it is only shown once
+
+Your key will look like `ms_live_abc123...`. Keep it secure and never commit it to version control.
+
+## Step 2: Add the Key to Your Config
+
+Add the key to the `cloud` section of your `massu.config.yaml`:
+
+```yaml
+cloud:
+  enabled: true
+  apiKey: "ms_live_your_key_here"
+```
+
+Alternatively, use an environment variable to avoid storing the key in a file:
+
+```bash
+export MASSU_CLOUD_API_KEY="ms_live_your_key_here"
+```
+
+And reference it in your config:
+
+```yaml
+cloud:
+  enabled: true
+  apiKey: ${MASSU_CLOUD_API_KEY}
+```
+
+> **Security note:** If your `massu.config.yaml` is committed to version control, always use the environment variable approach. Never commit API keys to a repository.
+
+## Step 3: Verify With massu doctor
+
+Run the health check to confirm your key is valid:
+
+```bash
+npx massu doctor
+```
+
+You should see output including:
+
+```
+License: Pro (valid until 2027-03-15)
+Cloud sync: connected
+```
+
+If the license shows as Free despite having a key, check that the key is correct and your subscription is active.
+
+## Step 4: Check Your Current Tier
+
+From within a Claude Code session, use the license status tool:
+
+```
+> Use massu_license_status
+```
+
+This returns your current tier, expiry date, and available features.
+
+## What Each Tier Unlocks
+
+| Tier | What You Get |
+|------|-------------|
+| **Free** | 12 tools -- core navigation (`sync`, `context`, `impact`, `domains`, `schema`, `trpc_map`, `coupling_check`), basic memory (`memory_search`, `memory_ingest`), regression detection (`regression_risk`, `feature_health`), and `license_status` |
+| **Pro** | All Free tools plus knowledge search and indexing (12 tools), advanced memory (4 tools), quality analytics (3 tools), cost tracking (3 tools), prompt analysis (2 tools), validation (2 tools), ADR management (3 tools), observability (4 tools), and documentation (2 tools) |
+| **Team** | All Pro tools plus sentinel feature registry (6 tools) and team knowledge sharing (3 tools) |
+| **Enterprise** | All Team tools plus audit trail (3 tools), security scoring (3 tools), and dependency analysis (2 tools) |
+
+For a complete tool-by-tool breakdown, see the [License and Tiers](/docs/reference/license-tiers) reference.
+
+## Troubleshooting
+
+### "License: Free" despite having a key
+
+- Verify the key starts with `ms_live_`
+- Check that `cloud.enabled` is set to `true` in your config
+- Confirm your subscription is active at [massu.ai/dashboard](https://massu.ai/dashboard)
+
+### Key validation fails offline
+
+Massu AI caches your license locally for up to 7 days. If you lose internet access, your paid tier continues working during that grace period. After 7 days without validation, tools fall back to the free tier until connectivity is restored. See [Offline Grace Period](/docs/reference/license-tiers#offline-grace-period) for details.
+
+### Rotating your API key
+
+1. Generate a new key from the dashboard
+2. Update your config or environment variable
+3. Run `npx massu doctor` to verify the new key
+4. Revoke the old key from the dashboard

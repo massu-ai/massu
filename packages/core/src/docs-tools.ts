@@ -3,7 +3,8 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { resolve, basename } from 'path';
-import { getConfig, getResolvedPaths } from './config.ts';
+import { getConfig, getResolvedPaths, getProjectRoot } from './config.ts';
+import { ensureWithinRoot } from './security-utils.ts';
 import type { ToolDefinition, ToolResult } from './tools.ts';
 
 /** Prefix a base tool name with the configured tool prefix. */
@@ -252,10 +253,11 @@ function extractFrontmatter(content: string): Record<string, string> | null {
  * Extract procedure names from a router file.
  */
 function extractProcedureNames(routerPath: string): string[] {
-  const absPath = resolve(getResolvedPaths().srcDir, '..', routerPath);
+  const root = getProjectRoot();
+  const absPath = ensureWithinRoot(resolve(getResolvedPaths().srcDir, '..', routerPath), root);
   if (!existsSync(absPath)) {
     // Try from project root
-    const altPath = resolve(getResolvedPaths().srcDir, '../server/api/routers', basename(routerPath));
+    const altPath = ensureWithinRoot(resolve(getResolvedPaths().srcDir, '../server/api/routers', basename(routerPath)), root);
     if (!existsSync(altPath)) return [];
     return extractProcedureNamesFromContent(readFileSync(altPath, 'utf-8'));
   }
@@ -325,7 +327,7 @@ function handleDocsAudit(args: Record<string, unknown>): ToolResult {
     const mapping = docsMap.mappings.find(m => m.id === mappingId);
     if (!mapping) continue;
 
-    const helpPagePath = resolve(getResolvedPaths().helpSitePath, mapping.helpPage);
+    const helpPagePath = ensureWithinRoot(resolve(getResolvedPaths().helpSitePath, mapping.helpPage), getProjectRoot());
 
     if (!existsSync(helpPagePath)) {
       results.push({
@@ -394,7 +396,7 @@ function handleDocsAudit(args: Record<string, unknown>): ToolResult {
     // Also flag inherited user guides
     for (const [guideName, parentId] of Object.entries(docsMap.userGuideInheritance.examples)) {
       if (parentId === mappingId) {
-        const guidePath = resolve(getResolvedPaths().helpSitePath, `pages/user-guides/${guideName}/index.mdx`);
+        const guidePath = ensureWithinRoot(resolve(getResolvedPaths().helpSitePath, `pages/user-guides/${guideName}/index.mdx`), getProjectRoot());
         if (existsSync(guidePath)) {
           const guideContent = readFileSync(guidePath, 'utf-8');
           const guideFrontmatter = extractFrontmatter(guideContent);
@@ -439,7 +441,7 @@ function handleDocsCoverage(args: Record<string, unknown>): ToolResult {
     : docsMap.mappings;
 
   for (const mapping of mappings) {
-    const helpPagePath = resolve(getResolvedPaths().helpSitePath, mapping.helpPage);
+    const helpPagePath = ensureWithinRoot(resolve(getResolvedPaths().helpSitePath, mapping.helpPage), getProjectRoot());
     const exists = existsSync(helpPagePath);
     let hasContent = false;
     let lineCount = 0;

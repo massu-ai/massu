@@ -1,21 +1,21 @@
 {
   "name": "@massu/core",
-  "version": "0.1.2",
+  "version": "0.3.0",
   "type": "module",
-  "description": "AI Engineering Governance MCP Server - Session memory, feature registry, code intelligence, and rule enforcement",
+  "description": "AI Engineering Governance MCP Server - Session memory, knowledge system, feature registry, code intelligence, rule enforcement, and tiered tooling (12 free / 62 total)",
   "main": "src/server.ts",
   "bin": {
-    "massu": "./src/cli.ts"
+    "massu": "./dist/cli.js"
   },
   "scripts": {
     "start": "npx tsx src/server.ts",
     "test": "vitest run",
-    "build": "tsc --noEmit && npm run build:hooks",
+    "build": "tsc --noEmit && npm run build:cli && npm run build:hooks",
+    "build:cli": "esbuild --bundle --platform=node --format=esm --outfile=dist/cli.js src/cli.ts --external:better-sqlite3 --external:yaml --external:zod --banner:js='#!/usr/bin/env node\nimport{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
     "build:hooks": "esbuild --bundle --platform=node --format=esm --outdir=dist/hooks src/hooks/*.ts --external:better-sqlite3 --external:yaml --external:zod --banner:js='import{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
     "prepublishOnly": "bash ../../scripts/prepublish-check.sh && npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3": "^12.6.2",
     "yaml": "^2.4.0",
     "zod": "^3.23.0"

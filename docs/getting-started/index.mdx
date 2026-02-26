@@ -6,7 +6,7 @@ order: 0
 
 # Welcome to Massu AI
 
-Massu AI is an **AI Engineering Governance Platform** that transforms how your team works with AI coding assistants. It is an MCP server and Claude Code plugin that provides cross-session memory, automated quality tracking, compliance audit trails, and 51 specialized tools -- all running locally with zero cloud dependencies.
+Massu AI is an **AI Engineering Governance Platform** that transforms how your team works with AI coding assistants. It is an MCP server and Claude Code plugin that provides cross-session memory, a structured knowledge system, automated quality tracking, compliance audit trails, and 64 specialized tools -- all running locally with zero cloud dependencies.
 
 ## What is Massu AI?
 
@@ -15,9 +15,10 @@ When you use AI coding assistants like Claude Code, every session starts from sc
 Massu AI sits between your AI assistant and your codebase, providing:
 
 - **Cross-session memory** that persists decisions, failures, and context across sessions
+- **Knowledge system** with full-text search across rules, incidents, patterns, and verifications
 - **11 lifecycle hooks** that automatically capture observations, inject context, and enforce rules
-- **51 MCP tools** for code intelligence, security scoring, cost tracking, and more
-- **12 canonical rules** that ensure verified, auditable AI-generated code
+- **64 MCP tools** for code intelligence, security scoring, cost tracking, knowledge search, and more
+- **15 canonical rules** that ensure verified, auditable AI-generated code
 - **Config-driven architecture** that adapts to any TypeScript or JavaScript project
 
 ## Who is Massu AI For?
@@ -41,33 +42,69 @@ Most AI coding tools treat every session as a blank slate. Massu AI maintains a 
 
 Massu AI's 11 lifecycle hooks run automatically. You do not need to remember to log decisions, capture observations, or save session state. The hooks handle all of this in the background, completing in under 500ms to avoid slowing down your workflow.
 
-### 51 Purpose-Built Tools
+### 64 Purpose-Built Tools
 
-Massu AI provides tools organized across thirteen categories:
+Massu AI provides 64 MCP tools organized across seventeen categories. Free-tier tools (12) are available to everyone; additional tools unlock with [Pro, Team, and Enterprise tiers](/docs/reference/license-tiers):
 
-| Category | Tools | What They Do |
-|----------|-------|-------------|
-| **Memory & Learning** | 6 | Search past sessions, view timelines, track failed attempts |
-| **Code Intelligence** | 7 | Sync indexes, get file context, analyze impact, check coupling |
-| **Feature Registry** | 6 | Register features, track dependencies, validate implementation |
-| **Analytics & Quality** | 5 | Quality scores, trends, reports, prompt effectiveness |
-| **Cost Tracking** | 7 | Session costs, trends, feature attribution, budget alerts |
-| **Governance & Compliance** | 10 | Audit trails, validation, ADRs, rule marketplace |
-| **Security** | 7 | Security scoring, heatmaps, dependency risk, monitoring |
-| **Observability** | 4 | Session replay, prompt analysis, tool patterns, stats |
-| **Documentation** | 2 | Documentation audit and coverage analysis |
-| **Team Intelligence** | 4 | Weekly digests, code review insights, prompt library |
-| **Enterprise** | 9 | Team knowledge, compliance, evidence packages, private rules |
-| **Workflow Commands** | 20 | Testing, debugging, refactoring, review, releases, and more |
-| **Integrations** | 4 | REST API, webhooks, PR risk scores, quality badges |
+| Category | Tools | Tier | What They Do |
+|----------|-------|------|-------------|
+| **Core Intelligence** | 7 | Free | Sync indexes, get file context, analyze impact |
+| **Memory & Learning** | 6 | Free (2) / Pro (4) | Search past sessions, view timelines, track failed attempts |
+| **Regression** | 2 | Free | Feature health scores and regression risk detection |
+| **Knowledge** | 12 | Pro | Full-text search across rules, incidents, patterns, and verifications |
+| **Analytics** | 3 | Pro | Quality scores, trends, and reports |
+| **Cost Tracking** | 3 | Pro | Session costs, trends, and feature attribution |
+| **Prompt Analysis** | 2 | Pro | Prompt effectiveness and improvement suggestions |
+| **Validation** | 2 | Pro | File validation against rules |
+| **ADR** | 3 | Pro | Architecture decision records |
+| **Observability** | 4 | Pro | Session replay, prompt analysis, tool patterns, stats |
+| **Documentation** | 2 | Pro | Documentation audit and coverage analysis |
+| **Feature Registry** | 6 | Team | Register features, track dependencies, validate implementation |
+| **Team Knowledge** | 3 | Team | Expertise tracking and conflict detection |
+| **Audit Trail** | 3 | Enterprise | Compliance-ready audit logging |
+| **Security Scoring** | 3 | Enterprise | Security scoring and heatmaps |
+| **Dependency Analysis** | 2 | Enterprise | Dependency risk and alternatives |
+| **License** | 1 | Free | License status and tier information |
 
 ### Config-Driven Architecture
 
 Everything is configured through a single `massu.config.yaml` file. Define your project's framework, domains, coding rules, security thresholds, quality weights, and team settings in one place. Massu AI adapts its behavior to your project.
 
+### Memory System Setup
+
+When you run `npx massu init`, Massu AI automatically configures the memory system. No additional setup is required. The `session-start` hook begins injecting context from your very first session. To check memory is working:
+
+```bash
+npx massu doctor
+# Should show: Memory DB: OK
+```
+
+Optionally, create a `MEMORY.md` file in your project root to provide persistent background context that is injected at every session start. See [Memory & Learning](/docs/features/memory) for details on the MEMORY.md format and topic files.
+
+### Knowledge System Overview
+
+The knowledge system provides a structured, full-text-searchable store for everything your team learns -- rules, incidents, patterns, verifications, corrections, plans, and effectiveness measurements. Unlike the memory system (which records what happened in sessions), the knowledge system records what your team knows.
+
+The knowledge system is backed by an SQLite FTS5 index and is accessible through 12 MCP tools:
+
+- **Search**: `massu_knowledge_search` -- find anything across all knowledge types
+- **Rules**: `massu_knowledge_rule` -- store and retrieve coding rules
+- **Incidents**: `massu_knowledge_incident` -- record and query past incidents
+- **Patterns**: `massu_knowledge_pattern` -- capture reusable development patterns
+- **Verification**: `massu_knowledge_verification` -- track verification results
+- **Schema checks**: `massu_knowledge_schema_check` -- record schema validation findings
+- **Graph**: `massu_knowledge_graph` -- explore cross-references between knowledge entries
+- **Commands**: `massu_knowledge_command` -- surface relevant commands for a context
+- **Corrections**: `massu_knowledge_correct` -- record and retrieve AI corrections
+- **Plans**: `massu_knowledge_plan` -- store and search plan documents
+- **Gaps**: `massu_knowledge_gaps` -- identify knowledge coverage gaps
+- **Effectiveness**: `massu_knowledge_effectiveness` -- measure knowledge utilization
+
+See [Knowledge System](/docs/features/knowledge) for full documentation.
+
 ### Verification-First Workflow
 
-Massu AI includes 20 workflow commands that enforce a verification-first approach to AI-assisted development. Every claim of completion requires proof. Every removal requires negative verification. Every plan item gets tracked.
+Massu AI includes 28 workflow commands that enforce a verification-first approach to AI-assisted development. Every claim of completion requires proof. Every removal requires negative verification. Every plan item gets tracked.
 
 ## Quick Navigation
 
@@ -76,19 +113,23 @@ Massu AI includes 20 workflow commands that enforce a verification-first approac
 | [Installation](/docs/getting-started/installation) | Prerequisites and step-by-step setup |
 | [Quick Start](/docs/getting-started/quick-start) | 5-minute tutorial from install to first use |
 | [Configuration](/docs/getting-started/configuration) | Complete config reference |
-| [Features](/docs/features/memory) | Detailed feature documentation |
+| [API Key Setup](/docs/getting-started/api-keys) | Generate and configure API keys for paid tiers |
+| [Conventions](/docs/getting-started/conventions) | Customize directory names and knowledge indexing |
+| [Memory](/docs/features/memory) | Cross-session memory and learning |
+| [Knowledge](/docs/features/knowledge) | Knowledge system with 12 tools |
 | [Hooks](/docs/hooks) | The 11-hook lifecycle system |
 | [Commands](/docs/commands) | Workflow commands for plan-driven development |
-| [Reference](/docs/reference/tool-reference) | Complete tool reference with parameters |
+| [Reference](/docs/reference/tool-reference) | Complete tool reference with parameters and tiers |
+| [License & Tiers](/docs/reference/license-tiers) | Tier comparison, tool availability, and licensing |
 | [Guides](/docs/guides/nextjs-setup) | Step-by-step guides for common scenarios |
 
 ## How It Works
 
 ```
-Your Prompt --> Claude Code --> Massu AI Hooks --> Memory DB
-                    |                                     |
-                    v                                     v
-              51 MCP Tools <-- Context Injection <-- Past Sessions
+Your Prompt --> Claude Code --> Massu AI Hooks --> Memory DB + Knowledge DB
+                    |                                          |
+                    v                                          v
+              64 MCP Tools <-- Context Injection <-- Past Sessions + Knowledge
                     |
                     v
               Governed, Verified, Auditable Code
@@ -96,7 +137,7 @@ Your Prompt --> Claude Code --> Massu AI Hooks --> Memory DB
 
 1. **You write a prompt** in Claude Code
 2. **The `user-prompt` hook** captures it for search and task linking
-3. **Claude Code calls tools** -- Massu AI's 51 MCP tools provide code intelligence, memory search, quality scoring, and more
+3. **Claude Code calls tools** -- Massu AI's 64 MCP tools provide code intelligence, memory search, knowledge lookup, quality scoring, and more
 4. **The `post-tool-use` hook** captures observations from every tool call
 5. **The `post-edit-context` hook** surfaces relevant rules when files are edited
 6. **When the session ends**, the `session-end` hook generates a summary and archives state

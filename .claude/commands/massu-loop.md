@@ -9,6 +9,17 @@ name: massu-loop
 
 # CS Loop: Autonomous Execution Protocol
 
+## Workflow Position
+
+```
+/massu-create-plan -> /massu-plan -> /massu-loop -> /massu-commit -> /massu-push
+(CREATE)           (AUDIT)        (IMPLEMENT)   (COMMIT)        (PUSH)
+```
+
+**This command is step 3 of 5 in the standard workflow.**
+
+---
+
 ## MANDATORY LOOP CONTROLLER (EXECUTE THIS - DO NOT SKIP)
 
 **This section is the EXECUTION ENTRY POINT. You MUST follow these steps exactly.**
@@ -17,10 +28,11 @@ name: massu-loop
 
 This command is a **loop controller** for implementation + verification. Your job is to:
 1. Extract plan items and implement them
-2. After implementation, spawn a `general-purpose` subagent for verification
-3. Parse the structured result (`GAPS_DISCOVERED: N`)
-4. If gaps discovered > 0: fix gaps, then spawn ANOTHER FRESH auditor pass
-5. Only when a COMPLETE FRESH PASS discovers ZERO gaps can you declare complete
+2. After implementation, spawn focused review subagents IN PARALLEL for independent analysis
+3. After reviews, spawn a `general-purpose` subagent for verification
+4. Parse the structured result (`GAPS_DISCOVERED: N`)
+5. If gaps discovered > 0: fix gaps, then spawn ANOTHER FRESH auditor pass
+6. Only when a COMPLETE FRESH PASS discovers ZERO gaps can you declare complete
 
 **The verification audit runs inside Task subagents. This prevents early termination.**
 
@@ -47,6 +59,8 @@ iteration = 0
 
 # Phase 1.5: MULTI-PERSPECTIVE REVIEW (after implementation, before verification)
 # Spawn focused review subagents IN PARALLEL for independent analysis
+# Each reviewer has an adversarial mindset and a SINGLE focused concern (Principle #20)
+# Elegance/simplicity assessment happens in Phase 2.1 POST-BUILD REFLECTION (Q4)
 
 security_result = Task(subagent_type="general-purpose", model="opus", prompt="
   Review implementation for plan: {PLAN_PATH}
@@ -60,12 +74,23 @@ architecture_result = Task(subagent_type="general-purpose", model="opus", prompt
   Check all new/modified files. Return structured result with ARCHITECTURE_GATE.
 ")
 
+# Parse results and fix any CRITICAL/HIGH findings before proceeding to verification
+# FAIL gate = must fix before proceeding
+# WARN findings = document and proceed
+
 # Phase 2: VERIFY (audit loop - STRUCTURAL)
 WHILE true:
   iteration += 1
 
   # Run circuit breaker check (detect stagnation)
-  # If same gaps appear 3+ times, consider changing approach
+  # If same gaps appear 3+ times with no progress, consider changing approach
+  IF iteration > 3 AND no_progress_count >= 3:
+    Output: "CIRCUIT BREAKER: The current approach is not converging after {iteration} passes."
+    Output: "Options: (a) Re-plan with different approach (b) Continue current approach (c) Stop"
+    AskUserQuestion: "The loop has stalled. How should we proceed?"
+    IF user chooses re-plan: STOP loop, output current state, recommend /massu-create-plan
+    IF user chooses continue: CONTINUE loop (reset circuit breaker)
+    IF user chooses stop: STOP loop, output current state as incomplete
 
   # Spawn auditor subagent for ONE complete verification pass
   result = Task(subagent_type="general-purpose", model="opus", prompt="
@@ -135,10 +160,23 @@ END WHILE
 # 1. "Now that I've built this, what would I have done differently?"
 #    - Identify architectural choices that caused friction
 #    - Note patterns that were harder to work with than expected
+#    - Flag code that works but feels fragile or overly complex
 #
 # 2. "What should be refactored before moving on?"
 #    - Concrete refactoring suggestions with file paths
 #    - Technical debt introduced during implementation
+#    - Opportunities to simplify or consolidate
+#
+# 3. "Did we over-build? Is there a simpler way?"
+#    - Identify any added complexity that wasn't strictly needed
+#    - Flag scope expansion beyond the original plan
+#    - Check if any "fix everything encountered" items could have been simpler
+#
+# 4. "Would a staff engineer approve this?" (Principle #19)
+#    - Check if the solution demonstrates good engineering taste
+#    - Look for over-abstraction, unnecessary indirection, or "clever" code
+#    - For non-trivial implementations: is there a more elegant approach?
+#    - For simple fixes: skip this check - don't over-engineer obvious solutions
 #
 # Output reflection, then apply any low-risk refactors immediately.
 # Log remaining suggestions in the plan document under "## Post-Build Reflection".
@@ -153,8 +191,17 @@ END WHILE
 | **NEVER ask user "should I continue?"** | The loop is mandatory - just execute it |
 | **NEVER stop after fixing gaps** | Fixing gaps requires a FRESH re-audit to verify the fixes |
 | **ALWAYS use Task tool for verification passes** | Subagents keep context clean |
-| **ALWAYS parse GAPS_DISCOVERED from result** | This is the loop control variable |
+| **ALWAYS parse GAPS_DISCOVERED from result** | This is the loop control variable (DISCOVERED, not REMAINING) |
 | **Maximum 10 iterations** | If still failing after 10, report to user with remaining gaps |
+| **ALWAYS run multi-perspective review after implementation** | Multiple reviewers catch different issues than 1 auditor |
+| **Run review subagents IN PARALLEL** | Security and architecture reviews are independent |
+| **Fix CRITICAL/HIGH findings before verification** | Don't waste auditor passes on known issues |
+
+### Why This Architecture Exists
+
+**Incident #14**: Audit loop terminated after 1 pass with open gaps. Root cause: instructional "MUST loop" text competed with default "report and stop" behavior. By making the loop STRUCTURAL (spawn subagent, check result, loop), early termination becomes structurally impossible.
+
+**Incident #19**: Auditor found 16 gaps and fixed all 16 in same pass, reported GAPS_FOUND: 0. Loop exited after 1 iteration without verifying fixes. GAPS_DISCOVERED (not GAPS_REMAINING) is the correct metric.
 
 ---
 
@@ -211,23 +258,6 @@ BEFORE claiming ANY work is complete:
 
 THERE ARE NO EXCEPTIONS.
 ```
-
----
-
-## CRITICAL: PLAN COMPLETION GATE
-
-**Code Quality verification is NOT ENOUGH. Plan Coverage verification is MANDATORY.**
-
-### Dual Verification
-
-**BOTH gates must pass before claiming complete:**
-
-| Gate | What It Checks | Example |
-|------|----------------|---------|
-| **Code Quality Gate** | Is the code correct? | Pattern scanner, types, tests |
-| **Plan Coverage Gate** | Did we build everything? | 15/15 plan items verified |
-
-**Code Quality: PASS + Plan Coverage: FAIL = NOT COMPLETE**
 
 ---
 
@@ -351,7 +381,30 @@ When loop completes successfully (`GAPS_DISCOVERED: 0` in a clean pass):
 
 When loop reaches max iterations without completing:
 - Preserve the checkpoint file for future resume
-- Report in COMPLETION REPORT: "Checkpoint: preserved (loop incomplete — max iterations reached)"
+- Report in COMPLETION REPORT: "Checkpoint: preserved (loop incomplete -- max iterations reached)"
+
+---
+
+## VR-PLAN ENUMERATION (Before Verification)
+
+**Before running ANY verification commands, enumerate ALL applicable VR-* checks.**
+
+```markdown
+### VR-* Verification Plan
+
+| VR Check | Target | Command | Expected |
+|----------|--------|---------|----------|
+| VR-FILE | [each new file] | ls -la [path] | Exists |
+| VR-GREP | [each new function] | grep "[func]" [file] | Found |
+| VR-NEGATIVE | [each removal] | grep -rn "[old]" src/ | 0 matches |
+| VR-PATTERN | All source | bash scripts/massu-pattern-scanner.sh | Exit 0 |
+| VR-TYPE | packages/core | cd packages/core && npx tsc --noEmit | 0 errors |
+| VR-TEST | All tests | npm test | All pass |
+| VR-TOOL-REG | [new tools] | grep in tools.ts | All 3 functions |
+| VR-HOOK-BUILD | hooks | cd packages/core && npm run build:hooks | Exit 0 |
+```
+
+**Run ALL enumerated checks BEFORE spawning the verification auditor.**
 
 ---
 
@@ -393,26 +446,91 @@ npm test
 
 ---
 
-## VR-PLAN ENUMERATION (Before Verification)
+## GUARDRAIL CHECKS (Every Iteration)
 
-**Before running ANY verification commands, enumerate ALL applicable VR-* checks.**
+### Mandatory Checks
 
-```markdown
-### VR-* Verification Plan
+```bash
+# Pattern scanner (covers all pattern checks)
+bash scripts/massu-pattern-scanner.sh
+# Exit 0 = PASS, non-zero = ABORT iteration
 
-| VR Check | Target | Command | Expected |
-|----------|--------|---------|----------|
-| VR-FILE | [each new file] | ls -la [path] | Exists |
-| VR-GREP | [each new function] | grep "[func]" [file] | Found |
-| VR-NEGATIVE | [each removal] | grep -rn "[old]" src/ | 0 matches |
-| VR-PATTERN | All source | bash scripts/massu-pattern-scanner.sh | Exit 0 |
-| VR-TYPE | packages/core | cd packages/core && npx tsc --noEmit | 0 errors |
-| VR-TEST | All tests | npm test | All pass |
-| VR-TOOL-REG | [new tools] | grep in tools.ts | All 3 functions |
-| VR-HOOK-BUILD | hooks | cd packages/core && npm run build:hooks | Exit 0 |
+# Security check
+git diff --cached --name-only | grep -E '\.(env|pem|key|secret)' && echo "SECURITY VIOLATION" && exit 1
 ```
 
-**Run ALL enumerated checks BEFORE spawning the verification auditor.**
+---
+
+## ITERATION OUTPUT FORMAT
+
+```markdown
+## [CS LOOP - Iteration N]
+
+### Task
+Phase: X | Task: [description]
+
+### Guardrails
+- Pattern scanner: PASS/FAIL
+- Security check: PASS/FAIL
+
+### Verifications
+| Check | Type | Result | Proof |
+|-------|------|--------|-------|
+| [item] | VR-FILE | PASS | `ls -la output` |
+
+### Gap Count
+Gaps found: N
+
+### Status
+CONTINUE | FIX_REQUIRED | CHECKPOINT | COMPLETE
+
+### Next Action
+[Specific next step]
+```
+
+---
+
+## THE 10 ACCOUNTABILITY SAFEGUARDS
+
+1. **Audit Proof Requirement** - Every claim MUST include proof output. Claims without proof are INVALID.
+2. **Explicit Gap Count Per Loop** - State gaps found, gap details, status (PASS/FAIL). "Looks good" is BANNED.
+3. **Checkpoint Sign-Off Format** - Use exact format from COMPLETION OUTPUT section.
+4. **Session State Mandatory Updates** - Update `session-state/CURRENT.md` after EVERY change with proof.
+5. **User Verification Rights** - User can request proof re-runs at any time. Comply with actual output.
+6. **Post-Compaction Recovery** - Read session state FIRST, re-read plan, resume from exact point.
+7. **No Claims Without Evidence** - "I verified...", "Build passed..." require accompanying proof output.
+8. **Failure Acknowledgment** - Acknowledge failures, re-execute audit from Step 1, log in session state.
+9. **No Workarounds Allowed** - TODOs, ts-ignore are BLOCKING violations. Pattern scanner is a HARD GATE.
+10. **Document New Patterns** - If you discover a pattern not in CLAUDE.md, ADD IT NOW.
+
+---
+
+## SESSION STATE UPDATE (After Every Iteration)
+
+Update `session-state/CURRENT.md` with: loop status (task, iteration, phase, checkpoint), iteration log table, verified work with proof, failed attempts (do not retry), next iteration plan.
+
+---
+
+## PLAN DOCUMENT COMPLETION TRACKING (MANDATORY)
+
+Add completion table to TOP of plan document with status for each task:
+
+```markdown
+# IMPLEMENTATION STATUS
+
+**Plan**: [Name] | **Status**: COMPLETE/IN_PROGRESS | **Last Updated**: [date]
+
+| # | Task/Phase | Status | Verification | Date |
+|---|------------|--------|--------------|------|
+| 1 | [description] | 100% COMPLETE | VR-GREP: 0 refs | [date] |
+```
+
+### VR-PLAN-STATUS Verification
+
+```bash
+grep "IMPLEMENTATION STATUS" [plan_file]
+grep -c "100% COMPLETE\|DONE\|\*\*DONE\*\*" [plan_file]
+```
 
 ---
 
@@ -427,41 +545,173 @@ npm test
 
 ---
 
-## AUTO-LEARNING PROTOCOL
+## CONTEXT MANAGEMENT
 
-After completion, if any issues were discovered and fixed:
-
-1. **Record the pattern** - What went wrong and how it was fixed
-2. **Check if pattern scanner should be updated** - Can the check be automated?
-3. **Update session state** - Record in `.claude/session-state/CURRENT.md`
+Use Task tool with subagents for exploration to keep main context clean. Update session state before compaction. After compaction, read session state and resume from correct step. Never mix unrelated tasks during a protocol.
 
 ---
 
-## COMPLETION REPORT
+## COMPLETION CRITERIA
+
+CS Loop is COMPLETE **only when BOTH gates pass: Code Quality AND Plan Coverage**.
+
+### GATE 1: Code Quality Verification (All Must Pass in SAME Audit Run)
+- [ ] All phases executed, all checkpoints passed with zero gaps
+- [ ] Pattern scanner: Exit 0
+- [ ] Type check: 0 errors
+- [ ] Build: Exit 0
+- [ ] Tests: ALL PASS (MANDATORY)
+- [ ] Security: No secrets staged
+
+### GATE 2: Plan Coverage Verification
+- [ ] Plan file read (actual file, not memory)
+- [ ] ALL items extracted into tracking table
+- [ ] EACH item verified with VR-* proof
+- [ ] Coverage = 100% (99% = FAIL)
+- [ ] Plan document updated with completion status
+
+### DUAL VERIFICATION REQUIREMENT
+
+**BOTH gates must pass:**
 
 ```markdown
-## CS LOOP COMPLETE
+## DUAL VERIFICATION RESULT
+| Gate | Status | Details |
+|------|--------|---------|
+| Code Quality | PASS/FAIL | Pattern scanner, build, types |
+| Plan Coverage | PASS/FAIL | X/Y items (Z%) |
 
-### Implementation Summary
-- **Plan**: [path]
-- **Total Items**: [N]
-- **All Implemented**: YES
-- **Verification Iterations**: [N]
-
-### Final Gate Status
-| Gate | Status | Evidence |
-|------|--------|----------|
-| Pattern Scanner | PASS | Exit 0 |
-| Type Safety | PASS | 0 errors |
-| Tests | PASS | [X] tests passed |
-| Hook Build | PASS | Exit 0 |
-| Tool Registration | PASS/N/A | [evidence] |
-| Plan Coverage | PASS | [X]/[X] = 100% |
-
-### Code Quality Gate: PASS
-### Plan Coverage Gate: PASS
-
-### Next Steps
-- Run `/massu-commit` to commit with verification
-- Run `/massu-push` to push with full verification
+**RESULT: COMPLETE** (only if both PASS)
 ```
+
+**Code Quality: PASS + Plan Coverage: FAIL = NOT COMPLETE**
+
+---
+
+## COMPLETION OUTPUT
+
+```markdown
+## [CS LOOP - COMPLETE]
+
+### Dual Verification Certification
+- **Audit loops required**: N (loop #N achieved 0 gaps + 100% coverage)
+- **Code Quality Gate**: PASS
+- **Plan Coverage Gate**: PASS (X/X items = 100%)
+- **CERTIFIED**: Both gates passed in single complete audit
+
+### Summary
+- Total iterations: N
+- Total checkpoints: N (all PASSED)
+- Final audit loop: #N - ZERO GAPS + 100% COVERAGE
+
+### GATE 1: Code Quality Evidence
+| Gate | Command | Result |
+|------|---------|--------|
+| Pattern scanner | `bash scripts/massu-pattern-scanner.sh` | Exit 0 |
+| Type check | `cd packages/core && npx tsc --noEmit` | 0 errors |
+| Build | `npm run build` | Exit 0 |
+| Tests | `npm test` | All pass |
+
+### GATE 2: Plan Coverage Evidence
+| Item # | Description | Verification | Status |
+|--------|-------------|--------------|--------|
+| P1-001 | [description] | [VR-* output] | COMPLETE |
+| ... | ... | ... | COMPLETE |
+
+**Plan Coverage: X/X items (100%)**
+
+### Plan Document Updated
+- File: [path]
+- Completion table: ADDED at TOP
+- Plan Status: COMPLETE
+
+### Session State
+Updated: session-state/CURRENT.md
+Status: COMPLETED
+```
+
+---
+
+## START NOW
+
+**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
+
+Before any other work, update `session-state/CURRENT.md` to include:
+```
+AUTHORIZED_COMMAND: massu-loop
+```
+This ensures that if the session compacts, the recovery protocol knows `/massu-loop` was authorized.
+
+**Execute the LOOP CONTROLLER at the top of this file.**
+
+### Phase 0: Pre-Implementation Memory Check
+0. **Search memory** for failed attempts and known issues related to the plan's domain:
+   - Check `.claude/session-state/CURRENT.md` for recent failures
+   - If matches found: read the previous failures and avoid repeating them
+
+### Phase 1: Implement
+1. Load plan file from `$ARGUMENTS` (read from disk, not memory)
+2. Extract ALL plan items into trackable checklist
+3. Implement each item with VR-* proof
+4. Update session state after each major step
+
+### Phase 1.5: Multi-Perspective Review
+5. Spawn security and architecture review subagents in parallel
+6. Parse results and fix CRITICAL/HIGH findings before proceeding
+
+### Phase 2: Verify (Subagent Loop)
+7. Spawn `general-purpose` subagent (via Task tool) for verification iteration 1
+8. Parse `GAPS_DISCOVERED` from the subagent result
+9. If gaps > 0: fix what the auditor identified, spawn another iteration
+10. If gaps == 0: output final completion report with dual gate evidence
+11. Continue until zero gaps or maximum 10 iterations
+
+### Phase 2.1: Post-Build Reflection
+After verification passes with zero gaps, capture accumulated implementation knowledge before it's lost to context compression. Answer four questions:
+
+1. **"Now that I've built this, what would I have done differently?"**
+   - Architectural choices that caused friction
+   - Patterns that were harder to work with than expected
+   - Code that works but feels fragile or overly complex
+
+2. **"What should be refactored before moving on?"**
+   - Concrete suggestions with file paths and line numbers
+   - Technical debt introduced during this implementation
+   - Opportunities to simplify or consolidate
+
+3. **"Did we over-build? Is there a simpler way?"**
+   - Identify any added complexity that wasn't strictly needed
+   - Flag scope expansion beyond the original plan
+   - Check if any "fix everything encountered" items could have been simpler
+
+4. **"Would a staff engineer approve this?" (Principle #19)**
+   - Check if the solution demonstrates good engineering taste
+   - Look for over-abstraction, unnecessary indirection, or "clever" code
+   - For non-trivial implementations: is there a more elegant approach?
+   - For simple fixes: skip this check - don't over-engineer obvious solutions
+
+**Actions**:
+- Apply any low-risk refactors immediately (re-run build/type check after)
+- Log remaining suggestions in the plan document under `## Post-Build Reflection`
+
+### Phase 3: Auto-Learning (MANDATORY)
+12. **Execute AUTO-LEARNING PROTOCOL** before reporting completion
+
+**The auditor subagent handles**: reading the plan, verifying all deliverables, checking patterns/build/types, fixing plan document gaps, and returning structured results.
+
+**You (the loop controller) handle**: implementation, spawning auditors, parsing results, fixing code-level gaps, looping, learning, and documentation.
+
+**Remember: Claims without proof are invalid. Show the verification output.**
+
+---
+
+## AUTO-LEARNING PROTOCOL (MANDATORY after every loop completion)
+
+After Loop Completes (Zero Gaps):
+
+- **Record fixes**: For each bug fixed, record the wrong vs correct pattern
+- **Update pattern scanner**: If the bad pattern is grep-able, add detection to `scripts/massu-pattern-scanner.sh`
+- **Codebase-wide search**: Verify no other instances of same bad pattern (CR-9)
+- **Record user corrections**: If the user corrected any behavior during this loop, add structured entry to session state with date, wrong behavior, correction, and prevention rule
+
+**A loop that fixes 5 bugs but records 0 learnings is 80% wasted. The fixes are temporary; the learnings are permanent.**

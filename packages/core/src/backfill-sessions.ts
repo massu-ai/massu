@@ -13,7 +13,7 @@ import { resolve, basename } from 'path';
 import { getMemoryDb, createSession, addObservation, addSummary, addUserPrompt, deduplicateFailedAttempt } from './memory-db.ts';
 import { parseTranscript, extractUserMessages, getLastAssistantMessage } from './transcript-parser.ts';
 import { extractObservationsFromEntries } from './observation-extractor.ts';
-import { getProjectRoot } from './config.ts';
+import { getProjectRoot, getConfig } from './config.ts';
 
 /**
  * Auto-detect the Claude Code project transcript directory.
@@ -22,12 +22,13 @@ import { getProjectRoot } from './config.ts';
 function findTranscriptDir(): string {
   const home = process.env.HOME ?? '~';
   const projectRoot = getProjectRoot();
+  const claudeDirName = getConfig().conventions?.claudeDirName ?? '.claude';
   // Claude Code escapes the path by replacing / with -
   const escapedPath = projectRoot.replace(/\//g, '-');
-  const candidate = resolve(home, '.claude/projects', escapedPath);
+  const candidate = resolve(home, `${claudeDirName}/projects`, escapedPath);
   if (existsSync(candidate)) return candidate;
-  // Fallback: scan .claude/projects/ for directories matching the project name
-  const projectsDir = resolve(home, '.claude/projects');
+  // Fallback: scan projects dir for directories matching the project name
+  const projectsDir = resolve(home, `${claudeDirName}/projects`);
   if (existsSync(projectsDir)) {
     try {
       const entries = readdirSync(projectsDir);

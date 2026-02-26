@@ -9,6 +9,17 @@ name: massu-push
 
 # CS Push: Full Verification Gate Before Remote Push
 
+## Workflow Position
+
+```
+/massu-create-plan -> /massu-plan -> /massu-loop -> /massu-commit -> /massu-push
+(CREATE)           (AUDIT)        (IMPLEMENT)   (COMMIT)        (PUSH)
+```
+
+**This command is step 5 of 5 in the standard workflow.**
+
+---
+
 ## Objective
 
 Execute COMPREHENSIVE verification including ALL tests and security checks before pushing to remote. This is the final gate - code MUST pass every check before leaving your machine.
@@ -132,6 +143,10 @@ cd packages/core && npx tsc --noEmit
 # 1.3 Hook Build
 cd packages/core && npm run build:hooks
 # MUST exit 0
+
+# 1.4 Generalization Compliance (VR-GENERIC)
+bash scripts/massu-generalization-scanner.sh
+# MUST exit 0
 ```
 
 **Gate Check:**
@@ -142,6 +157,7 @@ cd packages/core && npm run build:hooks
 | Pattern Scanner | massu-pattern-scanner.sh | Exit [X] | PASS/FAIL |
 | TypeScript | tsc --noEmit | [X] errors | PASS/FAIL |
 | Hook Build | build:hooks | Exit [X] | PASS/FAIL |
+| Generalization | massu-generalization-scanner.sh | Exit [X] | PASS/FAIL |
 
 **Tier 1 Status: PASS/FAIL**
 ```
@@ -306,6 +322,71 @@ git push origin [current-branch]
 2. **Fix each failure**
 3. **Re-run ENTIRE verification** (not just failed tiers)
 4. **Do NOT push until all tiers pass**
+
+---
+
+## TIMING EXPECTATIONS
+
+| Phase | Typical Duration |
+|-------|------------------|
+| Tier 1 (Quick) | ~30 seconds |
+| Tier 2 (Tests + Regression) | ~1-2 minutes |
+| Tier 3 (Security) | ~30 seconds |
+| Total | ~2-3 minutes |
+
+---
+
+## ABORT CONDITIONS
+
+Immediately abort and report if:
+- Secrets detected in codebase
+- More than 10% of tests failing (indicates systemic issue)
+- Any HIGH/CRITICAL npm vulnerability with no fix available
+
+```markdown
+## PUSH ABORTED
+
+### Reason
+[SECURITY | TEST_FAILURE | OTHER]
+
+### Details
+[Specific issue]
+
+### Required Action
+[Steps to resolve]
+
+### Do NOT Attempt Push Until Resolved
+```
+
+---
+
+## MANDATORY: PLAN DOCUMENT UPDATE (If Push Completes Plan)
+
+**If this push completes work from a plan document, the plan MUST be updated.**
+
+Before push is considered complete:
+- [ ] Plan document has IMPLEMENTATION STATUS at TOP
+- [ ] All completed items marked with status
+- [ ] Verification evidence recorded
+- [ ] Push commit hash recorded in plan
+
+```markdown
+# IMPLEMENTATION STATUS
+
+**Plan**: [Plan Name]
+**Status**: COMPLETE - PUSHED
+**Last Updated**: [YYYY-MM-DD HH:MM]
+**Push Commit**: [commit hash]
+
+## Final Verification
+
+| Check | Result | Status |
+|-------|--------|--------|
+| Pattern Scanner | Exit 0 | PASS |
+| Type Check | 0 errors | PASS |
+| Tests | All pass | PASS |
+| Push | Successful | PASS |
+```
 
 ---
 

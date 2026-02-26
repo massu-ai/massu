@@ -7,7 +7,7 @@
 // Captures current session state into DB before compaction destroys context.
 // ============================================================
 
-import { getMemoryDb, addSummary, createSession } from '../memory-db.ts';
+import { getMemoryDb, addSummary, createSession, addObservation } from '../memory-db.ts';
 import { logAuditEntry } from '../audit-trail.ts';
 import type { SessionSummary } from '../memory-db.ts';
 
@@ -44,6 +44,28 @@ async function main(): Promise<void> {
 
       // 4. Store with pre_compact marker in plan_progress
       addSummary(db, session_id, summary);
+
+      // 5. Preserve knowledge system state for post-compaction context
+      try {
+        const knowledgeObs = observations.filter(
+          o => (o.title as string)?.includes('knowledge') ||
+               (o.title as string)?.includes('Knowledge') ||
+               (o.detail as string)?.includes('knowledge')
+        );
+        if (knowledgeObs.length > 0) {
+          const knowledgeContext = knowledgeObs
+            .map(o => `[${o.type}] ${o.title}`)
+            .join('; ');
+          // Store as a high-importance observation so session-start picks it up
+          addObservation(db, session_id, 'discovery',
+            'Knowledge context preserved before compaction',
+            knowledgeContext,
+            { importance: 4 }
+          );
+        }
+      } catch (_knowledgeErr) {
+        // Best-effort: never block compaction
+      }
 
       // Log compaction event for audit trail continuity
       try {

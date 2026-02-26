@@ -206,8 +206,8 @@ describe('Tools Module', () => {
   });
 
   describe('handleToolCall - massu_sync', () => {
-    it('rebuilds indexes and returns summary', () => {
-      const result = handleToolCall('massu_sync', {}, dataDb, codegraphDb);
+    it('rebuilds indexes and returns summary', async () => {
+      const result = await handleToolCall('massu_sync', {}, dataDb, codegraphDb);
       expect(result.content[0].type).toBe('text');
       expect(result.content[0].text).toContain('Indexes rebuilt');
     });
@@ -226,37 +226,37 @@ describe('Tools Module', () => {
       `).run();
     });
 
-    it('returns context for a file', () => {
-      const result = handleToolCall('massu_context', { file: 'src/test.ts' }, dataDb, codegraphDb);
+    it('returns context for a file', async () => {
+      const result = await handleToolCall('massu_context', { file: 'src/test.ts' }, dataDb, codegraphDb);
       expect(result.content[0].text).toContain('CodeGraph Nodes');
       expect(result.content[0].text).toContain('testFunction');
     });
 
-    it('includes domain classification', () => {
-      const result = handleToolCall('massu_context', { file: 'src/test.ts' }, dataDb, codegraphDb);
+    it('includes domain classification', async () => {
+      const result = await handleToolCall('massu_context', { file: 'src/test.ts' }, dataDb, codegraphDb);
       expect(result.content[0].text).toContain('Domain:');
     });
 
-    it('includes import information', () => {
-      const result = handleToolCall('massu_context', { file: 'src/test.ts' }, dataDb, codegraphDb);
+    it('includes import information', async () => {
+      const result = await handleToolCall('massu_context', { file: 'src/test.ts' }, dataDb, codegraphDb);
       expect(result.content[0].text).toContain('Imports');
     });
   });
 
   describe('handleToolCall - massu_impact', () => {
-    it('returns impact analysis for a file', () => {
-      const result = handleToolCall('massu_impact', { file: 'src/test.ts' }, dataDb, codegraphDb);
+    it('returns impact analysis for a file', async () => {
+      const result = await handleToolCall('massu_impact', { file: 'src/test.ts' }, dataDb, codegraphDb);
       expect(result.content[0].text).toContain('Impact Analysis');
       expect(result.content[0].text).toContain('src/test.ts');
     });
 
-    it('includes middleware tree check', () => {
-      const result = handleToolCall('massu_impact', { file: 'src/test.ts' }, dataDb, codegraphDb);
+    it('includes middleware tree check', async () => {
+      const result = await handleToolCall('massu_impact', { file: 'src/test.ts' }, dataDb, codegraphDb);
       expect(result.content[0].text).toContain('Middleware');
     });
 
-    it('includes domain information', () => {
-      const result = handleToolCall('massu_impact', { file: 'src/test.ts' }, dataDb, codegraphDb);
+    it('includes domain information', async () => {
+      const result = await handleToolCall('massu_impact', { file: 'src/test.ts' }, dataDb, codegraphDb);
       expect(result.content[0].text).toContain('Domain:');
     });
   });
@@ -271,21 +271,21 @@ describe('Tools Module', () => {
       `).run();
     });
 
-    it('returns summary without arguments', () => {
-      const result = handleToolCall('massu_trpc_map', {}, dataDb, codegraphDb);
+    it('returns summary without arguments', async () => {
+      const result = await handleToolCall('massu_trpc_map', {}, dataDb, codegraphDb);
       expect(result.content[0].text).toContain('tRPC Procedure Summary');
       expect(result.content[0].text).toContain('Total procedures');
     });
 
-    it('filters by router', () => {
-      const result = handleToolCall('massu_trpc_map', { router: 'test' }, dataDb, codegraphDb);
+    it('filters by router', async () => {
+      const result = await handleToolCall('massu_trpc_map', { router: 'test' }, dataDb, codegraphDb);
       expect(result.content[0].text).toContain('Router: test');
       expect(result.content[0].text).toContain('getTest');
       expect(result.content[0].text).toContain('updateTest');
     });
 
-    it('shows uncoupled procedures', () => {
-      const result = handleToolCall('massu_trpc_map', { uncoupled: true }, dataDb, codegraphDb);
+    it('shows uncoupled procedures', async () => {
+      const result = await handleToolCall('massu_trpc_map', { uncoupled: true }, dataDb, codegraphDb);
       expect(result.content[0].text).toContain('Uncoupled Procedures');
       expect(result.content[0].text).toContain('updateTest');
     });
@@ -304,36 +304,36 @@ describe('Tools Module', () => {
       `).run(Math.floor(Date.now() / 1000));
     });
 
-    it('classifies a file', () => {
-      const result = handleToolCall('massu_domains', { file: 'src/app/test/page.tsx' }, dataDb, codegraphDb);
+    it('classifies a file', async () => {
+      const result = await handleToolCall('massu_domains', { file: 'src/app/test/page.tsx' }, dataDb, codegraphDb);
       expect(result.content[0].text).toContain('Domain:');
     });
 
-    it('shows domain summary without arguments', () => {
-      const result = handleToolCall('massu_domains', {}, dataDb, codegraphDb);
+    it('shows domain summary without arguments', async () => {
+      const result = await handleToolCall('massu_domains', {}, dataDb, codegraphDb);
       expect(result.content[0].text).toContain('Domain Summary');
     });
 
-    it('lists files in domain', () => {
-      const result = handleToolCall('massu_domains', { domain: 'test' }, dataDb, codegraphDb);
+    it('lists files in domain', async () => {
+      const result = await handleToolCall('massu_domains', { domain: 'test' }, dataDb, codegraphDb);
       expect(result.content[0].text).toContain('Domain: test');
     });
   });
 
   describe('handleToolCall - unknown tool', () => {
-    it('returns error for unknown tool', () => {
-      const result = handleToolCall('massu_unknown_tool', {}, dataDb, codegraphDb);
+    it('returns error for unknown tool', async () => {
+      const result = await handleToolCall('massu_unknown_tool', {}, dataDb, codegraphDb);
       expect(result.content[0].text).toContain('Unknown tool');
     });
   });
 
   describe('handleToolCall - error handling', () => {
-    it('catches and returns errors', () => {
+    it('catches and returns errors', async () => {
       // Force an error by passing invalid database
       const badDb = new Database(':memory:');
       badDb.close(); // Closed DB will cause errors
 
-      const result = handleToolCall('massu_context', { file: 'test.ts' }, badDb, codegraphDb);
+      const result = await handleToolCall('massu_context', { file: 'test.ts' }, badDb, codegraphDb);
       expect(result.content[0].text).toContain('Error');
     });
   });

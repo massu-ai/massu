@@ -1,12 +1,12 @@
 ---
 title: "Lifecycle Hooks"
-description: "11 automated hooks that capture context, enforce rules, and preserve memory without any manual effort"
+description: "11 MCP lifecycle hooks plus 11 shell hooks that capture context, enforce rules, and preserve memory without any manual effort"
 order: 0
 ---
 
 # Lifecycle Hooks
 
-Massu AI includes 11 lifecycle hooks that run automatically during Claude Code sessions. These hooks capture observations, inject context, enforce rules, and preserve state -- all without any manual effort from the developer.
+Massu AI includes 11 MCP lifecycle hooks and 11 shell utility hooks that run automatically during Claude Code sessions. Together they capture observations, inject context, enforce rules, filter output, and preserve state -- all without any manual effort from the developer.
 
 ## How Hooks Work
 
@@ -107,3 +107,38 @@ Click any hook below for complete documentation including input/output formats, 
 - [cost-tracker](/docs/hooks/cost-tracker) -- Token usage tracking per tool call
 - [quality-event](/docs/hooks/quality-event) -- Quality signal detection after tool calls
 - [intent-suggester](/docs/hooks/intent-suggester) -- Command suggestion based on prompt intent
+
+## Shell Hooks (11)
+
+In addition to the 11 MCP lifecycle hooks, Massu AI includes 11 shell utility hooks located in `scripts/hooks/`. These hooks are invoked at specific points to enforce policies, filter output, and automate routine tasks.
+
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| `output-secret-filter.sh` | After every tool output | Strip potential secrets (API keys, tokens, passwords) from Claude Code output before display |
+| `memory-integrity-check.sh` | Session start | Verify SQLite memory database integrity; alert if corruption detected |
+| `loop-circuit-breaker.sh` | During `/massu-loop` | Detect infinite loops and halt with a structured error after configurable iteration limit |
+| `auto-ingest-incident.sh` | Session end | Automatically ingest any incidents detected during the session into the knowledge system |
+| `auto-review-on-stop.sh` | Session stop | Trigger an automated code review of uncommitted changes when the session stops |
+| `validate-deliverables.sh` | During `/massu-loop` | Verify each plan deliverable is actually complete before marking it done |
+| `surface-review-findings.sh` | Post-review | Surface `/massu-review` findings inline as Claude Code context for the next prompt |
+| `pattern-feedback.sh` | After tool calls | Capture pattern usage signals and feed them back to the knowledge system |
+| `mcp-rate-limiter.sh` | Before each MCP tool call | Enforce per-tool rate limits to prevent runaway tool usage in long sessions |
+| `mcp-usage-tracker.sh` | After each MCP tool call | Record tool invocation counts and latency for the observability dashboard |
+| `cost-tracker.sh` | After each MCP tool call | Track estimated token costs per tool invocation for the cost intelligence dashboard |
+
+### Shell Hook Configuration
+
+Shell hooks are configured in `.claude/settings.local.json` alongside the MCP lifecycle hooks. They are installed by `npx massu init` and updated by `npx massu install-hooks`.
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "node dist/hooks/post-tool-use.js" }] },
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "bash dist/hooks/mcp-usage-tracker.sh" }] }
+    ]
+  }
+}
+```
+
+Shell hooks follow the same stdin/stdout contract as MCP hooks: they receive JSON on stdin, write output on stdout, and must exit within 5 seconds.

@@ -9,6 +9,17 @@ name: massu-new-feature
 
 # Massu New Feature: Pattern-Compliant Feature Scaffolding
 
+## Workflow Position
+
+```
+/massu-create-plan -> /massu-plan -> /massu-loop / /massu-new-feature -> /massu-commit -> /massu-push
+(PLAN)              (AUDIT)        (IMPLEMENT)    (SCAFFOLD)          (COMMIT)        (PUSH)
+```
+
+**This command can be used standalone or as part of /massu-loop for feature scaffolding.**
+
+---
+
 ## Objective
 
 Scaffold new features with **all CLAUDE.md patterns pre-applied**, ensuring correct architecture from the start. Verify each component before proceeding.

@@ -6,6 +6,7 @@
 // PreToolUse Hook: Pre-Deletion Feature Impact Check
 // Detects file deletion patterns (rm, git rm, Write with empty content)
 // and runs sentinel impact analysis. Blocks if critical features orphaned.
+// Also protects knowledge system files from accidental deletion (P7-005).
 // Must complete in <500ms.
 // ============================================================
 
@@ -27,6 +28,14 @@ interface HookInput {
 
 const PROJECT_ROOT = getProjectRoot();
 
+// Knowledge system files that must never be silently deleted.
+// These files underpin knowledge indexing and memory retrieval.
+const KNOWLEDGE_PROTECTED_FILES = [
+  'knowledge-db.ts',
+  'knowledge-indexer.ts',
+  'knowledge-tools.ts',
+];
+
 function getDataDb(): Database.Database | null {
   const dbPath = getResolvedPaths().dataDbPath;
   if (!existsSync(dbPath)) return null;
@@ -37,6 +46,43 @@ function getDataDb(): Database.Database | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * P7-005: Check if the tool call targets a protected knowledge system file.
+ * Returns a warning message if a protected file would be deleted/emptied.
+ */
+function checkKnowledgeFileProtection(input: HookInput): string | null {
+  const candidateFiles: string[] = [];
+
+  if (input.tool_name === 'Bash' && input.tool_input.command) {
+    const cmd = input.tool_input.command;
+    const rmMatch = cmd.match(/(?:rm|git\s+rm)\s+(?:-[rf]*\s+)*(.+)/);
+    if (rmMatch) {
+      const parts = rmMatch[1].split(/\s+/).filter(p => !p.startsWith('-'));
+      candidateFiles.push(...parts);
+    }
+  }
+
+  if (input.tool_name === 'Write' && input.tool_input.file_path) {
+    const content = input.tool_input.content || '';
+    if (content.trim().length === 0) {
+      candidateFiles.push(input.tool_input.file_path);
+    }
+  }
+
+  for (const f of candidateFiles) {
+    const basename = f.split('/').pop() ?? f;
+    if (KNOWLEDGE_PROTECTED_FILES.includes(basename)) {
+      return (
+        `KNOWLEDGE SYSTEM PROTECTION: "${basename}" is a core knowledge system file. ` +
+        `Deleting it will break knowledge indexing and memory retrieval. ` +
+        `Create a replacement before removing.`
+      );
+    }
+  }
+
+  return null;
 }
 
 function extractDeletedFiles(input: HookInput): string[] {
@@ -77,6 +123,14 @@ async function main(): Promise<void> {
     const input = await readStdin();
     const hookInput = JSON.parse(input) as HookInput;
 
+    // P7-005: Check knowledge file protection before anything else
+    const knowledgeWarning = checkKnowledgeFileProtection(hookInput);
+    if (knowledgeWarning) {
+      process.stdout.write(JSON.stringify({ message: knowledgeWarning }));
+      process.exit(0);
+      return;
+    }
+
     const deletedFiles = extractDeletedFiles(hookInput);
     if (deletedFiles.length === 0) {
       process.exit(0);
@@ -90,11 +144,14 @@ async function main(): Promise<void> {
       return;
     }
 
+    // The sentinel registry table name (defined by sentinel-db schema)
+    const SENTINEL_TABLE = 'massu_sentinel';
+
     try {
       // Check if any sentinel tables exist
       const tableExists = db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='massu_sentinel'"
-      ).get();
+        `SELECT name FROM sqlite_master WHERE type='table' AND name=?`
+      ).get(SENTINEL_TABLE);
 
       if (!tableExists) {
         process.exit(0);

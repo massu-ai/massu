@@ -653,14 +653,15 @@ If the bad pattern is detectable by grep, add check to `scripts/massu-pattern-sc
 ## START NOW
 
 1. Identify work to verify
-2. **Run VR-PLAN: Enumerate ALL applicable VR-* checks with targets**
-3. Load relevant domain patterns
-4. Run pattern scanner first
-5. Execute all VR-* checks **from VR-PLAN enumeration** in dependency order
-6. Run security checks
-7. Produce verification report
-8. Update session state
-9. If ANY gaps: list fixes needed
-10. If ZERO gaps: report VERIFIED
+2. **Self-review**: Before running any automated checks, review your own changes and challenge your assumptions. Ask: "What did I assume about the schema, imports, or edge cases? What could break?" This catches cheap errors before the heavy machinery runs.
+3. **Run VR-PLAN: Enumerate ALL applicable VR-* checks with targets**
+4. Load relevant domain patterns
+5. Run pattern scanner first
+6. Execute all VR-* checks **from VR-PLAN enumeration** in dependency order
+7. Run security checks
+8. Produce verification report
+9. Update session state
+10. If ANY gaps: list fixes needed
+11. If ZERO gaps: report VERIFIED
 
 **Remember: Show the actual command output, not summaries.**

@@ -5,13 +5,11 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from '
 import { resolve, dirname } from 'path';
 import type Database from 'better-sqlite3';
 import { generateCurrentMd } from './session-state-generator.ts';
-import { getProjectRoot } from './config.ts';
+import { getResolvedPaths } from './config.ts';
 
 // ============================================================
 // P5-002: Session Archiver
 // ============================================================
-
-const PROJECT_ROOT = getProjectRoot();
 
 /**
  * Archive the current CURRENT.md and generate a new one from memory DB.
@@ -21,8 +19,9 @@ export function archiveAndRegenerate(db: Database.Database, sessionId: string): 
   archivePath?: string;
   newContent: string;
 } {
-  const currentMdPath = resolve(PROJECT_ROOT, '.claude/session-state/CURRENT.md');
-  const archiveDir = resolve(PROJECT_ROOT, '.claude/session-state/archive');
+  const resolved = getResolvedPaths();
+  const currentMdPath = resolved.sessionStatePath;
+  const archiveDir = resolved.sessionArchivePath;
   let archived = false;
   let archivePath: string | undefined;
 

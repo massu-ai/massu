@@ -9,6 +9,17 @@ name: massu-plan
 
 # CS Plan: Continuous Verification Audit Loop (ZERO-GAP STANDARD)
 
+## Workflow Position
+
+```
+/massu-create-plan -> /massu-plan -> /massu-loop -> /massu-commit -> /massu-push
+(CREATE)           (AUDIT)        (IMPLEMENT)   (COMMIT)        (PUSH)
+```
+
+**This command is step 2 of 5 in the standard workflow.**
+
+---
+
 ## CRITICAL: THIS IS A PLAN-AUDIT COMMAND, NOT AN IMPLEMENTATION COMMAND
 
 **THIS COMMAND AUDITS AND IMPROVES PLAN DOCUMENTS. IT DOES NOT IMPLEMENT CODE.**
@@ -378,6 +389,37 @@ If plan includes config changes:
 1. Edit the plan document directly
 2. Add missing detail or correct errors
 3. Mark the fix with a comment: `<!-- Fixed in audit iteration N -->`
+
+---
+
+## PLAN DOCUMENT COMPLETION TRACKING (MANDATORY)
+
+When audit completes, update the plan document itself with a completion table at TOP:
+
+```markdown
+# IMPLEMENTATION STATUS
+
+**Plan**: [Name] | **Status**: COMPLETE/PARTIAL/NOT STARTED | **Last Audited**: [date]
+
+| # | Task/Phase | Status | Verification | Date |
+|---|------------|--------|--------------|------|
+| 1 | [Task] | 100% COMPLETE | VR-GREP: 0 refs | [date] |
+| 2 | [Task] | PARTIAL (40%) | 5/12 done | [date] |
+```
+
+Checklist: completion table at TOP, all tasks have status, completed tasks have evidence, partial tasks show progress, dates recorded, plan status reflects reality.
+
+---
+
+## CONTEXT MANAGEMENT
+
+Use Task tool with subagents for exploration. Update session-state/CURRENT.md after major phases. If compacted mid-protocol, read CURRENT.md and resume. Never mix unrelated tasks during a protocol.
+
+---
+
+## SESSION STATE UPDATE
+
+After EACH iteration, update `session-state/CURRENT.md` with: audit iteration, status, gap summary (P0/P1/P2), verified work with file paths, next focus.
 
 ---
 

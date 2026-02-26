@@ -90,7 +90,7 @@ function getDb() {
   return { codegraphDb, dataDb };
 }
 
-function handleRequest(request: JsonRpcRequest): JsonRpcResponse {
+async function handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> {
   const { method, params, id } = request;
 
   switch (method) {
@@ -119,7 +119,7 @@ function handleRequest(request: JsonRpcRequest): JsonRpcResponse {
       const toolName = (params as { name: string })?.name;
       const toolArgs = (params as { arguments?: Record<string, unknown> })?.arguments ?? {};
       const { codegraphDb: cgDb, dataDb: lDb } = getDb();
-      const result = handleToolCall(toolName, toolArgs, lDb as never, cgDb as never);
+      const result = await handleToolCall(toolName, toolArgs, lDb as never, cgDb as never);
       return { jsonrpc: '2.0', id: id ?? null, result };
     }
 
@@ -142,7 +142,7 @@ function handleRequest(request: JsonRpcRequest): JsonRpcResponse {
 // that lives in server.ts's stdin 'data' handler.
 // ---------------------------------------------------------------------------
 
-function simulateStdinLine(line: string): JsonRpcResponse | null {
+async function simulateStdinLine(line: string): Promise<JsonRpcResponse | null> {
   const trimmed = line.trim();
   if (!trimmed) return null;
   const request = JSON.parse(trimmed) as JsonRpcRequest;
@@ -170,89 +170,89 @@ function simulateMalformedLine(line: string): JsonRpcResponse {
 // ---------------------------------------------------------------------------
 
 describe('Server JSON-RPC 2.0 — response structure', () => {
-  it('all successful responses include jsonrpc: "2.0"', () => {
+  it('all successful responses include jsonrpc: "2.0"', async () => {
     const methods = ['initialize', 'tools/list', 'ping', 'notifications/initialized'] as const;
     for (const method of methods) {
-      const resp = handleRequest({ jsonrpc: '2.0', id: 1, method });
+      const resp = await handleRequest({ jsonrpc: '2.0', id: 1, method });
       expect(resp.jsonrpc).toBe('2.0');
     }
   });
 
-  it('response id mirrors request id (number)', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 42, method: 'ping' });
+  it('response id mirrors request id (number)', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 42, method: 'ping' });
     expect(resp.id).toBe(42);
   });
 
-  it('response id mirrors request id (string)', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 'req-abc', method: 'ping' });
+  it('response id mirrors request id (string)', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 'req-abc', method: 'ping' });
     expect(resp.id).toBe('req-abc');
   });
 
-  it('response id is null when request has no id', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', method: 'ping' });
+  it('response id is null when request has no id', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', method: 'ping' });
     expect(resp.id).toBeNull();
   });
 });
 
 describe('Server JSON-RPC 2.0 — initialize', () => {
-  it('returns protocolVersion 2024-11-05', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 1, method: 'initialize' });
+  it('returns protocolVersion 2024-11-05', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 1, method: 'initialize' });
     expect(resp.error).toBeUndefined();
     const result = resp.result as Record<string, unknown>;
     expect(result.protocolVersion).toBe('2024-11-05');
   });
 
-  it('returns capabilities.tools object', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 1, method: 'initialize' });
+  it('returns capabilities.tools object', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 1, method: 'initialize' });
     const result = resp.result as Record<string, unknown>;
     expect((result.capabilities as Record<string, unknown>).tools).toBeDefined();
   });
 
-  it('returns serverInfo with name massu and version 1.0.0', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 1, method: 'initialize' });
+  it('returns serverInfo with name massu and version 1.0.0', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 1, method: 'initialize' });
     const result = resp.result as { serverInfo: { name: string; version: string } };
     expect(result.serverInfo.name).toBe('massu');
     expect(result.serverInfo.version).toBe('1.0.0');
   });
 
-  it('works with string id', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 'init-1', method: 'initialize' });
+  it('works with string id', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 'init-1', method: 'initialize' });
     expect(resp.id).toBe('init-1');
     expect((resp.result as Record<string, unknown>).protocolVersion).toBe('2024-11-05');
   });
 });
 
 describe('Server JSON-RPC 2.0 — notifications/initialized', () => {
-  it('returns empty result object', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 2, method: 'notifications/initialized' });
+  it('returns empty result object', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 2, method: 'notifications/initialized' });
     expect(resp.error).toBeUndefined();
     expect(resp.result).toEqual({});
   });
 
-  it('returns null id when no id provided (notification pattern)', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  it('returns null id when no id provided (notification pattern)', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', method: 'notifications/initialized' });
     expect(resp.id).toBeNull();
   });
 });
 
 describe('Server JSON-RPC 2.0 — tools/list', () => {
-  it('calls getToolDefinitions and returns result.tools array', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
+  it('calls getToolDefinitions and returns result.tools array', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
     expect(resp.error).toBeUndefined();
     const result = resp.result as { tools: unknown[] };
     expect(Array.isArray(result.tools)).toBe(true);
   });
 
-  it('returns mocked tool definitions', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
+  it('returns mocked tool definitions', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
     const result = resp.result as { tools: Array<{ name: string }> };
     const names = result.tools.map((t) => t.name);
     expect(names).toContain('massu_sync');
     expect(names).toContain('massu_context');
   });
 
-  it('each tool definition has name, description, inputSchema', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
+  it('each tool definition has name, description, inputSchema', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
     const result = resp.result as { tools: Array<{ name: string; description: string; inputSchema: object }> };
     for (const tool of result.tools) {
       expect(tool.name).toBeTruthy();
@@ -261,11 +261,11 @@ describe('Server JSON-RPC 2.0 — tools/list', () => {
     }
   });
 
-  it('calls getToolDefinitions exactly once per request', () => {
+  it('calls getToolDefinitions exactly once per request', async () => {
     const spy = vi.mocked(getToolDefinitions);
     spy.mockClear();
 
-    handleRequest({ jsonrpc: '2.0', id: 4, method: 'tools/list' });
+    await handleRequest({ jsonrpc: '2.0', id: 4, method: 'tools/list' });
     expect(spy).toHaveBeenCalledTimes(1);
   });
 });
@@ -278,8 +278,8 @@ describe('Server JSON-RPC 2.0 — tools/call', () => {
     vi.mocked(handleToolCall).mockClear();
   });
 
-  it('delegates to handleToolCall and returns its result', () => {
-    const resp = handleRequest({
+  it('delegates to handleToolCall and returns its result', async () => {
+    const resp = await handleRequest({
       jsonrpc: '2.0',
       id: 5,
       method: 'tools/call',
@@ -290,8 +290,8 @@ describe('Server JSON-RPC 2.0 — tools/call', () => {
     expect(result.content[0].text).toBe('tool result');
   });
 
-  it('passes tool name from params.name to handleToolCall', () => {
-    handleRequest({
+  it('passes tool name from params.name to handleToolCall', async () => {
+    await handleRequest({
       jsonrpc: '2.0',
       id: 5,
       method: 'tools/call',
@@ -305,8 +305,8 @@ describe('Server JSON-RPC 2.0 — tools/call', () => {
     );
   });
 
-  it('uses empty object for arguments when params.arguments is omitted', () => {
-    handleRequest({
+  it('uses empty object for arguments when params.arguments is omitted', async () => {
+    await handleRequest({
       jsonrpc: '2.0',
       id: 6,
       method: 'tools/call',
@@ -320,11 +320,11 @@ describe('Server JSON-RPC 2.0 — tools/call', () => {
     );
   });
 
-  it('lazy-initializes databases on first tools/call', () => {
+  it('lazy-initializes databases on first tools/call', async () => {
     vi.mocked(getCodeGraphDb).mockClear();
     vi.mocked(getDataDb).mockClear();
 
-    handleRequest({
+    await handleRequest({
       jsonrpc: '2.0',
       id: 7,
       method: 'tools/call',
@@ -335,14 +335,14 @@ describe('Server JSON-RPC 2.0 — tools/call', () => {
     expect(vi.mocked(getDataDb)).toHaveBeenCalledTimes(1);
   });
 
-  it('reuses existing db connections on subsequent tools/call', () => {
+  it('reuses existing db connections on subsequent tools/call', async () => {
     vi.mocked(getCodeGraphDb).mockClear();
     vi.mocked(getDataDb).mockClear();
 
     // First call initializes dbs
-    handleRequest({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'massu_sync' } });
+    await handleRequest({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'massu_sync' } });
     // Second call should reuse
-    handleRequest({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'massu_sync' } });
+    await handleRequest({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'massu_sync' } });
 
     expect(vi.mocked(getCodeGraphDb)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(getDataDb)).toHaveBeenCalledTimes(1);
@@ -350,58 +350,58 @@ describe('Server JSON-RPC 2.0 — tools/call', () => {
 });
 
 describe('Server JSON-RPC 2.0 — ping', () => {
-  it('returns empty result', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 10, method: 'ping' });
+  it('returns empty result', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 10, method: 'ping' });
     expect(resp.error).toBeUndefined();
     expect(resp.result).toEqual({});
   });
 
-  it('returns id matching request', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 99, method: 'ping' });
+  it('returns id matching request', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 99, method: 'ping' });
     expect(resp.id).toBe(99);
   });
 });
 
 describe('Server JSON-RPC 2.0 — unknown method', () => {
-  it('returns error code -32601 for unknown method', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 11, method: 'nonexistent/method' });
+  it('returns error code -32601 for unknown method', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 11, method: 'nonexistent/method' });
     expect(resp.result).toBeUndefined();
     expect(resp.error).toBeDefined();
     expect(resp.error!.code).toBe(-32601);
   });
 
-  it('error message contains the unknown method name', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 11, method: 'some/unknown' });
+  it('error message contains the unknown method name', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 11, method: 'some/unknown' });
     expect(resp.error!.message).toContain('some/unknown');
     expect(resp.error!.message).toContain('Method not found');
   });
 
-  it('preserves id in error response', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 'err-id', method: 'bad/method' });
+  it('preserves id in error response', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 'err-id', method: 'bad/method' });
     expect(resp.id).toBe('err-id');
   });
 
-  it('various unknown methods all get -32601', () => {
+  it('various unknown methods all get -32601', async () => {
     const unknowns = ['foo', 'bar/baz', 'tools/execute', 'rpc.discover'];
     for (const method of unknowns) {
-      const resp = handleRequest({ jsonrpc: '2.0', id: 1, method });
+      const resp = await handleRequest({ jsonrpc: '2.0', id: 1, method });
       expect(resp.error!.code).toBe(-32601);
     }
   });
 });
 
 describe('Server JSON-RPC 2.0 — stdin line parsing', () => {
-  it('parses and dispatches a valid newline-terminated JSON line', () => {
+  it('parses and dispatches a valid newline-terminated JSON line', async () => {
     const line = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }) + '\n';
-    const resp = simulateStdinLine(line);
+    const resp = await simulateStdinLine(line);
     expect(resp).not.toBeNull();
     expect(resp!.result).toEqual({});
   });
 
-  it('ignores empty or whitespace-only lines', () => {
-    expect(simulateStdinLine('')).toBeNull();
-    expect(simulateStdinLine('   ')).toBeNull();
-    expect(simulateStdinLine('\t\n')).toBeNull();
+  it('ignores empty or whitespace-only lines', async () => {
+    expect(await simulateStdinLine('')).toBeNull();
+    expect(await simulateStdinLine('   ')).toBeNull();
+    expect(await simulateStdinLine('\t\n')).toBeNull();
   });
 
   it('returns parse error response for malformed JSON', () => {
@@ -437,16 +437,16 @@ describe('Server JSON-RPC 2.0 — notification suppression (no id)', () => {
     expect(request.id).toBeUndefined();
   });
 
-  it('requests with explicit id get a response', () => {
+  it('requests with explicit id get a response', async () => {
     const request = { jsonrpc: '2.0' as const, id: 0, method: 'ping' };
     // id === 0 is defined, so response IS written
     expect(request.id).toBeDefined();
-    const resp = handleRequest(request);
+    const resp = await handleRequest(request);
     expect(resp.id).toBe(0);
   });
 
-  it('id: 0 is a valid id (not falsy-excluded)', () => {
-    const resp = handleRequest({ jsonrpc: '2.0', id: 0, method: 'ping' });
+  it('id: 0 is a valid id (not falsy-excluded)', async () => {
+    const resp = await handleRequest({ jsonrpc: '2.0', id: 0, method: 'ping' });
     expect(resp.id).toBe(0);
   });
 });

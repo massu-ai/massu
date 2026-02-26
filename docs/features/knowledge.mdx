@@ -1,0 +1,253 @@
+---
+title: "Knowledge System"
+description: "Structured full-text-searchable store for rules, incidents, patterns, verifications, and corrections -- what your team knows"
+order: 2
+---
+
+# Knowledge System
+
+The knowledge system is a structured, full-text-searchable store for everything your team learns about building software with AI. While the memory system records what happened (events, sessions, observations), the knowledge system records what your team knows -- coding rules, incident post-mortems, development patterns, verification results, and AI correction history.
+
+## Why a Separate Knowledge System?
+
+Session memory grows automatically but becomes noisy over time. The knowledge system is curated: entries are explicitly added, updated, and deprecated. This makes it the authoritative source for:
+
+- **Rules** -- coding standards, security requirements, architectural constraints
+- **Incidents** -- root causes and prevention strategies for past incidents
+- **Patterns** -- reusable development patterns with examples
+- **Verifications** -- records of which verification checks passed and when
+- **Schema checks** -- schema validation findings and remediation notes
+- **Corrections** -- AI mistakes that were corrected, to prevent recurrence
+
+## Architecture
+
+```
+massu_knowledge_* tools
+        |
+        v
+  Knowledge DB (SQLite, FTS5)
+  ├── knowledge_entries table (type, title, content, tags, created_at)
+  ├── knowledge_fts (FTS5 full-text index)
+  ├── knowledge_graph table (cross-references between entries)
+  └── corrections table
+        |
+        v
+  session-start hook
+  (injects high-priority knowledge at session start)
+```
+
+The knowledge DB is a separate SQLite database from the memory DB, stored at `.massu/knowledge.db`. This separation keeps memory queries fast and knowledge queries authoritative.
+
+## The 12 Knowledge Tools
+
+### `massu_knowledge_search`
+
+Full-text search across all knowledge types. Uses SQLite FTS5 for ranked, relevance-sorted results.
+
+```
+massu_knowledge_search --query "RLS policy"
+massu_knowledge_search --query "authentication" --type "rule"
+massu_knowledge_search --query "migration" --tags "database,prisma"
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | yes | FTS5 search query (supports AND, OR, NOT, phrase matching) |
+| `type` | string | no | Filter by type: `rule`, `incident`, `pattern`, `verification`, `schema_check`, `correction`, `plan` |
+| `tags` | string | no | Comma-separated tags to filter by |
+| `limit` | number | no | Max results (default: 20) |
+
+---
+
+### `massu_knowledge_rule`
+
+Store, retrieve, or list coding rules. Rules are the most frequently accessed knowledge type and are injected at session start when they match the current domain.
+
+```
+massu_knowledge_rule --action "list"
+massu_knowledge_rule --action "get" --title "protectedProcedure rule"
+massu_knowledge_rule --action "set" --title "No raw SQL in routers" --content "Use Prisma ORM for all database access from router files."
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | yes | `get`, `set`, or `list` |
+| `title` | string | get/set | Rule title |
+| `content` | string | set | Rule content |
+| `severity` | string | no | `critical`, `high`, `medium`, `low` |
+
+---
+
+### `massu_knowledge_incident`
+
+Record or query past incidents. Incidents include root cause analysis and prevention notes that are surfaced when similar patterns are detected.
+
+```
+massu_knowledge_incident --action "list"
+massu_knowledge_incident --action "record" --title "RLS bypass in admin routes" --content "Admin routes were bypassing RLS by using the service role key directly. Fix: always use user-scoped Supabase client." --severity "critical"
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | yes | `get`, `record`, or `list` |
+| `title` | string | get/record | Incident title |
+| `content` | string | record | Full incident description including root cause and prevention |
+| `severity` | string | no | Incident severity |
+
+---
+
+### `massu_knowledge_schema_check`
+
+Record or retrieve schema validation findings. Schema checks capture issues found during database schema audits, including missing indexes, constraint violations, and RLS gaps.
+
+```
+massu_knowledge_schema_check --action "list"
+massu_knowledge_schema_check --action "record" --title "orders table missing user_id index" --content "The orders.user_id column has no index, causing full table scans on user order lookups. Add: CREATE INDEX idx_orders_user_id ON orders(user_id);"
+```
+
+---
+
+### `massu_knowledge_pattern`
+
+Capture or retrieve reusable development patterns. Patterns include code examples, when-to-use guidance, and known pitfalls.
+
+```
+massu_knowledge_pattern --action "list"
+massu_knowledge_pattern --action "save" --title "tRPC infinite query pattern" --content "Use useInfiniteQuery for paginated lists. Pass cursor as the last item's ID. Server: return { items, nextCursor }."
+```
+
+---
+
+### `massu_knowledge_verification`
+
+Track verification results. Records which VR-* checks ran, when, and whether they passed. Used by `/massu-verify` to show historical verification coverage.
+
+```
+massu_knowledge_verification --action "record" --title "VR-TEST 2026-02-15" --content "880 tests passing. 0 failures." --tags "vr-test"
+massu_knowledge_verification --action "list" --tags "vr-security"
+```
+
+---
+
+### `massu_knowledge_graph`
+
+Explore cross-references between knowledge entries. The knowledge graph links related rules, incidents, patterns, and corrections so you can navigate from one entry to related entries.
+
+```
+massu_knowledge_graph --entry_id "rule:protectedProcedure"
+```
+
+**Returns:** The entry plus all entries it references and all entries that reference it.
+
+---
+
+### `massu_knowledge_command`
+
+Surface relevant workflow commands for a given context. Given a description of what you are trying to do, this tool returns the most relevant Massu AI commands.
+
+```
+massu_knowledge_command --context "I need to refactor this authentication module"
+# Returns: /massu-refactor, /massu-review, /massu-test
+```
+
+---
+
+### `massu_knowledge_correct`
+
+Record or retrieve AI corrections. When the AI makes a mistake and you correct it, use this tool to store the correction so it is surfaced in future sessions.
+
+```
+massu_knowledge_correct --action "record" --title "Missing await on DB call" --content "AI generated: const user = db.user.findUnique(...). Correct: const user = await db.user.findUnique(...). Always await Prisma calls."
+massu_knowledge_correct --action "list"
+```
+
+---
+
+### `massu_knowledge_plan`
+
+Store or search plan documents. Plan documents saved here are indexed for full-text search, making it easy to find past plans that addressed similar problems.
+
+```
+massu_knowledge_plan --action "save" --title "Auth refactor plan 2026-02" --content "..."
+massu_knowledge_plan --action "search" --query "authentication refactor"
+```
+
+---
+
+### `massu_knowledge_gaps`
+
+Identify knowledge coverage gaps -- areas of the codebase or workflow that have no associated rules, patterns, or incident history. Useful for prioritizing knowledge-building efforts.
+
+```
+massu_knowledge_gaps
+```
+
+**Returns:** A list of domains, file paths, and tool categories with low or zero knowledge coverage.
+
+---
+
+### `massu_knowledge_effectiveness`
+
+Measure knowledge utilization. Tracks how often each knowledge entry is accessed during sessions, which entries are never consulted, and whether knowledge injection at session start correlates with reduced errors.
+
+```
+massu_knowledge_effectiveness
+```
+
+**Returns:** Per-entry access counts, staleness scores (entries not accessed in 30+ days), and a utilization summary.
+
+---
+
+## FTS5 Full-Text Search
+
+The knowledge system uses SQLite FTS5 for full-text search. FTS5 supports:
+
+- **Phrase matching**: `"must use protectedProcedure"` (quotes)
+- **Boolean operators**: `authentication AND NOT oauth`
+- **Prefix matching**: `migrat*` (matches migrate, migration, migrations)
+- **Column filters**: `title:RLS` (search only the title column)
+
+All knowledge entries are indexed on both `title` and `content` columns.
+
+## Cross-References Between Knowledge Types
+
+The knowledge graph links related entries across types. For example:
+
+```
+Rule: "All mutations use protectedProcedure"
+  └─ related Incident: "RLS bypass in admin routes"
+       └─ related Pattern: "Service role client isolation"
+            └─ related Correction: "AI used public procedure for createOrder mutation"
+```
+
+When you retrieve any entry, `massu_knowledge_graph` shows all linked entries. This makes the knowledge system a navigable graph, not just a flat index.
+
+## Integration with Session Start
+
+The `session-start` hook automatically injects critical knowledge entries at the beginning of each session. Injection priority:
+
+1. `correction` entries (prevent recurrence of AI mistakes)
+2. `rule` entries with `severity: critical`
+3. `incident` entries with `severity: critical` or `high`
+4. `rule` entries matching the current active domain
+
+Knowledge injection respects the context window budget. If the window is near capacity, lower-priority entries are omitted but remain searchable via `massu_knowledge_search`.
+
+## Relationship to Memory System
+
+| Aspect | Memory System | Knowledge System |
+|--------|--------------|-----------------|
+| **Purpose** | Records what happened | Records what is known |
+| **Growth** | Automatic (hooks) | Manual (explicit tool calls) |
+| **Query** | `massu_memory_search` | `massu_knowledge_search` |
+| **Primary types** | observations, sessions, failures | rules, incidents, patterns, corrections |
+| **Maintenance** | Grows indefinitely | Entries curated and updated |
+| **Session injection** | High-importance observations | Critical rules and corrections |
+
+See [Memory System Architecture](/docs/features/memory-system) for details on the memory system.

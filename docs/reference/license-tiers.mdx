@@ -1,0 +1,131 @@
+---
+title: "License & Tiers"
+description: "Complete tier comparison, tool availability, offline grace period, and license management reference"
+order: 3
+---
+
+# License & Tiers
+
+Massu AI uses a tiered licensing model. Every tier includes all tools from the tiers below it. The free tier runs fully offline with no account required.
+
+## Tier Comparison
+
+### Free Tier (12 tools)
+
+Available to everyone with no account or API key required. All tools run fully offline.
+
+| Tool | Description |
+|------|-------------|
+| `massu_sync` | Force rebuild all indexes |
+| `massu_context` | Get file context (rules, imports, domain) |
+| `massu_impact` | Full impact analysis for a file |
+| `massu_domains` | Domain boundary information (when domains configured) |
+| `massu_schema` | Schema cross-reference (when Prisma configured) |
+| `massu_trpc_map` | Map tRPC procedures to UI call sites (when tRPC configured) |
+| `massu_coupling_check` | Find uncoupled procedures and orphan components (when tRPC configured) |
+| `massu_memory_search` | Full-text search across past observations |
+| `massu_memory_ingest` | Record an observation |
+| `massu_regression_risk` | Identify regression risk |
+| `massu_feature_health` | Feature health scores |
+| `massu_license_status` | Show current license tier and status |
+
+### Pro Tier (35 additional tools)
+
+Everything in Free, plus advanced memory, knowledge, analytics, cost, prompt analysis, validation, ADR, observability, and documentation tools.
+
+| Category | Tools | Description |
+|----------|-------|-------------|
+| **Advanced Memory** | `memory_timeline`, `memory_detail`, `memory_sessions`, `memory_failures` | Timeline view, session details, and failure tracking |
+| **Knowledge** | `knowledge_search`, `knowledge_rule`, `knowledge_incident`, `knowledge_schema_check`, `knowledge_pattern`, `knowledge_verification`, `knowledge_graph`, `knowledge_command`, `knowledge_correct`, `knowledge_plan`, `knowledge_gaps`, `knowledge_effectiveness` | Full-text search across rules, incidents, patterns, verifications, and more |
+| **Quality Analytics** | `quality_score`, `quality_trend`, `quality_report` | Session quality scoring and trend tracking |
+| **Cost Tracking** | `cost_session`, `cost_trend`, `cost_feature` | Session cost breakdown, trends, and feature attribution |
+| **Prompt Analysis** | `prompt_effectiveness`, `prompt_suggestions` | Prompt effectiveness and improvement suggestions |
+| **Validation** | `validation_check`, `validation_report` | File validation against rules |
+| **ADR** | `adr_list`, `adr_detail`, `adr_create` | Architecture decision records |
+| **Observability** | `session_replay`, `prompt_analysis`, `tool_patterns`, `session_stats` | Session replay, tool patterns, and statistics |
+| **Documentation** | `docs_audit`, `docs_coverage` | Documentation audit and coverage |
+
+### Team Tier (9 additional tools)
+
+Everything in Pro, plus feature registry and team collaboration tools.
+
+| Category | Tools | Description |
+|----------|-------|-------------|
+| **Sentinel** | `sentinel_search`, `sentinel_detail`, `sentinel_impact`, `sentinel_validate`, `sentinel_register`, `sentinel_parity` | Feature registration, validation, impact, and parity checking |
+| **Team Knowledge** | `team_search`, `team_expertise`, `team_conflicts` | Expertise tracking and conflict detection |
+
+### Enterprise Tier (8 additional tools)
+
+Everything in Team, plus audit, security, and dependency analysis tools.
+
+| Category | Tools | Description |
+|----------|-------|-------------|
+| **Audit Trail** | `audit_log`, `audit_report`, `audit_chain` | Compliance-ready audit trail with chain verification |
+| **Security** | `security_score`, `security_heatmap`, `security_trend` | Security scoring, heatmaps, and trend tracking |
+| **Dependency** | `dep_score`, `dep_alternatives` | Dependency risk analysis and alternatives |
+
+## Offline Grace Period
+
+Massu AI validates your license against the cloud endpoint and caches the result locally. If the cloud is unreachable, the cached tier remains active for a **7-day grace period**.
+
+**How it works:**
+
+1. On session start, Massu AI checks the local license cache in `memory.db`
+2. If the cache is less than 1 hour old, it is used without a network call
+3. If the cache is 1 hour to 7 days old and the cloud is unreachable, the cached tier is used (grace period)
+4. If the cache is older than 7 days with no successful validation, tools fall back to the free tier
+
+This means you can work offline, on planes, or behind restrictive firewalls for up to a week without losing access to paid tools.
+
+## Tier Propagation From Stripe
+
+When you subscribe or change your plan through Stripe:
+
+1. Stripe sends a webhook to the Massu AI cloud endpoint
+2. The cloud updates your organization's plan (`free`, `cloud_pro`, `cloud_team`, `cloud_enterprise`)
+3. On your next session start (or within 1 hour if a session is active), the new tier propagates to your local cache
+4. All tools for your new tier become available immediately
+
+Plan downgrades take effect at the end of the current billing period. During the transition, you retain access to your current tier.
+
+## Checking Your License
+
+### From the CLI
+
+```bash
+npx massu doctor
+# Shows: License: Pro (valid until 2027-03-15)
+```
+
+### From Claude Code
+
+```
+> Use massu_license_status
+```
+
+Returns:
+
+```
+## License Status
+
+**Tier**: PRO
+**Valid Until**: 2027-03-15
+**Days Remaining**: 384
+
+### Tier Capabilities
+- **Free**: Core navigation, memory, regression detection
+- **Pro**: Knowledge search, quality analytics, cost tracking, observability
+- **Team**: Sentinel feature registry, team knowledge sharing
+- **Enterprise**: Audit trail, security scoring, dependency analysis
+```
+
+### Programmatic Access
+
+The `massu_license_status` tool is always available (free tier) so you can check your tier from any session without needing paid tools.
+
+## Upgrade Path
+
+1. Visit [massu.ai/pricing](/pricing) and select your plan
+2. Complete checkout -- your API key is generated automatically
+3. Add the key to your config (see [API Key Setup](/docs/getting-started/api-keys))
+4. Run `npx massu doctor` to confirm the new tier

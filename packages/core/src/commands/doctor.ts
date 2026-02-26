@@ -9,15 +9,20 @@
  * 2. .mcp.json has massu entry
  * 3. .claude/settings.local.json has hooks config
  * 4. All 11 compiled hook files exist
- * 5. better-sqlite3 native module loads
- * 6. Node.js version >= 18
- * 7. Git repository detected
+ * 5. Knowledge DB exists (.massu/memory.db)
+ * 6. Memory directory exists (~/.claude/projects/.../memory/)
+ * 7. Shell hooks wired in settings.local.json
+ * 8. better-sqlite3 native module loads
+ * 9. Node.js version >= 18
+ * 10. Git repository detected
  */
 
 import { existsSync, readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parse as parseYaml } from 'yaml';
+import { getResolvedPaths } from '../config.ts';
+import { getCurrentTier, getLicenseInfo, daysUntilExpiry } from '../license.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -73,7 +78,7 @@ function checkConfig(projectRoot: string): CheckResult {
 }
 
 function checkMcpServer(projectRoot: string): CheckResult {
-  const mcpPath = resolve(projectRoot, '.mcp.json');
+  const mcpPath = getResolvedPaths().mcpJsonPath;
   if (!existsSync(mcpPath)) {
     return { name: 'MCP Server', status: 'fail', detail: '.mcp.json not found. Run: npx massu init' };
   }
@@ -91,7 +96,7 @@ function checkMcpServer(projectRoot: string): CheckResult {
 }
 
 function checkHooksConfig(projectRoot: string): CheckResult {
-  const settingsPath = resolve(projectRoot, '.claude/settings.local.json');
+  const settingsPath = getResolvedPaths().settingsLocalPath;
   if (!existsSync(settingsPath)) {
     return { name: 'Hooks Config', status: 'fail', detail: '.claude/settings.local.json not found. Run: npx massu init' };
   }
@@ -194,6 +199,97 @@ async function checkGitRepo(projectRoot: string): Promise<CheckResult> {
   }
 }
 
+function checkKnowledgeDb(projectRoot: string): CheckResult {
+  // Knowledge DB is the memory DB
+  const knowledgeDbPath = getResolvedPaths().memoryDbPath;
+  if (!existsSync(knowledgeDbPath)) {
+    return {
+      name: 'Knowledge DB',
+      status: 'warn',
+      detail: '.massu/memory.db not found (will auto-create on first session)',
+    };
+  }
+  return { name: 'Knowledge DB', status: 'pass', detail: '.massu/memory.db exists' };
+}
+
+function checkMemoryDir(_projectRoot: string): CheckResult {
+  // Memory dir: ~/.claude/projects/-<encoded-root>/memory/ (resolved via config)
+  const memoryDir = getResolvedPaths().memoryDir;
+  if (!existsSync(memoryDir)) {
+    return {
+      name: 'Memory Directory',
+      status: 'warn',
+      detail: 'Memory directory not found. Run: npx massu init',
+    };
+  }
+  return { name: 'Memory Directory', status: 'pass', detail: `Memory directory exists` };
+}
+
+function checkShellHooksWired(_projectRoot: string): CheckResult {
+  // Verify that .claude/settings.local.json has hooks configured (shell hooks are wired)
+  const settingsPath = getResolvedPaths().settingsLocalPath;
+  if (!existsSync(settingsPath)) {
+    return {
+      name: 'Shell Hooks',
+      status: 'fail',
+      detail: 'settings.local.json not found. Run: npx massu install-hooks',
+    };
+  }
+
+  try {
+    const content = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    const hooks = content.hooks ?? {};
+    const hasSessionStart = Array.isArray(hooks.SessionStart) && hooks.SessionStart.length > 0;
+    const hasPreToolUse = Array.isArray(hooks.PreToolUse) && hooks.PreToolUse.length > 0;
+    if (!hasSessionStart && !hasPreToolUse) {
+      return {
+        name: 'Shell Hooks',
+        status: 'fail',
+        detail: 'No lifecycle hooks wired. Run: npx massu install-hooks',
+      };
+    }
+    return { name: 'Shell Hooks', status: 'pass', detail: 'Lifecycle hooks wired in settings.local.json' };
+  } catch (err) {
+    return {
+      name: 'Shell Hooks',
+      status: 'fail',
+      detail: `settings.local.json parse error: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+async function checkLicenseStatus(): Promise<CheckResult> {
+  try {
+    const tier = await getCurrentTier();
+    const info = await getLicenseInfo();
+
+    if (tier === 'free' && !info.validUntil) {
+      return { name: 'License', status: 'pass', detail: 'Free (no API key configured)' };
+    }
+
+    const days = await daysUntilExpiry();
+    if (days >= 0 && info.validUntil) {
+      return {
+        name: 'License',
+        status: 'pass',
+        detail: `${tier.charAt(0).toUpperCase() + tier.slice(1)} (valid until ${info.validUntil})`,
+      };
+    }
+
+    return {
+      name: 'License',
+      status: 'pass',
+      detail: `${tier.charAt(0).toUpperCase() + tier.slice(1)} (valid)`,
+    };
+  } catch (err) {
+    return {
+      name: 'License',
+      status: 'warn',
+      detail: `Could not check license: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
 // ============================================================
 // Main Doctor Flow
 // ============================================================
@@ -211,9 +307,13 @@ export async function runDoctor(): Promise<void> {
     checkMcpServer(projectRoot),
     checkHooksConfig(projectRoot),
     checkHookFiles(projectRoot),
+    checkKnowledgeDb(projectRoot),
+    checkMemoryDir(projectRoot),
+    checkShellHooksWired(projectRoot),
     await checkNativeModules(),
     checkNodeVersion(),
     await checkGitRepo(projectRoot),
+    await checkLicenseStatus(),
   ];
 
   let passed = 0;

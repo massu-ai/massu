@@ -334,6 +334,76 @@ regression:
 | `health_thresholds.healthy` | number | `80` | Score above this is healthy |
 | `health_thresholds.warning` | number | `50` | Score below this triggers warning |
 
+### conventions
+
+Customize directory names, session state paths, and knowledge indexing behavior. All values have sensible defaults -- most projects can omit this section entirely.
+
+```yaml
+conventions:
+  claudeDirName: ".claude"
+  sessionStatePath: ".claude/session-state/CURRENT.md"
+  sessionArchivePath: ".claude/session-state/archive"
+  knowledgeCategories:
+    - patterns
+    - commands
+    - incidents
+    - reference
+    - protocols
+    - checklists
+    - playbooks
+    - critical
+    - scripts
+    - status
+    - templates
+    - loop-state
+    - session-state
+    - agents
+  knowledgeSourceFiles:
+    - CLAUDE.md
+    - MEMORY.md
+    - corrections.md
+  excludePatterns:
+    - /ARCHIVE/
+    - /SESSION-HISTORY/
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `claudeDirName` | string | `".claude"` | Claude Code config directory name |
+| `sessionStatePath` | string | `".claude/session-state/CURRENT.md"` | Session state file path |
+| `sessionArchivePath` | string | `".claude/session-state/archive"` | Session archive directory |
+| `knowledgeCategories` | string[] | see above | Knowledge indexer subdirectory categories |
+| `knowledgeSourceFiles` | string[] | `["CLAUDE.md", "MEMORY.md", "corrections.md"]` | Root-level files treated as knowledge sources |
+| `excludePatterns` | string[] | `["/ARCHIVE/", "/SESSION-HISTORY/"]` | Patterns excluded from knowledge indexing |
+
+For detailed examples including monorepo and custom layout configurations, see [Configuration Conventions](/docs/getting-started/conventions).
+
+### cloud
+
+Cloud sync settings for connecting to Massu AI Cloud. Requires a paid subscription and API key.
+
+```yaml
+cloud:
+  enabled: true
+  apiKey: "ms_live_your_key_here"
+  endpoint: "https://your-project.supabase.co/functions/v1/sync"
+  sync:
+    memory: true
+    analytics: true
+    audit: true
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | boolean | `false` | Enable cloud sync |
+| `apiKey` | string | - | Your Massu AI API key (starts with `ms_live_`) |
+| `endpoint` | string | - | Cloud sync endpoint URL |
+| `sync.memory` | boolean | `true` | Sync memory observations |
+| `sync.analytics` | boolean | `true` | Sync quality and cost analytics |
+| `sync.audit` | boolean | `true` | Sync audit trail entries |
+
+For step-by-step setup instructions, see [API Key Setup](/docs/getting-started/api-keys). For details on what each tier unlocks, see [License and Tiers](/docs/reference/license-tiers).
+
 ## Environment Variables
 
 Massu AI respects these environment variables:

@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-02-25
+
+### Added
+- **Tier enforcement** — Free (14 tools), Pro (63+), Team, Enterprise tiers with license gating
+- **License validation** — `license.ts` module with `getCurrentTier()`, `getToolTier()`, `isToolAllowed()`, and `annotateToolDefinitions()`
+- **`massu_license_status` tool** — Check current tier, available tools, and upgrade path from any session
+- **Conventions config** — `conventions` section in `massu.config.yaml` for project-specific coding rules
+- **Generalization scanner** — `scripts/massu-generalization-scanner.sh` verifies no hardcoded project-specific data in shipped files
+
+### Changed
+- Tool descriptions now include tier labels (e.g., "[Pro]") when not on the free tier
+- README and CLAUDE.public.md updated with tier information and tool counts
+- Package description updated to mention tiered tooling
+
 ## [Unreleased]
 
 ### Added

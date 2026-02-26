@@ -5,6 +5,7 @@ import { readFileSync, existsSync, statSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import type Database from 'better-sqlite3';
 import { getResolvedPaths, getProjectRoot } from './config.ts';
+import { ensureWithinRoot } from './security-utils.ts';
 
 interface ImportEdge {
   source_file: string;
@@ -182,7 +183,7 @@ export function buildImportIndex(dataDb: Database.Database, codegraphDb: Databas
   let batch: ImportEdge[] = [];
 
   for (const file of files) {
-    const absPath = resolve(projectRoot, file.path);
+    const absPath = ensureWithinRoot(resolve(projectRoot, file.path), projectRoot);
     if (!existsSync(absPath)) continue;
 
     let source: string;

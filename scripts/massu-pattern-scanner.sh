@@ -115,6 +115,8 @@ fi
 # Check 5: Config via getConfig() only (no direct yaml.parse)
 # Excludes: commands/doctor.ts (diagnostic tool that intentionally
 #           parses YAML to verify config integrity before getConfig())
+# Excludes: hooks/*.ts (compiled standalone — cannot import getConfig(),
+#           must parse massu.config.yaml directly per P2-023a)
 # -------------------------------------------------------
 echo "Check 5: Config access via getConfig() only"
 YAML_PARSE_COUNT=$(grep -rn 'yaml\.parse\|parseYaml\|parse.*yaml' "$SRC_DIR" --include="*.ts" \
@@ -123,10 +125,11 @@ YAML_PARSE_COUNT=$(grep -rn 'yaml\.parse\|parseYaml\|parse.*yaml' "$SRC_DIR" --i
   | grep -v 'node_modules' \
   | grep -v '\.test\.ts:' \
   | grep -v 'commands/doctor\.ts' \
+  | grep -v 'hooks/' \
   | wc -l | tr -d ' ')
 if [ "$YAML_PARSE_COUNT" -gt 0 ]; then
   fail "Found $YAML_PARSE_COUNT direct YAML parse calls outside config.ts (use getConfig())"
-  grep -rn 'yaml\.parse\|parseYaml' "$SRC_DIR" --include="*.ts" | grep -v 'config\.ts' | grep -v '__tests__' | grep -v 'commands/doctor\.ts' | head -5
+  grep -rn 'yaml\.parse\|parseYaml' "$SRC_DIR" --include="*.ts" | grep -v 'config\.ts' | grep -v '__tests__' | grep -v 'commands/doctor\.ts' | grep -v 'hooks/' | head -5
 else
   pass "Config access via getConfig() only"
 fi
@@ -181,6 +184,95 @@ if [ "$SECRETS_COUNT" -gt 0 ]; then
     | head -5
 else
   pass "No hardcoded secrets found"
+fi
+
+# -------------------------------------------------------
+# Check 9: Knowledge system file patterns
+# Verifies getCodeGraphDb() is used (not direct sqlite opens) in knowledge-related files
+# -------------------------------------------------------
+echo "Check 9: Knowledge system uses getCodeGraphDb()"
+KNOWLEDGE_FILES=$(find "$SRC_DIR" -name "*.ts" \
+  -not -path "*/__tests__/*" \
+  -not -path "*/node_modules/*" \
+  -not -name "*.test.ts" \
+  -not -name "db.ts" \
+  2>/dev/null)
+DIRECT_SQLITE_COUNT=0
+if [ -n "$KNOWLEDGE_FILES" ]; then
+  DIRECT_SQLITE_COUNT=$(echo "$KNOWLEDGE_FILES" | xargs grep -l 'new Database\|sqlite3\(' 2>/dev/null \
+    | grep -v 'db\.ts\|memory-db\.ts' \
+    | wc -l | tr -d ' ')
+fi
+if [ "$DIRECT_SQLITE_COUNT" -gt 0 ]; then
+  fail "Found $DIRECT_SQLITE_COUNT files opening SQLite directly (use getCodeGraphDb()/getDataDb()/getMemoryDb())"
+  echo "$KNOWLEDGE_FILES" | xargs grep -l 'new Database\|sqlite3\(' 2>/dev/null | grep -v 'db\.ts\|memory-db\.ts' | head -5
+else
+  pass "Knowledge system uses DB accessor functions only"
+fi
+
+# -------------------------------------------------------
+# Check 10: Memory system patterns
+# Verifies getMemoryDb() is closed after use (try/finally pattern)
+# -------------------------------------------------------
+echo "Check 10: Memory DB closed after use (try/finally pattern)"
+MEMORY_DB_OPEN=$(grep -rn 'getMemoryDb()' "$SRC_DIR" --include="*.ts" \
+  | grep -v '__tests__' \
+  | grep -v 'node_modules' \
+  | grep -v '\.test\.ts:' \
+  | grep -v 'memory-db\.ts' \
+  | wc -l | tr -d ' ')
+MEMORY_DB_CLOSE=$(grep -rn 'memDb\.close()' "$SRC_DIR" --include="*.ts" \
+  | grep -v '__tests__' \
+  | grep -v 'node_modules' \
+  | grep -v '\.test\.ts:' \
+  | wc -l | tr -d ' ')
+if [ "$MEMORY_DB_OPEN" -gt 0 ] && [ "$MEMORY_DB_CLOSE" -lt "$MEMORY_DB_OPEN" ]; then
+  warn "getMemoryDb() called $MEMORY_DB_OPEN times but memDb.close() only $MEMORY_DB_CLOSE times (possible leak)"
+else
+  pass "Memory DB open/close balanced ($MEMORY_DB_OPEN opens, $MEMORY_DB_CLOSE closes)"
+fi
+
+# -------------------------------------------------------
+# Check 11: Shell hook existence
+# Verifies that compiled hooks exist for each hook source
+# -------------------------------------------------------
+echo "Check 11: Compiled hooks exist for each hook source"
+HOOKS_SRC_DIR="$SRC_DIR/hooks"
+HOOKS_DIST_DIR="$REPO_ROOT/packages/core/dist/hooks"
+MISSING_HOOKS=0
+if [ -d "$HOOKS_SRC_DIR" ]; then
+  for hook_src in "$HOOKS_SRC_DIR"/*.ts; do
+    [ ! -f "$hook_src" ] && continue
+    hook_name=$(basename "$hook_src" .ts)
+    compiled="$HOOKS_DIST_DIR/${hook_name}.js"
+    if [ ! -f "$compiled" ]; then
+      warn "Compiled hook missing: dist/hooks/${hook_name}.js (run: npm run build:hooks)"
+      MISSING_HOOKS=$((MISSING_HOOKS + 1))
+    fi
+  done
+  if [ "$MISSING_HOOKS" -eq 0 ]; then
+    pass "All hook sources have compiled counterparts in dist/hooks/"
+  fi
+else
+  warn "Hooks source directory not found: $HOOKS_SRC_DIR"
+fi
+
+# -------------------------------------------------------
+# Check 12: Generalization compliance
+# Runs the generalization scanner to verify no project-specific
+# references leaked into shipped files
+# -------------------------------------------------------
+echo "Check 12: Generalization compliance"
+GEN_SCANNER="$REPO_ROOT/scripts/massu-generalization-scanner.sh"
+if [ -f "$GEN_SCANNER" ]; then
+  if bash "$GEN_SCANNER" > /tmp/gen-scanner.log 2>&1; then
+    pass "Generalization scanner passed"
+  else
+    fail "Generalization scanner found violations (see: bash scripts/massu-generalization-scanner.sh)"
+    tail -5 /tmp/gen-scanner.log
+  fi
+else
+  warn "Generalization scanner not found: $GEN_SCANNER"
 fi
 
 # -------------------------------------------------------

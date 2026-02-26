@@ -2,12 +2,13 @@
 import{createRequire as __cr}from"module";const require=__cr(import.meta.url);
 
 // src/hooks/pre-delete-check.ts
-import Database from "better-sqlite3";
+import Database2 from "better-sqlite3";
 import { existsSync as existsSync2 } from "fs";
 
 // src/config.ts
 import { resolve, dirname } from "path";
 import { existsSync, readFileSync } from "fs";
+import { homedir } from "os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 var DomainConfigSchema = z.object({
@@ -139,6 +140,38 @@ var CloudConfigSchema = z.object({
     audit: z.boolean().default(true)
   }).default({ memory: true, analytics: true, audit: true })
 }).optional();
+var ConventionsConfigSchema = z.object({
+  claudeDirName: z.string().default(".claude").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'claudeDirName must not contain ".." or start with "/"' }
+  ),
+  sessionStatePath: z.string().default(".claude/session-state/CURRENT.md").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'sessionStatePath must not contain ".." or start with "/"' }
+  ),
+  sessionArchivePath: z.string().default(".claude/session-state/archive").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'sessionArchivePath must not contain ".." or start with "/"' }
+  ),
+  knowledgeCategories: z.array(z.string()).default([
+    "patterns",
+    "commands",
+    "incidents",
+    "reference",
+    "protocols",
+    "checklists",
+    "playbooks",
+    "critical",
+    "scripts",
+    "status",
+    "templates",
+    "loop-state",
+    "session-state",
+    "agents"
+  ]),
+  knowledgeSourceFiles: z.array(z.string()).default(["CLAUDE.md", "MEMORY.md", "corrections.md"]),
+  excludePatterns: z.array(z.string()).default(["/ARCHIVE/", "/SESSION-HISTORY/"])
+}).optional();
 var PathsConfigSchema = z.object({
   source: z.string().default("src"),
   aliases: z.record(z.string(), z.string()).default({ "@": "src" }),
@@ -173,7 +206,8 @@ var RawConfigSchema = z.object({
   security: SecurityConfigSchema,
   team: TeamConfigSchema,
   regression: RegressionConfigSchema,
-  cloud: CloudConfigSchema
+  cloud: CloudConfigSchema,
+  conventions: ConventionsConfigSchema
 }).passthrough();
 var _config = null;
 var _projectRoot = null;
@@ -237,13 +271,23 @@ function getConfig() {
     security: parsed.security,
     team: parsed.team,
     regression: parsed.regression,
-    cloud: parsed.cloud
+    cloud: parsed.cloud,
+    conventions: parsed.conventions
   };
+  if (!_config.cloud?.apiKey && process.env.MASSU_API_KEY) {
+    _config.cloud = {
+      enabled: true,
+      sync: { memory: true, analytics: true, audit: true },
+      ..._config.cloud,
+      apiKey: process.env.MASSU_API_KEY
+    };
+  }
   return _config;
 }
 function getResolvedPaths() {
   const config = getConfig();
   const root = getProjectRoot();
+  const claudeDirName = config.conventions?.claudeDirName ?? ".claude";
   return {
     codegraphDbPath: resolve(root, ".codegraph/codegraph.db"),
     dataDbPath: resolve(root, ".massu/data.db"),
@@ -259,13 +303,25 @@ function getResolvedPaths() {
     ),
     extensions: [".ts", ".tsx", ".js", ".jsx"],
     indexFiles: ["index.ts", "index.tsx", "index.js", "index.jsx"],
-    patternsDir: resolve(root, ".claude/patterns"),
-    claudeMdPath: resolve(root, ".claude/CLAUDE.md"),
+    patternsDir: resolve(root, claudeDirName, "patterns"),
+    claudeMdPath: resolve(root, claudeDirName, "CLAUDE.md"),
     docsMapPath: resolve(root, ".massu/docs-map.json"),
     helpSitePath: resolve(root, "../" + config.project.name + "-help"),
-    memoryDbPath: resolve(root, ".massu/memory.db")
+    memoryDbPath: resolve(root, ".massu/memory.db"),
+    knowledgeDbPath: resolve(root, ".massu/knowledge.db"),
+    plansDir: resolve(root, "docs/plans"),
+    docsDir: resolve(root, "docs"),
+    claudeDir: resolve(root, claudeDirName),
+    memoryDir: resolve(homedir(), claudeDirName, "projects", root.replace(/\//g, "-"), "memory"),
+    sessionStatePath: resolve(root, config.conventions?.sessionStatePath ?? `${claudeDirName}/session-state/CURRENT.md`),
+    sessionArchivePath: resolve(root, config.conventions?.sessionArchivePath ?? `${claudeDirName}/session-state/archive`),
+    mcpJsonPath: resolve(root, ".mcp.json"),
+    settingsLocalPath: resolve(root, claudeDirName, "settings.local.json")
   };
 }
+
+// src/memory-db.ts
+import Database from "better-sqlite3";
 
 // src/sentinel-db.ts
 var PROJECT_ROOT = getProjectRoot();
@@ -351,16 +407,45 @@ function getFeatureImpact(db, filePaths) {
 
 // src/hooks/pre-delete-check.ts
 var PROJECT_ROOT2 = getProjectRoot();
+var KNOWLEDGE_PROTECTED_FILES = [
+  "knowledge-db.ts",
+  "knowledge-indexer.ts",
+  "knowledge-tools.ts"
+];
 function getDataDb() {
   const dbPath = getResolvedPaths().dataDbPath;
   if (!existsSync2(dbPath)) return null;
   try {
-    const db = new Database(dbPath, { readonly: true });
+    const db = new Database2(dbPath, { readonly: true });
     db.pragma("journal_mode = WAL");
     return db;
   } catch {
     return null;
   }
+}
+function checkKnowledgeFileProtection(input) {
+  const candidateFiles = [];
+  if (input.tool_name === "Bash" && input.tool_input.command) {
+    const cmd = input.tool_input.command;
+    const rmMatch = cmd.match(/(?:rm|git\s+rm)\s+(?:-[rf]*\s+)*(.+)/);
+    if (rmMatch) {
+      const parts = rmMatch[1].split(/\s+/).filter((p) => !p.startsWith("-"));
+      candidateFiles.push(...parts);
+    }
+  }
+  if (input.tool_name === "Write" && input.tool_input.file_path) {
+    const content = input.tool_input.content || "";
+    if (content.trim().length === 0) {
+      candidateFiles.push(input.tool_input.file_path);
+    }
+  }
+  for (const f of candidateFiles) {
+    const basename = f.split("/").pop() ?? f;
+    if (KNOWLEDGE_PROTECTED_FILES.includes(basename)) {
+      return `KNOWLEDGE SYSTEM PROTECTION: "${basename}" is a core knowledge system file. Deleting it will break knowledge indexing and memory retrieval. Create a replacement before removing.`;
+    }
+  }
+  return null;
 }
 function extractDeletedFiles(input) {
   const files = [];
@@ -392,6 +477,12 @@ async function main() {
   try {
     const input = await readStdin();
     const hookInput = JSON.parse(input);
+    const knowledgeWarning = checkKnowledgeFileProtection(hookInput);
+    if (knowledgeWarning) {
+      process.stdout.write(JSON.stringify({ message: knowledgeWarning }));
+      process.exit(0);
+      return;
+    }
     const deletedFiles = extractDeletedFiles(hookInput);
     if (deletedFiles.length === 0) {
       process.exit(0);
@@ -402,10 +493,11 @@ async function main() {
       process.exit(0);
       return;
     }
+    const SENTINEL_TABLE = "massu_sentinel";
     try {
       const tableExists = db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='massu_sentinel'"
-      ).get();
+        `SELECT name FROM sqlite_master WHERE type='table' AND name=?`
+      ).get(SENTINEL_TABLE);
       if (!tableExists) {
         process.exit(0);
         return;

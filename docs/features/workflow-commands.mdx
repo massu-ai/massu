@@ -1,12 +1,12 @@
 ---
 title: "Workflow Commands"
-description: "20 slash commands for structured, verification-first AI-assisted development"
+description: "28 slash commands for structured, verification-first AI-assisted development"
 order: 13
 ---
 
 # Workflow Commands
 
-Massu AI's workflow commands are the command-line interface to its governance layer. These 20 slash commands enforce a structured, verification-first approach across the full development lifecycle -- from writing a plan to pushing code. Each command is a mandatory execution protocol, not a suggestion: when a command says "loop until complete," it loops until complete.
+Massu AI's workflow commands are the command-line interface to its governance layer. These 28 slash commands enforce a structured, verification-first approach across the full development lifecycle -- from writing a plan to pushing code. Each command is a mandatory execution protocol, not a suggestion: when a command says "loop until complete," it loops until complete.
 
 ## Why This Matters
 
@@ -151,7 +151,7 @@ See [/massu-status](/docs/commands/massu-status) for full documentation.
 
 ## Productivity
 
-Two commands for codebase hygiene and documentation generation.
+Six commands for codebase hygiene, documentation, and guided development workflows.
 
 ### `/massu-cleanup`
 
@@ -164,6 +164,62 @@ See [/massu-cleanup](/docs/commands/massu-cleanup) for full documentation.
 Generates JSDoc comments, README sections, and API reference documentation for undocumented exports. Analyzes function signatures and usage patterns to produce accurate descriptions. Use it to bootstrap documentation coverage or to keep API docs current before a release.
 
 See [/massu-doc-gen](/docs/commands/massu-doc-gen) for full documentation.
+
+### `/massu-golden-path`
+
+Generates a golden-path guide for a feature or workflow -- a step-by-step description of the recommended approach including which tools to call, which commands to run, and which patterns to follow. Useful for onboarding, documenting architectural decisions, and ensuring consistent implementation across team members.
+
+### `/massu-dead-code`
+
+Audit-only dead code detection. Identifies unused exports, unreachable branches, and orphaned files without making any changes. Use it to understand the scope of cleanup work before running `/massu-cleanup`.
+
+### `/massu-tdd`
+
+Test-driven development scaffold. Writes failing tests first based on the specification, then implements code to make them pass, following the red-green-refactor cycle. Ensures test coverage is built in from the start rather than added after implementation.
+
+### `/massu-guide`
+
+Generates a step-by-step guide for a given task or feature. Unlike `/massu-golden-path` (which generates a recommended approach), `/massu-guide` produces documentation-style guidance for end users or other developers explaining how a feature works.
+
+## Extended Verification
+
+Four commands for browser-level, dependency, documentation, and parity verification.
+
+### `/massu-verify-playwright`
+
+Runs Playwright end-to-end verification for UI flows. Useful for verifying that AI-generated UI code actually works in a browser context. Generates a structured pass/fail report with screenshots on failure.
+
+### `/massu-deps`
+
+Dependency graph analysis and unused-dependency detection. Unlike `/massu-audit-deps` (which focuses on vulnerabilities and licenses), this command analyzes import relationships to find packages that are installed but never imported, and packages that are imported but not in `package.json`.
+
+### `/massu-docs`
+
+Documentation coverage and freshness audit. Identifies exported functions without JSDoc, public APIs without README documentation, and documentation that references deleted or renamed exports. Produces a structured coverage report without making any changes.
+
+### `/massu-parity`
+
+Feature parity check between two systems or branches. Given a source system and a target system, it identifies features present in the source that are missing from the target. Used when porting features between codebases or branches. See `/massu-internal-feature-parity` for the full parity workflow (internal command, private repo only).
+
+## Internal Commands
+
+The following commands are available only in the private repository. They provide deep audits and specialized tooling beyond the public release.
+
+### `/massu-internal-infra-audit`
+
+Infrastructure-layer audit covering environment variables, secrets management, deployment configuration, and infrastructure-as-code files. Checks for missing required env vars, hardcoded values that should be in config, and deployment configuration drift.
+
+### `/massu-internal-ui-audit`
+
+UI component audit covering accessibility (WCAG 2.1 AA), stale props, missing test coverage, and component API consistency. Produces a structured report per component with severity-ranked findings.
+
+### `/massu-internal-type-mismatch-audit`
+
+Type mismatch audit across module boundaries. Finds cases where a function's declared TypeScript type does not match how it is actually used at call sites, particularly across package boundaries where type inference may hide mismatches.
+
+### `/massu-internal-db-audit`
+
+Database schema and query audit. Identifies missing indexes, N+1 query patterns, tables without RLS policies, and foreign keys without cascades. Produces a prioritized remediation list.
 
 ## Command Decision Tree
 
@@ -181,10 +237,16 @@ Not sure which command to use? Start here:
 - **Cutting a release** -- `/massu-release` (runs `/massu-changelog` internally)
 - **Project health check** -- `/massu-status`
 - **Dependency concerns** -- `/massu-audit-deps`
-- **Dead code / cleanup** -- `/massu-cleanup`
-- **Generate documentation** -- `/massu-doc-gen`
+- **Dead code / cleanup** -- `/massu-cleanup` or `/massu-dead-code` (audit only)
+- **Generate documentation** -- `/massu-doc-gen` or `/massu-docs` (audit only)
 - **Effort estimation** -- `/massu-estimate`
 - **Run all VR checks** -- `/massu-verify`
+- **UI end-to-end verification** -- `/massu-verify-playwright`
+- **Feature parity check** -- `/massu-parity`
+- **Dependency analysis** -- `/massu-deps`
+- **TDD workflow** -- `/massu-tdd`
+- **Golden-path guidance** -- `/massu-golden-path`
+- **Step-by-step guide** -- `/massu-guide`
 
 ## Tips
 

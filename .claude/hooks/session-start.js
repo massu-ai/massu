@@ -9,6 +9,7 @@ import { existsSync as existsSync2, mkdirSync } from "fs";
 // src/config.ts
 import { resolve, dirname } from "path";
 import { existsSync, readFileSync } from "fs";
+import { homedir } from "os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 var DomainConfigSchema = z.object({
@@ -140,6 +141,38 @@ var CloudConfigSchema = z.object({
     audit: z.boolean().default(true)
   }).default({ memory: true, analytics: true, audit: true })
 }).optional();
+var ConventionsConfigSchema = z.object({
+  claudeDirName: z.string().default(".claude").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'claudeDirName must not contain ".." or start with "/"' }
+  ),
+  sessionStatePath: z.string().default(".claude/session-state/CURRENT.md").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'sessionStatePath must not contain ".." or start with "/"' }
+  ),
+  sessionArchivePath: z.string().default(".claude/session-state/archive").refine(
+    (s) => !s.includes("..") && !s.startsWith("/"),
+    { message: 'sessionArchivePath must not contain ".." or start with "/"' }
+  ),
+  knowledgeCategories: z.array(z.string()).default([
+    "patterns",
+    "commands",
+    "incidents",
+    "reference",
+    "protocols",
+    "checklists",
+    "playbooks",
+    "critical",
+    "scripts",
+    "status",
+    "templates",
+    "loop-state",
+    "session-state",
+    "agents"
+  ]),
+  knowledgeSourceFiles: z.array(z.string()).default(["CLAUDE.md", "MEMORY.md", "corrections.md"]),
+  excludePatterns: z.array(z.string()).default(["/ARCHIVE/", "/SESSION-HISTORY/"])
+}).optional();
 var PathsConfigSchema = z.object({
   source: z.string().default("src"),
   aliases: z.record(z.string(), z.string()).default({ "@": "src" }),
@@ -174,7 +207,8 @@ var RawConfigSchema = z.object({
   security: SecurityConfigSchema,
   team: TeamConfigSchema,
   regression: RegressionConfigSchema,
-  cloud: CloudConfigSchema
+  cloud: CloudConfigSchema,
+  conventions: ConventionsConfigSchema
 }).passthrough();
 var _config = null;
 var _projectRoot = null;
@@ -238,13 +272,23 @@ function getConfig() {
     security: parsed.security,
     team: parsed.team,
     regression: parsed.regression,
-    cloud: parsed.cloud
+    cloud: parsed.cloud,
+    conventions: parsed.conventions
   };
+  if (!_config.cloud?.apiKey && process.env.MASSU_API_KEY) {
+    _config.cloud = {
+      enabled: true,
+      sync: { memory: true, analytics: true, audit: true },
+      ..._config.cloud,
+      apiKey: process.env.MASSU_API_KEY
+    };
+  }
   return _config;
 }
 function getResolvedPaths() {
   const config = getConfig();
   const root = getProjectRoot();
+  const claudeDirName = config.conventions?.claudeDirName ?? ".claude";
   return {
     codegraphDbPath: resolve(root, ".codegraph/codegraph.db"),
     dataDbPath: resolve(root, ".massu/data.db"),
@@ -260,11 +304,20 @@ function getResolvedPaths() {
     ),
     extensions: [".ts", ".tsx", ".js", ".jsx"],
     indexFiles: ["index.ts", "index.tsx", "index.js", "index.jsx"],
-    patternsDir: resolve(root, ".claude/patterns"),
-    claudeMdPath: resolve(root, ".claude/CLAUDE.md"),
+    patternsDir: resolve(root, claudeDirName, "patterns"),
+    claudeMdPath: resolve(root, claudeDirName, "CLAUDE.md"),
     docsMapPath: resolve(root, ".massu/docs-map.json"),
     helpSitePath: resolve(root, "../" + config.project.name + "-help"),
-    memoryDbPath: resolve(root, ".massu/memory.db")
+    memoryDbPath: resolve(root, ".massu/memory.db"),
+    knowledgeDbPath: resolve(root, ".massu/knowledge.db"),
+    plansDir: resolve(root, "docs/plans"),
+    docsDir: resolve(root, "docs"),
+    claudeDir: resolve(root, claudeDirName),
+    memoryDir: resolve(homedir(), claudeDirName, "projects", root.replace(/\//g, "-"), "memory"),
+    sessionStatePath: resolve(root, config.conventions?.sessionStatePath ?? `${claudeDirName}/session-state/CURRENT.md`),
+    sessionArchivePath: resolve(root, config.conventions?.sessionArchivePath ?? `${claudeDirName}/session-state/archive`),
+    mcpJsonPath: resolve(root, ".mcp.json"),
+    settingsLocalPath: resolve(root, claudeDirName, "settings.local.json")
   };
 }
 
@@ -752,6 +805,15 @@ function initMemorySchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_pending_sync_created ON pending_sync(created_at ASC);
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS license_cache (
+      api_key_hash TEXT PRIMARY KEY,
+      tier TEXT NOT NULL,
+      valid_until TEXT NOT NULL,
+      last_validated TEXT NOT NULL,
+      features TEXT DEFAULT '[]'
+    );
+  `);
 }
 function autoDetectTaskId(planFile) {
   if (!planFile) return null;
@@ -831,6 +893,8 @@ function linkSessionToTask(db, sessionId, taskId) {
 }
 
 // src/hooks/session-start.ts
+import { readFileSync as readFileSync2, existsSync as existsSync3 } from "fs";
+import { join } from "path";
 async function main() {
   try {
     const input = await readStdin();
@@ -857,7 +921,7 @@ Session memory, code intelligence, and governance are now active.
 `
         );
       }
-      const context = buildContext(db, session_id, source ?? "startup", tokenBudget, session?.task_id ?? null);
+      const context = await buildContext(db, session_id, source ?? "startup", tokenBudget, session?.task_id ?? null);
       if (context.trim()) {
         process.stdout.write(context);
       }
@@ -882,7 +946,7 @@ function getTokenBudget(source) {
       return 2e3;
   }
 }
-function buildContext(db, sessionId, source, tokenBudget, taskId) {
+async function buildContext(db, sessionId, source, tokenBudget, taskId) {
   const sections = [];
   const failures = getFailedAttempts(db, void 0, 10);
   if (failures.length > 0) {
@@ -938,6 +1002,47 @@ function buildContext(db, sessionId, source, tokenBudget, taskId) {
 `;
       sections.push({ text: progressText, importance: 8 });
     }
+  }
+  const preventionRules = loadCorrectionsPreventionRules();
+  if (preventionRules.length > 0) {
+    let rulesText = "### Active Prevention Rules (from corrections.md)\n";
+    for (const rule of preventionRules) {
+      rulesText += `- ${rule}
+`;
+    }
+    sections.push({ text: rulesText, importance: 9 });
+  }
+  try {
+    const knowledgeDbPath = getResolvedPaths().knowledgeDbPath;
+    if (existsSync3(knowledgeDbPath)) {
+      const Database2 = (await import("better-sqlite3")).default;
+      const kdb = new Database2(knowledgeDbPath, { readonly: true });
+      try {
+        const stats = kdb.prepare(
+          "SELECT COUNT(*) as doc_count, MAX(indexed_at) as last_indexed FROM knowledge_documents"
+        ).get();
+        if (stats.doc_count > 0 && stats.last_indexed) {
+          const ageMs = Date.now() - new Date(stats.last_indexed).getTime();
+          const ageHours = Math.round(ageMs / 36e5);
+          if (ageHours > 24) {
+            sections.push({
+              text: `### Knowledge Index Status
+Index has ${stats.doc_count} documents, last indexed ${ageHours}h ago. Consider re-indexing.
+`,
+              importance: 3
+            });
+          }
+        } else if (stats.doc_count === 0) {
+          sections.push({
+            text: "### Knowledge Index Status\nKnowledge index is empty. Run knowledge indexing to populate it.\n",
+            importance: 2
+          });
+        }
+      } finally {
+        kdb.close();
+      }
+    }
+  } catch (_knowledgeErr) {
   }
   const recentObs = getRecentObservations(db, 20);
   if (recentObs.length > 0) {
@@ -1000,6 +1105,34 @@ function safeParseJson(json) {
     return JSON.parse(json);
   } catch (_e) {
     return null;
+  }
+}
+function loadCorrectionsPreventionRules() {
+  try {
+    const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "";
+    const cwd = process.cwd();
+    const config = getConfig();
+    const claudeDirName = config.conventions?.claudeDirName ?? ".claude";
+    const projectDirName = cwd.replace(/\//g, "-").replace(/^-/, "");
+    const correctionsPath = join(homeDir, claudeDirName, "projects", projectDirName, "memory", "corrections.md");
+    if (!existsSync3(correctionsPath)) return [];
+    const content = readFileSync2(correctionsPath, "utf-8");
+    const lines = content.split("\n");
+    const rules = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) continue;
+      const cells = trimmed.split("|").map((c) => c.trim()).filter((c) => c.length > 0);
+      if (cells.length < 4) continue;
+      if (cells[0] === "Date" || cells[0].startsWith("-")) continue;
+      const preventionRule = cells[3];
+      if (preventionRule && !preventionRule.startsWith("-") && !preventionRule.startsWith("<!--")) {
+        rules.push(preventionRule);
+      }
+    }
+    return rules;
+  } catch (_e) {
+    return [];
   }
 }
 main();

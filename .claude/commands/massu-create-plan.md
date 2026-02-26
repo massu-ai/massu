@@ -52,6 +52,17 @@ name: massu-create-plan
 
 ---
 
+## Workflow Position
+
+```
+/massu-create-plan -> /massu-plan -> /massu-loop -> /massu-commit -> /massu-push
+(CREATE)           (AUDIT)        (IMPLEMENT)   (COMMIT)        (PUSH)
+```
+
+**This command is step 1 of 5 in the standard workflow.**
+
+---
+
 ## Objective
 
 Create a comprehensive, feasible implementation plan by checking REAL file structure, reading REAL code, and aligning with ESTABLISHED patterns. The output is a plan that has been pre-verified for feasibility.
@@ -476,6 +487,31 @@ grep -rn '[old_value]' massu.config.yaml
 - [ ] Default values documented
 - [ ] Example in massu.config.yaml
 ```
+
+---
+
+## PHASE 4.7: QUESTION FILTERING (Before Writing Plan)
+
+After all research phases, list every open question about the feature. Then self-filter:
+
+1. **List all questions** you have about requirements, behavior, edge cases, or architecture
+2. **For each question, ask**: "Can I answer this by reading more code or checking config?"
+3. **Self-answer** every question you can by reading the relevant files
+4. **Surface only the remaining questions** to the user via AskUserQuestion
+
+Questions that should be self-answered (do NOT ask the user):
+- "What does this module look like?" - read the file
+- "How does the existing feature handle X?" - read the module/test
+- "What pattern should I follow?" - read CLAUDE.md
+- "Does this config key exist?" - check massu.config.yaml
+
+Questions that require the user:
+- Business logic decisions ("Should this tool be synchronous or async?")
+- Scope decisions ("Should this include CLI output formatting?")
+- Priority trade-offs ("Full implementation or v1 subset?")
+- Design preferences ("Separate module or extend existing?")
+
+**If all questions are self-answerable, skip the user prompt entirely and proceed to plan generation.**
 
 ---
 

@@ -1,11 +1,12 @@
 ---
 name: massu-push-light
-description: Fast pre-push verification (~90s) - patterns, types, tests, hooks
-allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
+description: Fast pre-push verification (~90s) - patterns, security, types, hooks, tests, build
+allowed-tools: Bash(*)
+disable-model-invocation: true
 ---
 name: massu-push-light
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu Push Light: Fast Pre-Push Verification
 
@@ -23,27 +24,39 @@ Execute these checks in order. **STOP on first failure.**
 ```bash
 bash scripts/massu-pattern-scanner.sh
 ```
-**Catches:** Code pattern violations, import issues, config anti-patterns
+**Catches:** Code pattern violations, ESM import issues, config anti-patterns, hardcoded prefixes
 
-### 2. TypeScript Check (~30s)
+### 2. Generalization Scanner (~5s)
+```bash
+bash scripts/massu-generalization-scanner.sh
+```
+**Catches:** Hardcoded project names, /Users/ paths, Supabase IDs, API endpoints
+
+### 3. Security Scanner (~5s)
+```bash
+bash scripts/massu-security-scanner.sh
+```
+**Catches:** Hardcoded secrets, unsafe patterns, @ts-ignore usage
+
+### 4. TypeScript Check (~30s)
 ```bash
 cd packages/core && npx tsc --noEmit
 ```
 **Catches:** Type errors, missing imports, interface mismatches
 
-### 3. Hook Compilation (~5s)
+### 5. Hook Compilation (~5s)
 ```bash
 cd packages/core && npm run build:hooks
 ```
 **Catches:** Hook compilation failures, invalid imports in hooks
 
-### 4. Unit Tests (~30s)
+### 6. Unit Tests (~30s)
 ```bash
 npm test
 ```
 **Catches:** Regressions, broken logic, handler errors
 
-### 5. Build (~20s)
+### 7. Build (~20s)
 ```bash
 npm run build
 ```
@@ -63,7 +76,7 @@ echo ""
 
 FAILED=0
 
-echo "[1/5] Pattern Scanner..."
+echo "[1/7] Pattern Scanner..."
 if bash scripts/massu-pattern-scanner.sh > /tmp/pattern-scanner.log 2>&1; then
   echo "  PASS"
 else
@@ -71,7 +84,23 @@ else
   FAILED=1
 fi
 
-echo "[2/5] TypeScript Check..."
+echo "[2/7] Generalization Scanner..."
+if bash scripts/massu-generalization-scanner.sh > /tmp/gen-scanner.log 2>&1; then
+  echo "  PASS"
+else
+  echo "  FAIL - see /tmp/gen-scanner.log"
+  FAILED=1
+fi
+
+echo "[3/7] Security Scanner..."
+if bash scripts/massu-security-scanner.sh > /tmp/security-scanner.log 2>&1; then
+  echo "  PASS"
+else
+  echo "  FAIL - see /tmp/security-scanner.log"
+  FAILED=1
+fi
+
+echo "[4/7] TypeScript Check..."
 if cd packages/core && npx tsc --noEmit 2>&1; then
   echo "  PASS"
 else
@@ -79,7 +108,7 @@ else
   FAILED=1
 fi
 
-echo "[3/5] Hook Compilation..."
+echo "[5/7] Hook Compilation..."
 if cd packages/core && npm run build:hooks > /dev/null 2>&1; then
   echo "  PASS"
 else
@@ -87,7 +116,7 @@ else
   FAILED=1
 fi
 
-echo "[4/5] Unit Tests..."
+echo "[6/7] Unit Tests..."
 if npm test > /dev/null 2>&1; then
   echo "  PASS"
 else
@@ -95,7 +124,7 @@ else
   FAILED=1
 fi
 
-echo "[5/5] Build..."
+echo "[7/7] Build..."
 if npm run build > /dev/null 2>&1; then
   echo "  PASS"
 else
@@ -138,8 +167,8 @@ Use `/massu-push` (full) when:
 | Skipped Check | Why | Risk Level |
 |---------------|-----|------------|
 | Full integration tests | Can take 5+ minutes | Medium |
-| Security scanner | Takes extra time | Low (run for security changes) |
 | Coverage report | Takes extra time | Low |
+| Migration validation | Takes extra time | Low (run for migration changes) |
 
 ---
 
@@ -150,11 +179,13 @@ Use `/massu-push` (full) when:
 MASSU PUSH LIGHT - Fast Pre-Push Verification
 ==============================================
 
-[1/5] Pattern Scanner...    PASS
-[2/5] TypeScript Check...   PASS
-[3/5] Hook Compilation...   PASS
-[4/5] Unit Tests...         PASS
-[5/5] Build...              PASS
+[1/7] Pattern Scanner...         PASS
+[2/7] Generalization Scanner...  PASS
+[3/7] Security Scanner...        PASS
+[4/7] TypeScript Check...        PASS
+[5/7] Hook Compilation...        PASS
+[6/7] Unit Tests...              PASS
+[7/7] Build...                   PASS
 
 ==============================================
 ALL CHECKS PASSED - Safe to push
@@ -168,6 +199,8 @@ ALL CHECKS PASSED - Safe to push
 | Check Failed | How to Fix |
 |--------------|------------|
 | Pattern Scanner | Run `bash scripts/massu-pattern-scanner.sh` to see details |
+| Generalization Scanner | Run `bash scripts/massu-generalization-scanner.sh` for details |
+| Security Scanner | Run `bash scripts/massu-security-scanner.sh` for details |
 | TypeScript | Run `cd packages/core && npx tsc --noEmit` for full error output |
 | Hook Compilation | Run `cd packages/core && npm run build:hooks` for error details |
 | Unit Tests | Run `npm test` to see failing tests |

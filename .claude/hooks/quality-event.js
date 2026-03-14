@@ -173,6 +173,17 @@ var ConventionsConfigSchema = z.object({
   knowledgeSourceFiles: z.array(z.string()).default(["CLAUDE.md", "MEMORY.md", "corrections.md"]),
   excludePatterns: z.array(z.string()).default(["/ARCHIVE/", "/SESSION-HISTORY/"])
 }).optional();
+var PythonDomainConfigSchema = z.object({
+  name: z.string(),
+  packages: z.array(z.string()),
+  allowed_imports_from: z.array(z.string()).default([])
+});
+var PythonConfigSchema = z.object({
+  root: z.string(),
+  alembic_dir: z.string().optional(),
+  domains: z.array(PythonDomainConfigSchema).default([]),
+  exclude_dirs: z.array(z.string()).default(["__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache"])
+}).optional();
 var PathsConfigSchema = z.object({
   source: z.string().default("src"),
   aliases: z.record(z.string(), z.string()).default({ "@": "src" }),
@@ -208,7 +219,8 @@ var RawConfigSchema = z.object({
   team: TeamConfigSchema,
   regression: RegressionConfigSchema,
   cloud: CloudConfigSchema,
-  conventions: ConventionsConfigSchema
+  conventions: ConventionsConfigSchema,
+  python: PythonConfigSchema
 }).passthrough();
 var _config = null;
 var _projectRoot = null;
@@ -273,7 +285,8 @@ function getConfig() {
     team: parsed.team,
     regression: parsed.regression,
     cloud: parsed.cloud,
-    conventions: parsed.conventions
+    conventions: parsed.conventions,
+    python: parsed.python
   };
   if (!_config.cloud?.apiKey && process.env.MASSU_API_KEY) {
     _config.cloud = {

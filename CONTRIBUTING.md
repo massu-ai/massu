@@ -54,8 +54,6 @@ bash scripts/massu-pattern-scanner.sh
 massu/
   packages/
     core/          # MCP Server (@massu/core)
-    plugin/        # Claude Code Plugin (@massu/plugin)
-    shared/        # Shared utilities (@massu/shared)
   scripts/         # Build and quality scripts
   docs/            # Documentation
   examples/        # Example configurations

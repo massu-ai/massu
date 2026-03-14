@@ -204,3 +204,99 @@ FTS5 virtual table for full-text search across observations.
 | `expertise_score` | INTEGER | 0-100 expertise score |
 | `session_count` | INTEGER | Sessions touching this module |
 | `last_active` | TEXT | Last activity timestamp |
+
+## Python Intelligence Tables (Data Database)
+
+These tables are populated by the Python Code Intelligence indexer (`massu_sync` with Python enabled). They live in the Data Database alongside the existing TypeScript/JavaScript tables.
+
+### `massu_py_imports`
+
+Stores Python import edges between files, enabling cross-file dependency analysis.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Primary key (autoincrement) |
+| `source_file` | TEXT | File that contains the import statement |
+| `target_file` | TEXT | Resolved file being imported (absolute or relative) |
+| `import_type` | TEXT | `absolute`, `relative`, `from_absolute`, or `from_relative` |
+| `imported_names` | TEXT (JSON) | Array of symbol names imported |
+| `line` | INTEGER | Line number of the import statement |
+
+### `massu_py_meta`
+
+Stores metadata about the Python index state, used to track freshness and incremental rebuild.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `key` | TEXT | Metadata key (primary key, e.g., `last_build_time`, `file_count`, `root`) |
+| `value` | TEXT | Metadata value |
+
+### `massu_py_routes`
+
+Stores FastAPI route endpoint definitions discovered during indexing.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Route ID (primary key) |
+| `file` | TEXT | File path containing the route definition |
+| `method` | TEXT | HTTP method (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`) |
+| `path` | TEXT | URL path pattern (e.g., `/users/{user_id}`) |
+| `function_name` | TEXT | Python function name implementing the route |
+| `dependencies` | TEXT (JSON) | Array of FastAPI `Depends()` dependency names |
+| `request_model` | TEXT | Pydantic request body model class name (if declared) |
+| `response_model` | TEXT | Pydantic response model class name (if declared) |
+| `is_authenticated` | INTEGER | 1 if route uses an auth dependency |
+| `line` | INTEGER | Line number of the route decorator |
+
+### `massu_py_route_callers`
+
+Stores frontend call sites that invoke Python backend routes, enabling cross-language coupling analysis.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Caller edge ID (primary key) |
+| `route_id` | INTEGER | FK to `massu_py_routes` |
+| `frontend_file` | TEXT | Frontend file making the HTTP call |
+| `line` | INTEGER | Line number of the call site |
+| `call_pattern` | TEXT | The call pattern matched at the call site |
+
+### `massu_py_models`
+
+Stores SQLAlchemy ORM model class definitions including columns and relationships.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Model ID (primary key) |
+| `class_name` | TEXT | Python class name |
+| `table_name` | TEXT | Mapped database table name |
+| `file` | TEXT | File path containing the model class |
+| `line` | INTEGER | Line number of the class definition |
+| `columns` | TEXT (JSON) | Array of column definitions `{name, type, nullable, primary_key}` |
+| `relationships` | TEXT (JSON) | Array of relationship definitions `{name, target, kind}` |
+| `foreign_keys` | TEXT (JSON) | Array of foreign key definitions |
+
+### `massu_py_fk_edges`
+
+Stores foreign key relationships between SQLAlchemy models, enabling relational schema analysis.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | FK edge ID (primary key) |
+| `source_table` | TEXT | Table name of the model containing the foreign key |
+| `source_column` | TEXT | Column name holding the foreign key value |
+| `target_table` | TEXT | Target database table name |
+| `target_column` | TEXT | Target column (typically the primary key) |
+
+### `massu_py_migrations`
+
+Stores Alembic migration metadata for tracking schema change history.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Migration record ID (primary key) |
+| `revision` | TEXT | Alembic revision identifier (unique) |
+| `down_revision` | TEXT | Parent revision (null for the base migration) |
+| `file` | TEXT | Path to the Alembic migration script |
+| `description` | TEXT | Human-readable migration description |
+| `operations` | TEXT (JSON) | Array of operation summaries `{op, table, details}` |
+| `is_head` | INTEGER | 1 if this is the current head revision |

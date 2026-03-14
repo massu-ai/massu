@@ -93,6 +93,16 @@ const EXPECTED_TOOL_NAMES: string[] = [
   'docs_audit',
   'docs_coverage',
 
+  // --- Pro tier: Python code intelligence tools ---
+  'py_imports',
+  'py_routes',
+  'py_coupling',
+  'py_models',
+  'py_migrations',
+  'py_domains',
+  'py_impact',
+  'py_context',
+
   // --- Team tier: sentinel tools ---
   'sentinel_search',
   'sentinel_detail',

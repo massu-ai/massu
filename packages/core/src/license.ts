@@ -105,6 +105,16 @@ export const TOOL_TIER_MAP: Record<string, ToolTier> = {
   docs_audit: 'pro',
   docs_coverage: 'pro',
 
+  // Pro tier — Python code intelligence
+  py_imports: 'pro',
+  py_routes: 'pro',
+  py_coupling: 'pro',
+  py_models: 'pro',
+  py_migrations: 'pro',
+  py_domains: 'pro',
+  py_impact: 'pro',
+  py_context: 'pro',
+
   // --- Team tier (9 tools: sentinel feature registry + team knowledge) ---
   sentinel_search: 'team',
   sentinel_detail: 'team',

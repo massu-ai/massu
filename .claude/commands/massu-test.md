@@ -226,24 +226,6 @@ Cross-reference: for each source module, check if a corresponding test file exis
 **Coverage: [X]/[Y] modules ([Z]%)**
 ```
 
-### Package Coverage (other packages)
-
-```bash
-# List other package modules
-ls packages/plugin/src/*.ts 2>/dev/null
-ls packages/shared/src/*.ts 2>/dev/null
-```
-
-```markdown
-### Package Coverage
-
-| Source Module | Test File | Status |
-|--------------|-----------|--------|
-| [module] | [test] | COVERED / MISSING |
-
-**Coverage: [X]/[Y] modules ([Z]%)**
-```
-
 ### Coverage Verdict
 
 | Threshold | Status |

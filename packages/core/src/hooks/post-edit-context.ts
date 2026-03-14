@@ -37,7 +37,7 @@ async function main(): Promise<void> {
     const rel = filePath.startsWith(root + '/') ? filePath.slice(root.length + 1) : filePath;
 
     // Only process src/ files
-    if (!rel.startsWith('src/')) {
+    if (!rel.startsWith('src/') && !rel.endsWith('.py')) {
       process.exit(0);
       return;
     }

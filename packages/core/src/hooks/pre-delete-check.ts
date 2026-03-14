@@ -97,7 +97,7 @@ function extractDeletedFiles(input: HookInput): string[] {
       const paths = rmMatch[1].split(/\s+/).filter(p => !p.startsWith('-'));
       for (const p of paths) {
         const relPath = p.startsWith('src/') ? p : p.replace(PROJECT_ROOT + '/', '');
-        if (relPath.startsWith('src/')) {
+        if (relPath.startsWith('src/') || relPath.endsWith('.py')) {
           files.push(relPath);
         }
       }
@@ -109,7 +109,7 @@ function extractDeletedFiles(input: HookInput): string[] {
     const content = input.tool_input.content || '';
     if (content.trim().length === 0) {
       const relPath = input.tool_input.file_path.replace(PROJECT_ROOT + '/', '');
-      if (relPath.startsWith('src/')) {
+      if (relPath.startsWith('src/') || relPath.endsWith('.py')) {
         files.push(relPath);
       }
     }
@@ -185,6 +185,37 @@ async function main(): Promise<void> {
 
         // Output warning but don't block (user can proceed)
         process.stdout.write(JSON.stringify({ message: msg.join('\n') }));
+      }
+      // Check Python import graph for deleted .py files
+      const pyFiles = deletedFiles.filter(f => f.endsWith('.py'));
+      if (pyFiles.length > 0) {
+        try {
+          for (const pyFile of pyFiles) {
+            const importers = db.prepare(
+              'SELECT source_file FROM massu_py_imports WHERE target_file = ?'
+            ).all(pyFile) as { source_file: string }[];
+
+            const routes = db.prepare(
+              'SELECT method, path FROM massu_py_routes WHERE file = ?'
+            ).all(pyFile) as { method: string; path: string }[];
+
+            const models = db.prepare(
+              'SELECT class_name FROM massu_py_models WHERE file = ?'
+            ).all(pyFile) as { class_name: string }[];
+
+            if (importers.length > 0 || routes.length > 0 || models.length > 0) {
+              const parts: string[] = [];
+              if (importers.length > 0) parts.push(`imported by ${importers.length} files`);
+              if (routes.length > 0) parts.push(`defines ${routes.length} routes`);
+              if (models.length > 0) parts.push(`defines ${models.length} models`);
+
+              const msg = `PYTHON IMPACT: "${pyFile}" ${parts.join(', ')}. Check dependents before deleting.`;
+              process.stdout.write(JSON.stringify({ message: msg }));
+            }
+          }
+        } catch {
+          // Python tables may not exist yet
+        }
       }
     } finally {
       db.close();

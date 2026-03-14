@@ -20,6 +20,7 @@ interface HookInput {
     command?: string;
     file_path?: string;
     content?: string;
+    new_string?: string;
   };
 }
 
@@ -77,6 +78,26 @@ function checkFilePath(filePath: string): string | null {
   return null;
 }
 
+const DANGEROUS_PYTHON_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /\beval\s*\(/, label: 'Python eval() — arbitrary code execution' },
+  { pattern: /\bexec\s*\(/, label: 'Python exec() — arbitrary code execution' },
+  { pattern: /\b__import__\s*\(/, label: 'Python __import__() — dynamic import (potential code injection)' },
+  { pattern: /subprocess\.call\([^)]*shell\s*=\s*True/, label: 'subprocess.call(shell=True) — shell injection risk' },
+  { pattern: /subprocess\.Popen\([^)]*shell\s*=\s*True/, label: 'subprocess.Popen(shell=True) — shell injection risk' },
+  { pattern: /os\.system\s*\(/, label: 'os.system() — shell injection risk' },
+  { pattern: /\bf['"].*\{.*\}.*['"].*(?:execute|cursor|query)/, label: 'f-string in SQL — SQL injection risk' },
+  { pattern: /['"].*%s.*['"].*%.*(?:execute|cursor|query)/, label: 'String formatting in SQL — SQL injection risk' },
+];
+
+function checkPythonContent(content: string): string | null {
+  for (const { pattern, label } of DANGEROUS_PYTHON_PATTERNS) {
+    if (pattern.test(content)) {
+      return label;
+    }
+  }
+  return null;
+}
+
 async function main(): Promise<void> {
   try {
     const input = await readStdin();
@@ -97,6 +118,17 @@ async function main(): Promise<void> {
       if (violation) {
         process.stdout.write(JSON.stringify({
           message: `SECURITY GATE: Attempt to write to protected file: ${violation}\nPath: ${tool_input.file_path}\nEnsure this is intentional and no secrets will be exposed.`,
+        }));
+      }
+    }
+
+    // Check Python file content for dangerous patterns (Write uses content, Edit uses new_string)
+    const pyContent = tool_input.content || tool_input.new_string;
+    if ((tool_name === 'Write' || tool_name === 'Edit') && tool_input.file_path?.endsWith('.py') && pyContent) {
+      const pyViolation = checkPythonContent(pyContent);
+      if (pyViolation) {
+        process.stdout.write(JSON.stringify({
+          message: `SECURITY GATE: Dangerous Python pattern detected: ${pyViolation}\nFile: ${tool_input.file_path}\nReview carefully before proceeding.`,
         }));
       }
     }

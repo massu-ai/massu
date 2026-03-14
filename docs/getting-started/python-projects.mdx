@@ -1,0 +1,317 @@
+---
+title: "Python Projects"
+description: "Get Massu AI running on Python/FastAPI/SQLAlchemy projects - from auto-detection to domain enforcement in minutes"
+order: 5
+---
+
+# Python Projects
+
+This guide walks through setting up Massu AI on a Python project. By the end you will have import graph indexing, FastAPI route mapping, SQLAlchemy model inspection, and Alembic migration tracking working in Claude Code.
+
+Python intelligence tools require a [Pro license](/docs/reference/license-tiers).
+
+## Before You Begin
+
+Make sure you have completed the [Installation](/docs/getting-started/installation) steps:
+
+- Massu AI installed (`npm install @massu/core`)
+- A Python project with at least one of: `pyproject.toml`, `setup.py`, `requirements.txt`, or `Pipfile`
+
+No Python runtime is required on your machine. Massu analyzes Python files in TypeScript.
+
+## Step 1: Auto-Detection with `massu init`
+
+Run `massu init` in your project root. It automatically detects Python projects and generates the appropriate config:
+
+```bash
+npx massu init
+```
+
+Massu looks for these signals to detect Python projects and frameworks:
+
+| Signal | Detected As |
+|--------|-------------|
+| `pyproject.toml`, `setup.py`, `requirements.txt`, `Pipfile` | Python project |
+| `fastapi` in dependencies | FastAPI routes |
+| `sqlalchemy` in dependencies | SQLAlchemy models |
+| `alembic.ini` or `alembic/` directory | Alembic migrations |
+| `src/`, `app/`, or package directory with `__init__.py` | Python source root |
+
+For a typical FastAPI project, `massu init` generates:
+
+```yaml
+project:
+  name: my-fastapi-app
+  root: auto
+
+framework:
+  type: typescript   # Your frontend stack (if any)
+
+python:
+  root: backend      # Auto-detected Python source root
+  alembic_dir: backend/migrations
+
+toolPrefix: massu
+```
+
+If auto-detection guesses wrong, edit `massu.config.yaml` directly (see [Configuration](#configuration) below).
+
+## Step 2: Verify Setup
+
+Run `massu doctor` to confirm everything is configured correctly:
+
+```bash
+npx massu doctor
+```
+
+```
+## Massu Doctor
+
+### Python Configuration
+Python root: backend/ — OK (47 .py files found)
+Alembic dir: backend/migrations/ — OK (8 migrations found)
+Package structure: backend/app/__init__.py found — OK
+
+### Python Framework Detection
+FastAPI: DETECTED (fastapi in pyproject.toml)
+SQLAlchemy: DETECTED (sqlalchemy in pyproject.toml)
+Alembic: DETECTED (alembic.ini found)
+
+All checks passed.
+```
+
+## Step 3: Sync Indexes
+
+Start a Claude Code session and sync to build Massu's Python indexes:
+
+```
+> Run massu_sync to index the Python codebase
+```
+
+```
+Indexes rebuilt:
+Python imports: 312 edges
+Python routes: 24 FastAPI routes
+Python models: 6 SQLAlchemy models
+Python migrations: 8 Alembic revisions
+```
+
+## Step 4: Explore Your Codebase
+
+Get context for any Python file:
+
+```
+> Use massu_py_context for backend/app/api/orders.py
+```
+
+```
+## Context: backend/app/api/orders.py
+
+## Applicable Rules
+- [HIGH] All routes must use get_current_user dependency
+
+## Domain: API Layer
+
+## Routes Defined in This File
+- GET /api/orders (list_orders)
+- POST /api/orders (create_order)
+- GET /api/orders/{id} (get_order)
+
+## Models Used
+- Order (table: orders)
+
+## Imports (from this file)
+- backend/app/core/deps.py: get_current_user, get_db
+- backend/app/models/order.py: Order
+```
+
+Check for migration drift before a deployment:
+
+```
+> Run massu_py_migrations with drift true
+```
+
+```
+## Drift Detection
+Models without complete migration coverage:
+  - Order.discount_code — column exists in model, not in any migration
+
+Result: DRIFT DETECTED (1 issue)
+```
+
+## Configuration
+
+All Python configuration lives in the `python` section of `massu.config.yaml`.
+
+### Minimal Configuration
+
+The only required field is `root` — the path to your Python source directory relative to the project root:
+
+```yaml
+python:
+  root: backend
+```
+
+### Full Configuration
+
+```yaml
+python:
+  root: backend                          # Python source root (required)
+  alembic_dir: backend/migrations        # Alembic migrations directory (optional)
+  exclude_dirs:                          # Directories to skip during analysis
+    - __pycache__
+    - .venv
+    - venv
+    - .mypy_cache
+    - .pytest_cache
+  domains:                               # Domain boundary definitions (optional)
+    - name: API Layer
+      packages:
+        - app.api
+        - app.routers
+      allowed_imports_from:
+        - app.core
+        - app.models
+        - app.schemas
+    - name: Core Infrastructure
+      packages:
+        - app.core
+        - app.config
+      allowed_imports_from: []           # Nothing allowed to import from Core except Core
+    - name: Models
+      packages:
+        - app.models
+      allowed_imports_from:
+        - app.core
+```
+
+### Common Project Layouts
+
+**Flat layout** (`main.py` at root, modules alongside):
+
+```yaml
+python:
+  root: .
+  alembic_dir: migrations
+```
+
+**`src/` layout**:
+
+```yaml
+python:
+  root: src
+  alembic_dir: src/migrations
+```
+
+**Monorepo with separate frontend and backend**:
+
+```yaml
+# Frontend (Next.js)
+framework:
+  type: typescript
+  router: trpc
+
+paths:
+  source: frontend/src
+
+# Backend (FastAPI)
+python:
+  root: backend
+  alembic_dir: backend/db/migrations
+```
+
+**Single flat directory** (all Python files at root):
+
+```yaml
+python:
+  root: .
+```
+
+## Domain Setup
+
+Domains enforce architectural boundaries between Python packages. When a file in `app.api` imports directly from `app.internal`, Massu flags it as a violation.
+
+Define domains by mapping Python package paths:
+
+```yaml
+python:
+  root: backend
+  domains:
+    - name: API Layer
+      packages:
+        - app.api
+        - app.v2.api
+      allowed_imports_from:
+        - app.services
+        - app.models
+        - app.schemas
+
+    - name: Services
+      packages:
+        - app.services
+      allowed_imports_from:
+        - app.models
+        - app.core
+
+    - name: Models
+      packages:
+        - app.models
+      allowed_imports_from:
+        - app.core
+
+    - name: Core Infrastructure
+      packages:
+        - app.core
+        - app.config
+        - app.db
+      allowed_imports_from: []
+```
+
+Check for violations:
+
+```
+> Run massu_py_domains with crossings true
+```
+
+Packages map to filesystem paths under `python.root`. A package of `app.api` maps to `backend/app/api/` when `root` is `backend`.
+
+## Coding Rules for Python Files
+
+Add Python-specific rules to the `rules` section using glob patterns that match `.py` files:
+
+```yaml
+rules:
+  - pattern: "backend/app/api/**/*.py"
+    rules:
+      - "All route functions must declare a response_model in their decorator"
+      - "All routes must include a Depends(get_current_user) or Depends(get_api_key) parameter"
+      - "Never use bare except: clauses; always catch specific exceptions"
+
+  - pattern: "backend/app/models/**/*.py"
+    rules:
+      - "All models must define __tablename__"
+      - "All string columns must specify a maximum length"
+      - "All foreign key columns must have an explicit index"
+
+  - pattern: "backend/app/migrations/**/*.py"
+    rules:
+      - "Every migration must have a non-empty down_revision"
+      - "Never use op.execute() with raw string SQL — use op.add_column(), op.create_table(), etc."
+```
+
+Rules are surfaced automatically by the `post-edit-context` hook whenever you edit a `.py` file in Claude Code.
+
+## What Happens Automatically
+
+Once configured, these things happen without explicit tool calls:
+
+- **When you edit a `.py` file**: `post-edit-context` hook fires and surfaces applicable coding rules from your config
+- **Before you delete a `.py` file**: `pre-delete-check` hook warns if the file defines routes or models, or if other files import it
+- **On file edits**: `security-gate` hook checks for Python security anti-patterns (`eval()`, `exec()`, shell injection, hardcoded secrets, SQL string concatenation)
+
+## Next Steps
+
+- **[Python Intelligence](/docs/features/python-intelligence)**: Full reference for all 8 Python tools
+- **[Configuration Reference](/docs/reference/config-reference)**: Complete `python` config schema
+- **[Full-Stack Python + TypeScript](/docs/guides/fullstack-python-typescript)**: Cross-language coupling detection for Next.js + FastAPI projects
+- **[Tool Reference](/docs/reference/tool-reference)**: All Python tools with input parameters

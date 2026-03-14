@@ -52,6 +52,24 @@ function checkFilePath(filePath) {
   }
   return null;
 }
+var DANGEROUS_PYTHON_PATTERNS = [
+  { pattern: /\beval\s*\(/, label: "Python eval() \u2014 arbitrary code execution" },
+  { pattern: /\bexec\s*\(/, label: "Python exec() \u2014 arbitrary code execution" },
+  { pattern: /\b__import__\s*\(/, label: "Python __import__() \u2014 dynamic import (potential code injection)" },
+  { pattern: /subprocess\.call\([^)]*shell\s*=\s*True/, label: "subprocess.call(shell=True) \u2014 shell injection risk" },
+  { pattern: /subprocess\.Popen\([^)]*shell\s*=\s*True/, label: "subprocess.Popen(shell=True) \u2014 shell injection risk" },
+  { pattern: /os\.system\s*\(/, label: "os.system() \u2014 shell injection risk" },
+  { pattern: /\bf['"].*\{.*\}.*['"].*(?:execute|cursor|query)/, label: "f-string in SQL \u2014 SQL injection risk" },
+  { pattern: /['"].*%s.*['"].*%.*(?:execute|cursor|query)/, label: "String formatting in SQL \u2014 SQL injection risk" }
+];
+function checkPythonContent(content) {
+  for (const { pattern, label } of DANGEROUS_PYTHON_PATTERNS) {
+    if (pattern.test(content)) {
+      return label;
+    }
+  }
+  return null;
+}
 async function main() {
   try {
     const input = await readStdin();
@@ -74,6 +92,17 @@ Review carefully before proceeding.`
           message: `SECURITY GATE: Attempt to write to protected file: ${violation}
 Path: ${tool_input.file_path}
 Ensure this is intentional and no secrets will be exposed.`
+        }));
+      }
+    }
+    const pyContent = tool_input.content || tool_input.new_string;
+    if ((tool_name === "Write" || tool_name === "Edit") && tool_input.file_path?.endsWith(".py") && pyContent) {
+      const pyViolation = checkPythonContent(pyContent);
+      if (pyViolation) {
+        process.stdout.write(JSON.stringify({
+          message: `SECURITY GATE: Dangerous Python pattern detected: ${pyViolation}
+File: ${tool_input.file_path}
+Review carefully before proceeding.`
         }));
       }
     }

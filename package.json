@@ -3,9 +3,7 @@
   "version": "0.1.0",
   "description": "AI Engineering Governance Platform - Session memory, feature registry, code intelligence, and rule enforcement for AI coding assistants",
   "workspaces": [
-    "packages/core",
-    "packages/plugin",
-    "packages/shared"
+    "packages/core"
   ],
   "scripts": {
     "build": "npm run build --workspace=packages/core",

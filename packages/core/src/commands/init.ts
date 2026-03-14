@@ -8,10 +8,12 @@
  * 2. Generates massu.config.yaml (or preserves existing)
  * 3. Registers MCP server in .mcp.json (creates or merges)
  * 4. Installs all 11 hooks in .claude/settings.local.json
- * 5. Prints success summary
+ * 5. Installs slash commands into .claude/commands/
+ * 6. Initializes memory directory
+ * 7. Prints success summary
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
 import { resolve, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
@@ -20,6 +22,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 import { stringify as yamlStringify } from 'yaml';
 import { getConfig } from '../config.ts';
+import { installCommands } from './install-commands.ts';
 
 // ============================================================
 // Types
@@ -94,6 +97,135 @@ export function detectFramework(projectRoot: string): FrameworkDetection {
 }
 
 // ============================================================
+// Python Project Detection
+// ============================================================
+
+interface PythonDetection {
+  detected: boolean;
+  root: string;
+  hasFastapi: boolean;
+  hasSqlalchemy: boolean;
+  hasAlembic: boolean;
+  alembicDir: string | null;
+}
+
+export function detectPython(projectRoot: string): PythonDetection {
+  const result: PythonDetection = {
+    detected: false,
+    root: '',
+    hasFastapi: false,
+    hasSqlalchemy: false,
+    hasAlembic: false,
+    alembicDir: null,
+  };
+
+  // Check for Python project markers
+  const markers = ['pyproject.toml', 'setup.py', 'requirements.txt', 'Pipfile'];
+  const hasMarker = markers.some(m => existsSync(resolve(projectRoot, m)));
+  if (!hasMarker) return result;
+
+  result.detected = true;
+
+  // Scan dependencies for FastAPI and SQLAlchemy
+  const depFiles = [
+    { file: 'pyproject.toml', parser: parsePyprojectDeps },
+    { file: 'requirements.txt', parser: parseRequirementsDeps },
+    { file: 'setup.py', parser: parseSetupPyDeps },
+    { file: 'Pipfile', parser: parsePipfileDeps },
+  ];
+
+  for (const { file, parser } of depFiles) {
+    const filePath = resolve(projectRoot, file);
+    if (existsSync(filePath)) {
+      try {
+        const content = readFileSync(filePath, 'utf-8');
+        const deps = parser(content);
+        if (deps.includes('fastapi')) result.hasFastapi = true;
+        if (deps.includes('sqlalchemy')) result.hasSqlalchemy = true;
+      } catch {
+        // Best effort
+      }
+    }
+  }
+
+  // Check for Alembic
+  if (existsSync(resolve(projectRoot, 'alembic.ini'))) {
+    result.hasAlembic = true;
+    // Try to find the alembic versions directory
+    if (existsSync(resolve(projectRoot, 'alembic'))) {
+      result.alembicDir = 'alembic';
+    }
+  } else if (existsSync(resolve(projectRoot, 'alembic'))) {
+    result.hasAlembic = true;
+    result.alembicDir = 'alembic';
+  }
+
+  // Auto-detect Python source root
+  const candidateRoots = ['app', 'src', 'backend', 'api'];
+  for (const candidate of candidateRoots) {
+    const candidatePath = resolve(projectRoot, candidate);
+    if (existsSync(candidatePath) && existsSync(resolve(candidatePath, '__init__.py'))) {
+      result.root = candidate;
+      break;
+    }
+    // Also check for .py files directly (some projects use app/ without __init__.py)
+    if (existsSync(candidatePath)) {
+      try {
+        const files = readdirSync(candidatePath);
+        if (files.some(f => f.endsWith('.py'))) {
+          result.root = candidate;
+          break;
+        }
+      } catch {
+        // Best effort
+      }
+    }
+  }
+
+  // Fallback: use '.' if no candidate root found
+  if (!result.root) {
+    result.root = '.';
+  }
+
+  return result;
+}
+
+function parsePyprojectDeps(content: string): string[] {
+  const deps: string[] = [];
+  const lower = content.toLowerCase();
+  if (lower.includes('fastapi')) deps.push('fastapi');
+  if (lower.includes('sqlalchemy')) deps.push('sqlalchemy');
+  return deps;
+}
+
+function parseRequirementsDeps(content: string): string[] {
+  const deps: string[] = [];
+  const lower = content.toLowerCase();
+  for (const line of lower.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('fastapi')) deps.push('fastapi');
+    if (trimmed.startsWith('sqlalchemy')) deps.push('sqlalchemy');
+  }
+  return deps;
+}
+
+function parseSetupPyDeps(content: string): string[] {
+  const deps: string[] = [];
+  const lower = content.toLowerCase();
+  if (lower.includes('fastapi')) deps.push('fastapi');
+  if (lower.includes('sqlalchemy')) deps.push('sqlalchemy');
+  return deps;
+}
+
+function parsePipfileDeps(content: string): string[] {
+  const deps: string[] = [];
+  const lower = content.toLowerCase();
+  if (lower.includes('fastapi')) deps.push('fastapi');
+  if (lower.includes('sqlalchemy')) deps.push('sqlalchemy');
+  return deps;
+}
+
+// ============================================================
 // Config File Generation
 // ============================================================
 
@@ -106,7 +238,7 @@ export function generateConfig(projectRoot: string, framework: FrameworkDetectio
 
   const projectName = basename(projectRoot);
 
-  const config = {
+  const config: Record<string, unknown> = {
     project: {
       name: projectName,
       root: 'auto',
@@ -130,6 +262,21 @@ export function generateConfig(projectRoot: string, framework: FrameworkDetectio
       },
     ],
   };
+
+  // Detect and add Python configuration
+  const python = detectPython(projectRoot);
+  if (python.detected) {
+    const pythonConfig: Record<string, unknown> = {
+      root: python.root,
+      exclude_dirs: ['__pycache__', '.venv', 'venv', '.mypy_cache', '.pytest_cache'],
+    };
+    if (python.hasFastapi) pythonConfig.framework = 'fastapi';
+    if (python.hasSqlalchemy) pythonConfig.orm = 'sqlalchemy';
+    if (python.hasAlembic && python.alembicDir) {
+      pythonConfig.alembic_dir = python.alembicDir;
+    }
+    config.python = pythonConfig;
+  }
 
   const yamlContent = `# Massu AI Configuration
 # Generated by: npx massu init
@@ -391,6 +538,16 @@ export async function runInit(): Promise<void> {
   const detected = frameworkParts.length > 0 ? frameworkParts.join(', ') : 'JavaScript';
   console.log(`  Detected: ${detected}`);
 
+  // Step 1b: Detect Python
+  const python = detectPython(projectRoot);
+  if (python.detected) {
+    const pyParts: string[] = ['Python'];
+    if (python.hasFastapi) pyParts.push('FastAPI');
+    if (python.hasSqlalchemy) pyParts.push('SQLAlchemy');
+    if (python.hasAlembic) pyParts.push('Alembic');
+    console.log(`  Detected: ${pyParts.join(', ')} (root: ${python.root})`);
+  }
+
   // Step 2: Create config
   const configCreated = generateConfig(projectRoot, framework);
   if (configCreated) {
@@ -411,7 +568,16 @@ export async function runInit(): Promise<void> {
   const { count: hooksCount } = installHooks(projectRoot);
   console.log(`  Installed ${hooksCount} hooks in .claude/settings.local.json`);
 
-  // Step 5: Initialize memory directory
+  // Step 5: Install slash commands
+  const cmdResult = installCommands(projectRoot);
+  const cmdTotal = cmdResult.installed + cmdResult.updated + cmdResult.skipped;
+  if (cmdResult.installed > 0 || cmdResult.updated > 0) {
+    console.log(`  Installed ${cmdTotal} slash commands (${cmdResult.installed} new, ${cmdResult.updated} updated)`);
+  } else {
+    console.log(`  ${cmdTotal} slash commands already up to date`);
+  }
+
+  // Step 6: Initialize memory directory
   const { created: memDirCreated, memoryMdCreated } = initMemoryDir(projectRoot);
   if (memDirCreated) {
     console.log('  Created memory directory (~/.claude/projects/.../memory/)');
@@ -422,7 +588,7 @@ export async function runInit(): Promise<void> {
     console.log('  Created initial MEMORY.md');
   }
 
-  // Step 6: Databases info
+  // Step 7: Databases info
   console.log('  Databases will auto-create on first session');
 
   // Summary

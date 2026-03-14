@@ -12,7 +12,12 @@ import { buildPageDeps, findAffectedPages } from './page-deps.ts';
 import { buildMiddlewareTree, isInMiddlewareTree, getMiddlewareTree } from './middleware-tree.ts';
 import { classifyFile, classifyRouter, findCrossDomainImports, getFilesInDomain } from './domains.ts';
 import { parsePrismaSchema, detectMismatches, findColumnUsageInRouters } from './schema-mapper.ts';
-import { isDataStale, updateBuildTimestamp } from './db.ts';
+import { isDataStale, updateBuildTimestamp, isPythonDataStale, updatePythonBuildTimestamp } from './db.ts';
+import { buildPythonImportIndex } from './python/import-resolver.ts';
+import { buildPythonRouteIndex } from './python/route-indexer.ts';
+import { buildPythonModelIndex } from './python/model-indexer.ts';
+import { buildPythonMigrationIndex } from './python/migration-indexer.ts';
+import { buildPythonCouplingIndex } from './python/coupling-detector.ts';
 import { getMemoryToolDefinitions, handleMemoryToolCall } from './memory-tools.ts';
 import { getMemoryDb } from './memory-db.ts';
 import { getDocsToolDefinitions, handleDocsToolCall } from './docs-tools.ts';
@@ -31,6 +36,7 @@ import { getTeamToolDefinitions, isTeamTool, handleTeamToolCall } from './team-k
 import { getRegressionToolDefinitions, isRegressionTool, handleRegressionToolCall } from './regression-detector.ts';
 import { getKnowledgeToolDefinitions, isKnowledgeTool, handleKnowledgeToolCall } from './knowledge-tools.ts';
 import { getKnowledgeDb } from './knowledge-db.ts';
+import { getPythonToolDefinitions, isPythonTool, handlePythonToolCall } from './python-tools.ts';
 import { getConfig, getProjectRoot, getResolvedPaths } from './config.ts';
 import { getCurrentTier, getToolTier, isToolAllowed, annotateToolDefinitions, getLicenseToolDefinitions, isLicenseTool, handleLicenseToolCall } from './license.ts';
 
@@ -72,31 +78,58 @@ function stripPrefix(name: string): string {
  * Lazy initialization: only rebuilds if stale.
  */
 function ensureIndexes(dataDb: Database.Database, codegraphDb: Database.Database, force: boolean = false): string {
-  if (!force && !isDataStale(dataDb, codegraphDb)) {
-    return 'Indexes are up-to-date.';
-  }
-
   const results: string[] = [];
-
-  const importCount = buildImportIndex(dataDb, codegraphDb);
-  results.push(`Import edges: ${importCount}`);
-
   const config = getConfig();
 
-  if (config.framework.router === 'trpc') {
-    const trpcStats = buildTrpcIndex(dataDb);
-    results.push(`tRPC procedures: ${trpcStats.totalProcedures} (${trpcStats.withCallers} with UI, ${trpcStats.withoutCallers} without)`);
+  // JS indexes
+  if (force || isDataStale(dataDb, codegraphDb)) {
+    const importCount = buildImportIndex(dataDb, codegraphDb);
+    results.push(`Import edges: ${importCount}`);
+
+    if (config.framework.router === 'trpc') {
+      const trpcStats = buildTrpcIndex(dataDb);
+      results.push(`tRPC procedures: ${trpcStats.totalProcedures} (${trpcStats.withCallers} with UI, ${trpcStats.withoutCallers} without)`);
+    }
+
+    const pageCount = buildPageDeps(dataDb, codegraphDb);
+    results.push(`Page deps: ${pageCount} pages`);
+
+    if (config.paths.middleware) {
+      const middlewareCount = buildMiddlewareTree(dataDb);
+      results.push(`Middleware tree: ${middlewareCount} files`);
+    }
+
+    updateBuildTimestamp(dataDb);
   }
 
-  const pageCount = buildPageDeps(dataDb, codegraphDb);
-  results.push(`Page deps: ${pageCount} pages`);
+  // Python indexes — independent of JS staleness
+  if (config.python?.root) {
+    const pythonRoot = config.python.root;
+    const excludeDirs = config.python.exclude_dirs || ['__pycache__', '.venv', 'venv', '.mypy_cache', '.pytest_cache'];
 
-  if (config.paths.middleware) {
-    const middlewareCount = buildMiddlewareTree(dataDb);
-    results.push(`Middleware tree: ${middlewareCount} files`);
+    if (force || isPythonDataStale(dataDb, resolve(getProjectRoot(), pythonRoot))) {
+      const pyImports = buildPythonImportIndex(dataDb, pythonRoot, excludeDirs);
+      results.push(`Python imports: ${pyImports}`);
+
+      const pyRoutes = buildPythonRouteIndex(dataDb, pythonRoot, excludeDirs);
+      results.push(`Python routes: ${pyRoutes}`);
+
+      const pyModels = buildPythonModelIndex(dataDb, pythonRoot, excludeDirs);
+      results.push(`Python models: ${pyModels}`);
+
+      if (config.python.alembic_dir) {
+        const pyMigrations = buildPythonMigrationIndex(dataDb, config.python.alembic_dir);
+        results.push(`Python migrations: ${pyMigrations}`);
+      }
+
+      const pyCoupling = buildPythonCouplingIndex(dataDb);
+      results.push(`Python coupling: ${pyCoupling}`);
+
+      updatePythonBuildTimestamp(dataDb);
+    }
   }
 
-  updateBuildTimestamp(dataDb);
+  if (results.length === 0) return 'Indexes are up-to-date.';
   return `Indexes rebuilt:\n${results.join('\n')}`;
 }
 
@@ -131,6 +164,8 @@ export function getToolDefinitions(): ToolDefinition[] {
     ...getRegressionToolDefinitions(),
     // Knowledge layer (indexed .claude/ knowledge — rules, patterns, incidents)
     ...getKnowledgeToolDefinitions(),
+    // Python code intelligence tools
+    ...getPythonToolDefinitions(),
     // License tools (always available)
     ...getLicenseToolDefinitions(),
     // Core tools
@@ -338,6 +373,11 @@ export async function handleToolCall(
       const knowledgeDb = getKnowledgeDb();
       try { return handleKnowledgeToolCall(name, args, knowledgeDb); }
       finally { knowledgeDb.close(); }
+    }
+
+    // Route Python tools (uses dataDb, not memDb)
+    if (isPythonTool(name)) {
+      return handlePythonToolCall(name, args, dataDb);
     }
 
     // Route license tools

@@ -1,8 +1,0 @@
-{
-  "name": "massu",
-  "version": "0.1.0",
-  "description": "AI Engineering Governance - Session memory, feature registry, code intelligence, and rule enforcement for Claude Code",
-  "author": {
-    "name": "Massu"
-  }
-}

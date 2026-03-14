@@ -152,6 +152,91 @@ This tool is always available regardless of tier. See [License and Tiers](/docs/
 | `massu_feature_health` | Free | Feature health scores | (none) |
 | `massu_regression_risk` | Free | Identify regression risk | (none) |
 
+## Python Intelligence Tools (8)
+
+All Python tools require a Pro license and only appear in Claude Code when `python.root` is configured in `massu.config.yaml`. See [Python Code Intelligence](/docs/features/python-intelligence) for full usage examples.
+
+| Tool | Tier | Description | Required Params |
+|------|------|-------------|----------------|
+| `massu_py_imports` | Pro | Query Python import graph (who imports what, transitive deps) | (none) |
+| `massu_py_routes` | Pro | List FastAPI route endpoints with auth and coupling status | (none) |
+| `massu_py_coupling` | Pro | Show frontend-to-backend API coupling map | (none) |
+| `massu_py_models` | Pro | List SQLAlchemy models, columns, relationships, and FK graph | (none) |
+| `massu_py_migrations` | Pro | List Alembic migrations, show chain, detect model/migration drift | (none) |
+| `massu_py_domains` | Pro | Check Python package domain boundary violations | (none) |
+| `massu_py_impact` | Pro | Analyze impact of changes to a Python file | `file`: string |
+| `massu_py_context` | Pro | Get full context for a Python file (rules, imports, routes, models, domain) | `file`: string |
+
+### Input Schema Details
+
+#### `massu_py_imports`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | no | Show imports from this file |
+| `imported_by` | string | no | Show files that import this file |
+| `transitive` | boolean | no | Include transitive imports |
+| `depth` | number | no | Max depth for transitive traversal (default: 5) |
+
+#### `massu_py_routes`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `method` | string | no | Filter by HTTP method (GET, POST, PUT, DELETE, PATCH) |
+| `path` | string | no | Filter by path prefix |
+| `file` | string | no | Show only routes defined in this file |
+| `unauthenticated` | boolean | no | Show only routes with no auth dependencies |
+| `uncoupled` | boolean | no | Show only routes with no detected frontend callers |
+| `limit` | number | no | Max results to return (default: 500, max: 5000) |
+
+#### `massu_py_coupling`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `frontend_file` | string | no | Show only callers from this frontend file |
+| `backend_path` | string | no | Show callers for this backend path |
+
+#### `massu_py_models`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `model` | string | no | Show details for a specific model class |
+| `table` | string | no | Look up model by database table name |
+| `fk_graph` | boolean | no | Show full foreign key graph between all tables |
+| `verify_file` | string | no | Check column references in this file against actual schema |
+| `limit` | number | no | Max results to return (default: 500, max: 5000) |
+
+#### `massu_py_migrations`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `revision` | string | no | Show details for a specific revision ID |
+| `chain` | boolean | no | Show full migration chain from initial to head |
+| `drift` | boolean | no | Compare SQLAlchemy models vs migration state to detect drift |
+| `limit` | number | no | Max results to return (default: 500, max: 5000) |
+
+#### `massu_py_domains`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | no | Classify this file into a domain |
+| `crossings` | boolean | no | Show all cross-domain imports and violations |
+| `domain` | string | no | List all files in this domain |
+
+#### `massu_py_impact`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | yes | Python file path relative to project root |
+
+#### `massu_py_context`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | yes | Python file path relative to project root |
+
+---
+
 ## Tool Naming Convention
 
 All tools follow the pattern: `{prefix}_{category}_{action}`

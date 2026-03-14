@@ -73,6 +73,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/pre-commit-gate.sh\"",
+            "timeout": 120
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
             "command": "jq -r '.tool_input.command // empty' | grep -qE '^git (add|commit)' && { git diff --cached --name-only 2>/dev/null | grep -qE '\\.(env|pem|key)' && { echo '[SECURITY] Secret file staged - BLOCKED!' >&2; exit 2; } || exit 0; } || exit 0"
           }
         ]

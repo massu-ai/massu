@@ -172,6 +172,17 @@ var ConventionsConfigSchema = z.object({
   knowledgeSourceFiles: z.array(z.string()).default(["CLAUDE.md", "MEMORY.md", "corrections.md"]),
   excludePatterns: z.array(z.string()).default(["/ARCHIVE/", "/SESSION-HISTORY/"])
 }).optional();
+var PythonDomainConfigSchema = z.object({
+  name: z.string(),
+  packages: z.array(z.string()),
+  allowed_imports_from: z.array(z.string()).default([])
+});
+var PythonConfigSchema = z.object({
+  root: z.string(),
+  alembic_dir: z.string().optional(),
+  domains: z.array(PythonDomainConfigSchema).default([]),
+  exclude_dirs: z.array(z.string()).default(["__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache"])
+}).optional();
 var PathsConfigSchema = z.object({
   source: z.string().default("src"),
   aliases: z.record(z.string(), z.string()).default({ "@": "src" }),
@@ -207,7 +218,8 @@ var RawConfigSchema = z.object({
   team: TeamConfigSchema,
   regression: RegressionConfigSchema,
   cloud: CloudConfigSchema,
-  conventions: ConventionsConfigSchema
+  conventions: ConventionsConfigSchema,
+  python: PythonConfigSchema
 }).passthrough();
 var _config = null;
 var _projectRoot = null;
@@ -272,7 +284,8 @@ function getConfig() {
     team: parsed.team,
     regression: parsed.regression,
     cloud: parsed.cloud,
-    conventions: parsed.conventions
+    conventions: parsed.conventions,
+    python: parsed.python
   };
   if (!_config.cloud?.apiKey && process.env.MASSU_API_KEY) {
     _config.cloud = {
@@ -456,7 +469,7 @@ function extractDeletedFiles(input) {
       const paths = rmMatch[1].split(/\s+/).filter((p) => !p.startsWith("-"));
       for (const p of paths) {
         const relPath = p.startsWith("src/") ? p : p.replace(PROJECT_ROOT2 + "/", "");
-        if (relPath.startsWith("src/")) {
+        if (relPath.startsWith("src/") || relPath.endsWith(".py")) {
           files.push(relPath);
         }
       }
@@ -466,7 +479,7 @@ function extractDeletedFiles(input) {
     const content = input.tool_input.content || "";
     if (content.trim().length === 0) {
       const relPath = input.tool_input.file_path.replace(PROJECT_ROOT2 + "/", "");
-      if (relPath.startsWith("src/")) {
+      if (relPath.startsWith("src/") || relPath.endsWith(".py")) {
         files.push(relPath);
       }
     }
@@ -523,6 +536,31 @@ async function main() {
         msg.push("");
         msg.push("Create a migration plan before deleting these files.");
         process.stdout.write(JSON.stringify({ message: msg.join("\n") }));
+      }
+      const pyFiles = deletedFiles.filter((f) => f.endsWith(".py"));
+      if (pyFiles.length > 0) {
+        try {
+          for (const pyFile of pyFiles) {
+            const importers = db.prepare(
+              "SELECT source_file FROM massu_py_imports WHERE target_file = ?"
+            ).all(pyFile);
+            const routes = db.prepare(
+              "SELECT method, path FROM massu_py_routes WHERE file = ?"
+            ).all(pyFile);
+            const models = db.prepare(
+              "SELECT class_name FROM massu_py_models WHERE file = ?"
+            ).all(pyFile);
+            if (importers.length > 0 || routes.length > 0 || models.length > 0) {
+              const parts = [];
+              if (importers.length > 0) parts.push(`imported by ${importers.length} files`);
+              if (routes.length > 0) parts.push(`defines ${routes.length} routes`);
+              if (models.length > 0) parts.push(`defines ${models.length} models`);
+              const msg = `PYTHON IMPACT: "${pyFile}" ${parts.join(", ")}. Check dependents before deleting.`;
+              process.stdout.write(JSON.stringify({ message: msg }));
+            }
+          }
+        } catch {
+        }
       }
     } finally {
       db.close();

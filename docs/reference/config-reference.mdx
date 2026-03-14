@@ -129,6 +129,124 @@ regression:
   health_thresholds:
     healthy: number         # Green threshold (default: 80)
     warning: number         # Yellow threshold (default: 50)
+
+# Python intelligence (optional, Pro tier)
+python:
+  root: string              # Python source root, relative to project root (required if section present)
+  alembic_dir: string       # Path to Alembic migrations directory (optional)
+  exclude_dirs: string[]    # Directories to skip (default: ["__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache"])
+  domains:                  # Python package domain definitions (default: [])
+    - name: string          # Domain name
+      packages: string[]    # Python package paths in this domain (e.g., ["app.api", "app.routers"])
+      allowed_imports_from: string[]  # Package paths this domain may import from
+```
+
+## Python Configuration
+
+The `python` section enables Python code intelligence for FastAPI, SQLAlchemy, and Alembic projects. It is entirely optional — omitting it has no effect on JS/TS project behavior. All Python tools require a [Pro license](/docs/reference/license-tiers).
+
+### Fields
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `python.root` | string | yes (if section present) | — | Path to Python source root, relative to project root |
+| `python.alembic_dir` | string | no | — | Path to Alembic migrations directory |
+| `python.exclude_dirs` | string[] | no | See below | Directories to skip during analysis |
+| `python.domains` | array | no | `[]` | Domain boundary definitions |
+| `python.domains[].name` | string | yes | — | Human-readable domain name |
+| `python.domains[].packages` | string[] | yes | — | Python package paths in this domain (e.g., `["app.api"]`) |
+| `python.domains[].allowed_imports_from` | string[] | yes | — | Package paths this domain may import from |
+
+**Default `exclude_dirs`:** `["__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache"]`
+
+Package paths in `domains` use Python dotted notation (e.g., `app.api`) and are resolved against `python.root`.
+
+### Examples
+
+**Minimal — import graph only:**
+
+```yaml
+python:
+  root: backend
+```
+
+**With Alembic migrations:**
+
+```yaml
+python:
+  root: backend
+  alembic_dir: backend/migrations
+```
+
+**With domain enforcement:**
+
+```yaml
+python:
+  root: backend
+  alembic_dir: backend/migrations
+  exclude_dirs:
+    - __pycache__
+    - .venv
+    - tests
+  domains:
+    - name: API Layer
+      packages:
+        - app.api
+        - app.routers
+      allowed_imports_from:
+        - app.services
+        - app.models
+        - app.schemas
+    - name: Services
+      packages:
+        - app.services
+      allowed_imports_from:
+        - app.models
+        - app.core
+    - name: Models
+      packages:
+        - app.models
+      allowed_imports_from:
+        - app.core
+    - name: Core Infrastructure
+      packages:
+        - app.core
+        - app.config
+        - app.db
+      allowed_imports_from: []
+```
+
+**Full-stack monorepo (Next.js + FastAPI):**
+
+```yaml
+project:
+  name: my-fullstack-app
+
+framework:
+  type: typescript
+  router: trpc
+  orm: prisma
+  ui: nextjs
+
+paths:
+  source: frontend/src
+
+python:
+  root: backend
+  alembic_dir: backend/db/migrations
+  domains:
+    - name: API Layer
+      packages: ["app.api"]
+      allowed_imports_from: ["app.services", "app.models"]
+    - name: Services
+      packages: ["app.services"]
+      allowed_imports_from: ["app.models", "app.core"]
+    - name: Models
+      packages: ["app.models"]
+      allowed_imports_from: ["app.core"]
+    - name: Core
+      packages: ["app.core", "app.config"]
+      allowed_imports_from: []
 ```
 
 ## Conditional Features
@@ -142,6 +260,7 @@ Some tools are only available when specific configuration is set:
 | `domains: []` (non-empty) | `massu_domains` |
 | `paths.middleware` set | Middleware tree analysis |
 | `team.enabled: true` | Team knowledge tools |
+| `python.root` set | All 8 `massu_py_*` tools (Pro tier) |
 
 ## Environment Variables
 

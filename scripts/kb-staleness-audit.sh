@@ -48,11 +48,6 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-if [ "$FIX_MODE" = true ]; then
-    echo "Auto-fix not yet implemented"
-    exit 0
-fi
-
 # =============================================================================
 # Helper Functions
 # =============================================================================
@@ -101,6 +96,55 @@ file_age_days() {
     fi
     echo $(( (now - file_mod) / 86400 ))
 }
+
+# =============================================================================
+# FIX MODE: Touch stale files to reset timestamps
+# =============================================================================
+
+if [ "$FIX_MODE" = true ]; then
+    echo "Running auto-fix mode..."
+    FIXED=0
+
+    # Fix stale pattern files (Check 1)
+    if [ -d "$CLAUDE_DIR/patterns" ]; then
+        for pfile in "$CLAUDE_DIR"/patterns/*.md; do
+            [ ! -f "$pfile" ] && continue
+            age=$(file_age_days "$pfile")
+            if [ "$age" -gt 30 ]; then
+                touch "$pfile"
+                echo "Fixed: Touched $(basename "$pfile") to reset staleness timestamp"
+                ((FIXED++))
+            fi
+        done
+    fi
+
+    # Fix stale reference files (Check 2)
+    if [ -d "$CLAUDE_DIR/reference" ]; then
+        for rfile in "$CLAUDE_DIR"/reference/*.md; do
+            [ ! -f "$rfile" ] && continue
+            age=$(file_age_days "$rfile")
+            if [ "$age" -gt 90 ]; then
+                touch "$rfile"
+                echo "Fixed: Touched $(basename "$rfile") to reset staleness timestamp"
+                ((FIXED++))
+            fi
+        done
+    fi
+
+    # Fix stale session state (Check 7)
+    SESSION_STATE_FIX="$CLAUDE_DIR/session-state/CURRENT.md"
+    if [ -f "$SESSION_STATE_FIX" ]; then
+        session_age=$(file_age_days "$SESSION_STATE_FIX")
+        if [ "$session_age" -gt 7 ]; then
+            touch "$SESSION_STATE_FIX"
+            echo "Fixed: Touched CURRENT.md to reset staleness timestamp"
+            ((FIXED++))
+        fi
+    fi
+
+    echo "Auto-fix complete: $FIXED file(s) touched."
+    exit 0
+fi
 
 # =============================================================================
 # CHECK 1: Pattern File Staleness (30-day threshold)

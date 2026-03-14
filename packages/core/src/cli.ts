@@ -43,6 +43,11 @@ async function main(): Promise<void> {
       await runInstallHooks();
       break;
     }
+    case 'install-commands': {
+      const { runInstallCommands } = await import('./commands/install-commands.ts');
+      await runInstallCommands();
+      break;
+    }
     case 'validate-config': {
       const { runValidateConfig } = await import('./commands/doctor.ts');
       await runValidateConfig();
@@ -77,6 +82,7 @@ Commands:
   init              Set up Massu AI in your project (one command, full setup)
   doctor            Check installation health
   install-hooks     Install/update Claude Code hooks
+  install-commands  Install/update slash commands
   validate-config   Validate massu.config.yaml
 
 Options:

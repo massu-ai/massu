@@ -1,12 +1,23 @@
 ---
 title: "Workflow Commands"
-description: "28 workflow commands that enforce a verification-first approach to AI-assisted development"
+description: "31 workflow commands that enforce a verification-first approach to AI-assisted development"
 order: 0
 ---
 
 # Workflow Commands
 
-Massu AI provides 28 workflow commands organized into categories that enforce a structured, verification-first approach to AI-assisted development. These are not suggestions -- they are mandatory execution protocols that ensure every plan is thorough, every implementation is verified, and every commit meets quality standards.
+Massu AI provides 31 workflow commands organized into categories that enforce a structured, verification-first approach to AI-assisted development. These are not suggestions -- they are mandatory execution protocols that ensure every plan is thorough, every implementation is verified, and every commit meets quality standards.
+
+## Installation
+
+All 31 commands are **automatically installed** when you run `npx massu init`. The command files are deployed into `.claude/commands/` in your project directory and are available immediately in Claude Code.
+
+The command definitions ship inside the `@massu/core` npm package. When you update `@massu/core` to a new version, run `npx massu install-commands` to get the latest command definitions without re-running full init.
+
+```bash
+# Re-install or update commands only
+npx massu install-commands
+```
 
 ## Implementation Workflow
 

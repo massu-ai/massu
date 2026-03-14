@@ -1,0 +1,249 @@
+---
+title: "Full-Stack Python + TypeScript"
+description: "Set up Massu AI for polyglot projects with a Next.js frontend and FastAPI backend — cross-language coupling detection, domain boundaries, and shared governance"
+order: 2
+---
+
+# Full-Stack Python + TypeScript
+
+This guide walks you through configuring Massu AI for a polyglot project that combines a Next.js (TypeScript) frontend with a FastAPI (Python) backend. Massu AI indexes both sides of the stack, detects cross-language coupling, and enforces domain boundaries that span both languages.
+
+## How Massu AI Handles Polyglot Projects
+
+When Python support is enabled, Massu AI runs two parallel indexers during `massu_sync`:
+
+1. **TypeScript/JavaScript indexer** — builds the CodeGraph, tRPC map, and import edges for the frontend
+2. **Python indexer** — builds import edges, FastAPI route definitions, SQLAlchemy models, and Alembic migration history
+
+The results are stored in separate table families in the Data Database (`massu_imports` / `massu_py_imports`, etc.) but are queried together by cross-language tools like `massu_py_coupling`.
+
+Domain boundaries configured in `massu.config.yaml` apply to both languages. A domain can own files in both `src/` (TypeScript) and `backend/` (Python) simultaneously.
+
+## Prerequisites
+
+- Next.js 14+ with App Router (TypeScript frontend)
+- FastAPI backend (Python 3.10+)
+- SQLAlchemy ORM (optional — enables model and FK analysis)
+- Alembic (optional — enables migration history)
+- Massu AI installed ([Installation Guide](/docs/getting-started/installation))
+
+## Step 1: Configuration
+
+Create `massu.config.yaml` in your project root:
+
+```yaml
+project:
+  name: my-fullstack-app
+  root: auto
+
+framework:
+  type: typescript
+  router: trpc
+  orm: prisma
+  ui: nextjs
+
+python:
+  root: backend
+  alembic_dir: backend/alembic/versions
+  exclude_dirs: ['__pycache__', '.venv']
+  domains:
+    - name: users
+      packages: [backend/routers/users, backend/models/user]
+      allowed_imports_from: [shared, auth]
+    - name: auth
+      packages: [backend/routers/auth, backend/models/session]
+      allowed_imports_from: [shared]
+    - name: shared
+      packages: [backend/models/base]
+      allowed_imports_from: []
+
+paths:
+  source: src
+  aliases:
+    "@": src
+    "@/components": src/components
+    "@/lib": src/lib
+  middleware: src/middleware.ts
+
+toolPrefix: massu
+
+domains:
+  - name: users
+    routers:
+      - "src/server/routers/users*"
+    pages:
+      - "src/app/users/**"
+    components:
+      - "src/components/users/**"
+    allowedImportsFrom:
+      - shared
+      - auth
+
+  - name: auth
+    routers:
+      - "src/server/routers/auth*"
+    pages:
+      - "src/app/auth/**"
+    components:
+      - "src/components/auth/**"
+    allowedImportsFrom:
+      - shared
+
+  - name: shared
+    routers: []
+    pages: []
+    components:
+      - "src/components/ui/**"
+      - "src/lib/**"
+    allowedImportsFrom: []
+
+rules:
+  - pattern: "src/server/**/*.ts"
+    severity: CRITICAL
+    rules:
+      - "All mutations must use protectedProcedure"
+      - "Never expose raw error details to clients"
+      - "Validate all inputs with Zod schemas"
+
+  - pattern: "backend/routers/**/*.py"
+    severity: CRITICAL
+    rules:
+      - "All routes must declare a response_model"
+      - "All mutating routes must use the auth dependency"
+      - "Never return raw SQLAlchemy model objects — use Pydantic schemas"
+
+  - pattern: "backend/models/**/*.py"
+    severity: HIGH
+    rules:
+      - "All models must define __tablename__"
+      - "Use explicit column types — never rely on SQLAlchemy inference"
+
+  - pattern: "backend/alembic/versions/**/*.py"
+    severity: HIGH
+    rules:
+      - "Every migration must have a down_revision"
+      - "Never use bulk_update_mappings in up() — use explicit update statements"
+
+security:
+  auto_score_on_edit: true
+  score_threshold_alert: 40
+
+analytics:
+  cost:
+    models:
+      claude-opus-4-6:
+        input_per_million: 15
+        output_per_million: 75
+        cache_read_per_million: 1.5
+        cache_write_per_million: 3.75
+    currency: USD
+```
+
+## Step 2: Initial Sync
+
+Start Claude Code and run the initial sync:
+
+```
+> Run massu_sync to index the codebase
+```
+
+With Python enabled, you should see both indexers run:
+
+```
+Indexes rebuilt:
+Import edges (TS/JS): 284
+tRPC procedures: 61 (48 with UI, 13 without)
+Python import edges: 127
+FastAPI routes: 34 (28 authenticated, 6 public)
+SQLAlchemy models: 12
+FK edges: 18
+Alembic migrations: 24
+Page deps: 29 pages
+```
+
+## Step 3: Cross-Language Coupling Detection
+
+The `massu_py_coupling` tool identifies frontend TypeScript files that call backend Python routes, and flags mismatches — such as a route that exists in Python but has no frontend caller, or a fetch call that targets a URL pattern not matching any registered route.
+
+```
+> Run massu_py_coupling
+```
+
+Example output:
+
+```
+Cross-language coupling report
+
+Coupled:
+  src/lib/api/users.ts → backend/routers/users.py::get_user (GET /users/{id})
+  src/lib/api/users.ts → backend/routers/users.py::list_users (GET /users)
+  src/app/users/[id]/page.tsx → backend/routers/users.py::get_user_profile (GET /users/{id}/profile)
+
+Uncoupled routes (Python, no frontend caller):
+  backend/routers/users.py::bulk_export (GET /users/export)
+
+Uncoupled fetches (frontend, no matching route):
+  src/lib/api/admin.ts:47 → GET /users/stats (no registered route)
+```
+
+This surfaces dead backend routes and dangling frontend calls that would otherwise only fail at runtime.
+
+## Step 4: Domain Boundaries Across Languages
+
+Use `massu_domains` for TypeScript boundary violations and `massu_py_domains` for Python boundary violations:
+
+```
+> Run massu_py_domains with crossings: true
+```
+
+A Python router in `backend/routers/auth.py` importing a model from `backend/models/users.py` (owned by the `users` domain) would appear as a cross-domain violation, just like a TypeScript page importing from a different domain.
+
+## Step 5: Python-Specific Tools
+
+### View FastAPI Routes
+
+```
+> Run massu_py_routes with file: "backend/routers/auth.py"
+```
+
+Returns all routes defined in the auth router file with their methods, paths, dependencies, and authentication status.
+
+### Check SQLAlchemy Models
+
+```
+> Run massu_py_models with table: users
+```
+
+Returns the model definition, column list, and all FK relationships for the `users` table.
+
+### Review Migration History
+
+```
+> Run massu_py_migrations with limit: 10
+```
+
+Shows the last 10 Alembic migrations with revision IDs, descriptions, and the operations each migration performs.
+
+### Python Impact Analysis
+
+```
+> Run massu_py_impact for backend/models/user.py
+```
+
+Shows all Python files that import from `user.py`, all routes that return a User model, and all TypeScript files calling those routes — a full cross-language blast radius.
+
+### Full Context for a Python File
+
+```
+> Run massu_py_context for backend/routers/users.py
+```
+
+Returns the domain assignment, all imports and importers, coupled frontend files, and applicable governance rules for `users.py`.
+
+## Tips for Full-Stack Projects
+
+- Set `python.root` to your FastAPI backend directory so Massu AI knows where to scan for Python files
+- Configure `python.alembic_dir` to enable migration drift detection between `massu_py_models` and `massu_py_migrations`
+- Use `python.domains` to assign Python packages to domain boundaries — cross-domain violations are caught by `massu_py_domains`
+- The `post-edit-context` hook fires on `.py` file edits and surfaces applicable rules from your config, the same as for TypeScript files
+- Run `massu_py_coupling` before submitting a backend PR to ensure every new route has a frontend caller (or is intentionally internal)

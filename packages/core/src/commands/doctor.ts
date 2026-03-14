@@ -17,11 +17,11 @@
  * 10. Git repository detected
  */
 
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parse as parseYaml } from 'yaml';
-import { getResolvedPaths } from '../config.ts';
+import { getConfig, getResolvedPaths } from '../config.ts';
 import { getCurrentTier, getLicenseInfo, daysUntilExpiry } from '../license.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -290,6 +290,89 @@ async function checkLicenseStatus(): Promise<CheckResult> {
   }
 }
 
+function checkPythonHealth(projectRoot: string): CheckResult | null {
+  const config = getConfig();
+  if (!config.python?.root) return null;
+
+  const pythonRoot = resolve(projectRoot, config.python.root);
+  if (!existsSync(pythonRoot)) {
+    return {
+      name: 'Python',
+      status: 'fail',
+      detail: `Python root directory not found: ${config.python.root}`,
+    };
+  }
+
+  // Count .py files recursively (shallow scan for performance)
+  let pyFileCount = 0;
+  let routeCount = 0;
+  let modelCount = 0;
+  const initPyMissing: string[] = [];
+
+  function scanDir(dir: string, depth: number): void {
+    if (depth > 5) return;
+    try {
+      const entries = readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const excludeDirs = config.python?.exclude_dirs || ['__pycache__', '.venv', 'venv', '.mypy_cache', '.pytest_cache'];
+          if (!excludeDirs.includes(entry.name)) {
+            const subdir = resolve(dir, entry.name);
+            // Check for __init__.py in package directories
+            if (depth <= 2 && !existsSync(resolve(subdir, '__init__.py'))) {
+              // Only flag directories that contain .py files
+              try {
+                const subEntries = readdirSync(subdir);
+                if (subEntries.some(f => f.endsWith('.py') && f !== '__init__.py')) {
+                  initPyMissing.push(entry.name);
+                }
+              } catch { /* skip */ }
+            }
+            scanDir(subdir, depth + 1);
+          }
+        } else if (entry.name.endsWith('.py')) {
+          pyFileCount++;
+          // Rough heuristic for routes and models
+          if (entry.name === 'routes.py' || entry.name === 'router.py' || entry.name === 'endpoints.py') {
+            routeCount++;
+          }
+          if (entry.name === 'models.py' || entry.name === 'model.py' || entry.name === 'schemas.py') {
+            modelCount++;
+          }
+        }
+      }
+    } catch { /* skip unreadable dirs */ }
+  }
+
+  scanDir(pythonRoot, 0);
+
+  if (pyFileCount === 0) {
+    return {
+      name: 'Python',
+      status: 'warn',
+      detail: `Python root ${config.python.root} exists but no .py files found`,
+    };
+  }
+
+  const parts: string[] = [`${pyFileCount} .py files`];
+  if (routeCount > 0) parts.push(`${routeCount} route files`);
+  if (modelCount > 0) parts.push(`${modelCount} model files`);
+  if (initPyMissing.length > 0) {
+    parts.push(`missing __init__.py: ${initPyMissing.slice(0, 3).join(', ')}${initPyMissing.length > 3 ? '...' : ''}`);
+    return {
+      name: 'Python',
+      status: 'warn',
+      detail: parts.join(', '),
+    };
+  }
+
+  return {
+    name: 'Python',
+    status: 'pass',
+    detail: parts.join(', '),
+  };
+}
+
 // ============================================================
 // Main Doctor Flow
 // ============================================================
@@ -315,6 +398,10 @@ export async function runDoctor(): Promise<void> {
     await checkGitRepo(projectRoot),
     await checkLicenseStatus(),
   ];
+
+  // Add Python health check if configured
+  const pythonCheck = checkPythonHealth(projectRoot);
+  if (pythonCheck) checks.push(pythonCheck);
 
   let passed = 0;
   let failed = 0;

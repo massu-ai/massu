@@ -40,7 +40,7 @@ Massu uses a tiered model. All hooks and commands are free. Tools are gated by t
 | **Team** | 56 tools | Everything in Pro + sentinel feature registry, team knowledge sharing |
 | **Enterprise** | 62 tools | Everything in Team + audit trail, security scoring, dependency analysis |
 
-All 11 lifecycle hooks and all 28 slash commands are included at every tier.
+All 11 lifecycle hooks and all 31 slash commands are included at every tier.
 
 ## Quick Start
 
@@ -48,7 +48,7 @@ All 11 lifecycle hooks and all 28 slash commands are included at every tier.
 # Install
 npm install @massu/core
 
-# One-command setup (detects framework, creates config, registers MCP, installs hooks)
+# One-command setup (detects framework, creates config, registers MCP, installs hooks and commands)
 npx massu init
 
 # Start Claude Code — everything is active
@@ -60,12 +60,19 @@ That's it. `massu init` automatically:
 - Creates `massu.config.yaml` with detected settings
 - Registers the MCP server in `.mcp.json`
 - Installs all 11 lifecycle hooks in `.claude/settings.local.json`
+- Installs all 31 slash commands into `.claude/commands/`
 - Databases auto-create on first session
 
 To verify your installation:
 
 ```bash
 npx massu doctor
+```
+
+To update slash commands independently (e.g., after upgrading `@massu/core`):
+
+```bash
+npx massu install-commands
 ```
 
 ### Unlocking Pro Features

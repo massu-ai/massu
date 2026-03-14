@@ -2,8 +2,8 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import Database from 'better-sqlite3';
-import { dirname } from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import { dirname, join } from 'path';
+import { existsSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { getResolvedPaths } from './config.ts';
 
 /**
@@ -95,6 +95,84 @@ function initDataSchema(db: Database.Database): void {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    -- ============================================================
+    -- Python Code Intelligence Tables
+    -- ============================================================
+
+    CREATE TABLE IF NOT EXISTS massu_py_imports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_file TEXT NOT NULL,
+      target_file TEXT NOT NULL,
+      import_type TEXT NOT NULL CHECK(import_type IN ('absolute', 'relative', 'from_absolute', 'from_relative')),
+      imported_names TEXT NOT NULL DEFAULT '[]',
+      line INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_massu_py_imports_source ON massu_py_imports(source_file);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_imports_target ON massu_py_imports(target_file);
+
+    CREATE TABLE IF NOT EXISTS massu_py_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS massu_py_routes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      file TEXT NOT NULL,
+      method TEXT NOT NULL,
+      path TEXT NOT NULL,
+      function_name TEXT NOT NULL,
+      dependencies TEXT NOT NULL DEFAULT '[]',
+      request_model TEXT,
+      response_model TEXT,
+      is_authenticated INTEGER NOT NULL DEFAULT 0,
+      line INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_massu_py_routes_path ON massu_py_routes(path);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_routes_file ON massu_py_routes(file);
+
+    CREATE TABLE IF NOT EXISTS massu_py_route_callers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      route_id INTEGER NOT NULL REFERENCES massu_py_routes(id) ON DELETE CASCADE,
+      frontend_file TEXT NOT NULL,
+      line INTEGER NOT NULL DEFAULT 0,
+      call_pattern TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_massu_py_route_callers_route ON massu_py_route_callers(route_id);
+
+    CREATE TABLE IF NOT EXISTS massu_py_models (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      class_name TEXT NOT NULL,
+      table_name TEXT,
+      file TEXT NOT NULL,
+      line INTEGER NOT NULL DEFAULT 0,
+      columns TEXT NOT NULL DEFAULT '[]',
+      relationships TEXT NOT NULL DEFAULT '[]',
+      foreign_keys TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE INDEX IF NOT EXISTS idx_massu_py_models_file ON massu_py_models(file);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_models_table ON massu_py_models(table_name);
+
+    CREATE TABLE IF NOT EXISTS massu_py_fk_edges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_table TEXT NOT NULL,
+      source_column TEXT NOT NULL,
+      target_table TEXT NOT NULL,
+      target_column TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_massu_py_fk_source ON massu_py_fk_edges(source_table);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_fk_target ON massu_py_fk_edges(target_table);
+
+    CREATE TABLE IF NOT EXISTS massu_py_migrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      revision TEXT NOT NULL UNIQUE,
+      down_revision TEXT,
+      file TEXT NOT NULL,
+      description TEXT,
+      operations TEXT NOT NULL DEFAULT '[]',
+      is_head INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_massu_py_migrations_rev ON massu_py_migrations(revision);
 
     -- ============================================================
     -- Sentinel: Feature Registry Tables
@@ -230,4 +308,39 @@ export function isDataStale(dataDb: Database.Database, codegraphDb: Database.Dat
  */
 export function updateBuildTimestamp(dataDb: Database.Database): void {
   dataDb.prepare("INSERT OR REPLACE INTO massu_meta (key, value) VALUES ('last_build_time', ?)").run(new Date().toISOString());
+}
+
+/**
+ * Check if Python indexes are stale based on massu_py_meta.last_build_time.
+ */
+export function isPythonDataStale(dataDb: Database.Database, pythonRoot: string): boolean {
+  const lastBuild = dataDb.prepare("SELECT value FROM massu_py_meta WHERE key = 'last_build_time'").get() as { value: string } | undefined;
+  if (!lastBuild) return true;
+
+  const lastBuildTime = new Date(lastBuild.value).getTime();
+  // Check if any .py file is newer than last build
+  function checkDir(dir: string): boolean {
+    try {
+      const entries = readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (['__pycache__', '.venv', 'venv', 'node_modules', '.mypy_cache', '.pytest_cache'].includes(entry.name)) continue;
+          if (checkDir(fullPath)) return true;
+        } else if (entry.name.endsWith('.py')) {
+          if (statSync(fullPath).mtimeMs > lastBuildTime) return true;
+        }
+      }
+    } catch { /* directory may not exist */ }
+    return false;
+  }
+
+  return checkDir(pythonRoot);
+}
+
+/**
+ * Update the Python build timestamp in massu_py_meta.
+ */
+export function updatePythonBuildTimestamp(dataDb: Database.Database): void {
+  dataDb.prepare("INSERT OR REPLACE INTO massu_py_meta (key, value) VALUES ('last_build_time', ?)").run(new Date().toISOString());
 }

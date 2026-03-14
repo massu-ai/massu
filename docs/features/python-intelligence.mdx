@@ -1,0 +1,407 @@
+---
+title: "Python Code Intelligence"
+description: "First-class Python/FastAPI/SQLAlchemy code intelligence with import graph analysis, route mapping, model inspection, and migration drift detection"
+order: 2
+---
+
+# Python Code Intelligence
+
+Massu AI brings the same deep structural understanding it provides for TypeScript projects to Python codebases. Import graph analysis, FastAPI route mapping, SQLAlchemy model inspection, Alembic migration tracking, and domain boundary enforcement — all without requiring a Python runtime on your machine.
+
+This feature requires a [Pro license](/docs/reference/license-tiers).
+
+## How It Works
+
+Python analysis is implemented entirely in TypeScript and ships inside the existing `@massu/core` npm package. There is no Python runtime dependency and no second process to manage.
+
+Massu parses Python files using a structured heuristic parser (the same approach it uses for JavaScript imports in the core import resolver). This covers the subset of Python constructs needed for governance:
+
+- `import x`, `from x import y`, relative imports, multiline parenthesized imports
+- FastAPI route decorators (`@app.get(...)`, `@router.post(...)`)
+- SQLAlchemy model class definitions with `Column`, `mapped_column`, `relationship`, `ForeignKey`
+- Alembic migration revision files with `op.create_table`, `op.add_column`, etc.
+
+All extracted data is stored in Massu's local SQLite databases and queried through the same MCP tool interface as the JS/TS intelligence tools.
+
+## Supported Frameworks
+
+| Framework | Support Level | Notes |
+|-----------|---------------|-------|
+| **FastAPI** | Full | Route detection, authentication inference, Depends() tracking |
+| **SQLAlchemy** | Full | Both 1.x (Column) and 2.0 (mapped_column) styles |
+| **Alembic** | Full | Migration chain, head detection, drift detection |
+| **General Python** | Full | Import graph, domain boundaries, impact analysis |
+
+### Planned Frameworks
+
+> These frameworks are planned for a future release and are not yet available.
+
+| Framework | Planned Features |
+|-----------|-----------------|
+| Django | Views, models, URLs, migrations |
+| Flask | Routes, Blueprints |
+
+## Python Tools
+
+All Python tools require Pro tier and only appear in Claude Code when `python.root` is configured in `massu.config.yaml`.
+
+### `massu_py_imports`
+
+**What it does:** Queries the Python import graph. Find what a file imports, what imports it, or trace transitive dependencies.
+
+**Usage:**
+
+```
+massu_py_imports --file "app/api/routes.py"
+massu_py_imports --imported_by "app/models.py"
+massu_py_imports --file "app/core/deps.py" --transitive true --depth 3
+```
+
+**Example output:**
+
+```
+## Import Graph: app/api/routes.py
+
+### Imports From (direct)
+- app/core/deps.py: get_current_user, get_db
+- app/models.py: User, Order
+- app/schemas.py: OrderCreate, OrderResponse
+
+### Imported By
+- app/main.py
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | no | Show imports from this file |
+| `imported_by` | string | no | Show files that import this file |
+| `transitive` | boolean | no | Include transitive imports |
+| `depth` | number | no | Max depth for transitive traversal (default: 5) |
+
+---
+
+### `massu_py_routes`
+
+**What it does:** List and filter FastAPI routes. Filter by HTTP method, path prefix, or file. Find unauthenticated routes or routes with no frontend callers.
+
+**Usage:**
+
+```
+massu_py_routes
+massu_py_routes --method "GET"
+massu_py_routes --unauthenticated true
+massu_py_routes --uncoupled true
+```
+
+**Example output:**
+
+```
+## FastAPI Routes (12 total)
+
+### GET /api/users (app/api/users.py:14)
+Function: list_users
+Auth: YES (depends on: get_current_user)
+Response model: List[UserResponse]
+
+### POST /api/orders (app/api/orders.py:32)
+Function: create_order
+Auth: YES (depends on: get_current_user)
+Request model: OrderCreate
+Response model: OrderResponse
+
+### GET /api/health (app/main.py:8) [NO AUTH] [NO FRONTEND CALLERS]
+Function: health_check
+Auth: NO
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `method` | string | no | Filter by HTTP method (GET, POST, PUT, DELETE, PATCH) |
+| `path` | string | no | Filter by path prefix |
+| `file` | string | no | Show only routes defined in this file |
+| `unauthenticated` | boolean | no | Show only routes with no auth dependencies |
+| `uncoupled` | boolean | no | Show only routes with no detected frontend callers |
+| `limit` | number | no | Max results to return (default: 500, max: 5000) |
+
+---
+
+### `massu_py_coupling`
+
+**What it does:** Shows the frontend-to-backend coupling map. Find which TypeScript/React files call which FastAPI endpoints, and which endpoints have no frontend callers.
+
+**Usage:**
+
+```
+massu_py_coupling
+massu_py_coupling --frontend_file "src/components/orders/OrderList.tsx"
+massu_py_coupling --backend_path "/api/orders"
+```
+
+**Example output:**
+
+```
+## Frontend-to-Backend Coupling
+
+### /api/orders (GET) — 2 callers
+- src/components/orders/OrderList.tsx:45 -> fetch('/api/orders')
+- src/hooks/useOrders.ts:12 -> apiClient.get('/api/orders')
+
+### /api/orders (POST) — 1 caller
+- src/components/orders/OrderForm.tsx:78 -> apiClient.post('/api/orders', data)
+
+### /api/admin/purge (DELETE) — NO CALLERS
+Warning: This endpoint has no detected frontend callers.
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `frontend_file` | string | no | Show only callers from this frontend file |
+| `backend_path` | string | no | Show callers for this backend path |
+
+---
+
+### `massu_py_models`
+
+**What it does:** Lists SQLAlchemy models, inspects columns and relationships, shows the foreign key graph, and verifies column references in code.
+
+**Usage:**
+
+```
+massu_py_models
+massu_py_models --model "Order"
+massu_py_models --fk_graph true
+massu_py_models --verify_file "app/api/orders.py"
+```
+
+**Example output:**
+
+```
+## SQLAlchemy Models (4 total)
+
+### Order (table: orders) — app/models/order.py:12
+Columns:
+  - id: Integer (PK, not null)
+  - user_id: Integer (FK -> users.id, not null)
+  - status: String (not null)
+  - total: Numeric (not null)
+  - created_at: DateTime (not null)
+
+Relationships:
+  - user -> User (back_populates: orders)
+  - items -> OrderItem (back_populates: order)
+
+Foreign Keys:
+  - user_id -> users.id
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `model` | string | no | Show details for a specific model class |
+| `table` | string | no | Look up model by table name |
+| `fk_graph` | boolean | no | Show full foreign key graph between tables |
+| `verify_file` | string | no | Check column references in this file against actual schema |
+| `limit` | number | no | Max results to return (default: 500, max: 5000) |
+
+---
+
+### `massu_py_migrations`
+
+**What it does:** Lists Alembic migrations, shows the migration chain, identifies the current head revision, and detects drift between SQLAlchemy models and migration state.
+
+**Usage:**
+
+```
+massu_py_migrations
+massu_py_migrations --chain true
+massu_py_migrations --drift true
+```
+
+**Example output:**
+
+```
+## Alembic Migrations (5 total)
+
+HEAD: a3f2c1d9 — "add order status index"
+
+Chain:
+  a3f2c1d9 <- e8b4a721 <- c2d9f301 <- 7f1a2b4c <- 001_initial
+
+### Drift Detection
+Models without complete migration coverage:
+  - OrderItem.discount_amount — column exists in model, not in any migration
+  - User.last_login — column exists in model, not in any migration
+
+Result: DRIFT DETECTED (2 issues)
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `revision` | string | no | Show details for a specific revision |
+| `chain` | boolean | no | Show full migration chain |
+| `drift` | boolean | no | Compare models vs migration state to detect drift |
+| `limit` | number | no | Max results to return (default: 500, max: 5000) |
+
+---
+
+### `massu_py_domains`
+
+**What it does:** Domain boundary enforcement for Python packages. Classify files into domains, find cross-domain import violations, or list all files in a domain.
+
+**Usage:**
+
+```
+massu_py_domains --file "app/api/orders.py"
+massu_py_domains --crossings true
+massu_py_domains --domain "API Layer"
+```
+
+**Example output:**
+
+```
+## Cross-Domain Import Analysis
+Total crossings: 8
+Violations: 1
+Allowed: 7
+
+### Violations (Disallowed Cross-Domain Imports)
+- app/api/routes.py (API Layer) -> app/internal/auth.py (Internal)
+  Rule: API Layer may only import from app.core and app.models
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | no | Classify this file into a domain |
+| `crossings` | boolean | no | Show all cross-domain imports |
+| `domain` | string | no | List all files in this domain |
+
+---
+
+### `massu_py_impact`
+
+**What it does:** Full impact analysis for a Python file. Shows which routes are affected, which models are in the dependency chain, which frontend pages may be affected, and domain boundary crossings.
+
+**Usage:**
+
+```
+massu_py_impact --file "app/core/deps.py"
+```
+
+**Example output:**
+
+```
+## Impact Analysis: app/core/deps.py
+
+### Dependent Files (direct importers)
+- app/api/orders.py
+- app/api/users.py
+- app/api/products.py
+
+### Routes Affected: 8
+All routes in app/api/orders.py, app/api/users.py, app/api/products.py
+
+### Frontend Pages Potentially Affected
+- src/app/orders/page.tsx (calls /api/orders/*)
+- src/app/users/page.tsx (calls /api/users/*)
+
+### Models in Dependency Chain
+- Order (table: orders)
+- User (table: users)
+
+### Domain: Core Infrastructure
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | yes | Python file path relative to project root |
+
+---
+
+### `massu_py_context`
+
+**What it does:** Returns comprehensive context for a Python file: applicable coding rules, domain classification, import edges (in and out), routes defined in the file, and models defined in the file.
+
+**Usage:**
+
+```
+massu_py_context --file "app/api/orders.py"
+```
+
+**Example output:**
+
+```
+## Context: app/api/orders.py
+
+## Applicable Rules
+- [HIGH] All routes must use get_current_user dependency for authentication
+- [MEDIUM] Use response_model parameter on all route decorators
+
+## Domain: API Layer
+
+## Routes Defined in This File
+- GET /api/orders (list_orders)
+- POST /api/orders (create_order)
+- GET /api/orders/{id} (get_order)
+- DELETE /api/orders/{id} (delete_order)
+
+## Models Used
+- Order (table: orders)
+- OrderCreate (schema)
+- OrderResponse (schema)
+
+## Imports (from this file)
+- app/core/deps.py: get_current_user, get_db
+- app/models/order.py: Order
+- app/schemas/order.py: OrderCreate, OrderResponse
+
+## Imported By
+- app/main.py
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | yes | Python file path relative to project root |
+
+---
+
+## Tool Comparison: JS/TS vs Python
+
+| JS/TS Tool | Python Equivalent | What It Does |
+|------------|-------------------|--------------|
+| `massu_context` | `massu_py_context` | Full file context (rules, imports, domain) |
+| `massu_impact` | `massu_py_impact` | Blast radius for a changed file |
+| `massu_domains` | `massu_py_domains` | Domain boundary classification and violations |
+| `massu_trpc_map` | `massu_py_routes` | Procedure/route inventory and caller mapping |
+| `massu_coupling_check` | `massu_py_coupling` | Dead routes / uncoupled endpoints |
+| `massu_schema` | `massu_py_models` | ORM model inspection and column verification |
+| (none) | `massu_py_imports` | Raw import graph traversal |
+| (none) | `massu_py_migrations` | Migration chain and drift detection |
+
+The Python tools also work in polyglot projects alongside the JS/TS tools. See [Full-Stack Python + TypeScript](/docs/guides/fullstack-python-typescript) for cross-language coupling detection.
+
+## Configuration
+
+Python tools require the `python` section in `massu.config.yaml`. The `massu init` command auto-detects Python projects and generates this configuration automatically. See [Python Projects](/docs/getting-started/python-projects) and the [Configuration Reference](/docs/reference/config-reference) for full details.
+
+## Tips
+
+- Run `massu_sync` after installing Python dependencies or restructuring packages to rebuild indexes
+- Use `massu_py_context` the same way as `massu_context` -- it surfaces applicable rules automatically when the `post-edit-context` hook fires on `.py` file edits
+- Run `massu_py_migrations --drift true` before deploying to catch model/migration drift early
+- Configure `python.domains` even for small projects -- catching cross-package violations early prevents the same architectural debt that plagues large Python monoliths
+- `massu_py_coupling` is the Python equivalent of the tRPC coupling check: find FastAPI endpoints with no frontend callers before they become dead code

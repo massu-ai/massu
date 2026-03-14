@@ -184,6 +184,21 @@ const ConventionsConfigSchema = z.object({
 }).optional();
 export type ConventionsConfig = z.infer<typeof ConventionsConfigSchema>;
 
+// --- Python Config ---
+const PythonDomainConfigSchema = z.object({
+  name: z.string(),
+  packages: z.array(z.string()),
+  allowed_imports_from: z.array(z.string()).default([]),
+});
+
+const PythonConfigSchema = z.object({
+  root: z.string(),
+  alembic_dir: z.string().optional(),
+  domains: z.array(PythonDomainConfigSchema).default([]),
+  exclude_dirs: z.array(z.string()).default(['__pycache__', '.venv', 'venv', '.mypy_cache', '.pytest_cache']),
+}).optional();
+export type PythonConfig = z.infer<typeof PythonConfigSchema>;
+
 // --- Paths Config ---
 const PathsConfigSchema = z.object({
   source: z.string().default('src'),
@@ -224,6 +239,7 @@ const RawConfigSchema = z.object({
   regression: RegressionConfigSchema,
   cloud: CloudConfigSchema,
   conventions: ConventionsConfigSchema,
+  python: PythonConfigSchema,
 }).passthrough();
 
 // --- Final Config interface (derived from Zod) ---
@@ -244,6 +260,7 @@ export interface Config {
   regression?: RegressionConfig;
   cloud?: CloudConfig;
   conventions?: ConventionsConfig;
+  python?: PythonConfig;
 }
 
 let _config: Config | null = null;
@@ -340,6 +357,7 @@ export function getConfig(): Config {
     regression: parsed.regression,
     cloud: parsed.cloud,
     conventions: parsed.conventions,
+    python: parsed.python,
   };
 
   // Allow environment variable override for API key (security best practice)

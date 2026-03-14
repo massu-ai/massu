@@ -1,10 +1,10 @@
 # Massu Development
 
 ## Project Overview
-AI Engineering Governance Platform - an MCP server and Claude Code plugin.
+AI Engineering Governance Platform - an MCP server with Claude Code integration.
 
 ## Architecture
-- Monorepo: `packages/core` (MCP server) + `packages/plugin` (Claude Code plugin)
+- Monorepo: `packages/core` (MCP server)
 - Source code in `packages/core/src/` - fully generalized and config-driven
 - Config-driven: all project-specific data moves to `massu.config.yaml`
 

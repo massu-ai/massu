@@ -13,7 +13,8 @@ import {
   assignImportance,
   createSession,
 } from './memory-db.ts';
-import { getConfig } from './config.ts';
+import { getConfig, getResolvedPaths } from './config.ts';
+import { backfillMemoryFiles } from './memory-file-ingest.ts';
 
 /** Prefix a base tool name with the configured tool prefix. */
 function p(baseName: string): string {
@@ -101,6 +102,16 @@ export function getMemoryToolDefinitions(): ToolDefinition[] {
         required: [],
       },
     },
+    // P4-007: memory_backfill
+    {
+      name: p('memory_backfill'),
+      description: 'Scan all memory/*.md files and ingest into database. Run after massu init or to recover from DB loss. Parses YAML frontmatter and deduplicates by title.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
     // P4-006: memory_ingest
     {
       name: p('memory_ingest'),
@@ -154,6 +165,8 @@ export function handleMemoryToolCall(
         return handleFailures(args, memoryDb);
       case 'memory_ingest':
         return handleIngest(args, memoryDb);
+      case 'memory_backfill':
+        return handleBackfill(memoryDb);
       default:
         return text(`Unknown memory tool: ${name}`);
     }
@@ -372,6 +385,26 @@ function handleIngest(args: Record<string, unknown>, db: Database.Database): Too
   });
 
   return text(`Observation #${id} recorded successfully.\nType: ${type}\nTitle: ${title}\nImportance: ${importance}\nSession: ${activeSession.session_id.slice(0, 8)}...`);
+}
+
+function handleBackfill(db: Database.Database): ToolResult {
+  const memoryDir = getResolvedPaths().memoryDir;
+  const stats = backfillMemoryFiles(db, memoryDir);
+
+  const lines = [
+    '## Memory Backfill Results',
+    '',
+    `- **Total files scanned**: ${stats.total}`,
+    `- **Inserted (new)**: ${stats.inserted}`,
+    `- **Updated (existing)**: ${stats.updated}`,
+    `- **Skipped (not found)**: ${stats.skipped}`,
+    '',
+    stats.total === 0
+      ? 'No memory files found in memory directory.'
+      : `Successfully processed ${stats.inserted + stats.updated} of ${stats.total} memory files.`,
+  ];
+
+  return text(lines.join('\n'));
 }
 
 // ============================================================

@@ -1,0 +1,36 @@
+---
+title: "/massu-dead-code"
+description: "Detect and remove dead code — orphaned modules, unused exports, unused dependencies"
+---
+
+# /massu-dead-code
+
+Automated dead code detection and removal. Identifies orphaned modules, unused exports, unused dependencies, and unreferenced files, then safely removes them with blast radius analysis.
+
+## When to Use
+
+- **Periodic cleanup**: Run quarterly or after major refactors to keep the codebase lean
+- **After feature removal**: When a feature is deleted, ensure all related code is also removed
+- **Before releases**: Clean up dead code to reduce bundle size and maintenance burden
+- **Post-migration**: After migrating from one pattern to another, remove the old code
+
+## What It Does
+
+- Inventories all source files and builds a reference graph
+- Identifies orphaned modules with zero inbound imports
+- Detects unused exports that no other module consumes
+- Finds unused dependencies in package.json
+- Verifies each removal with grep (blast radius analysis) before deleting
+- Runs VR-BUILD + VR-TYPE after all removals to confirm nothing breaks
+
+## Usage
+
+```
+/massu-dead-code
+```
+
+## Related Commands
+
+- [`/massu-cleanup`](/docs/commands/massu-cleanup) — broader cleanup including unused imports and formatting
+- [`/massu-refactor`](/docs/commands/massu-refactor) — safe refactoring with pattern compliance
+- [`/massu-simplify`](/docs/commands/massu-simplify) — code quality analysis for efficiency and reuse

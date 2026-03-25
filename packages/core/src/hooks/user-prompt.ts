@@ -86,6 +86,27 @@ async function main(): Promise<void> {
       } catch (_knowledgeErr) {
         // Best-effort: never block prompt capture
       }
+      // 6. Memory enforcement: nag when significant work detected but no memory ingestion
+      try {
+        const significantSignals = ['fix', 'implement', 'migrate', 'refactor', 'debug', 'decision', 'chose', 'architecture', 'redesign', 'rewrite'];
+        const promptLower = prompt.toLowerCase();
+        const signalCount = significantSignals.filter(s => promptLower.includes(s)).length;
+
+        if (signalCount >= 2) {
+          const memoryFileCount = db.prepare(
+            "SELECT COUNT(*) as count FROM observations WHERE session_id = ? AND title LIKE '[memory-file] %'"
+          ).get(session_id) as { count: number };
+
+          if (memoryFileCount.count === 0) {
+            process.stderr.write(
+              '\n[MEMORY REMINDER] Significant work detected but no memory files have been written.\n' +
+              'Consider saving learnings to memory/*.md files for future sessions.\n\n'
+            );
+          }
+        }
+      } catch (_memoryNagErr) {
+        // Best-effort: never block prompt capture
+      }
     } finally {
       db.close();
     }

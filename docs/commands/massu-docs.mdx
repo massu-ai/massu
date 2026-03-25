@@ -1,0 +1,35 @@
+---
+title: "/massu-docs"
+description: "Documentation sync protocol ensuring docs align with code changes and features"
+---
+
+# /massu-docs
+
+Ensures documentation accuracy by auditing content against current codebase features, CLI elements, and workflows. Keeps help articles, configuration docs, and API documentation in sync with code changes.
+
+## When to Use
+
+- **After adding features**: Ensure new functionality is documented
+- **After renaming/removing**: Update docs when CLI options, tool names, or APIs change
+- **Before releases**: Verify all docs match the shipping codebase
+- **Terminology drift**: When CLI output labels diverge from documentation text
+
+## What It Does
+
+- Compares documentation content against actual codebase behavior
+- Verifies feature parity between code and docs
+- Checks terminology consistency across CLI output and documentation
+- Identifies undocumented features and stale references
+- Loops until a complete audit finds zero discrepancies
+
+## Usage
+
+```
+/massu-docs
+```
+
+## Related Commands
+
+- [`/massu-doc-gen`](/docs/commands/massu-doc-gen) — generate JSDoc, README, and API docs from code
+- [`/massu-changelog`](/docs/commands/massu-changelog) — generate changelog from commit history
+- [`/massu-review`](/docs/commands/massu-review) — automated code review

@@ -951,6 +951,22 @@ async function main() {
         }
       } catch (_knowledgeErr) {
       }
+      try {
+        const significantSignals = ["fix", "implement", "migrate", "refactor", "debug", "decision", "chose", "architecture", "redesign", "rewrite"];
+        const promptLower = prompt.toLowerCase();
+        const signalCount = significantSignals.filter((s) => promptLower.includes(s)).length;
+        if (signalCount >= 2) {
+          const memoryFileCount = db.prepare(
+            "SELECT COUNT(*) as count FROM observations WHERE session_id = ? AND title LIKE '[memory-file] %'"
+          ).get(session_id);
+          if (memoryFileCount.count === 0) {
+            process.stderr.write(
+              "\n[MEMORY REMINDER] Significant work detected but no memory files have been written.\nConsider saving learnings to memory/*.md files for future sessions.\n\n"
+            );
+          }
+        }
+      } catch (_memoryNagErr) {
+      }
     } finally {
       db.close();
     }

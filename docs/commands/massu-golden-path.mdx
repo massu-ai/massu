@@ -1,0 +1,42 @@
+---
+title: "/massu-golden-path"
+description: "Complete end-to-end workflow from requirements to production push"
+---
+
+# /massu-golden-path
+
+Executes the complete development workflow in one continuous run: requirements analysis, plan creation, plan audit, implementation, browser verification, code simplification, commit, and push. Full feature parity with running each individual command in sequence.
+
+## When to Use
+
+- **Full autonomous implementation**: When you want to go from a task description to a pushed commit
+- **New features**: Provide requirements and let it handle the entire pipeline
+- **Plan execution**: Pass an existing plan file for end-to-end implementation
+
+## What It Does
+
+- Creates a detailed implementation plan from requirements
+- Audits the plan to zero gaps before implementation begins
+- Implements all plan items with verification at each step
+- Runs browser-based testing with Playwright if UI files are involved
+- Simplifies and reviews completed code for unnecessary complexity
+- Commits with pre-commit verification gates
+- Pushes with full pre-push verification
+
+## Usage
+
+```
+/massu-golden-path [task description or plan file path]
+```
+
+## Workflow Equivalent
+
+```
+/massu-create-plan -> /massu-plan -> /massu-loop -> /massu-loop-playwright -> /massu-simplify -> /massu-commit -> /massu-push
+```
+
+## Related Commands
+
+- [`/massu-loop`](/docs/commands/massu-loop) — implementation loop only (when you already have a plan)
+- [`/massu-create-plan`](/docs/commands/massu-create-plan) — plan creation only
+- [`/massu-plan`](/docs/commands/massu-plan) — plan audit only

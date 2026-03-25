@@ -1,0 +1,41 @@
+---
+title: "/massu-simplify"
+description: "Enhanced code simplification with parallel efficiency, reuse, and pattern compliance analysis"
+---
+
+# /massu-simplify
+
+Analyzes recently changed code for unnecessary complexity, missed reuse opportunities, and pattern violations. Runs after implementation but before commit to catch issues that build and type checks miss.
+
+## When to Use
+
+- **After `/massu-loop`**: Review implementation for over-engineering
+- **After `/massu-batch`**: Validate batch-applied changes for consistency
+- **Before committing**: Final quality pass on changed files
+- **Code review prep**: Clean up code before requesting human review
+
+## What It Does
+
+- Identifies over-engineered solutions that could be simpler
+- Finds duplicated logic that should be extracted into shared utilities
+- Checks for pattern compliance against project conventions
+- Suggests refactoring opportunities for better readability
+- Applies fixes directly when improvements are clear-cut
+
+## Usage
+
+```
+/massu-simplify
+```
+
+## Workflow Position
+
+```
+/massu-loop -> /massu-simplify -> /massu-commit -> /massu-push
+```
+
+## Related Commands
+
+- [`/massu-refactor`](/docs/commands/massu-refactor) — safe refactoring with test verification
+- [`/massu-cleanup`](/docs/commands/massu-cleanup) — dead code removal and unused imports
+- [`/massu-review`](/docs/commands/massu-review) — automated code review

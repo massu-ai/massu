@@ -1,0 +1,38 @@
+---
+title: "/massu-squirrels"
+description: "Idea parking lot manager — capture tangential ideas without derailing the current task"
+---
+
+# /massu-squirrels
+
+Manages a parking lot for stray ideas that come up mid-session. Captures thoughts worth keeping without derailing the current task. Not a backlog -- just a scratchpad for unvetted, unscoped ideas.
+
+## When to Use
+
+- **Mid-task ideas**: When a tangential thought pops up that you do not want to lose
+- **Scope creep prevention**: Park the idea instead of acting on it now
+- **Session review**: Review accumulated ideas and promote the good ones to plans
+- **Cleanup**: Remove stale or irrelevant ideas periodically
+
+## What It Does
+
+- Manages `.claude/session-state/squirrels.md` as an idea parking lot
+- Supports adding, reviewing, promoting, and cleaning ideas
+- Groups ideas by age during review
+- Can promote an idea to a plan or task when ready
+
+## Usage
+
+```
+/massu-squirrels                     # Show current squirrels list
+/massu-squirrels add [idea]          # Park a new idea
+/massu-squirrels review              # Review all ideas, grouped by age
+/massu-squirrels promote [N]         # Promote idea #N to a plan or task
+/massu-squirrels clean               # Remove stale/irrelevant ideas
+```
+
+## Related Commands
+
+- [`/massu-bearings`](/docs/commands/massu-bearings) — session orientation (includes parked ideas)
+- [`/massu-recap`](/docs/commands/massu-recap) — session handoff (captures session context)
+- [`/massu-create-plan`](/docs/commands/massu-create-plan) — create a plan from a promoted idea

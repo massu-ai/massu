@@ -74,3 +74,13 @@ After every bug fix or issue resolution:
 2. Check if pattern scanner should be updated - Can the check be automated?
 3. Update session state - Record in `.claude/session-state/CURRENT.md`
 4. Search codebase-wide for same bad pattern (CR-9) and fix all instances
+
+Full protocol: [_shared-references/auto-learning-protocol.md](_shared-references/auto-learning-protocol.md)
+
+## Folder-Based Skills
+
+Some commands are folder-based skills (directories instead of single files). For these:
+1. Read the main `.md` file first (contains overview + START NOW)
+2. Check the `## Skill Contents` table for available reference docs
+3. Load reference docs on-demand as needed during execution
+4. Helper scripts in `scripts/` can be executed directly

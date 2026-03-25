@@ -3,6 +3,9 @@ name: massu-guide
 description: Interactive onboarding walkthrough for the Massu codebase and .claude/ infrastructure
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
+
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
+
 name: massu-guide
 
 # Massu Guide: Codebase Onboarding Walkthrough

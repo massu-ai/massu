@@ -1,8 +1,8 @@
 {
   "name": "@massu/core",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
-  "description": "AI Engineering Governance MCP Server - Session memory, knowledge system, feature registry, code intelligence, rule enforcement, tiered tooling (12 free / 72 total), 31 workflow commands",
+  "description": "AI Engineering Governance MCP Server - Session memory, knowledge system, feature registry, code intelligence, rule enforcement, tiered tooling (12 free / 72 total), 43 workflow commands",
   "main": "src/server.ts",
   "bin": {
     "massu": "./dist/cli.js"

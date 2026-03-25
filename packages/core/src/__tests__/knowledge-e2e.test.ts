@@ -152,11 +152,23 @@ describe('Graceful Degradation', () => {
 });
 
 describe('Plan Documents in Index', () => {
-  it('plan documents appear in FTS search results', () => {
+  it('plan documents appear in FTS search results when plans exist', () => {
     const docCount = (db.prepare('SELECT COUNT(*) as cnt FROM knowledge_documents').get() as { cnt: number }).cnt;
     if (docCount === 0) indexAllKnowledge(db);
 
     const planDocs = db.prepare("SELECT COUNT(*) as cnt FROM knowledge_documents WHERE category = 'plan'").get() as { cnt: number };
+
+    // Plans directory may not exist in all environments (e.g., public repo clone)
+    if (planDocs.cnt === 0) {
+      // Verify no plans dir exists — if it does, this is a real failure
+      const { existsSync } = require('fs');
+      const { resolve } = require('path');
+      const plansDir = resolve(__dirname, '../../../../docs/plans');
+      if (!existsSync(plansDir)) {
+        return; // Skip — no plans directory in this environment
+      }
+    }
+
     expect(planDocs.cnt).toBeGreaterThan(0);
 
     // Plan items should be searchable via FTS

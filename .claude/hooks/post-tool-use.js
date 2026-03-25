@@ -1606,9 +1606,66 @@ function storeSecurityScore(db, sessionId, filePath, riskScore, findings) {
 }
 
 // src/hooks/post-tool-use.ts
-import { readFileSync as readFileSync5, existsSync as existsSync6 } from "fs";
+import { readFileSync as readFileSync6, existsSync as existsSync7 } from "fs";
 import { join as join2 } from "path";
+import { parse as parseYaml3 } from "yaml";
+
+// src/memory-file-ingest.ts
+import { readFileSync as readFileSync5, existsSync as existsSync6, readdirSync } from "fs";
 import { parse as parseYaml2 } from "yaml";
+function ingestMemoryFile(db, sessionId, filePath) {
+  if (!existsSync6(filePath)) return "skipped";
+  const content = readFileSync5(filePath, "utf-8");
+  const basename2 = (filePath.split("/").pop() ?? "").replace(".md", "");
+  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  let name = basename2;
+  let description = "";
+  let type = "discovery";
+  let confidence;
+  if (frontmatterMatch) {
+    try {
+      const fm = parseYaml2(frontmatterMatch[1]);
+      name = fm.name ?? basename2;
+      description = fm.description ?? "";
+      type = fm.type ?? "discovery";
+      confidence = fm.confidence != null ? Number(fm.confidence) : void 0;
+    } catch {
+    }
+  }
+  const obsType = mapMemoryTypeToObservationType(type);
+  const importance = confidence != null ? Math.max(1, Math.min(5, Math.round(confidence * 4 + 1))) : 4;
+  const bodyMatch = content.match(/^---\n[\s\S]*?\n---\n([\s\S]*)/);
+  const body = bodyMatch ? bodyMatch[1].trim().slice(0, 500) : "";
+  const title = `[memory-file] ${name}`;
+  const detail = description ? `${description}
+
+${body}` : body;
+  const existing = db.prepare(
+    "SELECT id FROM observations WHERE title = ? LIMIT 1"
+  ).get(title);
+  if (existing) {
+    db.prepare("UPDATE observations SET detail = ?, importance = ? WHERE id = ?").run(detail, importance, existing.id);
+    return "updated";
+  } else {
+    addObservation(db, sessionId, obsType, title, detail, { importance });
+    return "inserted";
+  }
+}
+function mapMemoryTypeToObservationType(memoryType) {
+  switch (memoryType) {
+    case "user":
+    case "feedback":
+      return "decision";
+    case "project":
+      return "feature";
+    case "reference":
+      return "discovery";
+    default:
+      return "discovery";
+  }
+}
+
+// src/hooks/post-tool-use.ts
 var seenReads = /* @__PURE__ */ new Set();
 var currentSessionId = null;
 async function main() {
@@ -1708,6 +1765,18 @@ async function main() {
       try {
         if (tool_name === "Edit" || tool_name === "Write") {
           const filePath = tool_input.file_path ?? "";
+          if (filePath && filePath.includes("/memory/") && filePath.endsWith(".md")) {
+            const basename2 = filePath.split("/").pop() ?? "";
+            if (basename2 !== "MEMORY.md") {
+              ingestMemoryFile(db, session_id, filePath);
+            }
+          }
+        }
+      } catch (_memoryIngestErr) {
+      }
+      try {
+        if (tool_name === "Edit" || tool_name === "Write") {
+          const filePath = tool_input.file_path ?? "";
           if (filePath && isKnowledgeSourceFile(filePath)) {
             addObservation(
               db,
@@ -1768,9 +1837,9 @@ function readConventions(cwd) {
   try {
     const projectRoot = cwd ?? process.cwd();
     const configPath = join2(projectRoot, "massu.config.yaml");
-    if (!existsSync6(configPath)) return defaults;
-    const content = readFileSync5(configPath, "utf-8");
-    const parsed = parseYaml2(content);
+    if (!existsSync7(configPath)) return defaults;
+    const content = readFileSync6(configPath, "utf-8");
+    const parsed = parseYaml3(content);
     if (!parsed || typeof parsed !== "object") return defaults;
     const conventions = parsed.conventions;
     if (!conventions || typeof conventions !== "object") return defaults;
@@ -1797,11 +1866,11 @@ function isKnowledgeSourceFile(filePath) {
 function checkMemoryFileIntegrity(filePath) {
   const issues = [];
   try {
-    if (!existsSync6(filePath)) {
+    if (!existsSync7(filePath)) {
       issues.push("MEMORY.md file does not exist after write");
       return issues;
     }
-    const content = readFileSync5(filePath, "utf-8");
+    const content = readFileSync6(filePath, "utf-8");
     const lines = content.split("\n");
     const MAX_LINES = 200;
     if (lines.length > MAX_LINES) {

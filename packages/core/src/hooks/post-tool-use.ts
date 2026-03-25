@@ -17,6 +17,7 @@ import { scoreFileSecurity, storeSecurityScore } from '../security-scorer.ts';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { parse as parseYaml } from 'yaml';
+import { ingestMemoryFile } from '../memory-file-ingest.ts';
 
 interface HookInput {
   session_id: string;
@@ -146,6 +147,22 @@ async function main(): Promise<void> {
           }
         }
       } catch (_memoryErr) {
+        // Best-effort: never block post-tool-use
+      }
+
+      // Memory file auto-ingest: when Claude writes a memory/*.md file,
+      // parse frontmatter and ingest into observations table
+      try {
+        if (tool_name === 'Edit' || tool_name === 'Write') {
+          const filePath = (tool_input.file_path as string) ?? '';
+          if (filePath && filePath.includes('/memory/') && filePath.endsWith('.md')) {
+            const basename = filePath.split('/').pop() ?? '';
+            if (basename !== 'MEMORY.md') {
+              ingestMemoryFile(db, session_id, filePath);
+            }
+          }
+        }
+      } catch (_memoryIngestErr) {
         // Best-effort: never block post-tool-use
       }
 

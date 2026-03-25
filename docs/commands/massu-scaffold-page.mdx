@@ -1,0 +1,35 @@
+---
+title: "/massu-scaffold-page"
+description: "Scaffold a new Next.js App Router page with loading states, error boundaries, and patterns"
+---
+
+# /massu-scaffold-page
+
+Creates a complete Next.js App Router page following all project patterns. Generates the page component with Suspense boundaries, skeleton loading state, and error boundary with retry.
+
+## When to Use
+
+- **Adding a new page**: When you need a new route in the application
+- **Consistent page structure**: Ensures loading, error, and content patterns are followed
+- **Quick starts**: Skip the boilerplate and get a working page skeleton immediately
+
+## What It Does
+
+- Creates `page.tsx` with Suspense boundary wrapping the content component
+- Creates `loading.tsx` with a skeleton loading state
+- Creates `error.tsx` with an error boundary and retry button
+- Follows the project's established component and layout patterns
+
+## Usage
+
+```
+/massu-scaffold-page
+```
+
+You will be prompted for the page path and name.
+
+## Related Commands
+
+- [`/massu-scaffold-router`](/docs/commands/massu-scaffold-router) — scaffold a backend tRPC router for the page
+- [`/massu-scaffold-hook`](/docs/commands/massu-scaffold-hook) — scaffold a Claude Code hook
+- [`/massu-new-feature`](/docs/commands/massu-new-feature) — full feature scaffolding (broader scope)

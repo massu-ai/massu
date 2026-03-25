@@ -3,6 +3,9 @@ name: massu-verify-playwright
 description: Open Playwright browser and check pages for console errors, generate report and fix plan
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), mcp__plugin_playwright_playwright__*
 ---
+
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
+
 name: massu-verify-playwright
 
 # Massu Verify Playwright: Page Console Error Scanner

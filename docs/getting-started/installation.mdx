@@ -6,7 +6,7 @@ order: 1
 
 # Installation
 
-Massu AI installs with one command. It automatically detects your framework, creates your configuration, registers the MCP server, installs all 11 lifecycle hooks, and deploys 31 slash commands.
+Massu AI installs with one command. It automatically detects your framework, creates your configuration, registers the MCP server, installs all 11 lifecycle hooks, and deploys 43 slash commands.
 
 ## Prerequisites
 
@@ -40,7 +40,7 @@ Massu AI - Project Setup
   Created massu.config.yaml
   Registered MCP server in .mcp.json
   Installed 11 hooks in .claude/settings.local.json
-  Installed 31 slash commands in .claude/commands/
+  Installed 43 slash commands in .claude/commands/
   Databases will auto-create on first session
 
 Massu AI is ready. Start a Claude Code session to begin.
@@ -52,7 +52,7 @@ Here's what `massu init` does automatically:
 2. **Config Generation** -- Creates `massu.config.yaml` with detected framework settings
 3. **MCP Registration** -- Creates or merges `.mcp.json` to register the Massu MCP server
 4. **Hook Installation** -- Configures all 11 lifecycle hooks in `.claude/settings.local.json`
-5. **Slash Command Installation** -- Deploys 31 workflow commands into `.claude/commands/`
+5. **Slash Command Installation** -- Deploys 43 workflow commands into `.claude/commands/`
 
 ## Step 3: Start Using Massu AI
 
@@ -67,7 +67,7 @@ On the first session, you'll see:
 ```
 === MASSU AI: Active ===
 Session memory, code intelligence, and governance are now active.
-11 hooks monitoring this session. 31 slash commands available.
+11 hooks monitoring this session. 43 slash commands available.
 Type "massu_sync" to index your codebase.
 === END MASSU ===
 ```
@@ -96,7 +96,7 @@ Massu AI Health Check
   ✓ MCP Server         Registered in .mcp.json
   ✓ Hooks Config       11 hooks configured
   ✓ Hook Files         11/11 compiled hooks present
-  ✓ Slash Commands     31/31 commands installed
+  ✓ Slash Commands     31/43 commands installed
   ✓ Native Modules     better-sqlite3 loads correctly
   ✓ Node.js            v20.11.0 (>= 18 required)
   ✓ Git Repository     Detected (branch: main)
@@ -130,7 +130,7 @@ your-project/
   .mcp.json                      # MCP server registration (auto-generated)
   .claude/
     settings.local.json          # Hook configuration (auto-generated)
-    commands/                    # 31 slash commands (auto-generated)
+    commands/                    # 43 slash commands (auto-generated)
       massu-plan.md
       massu-loop.md
       massu-commit.md
@@ -156,7 +156,7 @@ npx massu install-hooks
 npx massu install-commands
 ```
 
-Re-deploys all 31 slash commands into `.claude/commands/` without running the full init process. Useful after updating `@massu/core` to get the latest command definitions.
+Re-deploys all 43 slash commands into `.claude/commands/` without running the full init process. Useful after updating `@massu/core` to get the latest command definitions.
 
 ### Validate your configuration
 

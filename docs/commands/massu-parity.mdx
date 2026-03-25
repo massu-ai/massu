@@ -1,0 +1,37 @@
+---
+title: "/massu-parity"
+description: "Generic feature parity check between two systems or components"
+---
+
+# /massu-parity
+
+Deep comparison between two systems, components, or versions to identify feature gaps, content drift, and update needs. Covers source code, configuration, commands, hooks, tests, and operational tooling.
+
+## When to Use
+
+- **System migration**: Comparing old and new implementations for completeness
+- **Fork synchronization**: Checking if a fork has diverged from upstream
+- **Multi-repo alignment**: Ensuring feature parity across related repositories
+- **Periodic audits**: Run weekly to catch drift between systems
+
+## What It Does
+
+- Scans recent changes in both source and target systems
+- Compares file inventories, exports, and feature surfaces
+- Identifies missing features, configuration drift, and content gaps
+- Produces a categorized report of differences with severity ratings
+- Suggests actions for each gap found
+
+## Usage
+
+```
+/massu-parity
+```
+
+You will be prompted to specify the source and target systems to compare.
+
+## Related Commands
+
+- [`/massu-review`](/docs/commands/massu-review) — code review for a single PR or set of changes
+- [`/massu-status`](/docs/commands/massu-status) — project health dashboard
+- [`/massu-docs`](/docs/commands/massu-docs) — documentation sync (a specific kind of parity check)

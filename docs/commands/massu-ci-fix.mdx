@@ -1,0 +1,34 @@
+---
+title: "/massu-ci-fix"
+description: "Auto-diagnose CI failures, fix, commit, and re-push"
+---
+
+# /massu-ci-fix
+
+Automatically pulls CI failure logs, diagnoses the root cause, applies fixes, commits, and re-pushes. Zero cognitive load for broken CI pipelines.
+
+## When to Use
+
+- **CI failed after push**: The primary use case -- fix it without manual investigation
+- **Workflow failures**: When GitHub Actions or other CI systems report errors
+- **Flaky tests in CI**: Diagnose environment-specific test failures
+
+## What It Does
+
+- Identifies failed CI runs for the current commit or branch
+- Downloads and parses failure logs to extract error details
+- Diagnoses the root cause (build error, test failure, linting, etc.)
+- Applies the fix to the codebase
+- Commits the fix and pushes to trigger a new CI run
+
+## Usage
+
+```
+/massu-ci-fix
+```
+
+## Related Commands
+
+- [`/massu-push`](/docs/commands/massu-push) — pre-push verification to prevent CI failures
+- [`/massu-debug`](/docs/commands/massu-debug) — systematic debugging for complex issues
+- [`/massu-hotfix`](/docs/commands/massu-hotfix) — quick scoped fix for small issues

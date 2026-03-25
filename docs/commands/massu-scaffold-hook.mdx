@@ -1,0 +1,43 @@
+---
+title: "/massu-scaffold-hook"
+description: "Scaffold a new Claude Code hook with profile gating and settings.json registration"
+---
+
+# /massu-scaffold-hook
+
+Creates a complete Claude Code hook following the 3-tier profile system (minimal, standard, strict). Generates the hook script and registers it in `.claude/settings.json` under the appropriate lifecycle event.
+
+## When to Use
+
+- **Adding a new hook**: When you need a new PreToolUse, PostToolUse, or SessionStart hook
+- **Profile-gated behavior**: When the hook should only run under certain profiles
+- **Consistent hook structure**: Ensures all hooks follow the same patterns
+
+## What It Does
+
+- Creates the hook script in `scripts/hooks/[hook-name].sh`
+- Registers the hook in `.claude/settings.json` under the correct lifecycle event
+- Sets up profile gating (minimal/standard/strict)
+- Follows the stdin JSON / stdout JSON I/O pattern
+
+## Usage
+
+```
+/massu-scaffold-hook
+```
+
+You will be prompted for the hook name, lifecycle event, and profile level.
+
+## Hook Lifecycle Events
+
+| Event | Fires When | Common Uses |
+|-------|-----------|-------------|
+| `PreToolUse` | Before a tool runs | Blocking destructive ops, validation |
+| `PostToolUse` | After a tool runs | Auditing, pattern scanning, metrics |
+| `SessionStart` | Session starts/resumes | Context injection, state loading |
+
+## Related Commands
+
+- [`/massu-hooks`](/docs/commands/massu-hooks) — view current hook status and profiles
+- [`/massu-scaffold-page`](/docs/commands/massu-scaffold-page) — scaffold a new page component
+- [`/massu-scaffold-router`](/docs/commands/massu-scaffold-router) — scaffold a new tRPC router

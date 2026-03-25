@@ -1,0 +1,39 @@
+---
+title: "/massu-hooks"
+description: "Hook infrastructure status, profile configuration, and per-hook gating dashboard"
+---
+
+# /massu-hooks
+
+Displays the current hook infrastructure status, profile configuration, and per-hook gating information. Shows which hooks are active under each profile (minimal, standard, strict).
+
+## When to Use
+
+- **Checking hook status**: See which hooks are currently active
+- **Profile comparison**: Compare what runs under minimal vs. standard vs. strict
+- **Debugging hook behavior**: Understand why a specific hook is or is not firing
+- **New team member onboarding**: Learn the hook system quickly
+
+## What It Does
+
+- Reads the hook configuration from `.claude/settings.json`
+- Displays the current active profile
+- Lists all registered hooks with their lifecycle event and profile gate
+- Shows per-profile breakdowns when a specific profile is requested
+
+## Usage
+
+```
+/massu-hooks              # Show current profile and all hooks
+/massu-hooks minimal      # Show what runs under minimal profile
+/massu-hooks standard     # Show what runs under standard profile
+/massu-hooks strict       # Show what runs under strict profile
+```
+
+This is a read-only command. It does not modify any files.
+
+## Related Commands
+
+- [`/massu-scaffold-hook`](/docs/commands/massu-scaffold-hook) — create a new hook with profile gating
+- [`/massu-guide`](/docs/commands/massu-guide) — full codebase onboarding including hook architecture
+- [`/massu-status`](/docs/commands/massu-status) — project health dashboard

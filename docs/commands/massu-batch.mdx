@@ -1,0 +1,39 @@
+---
+title: "/massu-batch"
+description: "Apply the same code-only change across multiple files in parallel via worktree agents"
+---
+
+# /massu-batch
+
+Takes a migration description, identifies all affected files, splits them into batches, and spawns parallel agents in isolated git worktrees. Each agent transforms its files independently, runs checks, and results merge back into your branch.
+
+## When to Use
+
+- **Import renames**: Renaming a module and updating all import sites
+- **Component swaps**: Replacing one component with another across many files
+- **API call updates**: Migrating from one API pattern to another
+- **Pattern replacements**: Applying the same transformation to 5+ files
+
+## What It Does
+
+- Analyzes the migration description and identifies all affected files
+- Splits files into independent batches for parallel processing
+- Spawns worktree agents that each transform their batch in isolation
+- Runs build and type checks after each batch completes
+- Merges results back into the current branch
+
+## Usage
+
+```
+/massu-batch [migration description]
+```
+
+## Limitations
+
+This command is for **code-only migrations**. It refuses database work, new features, or changes requiring cross-file coordination.
+
+## Related Commands
+
+- [`/massu-loop`](/docs/commands/massu-loop) — plan-based implementation for complex, coordinated changes
+- [`/massu-simplify`](/docs/commands/massu-simplify) — post-batch quality review
+- [`/massu-refactor`](/docs/commands/massu-refactor) — safe refactoring with test verification

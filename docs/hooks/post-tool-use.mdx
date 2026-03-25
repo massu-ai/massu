@@ -22,7 +22,8 @@ Fires after every tool call: Read, Write, Edit, Bash, Grep, Glob, and all MCP to
    - Tool calls referencing decisions become `decision` observations
 3. **Deduplicates failed attempts** (increments recurrence count instead of creating duplicates)
 4. **Detects plan progress** from tool responses and updates the session summary
-5. **Stores the observation** in the memory database
+5. **Auto-ingests memory files** -- when a Write/Edit targets a `memory/*.md` file, the YAML frontmatter (name, description, type, confidence) is parsed and the content is ingested into the observations table. This makes file-based memories queryable via `massu_memory_search` and other MCP tools.
+6. **Stores the observation** in the memory database
 
 ## Performance
 

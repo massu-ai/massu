@@ -3,6 +3,9 @@ name: massu-loop-playwright
 description: Browser-based audit and fix loop — functional, visual, and performance testing with Playwright
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), mcp__plugin_playwright_playwright__*, mcp__playwright__*
 ---
+
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
+
 name: massu-loop-playwright
 
 # Massu Loop Playwright: Browser-Based Audit & Fix Protocol

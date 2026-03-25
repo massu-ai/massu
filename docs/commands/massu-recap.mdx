@@ -1,0 +1,37 @@
+---
+title: "/massu-recap"
+description: "Session handoff — captures work done and prepares context for the next session"
+---
+
+# /massu-recap
+
+Captures the current session's work, updates session state, and ensures nothing is lost before the session ends. The counterpart to `/massu-bearings` -- recap writes the handoff note that bearings reads tomorrow.
+
+## When to Use
+
+- **End of session**: Run before closing the terminal
+- **Task handoff**: When switching to a different task or person
+- **Before breaks**: Capture context so you can resume cleanly
+- **Context preservation**: Ensure decisions and progress are recorded
+
+## What It Does
+
+- Reads current session state and recent git history
+- Summarizes what was accomplished during the session
+- Documents key decisions made and their rationale
+- Notes any blockers, open questions, or next steps
+- Updates `session-state/CURRENT.md` for the next session
+
+## Usage
+
+```
+/massu-recap
+```
+
+This command writes to session state files only. It does not modify source code.
+
+## Related Commands
+
+- [`/massu-bearings`](/docs/commands/massu-bearings) — session orientation (reads what recap writes)
+- [`/massu-squirrels`](/docs/commands/massu-squirrels) — park tangential ideas for later
+- [`/massu-status`](/docs/commands/massu-status) — project health dashboard

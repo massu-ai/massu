@@ -238,14 +238,43 @@ massu_memory_ingest --type "decision" --title "Using Redis for session storage" 
 | `importance` | number | no | 1-10 importance score |
 | `files` | string[] | no | Related file paths |
 
+---
+
+### `massu_memory_backfill`
+
+**What it does:** Scans all `memory/*.md` files in your project's memory directory and bulk-ingests them into the database. Parses YAML frontmatter (name, description, type, confidence) and deduplicates by title. Run after `massu init` or to recover from database loss.
+
+**Usage:**
+
+```
+massu_memory_backfill
+```
+
+**Example output:**
+
+```
+## Memory Backfill Results
+
+- Total files scanned: 58
+- Inserted (new): 58
+- Updated (existing): 0
+- Skipped (not found): 0
+
+Successfully processed 58 of 58 memory files.
+```
+
+**Parameters:** None -- scans the memory directory automatically.
+
+---
+
 ## How Memory Works
 
 ### Automatic Capture
 
 Most memory is captured automatically by the lifecycle hooks:
 
-- **`post-tool-use` hook**: Classifies every tool call into observation types (file_change, bugfix, feature, decision, failed_attempt, etc.)
-- **`user-prompt` hook**: Captures every user prompt for full-text search
+- **`post-tool-use` hook**: Classifies every tool call into observation types (file_change, bugfix, feature, decision, failed_attempt, etc.). Also **auto-ingests** `memory/*.md` files when they are written or edited -- parsing YAML frontmatter and storing the content in the observations table for MCP tool queries.
+- **`user-prompt` hook**: Captures every user prompt for full-text search. Also **nags** when significant work is detected but no memory files have been written.
 - **`session-end` hook**: Generates structured session summaries
 
 ### Importance Scoring

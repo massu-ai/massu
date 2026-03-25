@@ -21,7 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- **31 slash commands** now bundled in `@massu/core` npm package
+- **43 slash commands** now bundled in `@massu/core` npm package
 - `massu init` Step 5 automatically installs slash commands into `.claude/commands/`
 - `massu install-commands` standalone CLI command for updating commands
 - 3 new commands: `massu-deploy`, `massu-loop-playwright`, `massu-simplify`

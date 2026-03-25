@@ -1,0 +1,35 @@
+---
+title: "/massu-scaffold-router"
+description: "Scaffold a new tRPC router with procedures, Zod schemas, and root registration"
+---
+
+# /massu-scaffold-router
+
+Creates a complete tRPC router following all project database and auth patterns. Generates the router file with typed procedures, Zod input schemas, and registers it in the root router.
+
+## When to Use
+
+- **Adding a backend endpoint**: When a new page or feature needs server-side procedures
+- **New API surface**: Creating query and mutation procedures for a new entity
+- **Consistent backend patterns**: Ensures auth, validation, and DB access follow conventions
+
+## What It Does
+
+- Creates the router file at `src/server/api/routers/[name].ts`
+- Scaffolds typed procedures with Zod input validation
+- Uses `protectedProcedure` for authenticated routes by default
+- Registers the new router in `src/server/api/root.ts`
+
+## Usage
+
+```
+/massu-scaffold-router
+```
+
+You will be prompted for the router name and the procedures to include.
+
+## Related Commands
+
+- [`/massu-scaffold-page`](/docs/commands/massu-scaffold-page) — scaffold the frontend page that calls this router
+- [`/massu-scaffold-hook`](/docs/commands/massu-scaffold-hook) — scaffold a Claude Code hook
+- [`/massu-new-feature`](/docs/commands/massu-new-feature) — full feature scaffolding (frontend + backend)

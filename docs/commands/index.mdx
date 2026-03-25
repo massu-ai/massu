@@ -1,16 +1,16 @@
 ---
 title: "Workflow Commands"
-description: "31 workflow commands that enforce a verification-first approach to AI-assisted development"
+description: "43 workflow commands that enforce a verification-first approach to AI-assisted development"
 order: 0
 ---
 
 # Workflow Commands
 
-Massu AI provides 31 workflow commands organized into categories that enforce a structured, verification-first approach to AI-assisted development. These are not suggestions -- they are mandatory execution protocols that ensure every plan is thorough, every implementation is verified, and every commit meets quality standards.
+Massu AI provides 43 workflow commands organized into categories that enforce a structured, verification-first approach to AI-assisted development. These are not suggestions -- they are mandatory execution protocols that ensure every plan is thorough, every implementation is verified, and every commit meets quality standards.
 
 ## Installation
 
-All 31 commands are **automatically installed** when you run `npx massu init`. The command files are deployed into `.claude/commands/` in your project directory and are available immediately in Claude Code.
+All 43 commands are **automatically installed** when you run `npx massu init`. The command files are deployed into `.claude/commands/` in your project directory and are available immediately in Claude Code.
 
 The command definitions ship inside the `@massu/core` npm package. When you update `@massu/core` to a new version, run `npx massu install-commands` to get the latest command definitions without re-running full init.
 
@@ -32,15 +32,17 @@ The core pipeline for structured development:
 |---------|-------------------|---------|
 | [/massu-create-plan](/docs/commands/massu-create-plan) | No | Create a plan document |
 | [/massu-plan](/docs/commands/massu-plan) | No (plan doc only) | Audit and improve the plan |
+| [/massu-plan-audit](/docs/commands/massu-plan-audit) | No | Combined create-plan + plan audit in one flow |
 | [/massu-loop](/docs/commands/massu-loop) | Yes | Implement with verification |
 | [/massu-commit](/docs/commands/massu-commit) | Fixes only | Pre-commit verification gate |
 | [/massu-push](/docs/commands/massu-push) | Fixes only | Pre-push full verification |
 | [/massu-push-light](/docs/commands/massu-push-light) | Fixes only | Fast pre-push verification (~90s) |
 | [/massu-new-feature](/docs/commands/massu-new-feature) | Yes | Feature scaffolding with patterns pre-applied |
+| [/massu-golden-path](/docs/commands/massu-golden-path) | Yes | Full end-to-end workflow from plan to push |
 
 ## Development Tools
 
-4 commands for day-to-day development tasks:
+10 commands for day-to-day development tasks:
 
 | Command | Edits Source Code? | Purpose |
 |---------|-------------------|---------|
@@ -48,89 +50,113 @@ The core pipeline for structured development:
 | [/massu-debug](/docs/commands/massu-debug) | Yes | Systematic debugging with hypothesis testing |
 | [/massu-refactor](/docs/commands/massu-refactor) | Yes | Safe refactoring with behavioral equivalence |
 | [/massu-hotfix](/docs/commands/massu-hotfix) | Yes | Quick scoped fix with branch, test, commit, PR |
+| [/massu-tdd](/docs/commands/massu-tdd) | Yes | Test-driven development cycle (RED/GREEN/IMPROVE) |
+| [/massu-batch](/docs/commands/massu-batch) | Yes | Apply same change across multiple files in parallel |
+| [/massu-ci-fix](/docs/commands/massu-ci-fix) | Yes | Auto-diagnose CI failures, fix, commit, and re-push |
+| [/massu-simplify](/docs/commands/massu-simplify) | Yes | Code simplification and complexity reduction |
+| [/massu-scaffold-page](/docs/commands/massu-scaffold-page) | Yes | Scaffold new page with layout, loading/error states |
+| [/massu-scaffold-router](/docs/commands/massu-scaffold-router) | Yes | Scaffold new tRPC router or API endpoint |
 
 ## Quality & Verification
 
-4 analysis commands for code quality:
+7 analysis commands for code quality:
 
 | Command | Edits Source Code? | Purpose |
 |---------|-------------------|---------|
 | [/massu-review](/docs/commands/massu-review) | No | Code review across 7 dimensions |
 | [/massu-audit-deps](/docs/commands/massu-audit-deps) | No | Dependency vulnerability and license audit |
 | [/massu-verify](/docs/commands/massu-verify) | No | Run all VR-* verification checks with proof |
+| [/massu-verify-playwright](/docs/commands/massu-verify-playwright) | No | Browser-based page verification via Playwright |
 | [/massu-estimate](/docs/commands/massu-estimate) | No | Effort estimation with complexity scoring |
+| [/massu-gap-enhancement-analyzer](/docs/commands/massu-gap-enhancement-analyzer) | No | Post-implementation gap analysis with enhancement recommendations |
+| [/massu-parity](/docs/commands/massu-parity) | No | Feature parity check between two systems |
 
 ## Release & Ops
 
-3 commands for release and operational tasks:
+4 commands for release and operational tasks:
 
 | Command | Edits Source Code? | Purpose |
 |---------|-------------------|---------|
 | [/massu-release](/docs/commands/massu-release) | Yes | Release preparation with full verification |
 | [/massu-changelog](/docs/commands/massu-changelog) | CHANGELOG.md only | Generate changelog from commits |
-| [/massu-status](/docs/commands/massu-status) | No | Project health dashboard with 14 checks |
+| [/massu-deploy](/docs/commands/massu-deploy) | No | Structured deployment with pre-deploy verification |
+| [/massu-incident](/docs/commands/massu-incident) | Yes | Incident documentation with root cause and prevention |
 
 ## Productivity
 
-6 commands for codebase hygiene, documentation, and guided workflows:
+8 commands for codebase hygiene, documentation, and guided workflows:
 
 | Command | Edits Source Code? | Purpose |
 |---------|-------------------|---------|
 | [/massu-cleanup](/docs/commands/massu-cleanup) | Yes | Dead code removal, unused imports, orphaned files |
+| [/massu-dead-code](/docs/commands/massu-dead-code) | Yes | Detect and remove orphaned modules and unused exports |
 | [/massu-doc-gen](/docs/commands/massu-doc-gen) | Yes | Generate JSDoc, README, and API documentation |
-| /massu-golden-path | No | Generate a golden-path guide for a feature or workflow |
-| /massu-dead-code | No | Identify dead code, unreachable branches, and unused exports |
-| /massu-tdd | Yes | Test-driven development scaffold -- write tests first, then implement |
-| /massu-guide | No | Generate a step-by-step guide for a given task or feature |
+| [/massu-docs](/docs/commands/massu-docs) | Yes (docs only) | Documentation sync ensuring docs match code |
+| [/massu-deps](/docs/commands/massu-deps) | No | Dependency audit (security, updates, compatibility) |
+| [/massu-guide](/docs/commands/massu-guide) | No | Interactive onboarding walkthrough |
+| [/massu-loop-playwright](/docs/commands/massu-loop-playwright) | Yes | Browser-based audit and fix loop |
+| [/massu-scaffold-hook](/docs/commands/massu-scaffold-hook) | Yes | Scaffold new Claude Code hook with settings registration |
 
-## Extended Verification
+## Session Lifecycle
 
-4 commands for browser-level, dependency, documentation, and parity verification:
-
-| Command | Edits Source Code? | Purpose |
-|---------|-------------------|---------|
-| /massu-verify-playwright | No | Run Playwright end-to-end verification for UI flows |
-| /massu-deps | No | Dependency graph analysis and unused-dependency detection |
-| /massu-docs | No | Documentation coverage and freshness audit |
-| /massu-parity | No | Feature parity check between two systems or branches |
-
-## Internal Commands
-
-The following commands are available only in the private repository. They provide deep audits, infrastructure checks, and specialized tooling that is not part of the public release.
+4 commands for session management and context:
 
 | Command | Edits Source Code? | Purpose |
 |---------|-------------------|---------|
-| `/massu-internal-infra-audit` | No | Infrastructure-layer audit (env vars, secrets, deployment config) |
-| `/massu-internal-ui-audit` | No | UI component audit (a11y, stale props, missing tests) |
-| `/massu-internal-type-mismatch-audit` | No | Type mismatch audit across module boundaries |
-| `/massu-internal-db-audit` | No | Database schema and query audit (indexes, N+1s, missing RLS) |
+| [/massu-bearings](/docs/commands/massu-bearings) | No | Session orientation -- recover context after being away |
+| [/massu-recap](/docs/commands/massu-recap) | No | End-of-session summary with handoff notes |
+| [/massu-squirrels](/docs/commands/massu-squirrels) | No | Park tangential ideas for later review |
+| [/massu-hooks](/docs/commands/massu-hooks) | No | Hook status diagnostics and configuration check |
+
+## Diagnostics
+
+2 read-only commands for project health:
+
+| Command | Edits Source Code? | Purpose |
+|---------|-------------------|---------|
+| [/massu-status](/docs/commands/massu-status) | No | Project health dashboard with 14 checks |
+| [/massu-review](/docs/commands/massu-review) | No | Automated 7-dimension code review |
 
 ## Decision Tree
 
 Not sure which command to use?
 
 - **Starting new work** -- `/massu-create-plan` then `/massu-plan` then `/massu-loop`
+- **Quick plan + audit** -- `/massu-plan-audit` (combines both steps)
+- **Full end-to-end** -- `/massu-golden-path` (plan through push)
 - **Scaffolding a feature** -- `/massu-new-feature`
+- **Scaffolding a page** -- `/massu-scaffold-page`
+- **Scaffolding an API route** -- `/massu-scaffold-router`
+- **Scaffolding a hook** -- `/massu-scaffold-hook`
 - **Ready to commit** -- `/massu-commit`
 - **Ready to push** -- `/massu-push` (full) or `/massu-push-light` (fast ~90s)
 - **Tests are failing** -- `/massu-test`
 - **Bug to diagnose** -- `/massu-debug`
 - **Urgent production fix** -- `/massu-hotfix`
+- **CI pipeline failed** -- `/massu-ci-fix`
 - **Restructuring code** -- `/massu-refactor`
+- **Simplify complexity** -- `/massu-simplify`
+- **Apply change to many files** -- `/massu-batch`
 - **Before a code review** -- `/massu-review`
 - **Cutting a release** -- `/massu-release`
+- **Deploy to production** -- `/massu-deploy`
+- **Bug/incident happened** -- `/massu-incident`
 - **Project health check** -- `/massu-status`
-- **Dependency concerns** -- `/massu-audit-deps`
-- **Dead code / cleanup** -- `/massu-cleanup` or `/massu-dead-code` (audit only)
-- **Generate documentation** -- `/massu-doc-gen` or `/massu-docs` (audit only)
+- **Dependency concerns** -- `/massu-audit-deps` or `/massu-deps`
+- **Dead code / cleanup** -- `/massu-cleanup` or `/massu-dead-code`
+- **Generate documentation** -- `/massu-doc-gen` or `/massu-docs`
 - **Effort estimation** -- `/massu-estimate`
 - **Run all VR checks** -- `/massu-verify`
 - **UI end-to-end verification** -- `/massu-verify-playwright`
+- **Post-implementation review** -- `/massu-gap-enhancement-analyzer`
 - **Feature parity check** -- `/massu-parity`
-- **Dependency analysis** -- `/massu-deps`
 - **TDD workflow** -- `/massu-tdd`
-- **Golden-path guidance** -- `/massu-golden-path`
-- **Step-by-step guide** -- `/massu-guide`
+- **Interactive onboarding** -- `/massu-guide`
+- **Browser-based testing loop** -- `/massu-loop-playwright`
+- **Starting a new session** -- `/massu-bearings`
+- **Ending a session** -- `/massu-recap`
+- **Got a tangential idea** -- `/massu-squirrels`
+- **Check hook status** -- `/massu-hooks`
 
 ## Why This Workflow?
 

@@ -17,6 +17,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 
 import { resolve, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
+import { backfillMemoryFiles } from '../memory-file-ingest.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -586,6 +587,32 @@ export async function runInit(): Promise<void> {
   }
   if (memoryMdCreated) {
     console.log('  Created initial MEMORY.md');
+  }
+
+  // Step 6b: Auto-backfill existing memory files into database
+  try {
+    const claudeDirName = '.claude';
+    const encodedRoot = projectRoot.replace(/\//g, '-');
+    const computedMemoryDir = resolve(homedir(), claudeDirName, 'projects', encodedRoot, 'memory');
+
+    const memFiles = existsSync(computedMemoryDir)
+      ? readdirSync(computedMemoryDir).filter(f => f.endsWith('.md') && f !== 'MEMORY.md')
+      : [];
+
+    if (memFiles.length > 0) {
+      const { getMemoryDb } = await import('../memory-db.ts');
+      const db = getMemoryDb();
+      try {
+        const stats = backfillMemoryFiles(db, computedMemoryDir, `init-${Date.now()}`);
+        if (stats.inserted > 0 || stats.updated > 0) {
+          console.log(`  Backfilled ${stats.inserted + stats.updated} memory files into database (${stats.inserted} new, ${stats.updated} updated)`);
+        }
+      } finally {
+        db.close();
+      }
+    }
+  } catch (_backfillErr) {
+    // Best-effort: don't fail init if backfill fails
   }
 
   // Step 7: Databases info

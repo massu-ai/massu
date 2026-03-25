@@ -1,0 +1,41 @@
+---
+title: "/massu-loop-playwright"
+description: "Browser-based audit and fix loop — functional, visual, and performance testing with Playwright"
+---
+
+# /massu-loop-playwright
+
+Runs after implementation to perform browser-level verification and fixes using Playwright. Opens pages, checks for console errors, validates visual rendering, and fixes issues in a loop until all pages pass.
+
+## When to Use
+
+- **After `/massu-loop`**: Verify UI changes work correctly in a real browser
+- **Visual regression checks**: Ensure layout, styling, and interactions render properly
+- **Console error hunting**: Find runtime errors that only appear in the browser
+- **Post-implementation QA**: The browser-level complement to code-level verification
+
+## What It Does
+
+- Launches a Playwright browser and navigates to each affected page
+- Captures console errors, warnings, and network failures
+- Validates visual rendering and interactive elements
+- Fixes discovered issues and re-tests in a loop
+- Continues until all pages pass with zero errors
+
+## Usage
+
+```
+/massu-loop-playwright
+```
+
+## Workflow Position
+
+```
+/massu-loop -> /massu-loop-playwright -> /massu-simplify -> /massu-commit -> /massu-push
+```
+
+## Related Commands
+
+- [`/massu-loop`](/docs/commands/massu-loop) — code-level implementation loop (runs before this)
+- [`/massu-verify-playwright`](/docs/commands/massu-verify-playwright) — read-only browser verification (no fixes)
+- [`/massu-golden-path`](/docs/commands/massu-golden-path) — full pipeline that includes this step automatically

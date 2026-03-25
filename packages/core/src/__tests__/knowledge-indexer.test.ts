@@ -279,6 +279,12 @@ describe('categorizeFile (plan/docs)', () => {
 
 describe('indexAllKnowledge with plans/docs', () => {
   it('indexes plan documents when plansDir exists', () => {
+    // Plans directory may not exist in all environments (e.g., public repo clone)
+    const plansDir = resolve(__dirname, '../../../../docs/plans');
+    if (!existsSync(plansDir)) {
+      return; // Skip — no plans directory in this environment
+    }
+
     const db = createTestDb();
     try {
       const stats = indexAllKnowledge(db);

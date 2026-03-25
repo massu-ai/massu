@@ -1,0 +1,35 @@
+---
+title: "/massu-gap-enhancement-analyzer"
+description: "Post-implementation gap analysis and enhancement discovery"
+---
+
+# /massu-gap-enhancement-analyzer
+
+Performs a comprehensive post-implementation review of a plan executed through `/massu-loop` to identify missing functionality, incomplete implementations, and enhancement opportunities beyond the original scope.
+
+## When to Use
+
+- **After `/massu-loop` completes**: Validate that all plan items were actually implemented
+- **Quality gate**: Before marking a feature as done, check for gaps
+- **Enhancement discovery**: Find improvement opportunities that became apparent during implementation
+- **Follow-up planning**: Generate a prioritized action list for the next iteration
+
+## What It Does
+
+- Validates every plan item against the actual implementation
+- Identifies gaps: missing functionality, untested paths, or deviations from the plan
+- Discovers enhancements: UX improvements, performance optimizations, security hardening
+- Produces a detailed, prioritized report for user review
+- Does NOT make changes -- read-only analysis
+
+## Usage
+
+```
+/massu-gap-enhancement-analyzer
+```
+
+## Related Commands
+
+- [`/massu-loop`](/docs/commands/massu-loop) — the implementation command this analyzes
+- [`/massu-verify`](/docs/commands/massu-verify) — verification checks with mandatory proof
+- [`/massu-plan`](/docs/commands/massu-plan) — plan audit (pre-implementation, vs. this post-implementation)

@@ -1,0 +1,37 @@
+---
+title: "/massu-incident"
+description: "Automated post-mortem and prevention pipeline for production bugs"
+---
+
+# /massu-incident
+
+When a bug is discovered that an audit should have caught, this command executes a structured post-mortem that automatically logs the incident, proposes new rules and checks, and updates protocol files to prevent recurrence.
+
+## When to Use
+
+- **Production bugs**: A user-facing issue was found in production
+- **Audit misses**: A bug slipped past existing verification checks
+- **Regression discovered**: Something that previously worked is now broken
+- **Process improvement**: Turn any bug into a systemic prevention rule
+
+## What It Does
+
+- Captures incident details: what went wrong, how it was discovered, impact
+- Logs the incident to `INCIDENT-LOG.md` with structured metadata
+- Proposes a new CR (canonical rule) or VR (verification requirement) check
+- Suggests a pattern-scanner addition to catch the pattern automatically
+- Updates relevant protocol files with an incident reminder
+
+## Usage
+
+```
+/massu-incident
+```
+
+You will be prompted to describe what went wrong and how it was discovered.
+
+## Related Commands
+
+- [`/massu-debug`](/docs/commands/massu-debug) — systematic debugging to find the root cause
+- [`/massu-hotfix`](/docs/commands/massu-hotfix) — quick fix for the immediate issue
+- [`/massu-verify`](/docs/commands/massu-verify) — run verification checks to confirm the fix

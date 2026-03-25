@@ -29,10 +29,11 @@ Claude Code Session
   (injects context into next session)
 ```
 
-The memory system has two components:
+The memory system has three components:
 
 1. **Automatic capture** -- hooks record observations during sessions without any developer action
-2. **Manual lookup** -- 6 MCP tools (`massu_memory_*`) let you query, search, and ingest memory explicitly
+2. **Memory file auto-ingest** -- when Claude writes to `memory/*.md` files, the YAML frontmatter is automatically parsed and ingested into the SQLite database, making file-based memories queryable via MCP tools
+3. **Manual lookup** -- 7 MCP tools (`massu_memory_*`) let you query, search, ingest, and backfill memory explicitly
 
 ## MEMORY.md Structure
 

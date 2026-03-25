@@ -1,0 +1,35 @@
+---
+title: "/massu-tdd"
+description: "Test-driven development cycle — RED (failing test) -> GREEN (minimal impl) -> IMPROVE (refactor)"
+---
+
+# /massu-tdd
+
+Implements features or fixes bugs using strict test-first development. Writes the test before the implementation, following the classic RED/GREEN/IMPROVE TDD cycle with verification proof at every step.
+
+## When to Use
+
+- **New feature development**: When you want test coverage baked in from the start
+- **Bug fixes with regression tests**: Write the failing test first, then fix the bug
+- **API contract design**: Use tests to define the expected interface before building it
+- **Critical path code**: When correctness matters more than speed
+
+## What It Does
+
+- **RED phase**: Writes a failing test that defines the expected behavior
+- **GREEN phase**: Implements the minimal code needed to make the test pass
+- **IMPROVE phase**: Refactors for clarity and pattern compliance while keeping tests green
+- Shows VR-proof at each phase transition (test output proving RED/GREEN status)
+- Applies CR-9: if tests reveal other bugs, fixes them immediately
+
+## Usage
+
+```
+/massu-tdd [feature or bug description]
+```
+
+## Related Commands
+
+- [`/massu-test`](/docs/commands/massu-test) — intelligent test runner for existing code (not test-first)
+- [`/massu-debug`](/docs/commands/massu-debug) — systematic debugging for complex bugs
+- [`/massu-loop`](/docs/commands/massu-loop) — plan-based implementation (may include tests but not TDD-strict)

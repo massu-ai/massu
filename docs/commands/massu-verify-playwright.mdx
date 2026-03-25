@@ -1,0 +1,35 @@
+---
+title: "/massu-verify-playwright"
+description: "Browser-based page verification via Playwright — reports console errors with a categorized fix plan"
+---
+
+# /massu-verify-playwright
+
+Opens a Playwright browser, navigates to every page, collects console errors, and produces a structured report with a categorized fix plan. This command reports only -- it never auto-fixes anything.
+
+## When to Use
+
+- **Pre-deploy verification**: Check all pages for runtime errors before shipping
+- **After UI changes**: Verify no console errors were introduced
+- **Periodic health checks**: Scan the full site for silent failures
+- **Bug triage**: Generate a prioritized list of browser-side issues
+
+## What It Does
+
+- Launches a Playwright browser and visits each page in the application
+- Captures full console error messages (not summaries)
+- Categorizes each error by type and assigns priority
+- Produces a structured report document with a fix plan
+- Never modifies any files -- report only
+
+## Usage
+
+```
+/massu-verify-playwright
+```
+
+## Related Commands
+
+- [`/massu-loop-playwright`](/docs/commands/massu-loop-playwright) — browser verification WITH auto-fixing (audit + fix loop)
+- [`/massu-verify`](/docs/commands/massu-verify) — code-level verification checks (no browser)
+- [`/massu-status`](/docs/commands/massu-status) — project health dashboard

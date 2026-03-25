@@ -1,0 +1,37 @@
+---
+title: "/massu-bearings"
+description: "Session orientation — answers 'where was I?' and 'what should I focus on?'"
+---
+
+# /massu-bearings
+
+Quick session orientation that reads session state, recent history, parked ideas, and open plans, then presents a concise briefing. Answers: "Where am I and what should I focus on?"
+
+## When to Use
+
+- **Starting a new session**: Run first thing to get your bearings
+- **After being away**: Quick catch-up on where things left off
+- **Context recovery**: When you have lost track of the current task
+- **Morning standup**: Get a summary of yesterday's work and today's priorities
+
+## What It Does
+
+- Reads session state (CURRENT.md) for active tasks and recent decisions
+- Checks recent git history for what was last committed
+- Reviews parked ideas (squirrels) for anything relevant
+- Scans open plan files for in-progress work
+- Presents a concise, human-readable briefing
+
+## Usage
+
+```
+/massu-bearings
+```
+
+This is a read-only command. It does not modify any files.
+
+## Related Commands
+
+- [`/massu-recap`](/docs/commands/massu-recap) — session handoff (the counterpart: recap writes what bearings reads)
+- [`/massu-guide`](/docs/commands/massu-guide) — full codebase onboarding walkthrough
+- [`/massu-status`](/docs/commands/massu-status) — project health dashboard

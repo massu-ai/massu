@@ -1,0 +1,33 @@
+---
+title: "/massu-plan-audit"
+description: "Combined plan creation and zero-gap audit in one autonomous flow"
+---
+
+# /massu-plan-audit
+
+Combines `/massu-create-plan` and `/massu-plan` into one uninterrupted flow. Creates the implementation plan, then immediately transitions to the audit loop, iterating until zero gaps remain -- no user intervention needed.
+
+## When to Use
+
+- **Starting new work**: When you want a plan created AND audited in one step
+- **Autonomous planning**: Skip the manual step between plan creation and audit
+- **Time savings**: Eliminates the back-and-forth of running two separate commands
+
+## What It Does
+
+- **Phase A**: Creates the plan following the massu-create-plan protocol
+- **Phase B**: Immediately transitions to the audit loop (massu-plan protocol)
+- **Phase C**: Loops until zero gaps are found (no user intervention)
+- **Phase D**: Presents the zero-gap plan and stops
+
+## Usage
+
+```
+/massu-plan-audit [task description]
+```
+
+## Related Commands
+
+- [`/massu-create-plan`](/docs/commands/massu-create-plan) — plan creation only (Phase A)
+- [`/massu-plan`](/docs/commands/massu-plan) — plan audit only (Phase B-C)
+- [`/massu-golden-path`](/docs/commands/massu-golden-path) — full pipeline including plan + audit + implementation + push

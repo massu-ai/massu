@@ -1,0 +1,35 @@
+---
+title: "/massu-deps"
+description: "Dependency audit covering security vulnerabilities, updates, and compatibility analysis"
+---
+
+# /massu-deps
+
+Audits project dependencies for security vulnerabilities, outdated packages, and compatibility issues. Maintains a healthy, secure dependency tree with incremental, verified updates.
+
+## When to Use
+
+- **Security review**: Check for known vulnerabilities in dependencies
+- **Before releases**: Ensure no critical/high severity issues ship to production
+- **Periodic maintenance**: Run weekly or monthly to stay current on updates
+- **After lockfile changes**: Verify new dependency additions are safe
+
+## What It Does
+
+- Scans for security vulnerabilities (critical and high block deployment)
+- Identifies outdated packages with available updates
+- Checks compatibility of potential updates against the project
+- Applies incremental updates with build verification after each change
+- Loops until a complete audit finds zero remaining issues
+
+## Usage
+
+```
+/massu-deps
+```
+
+## Related Commands
+
+- [`/massu-audit-deps`](/docs/commands/massu-audit-deps) — alternative dependency audit (vulns, licenses, unused)
+- [`/massu-verify`](/docs/commands/massu-verify) — run all verification checks
+- [`/massu-status`](/docs/commands/massu-status) — project health dashboard including dependency status

@@ -1,0 +1,40 @@
+---
+title: "/massu-deploy"
+description: "Autonomous deployment pipeline with pre-flight checks and smoke tests"
+---
+
+# /massu-deploy
+
+Deploys the website to Vercel production with automated pre-flight checks, build verification, and post-deploy smoke tests. This is the final step in the full development workflow.
+
+## When to Use
+
+- **After pushing to main**: When code is merged and ready for production
+- **Production deployment**: The standard deploy command for the Massu website
+- **After `/massu-push` passes**: Deploy only after all verification gates pass
+
+## What It Does
+
+- Verifies you are on `main` with a clean working tree
+- Confirms the correct Vercel project target
+- Runs a local build to catch errors before deploying
+- Executes the Vercel production deployment
+- Runs post-deploy smoke tests to verify the live site
+
+## Usage
+
+```
+/massu-deploy
+```
+
+## Workflow Position
+
+```
+/massu-create-plan -> /massu-plan -> /massu-loop -> /massu-commit -> /massu-push -> /massu-deploy
+```
+
+## Related Commands
+
+- [`/massu-push`](/docs/commands/massu-push) — pre-push verification gate (run before deploy)
+- [`/massu-commit`](/docs/commands/massu-commit) — pre-commit verification gate
+- [`/massu-verify-playwright`](/docs/commands/massu-verify-playwright) — browser-based page verification

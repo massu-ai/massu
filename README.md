@@ -40,7 +40,7 @@ Massu uses a tiered model. All hooks and commands are free. Tools are gated by t
 | **Team** | 56 tools | Everything in Pro + sentinel feature registry, team knowledge sharing |
 | **Enterprise** | 62 tools | Everything in Team + audit trail, security scoring, dependency analysis |
 
-All 11 lifecycle hooks and all 43 slash commands are included at every tier.
+All 11 lifecycle hooks and all 59 slash commands are included at every tier.
 
 ## Quick Start
 
@@ -60,7 +60,7 @@ That's it. `massu init` automatically:
 - Creates `massu.config.yaml` with detected settings
 - Registers the MCP server in `.mcp.json`
 - Installs all 11 lifecycle hooks in `.claude/settings.local.json`
-- Installs all 43 slash commands into `.claude/commands/`
+- Installs all 59 slash commands into `.claude/commands/`
 - Databases auto-create on first session
 
 To verify your installation:
@@ -125,8 +125,11 @@ Massu is configured via `massu.config.yaml` in your project root. See `examples/
     hooks/                  # Lifecycle hooks
 
 @massu/plugin        # Claude Code Plugin
-  commands/                 # Slash commands
-  agents/                   # Specialized subagents
+  commands/                 # 59 slash commands (with reference subdirs)
+  agents/                   # 11 specialized subagents
+  patterns/                 # 9 pattern files (build, UI, security, testing, etc.)
+  protocols/                # 3 protocol files (plan, recovery, verification)
+  reference/                # 8 reference docs (CR rules, VR checks, taxonomy)
   hooks/hooks.json          # Hook definitions
 ```
 

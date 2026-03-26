@@ -1,434 +1,118 @@
 ---
 name: massu-push
-description: Full verification gate (all tests, regression detection, security) before remote push
-allowed-tools: Bash(*), Read(*), Edit(*), Grep(*), Glob(*)
+description: "When user says 'push', 'push to remote', 'deploy', or wants to push committed changes to the remote repository"
+allowed-tools: Bash(*), Read(*), Edit(*), Write(*), Grep(*), Glob(*)
 ---
 name: massu-push
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
-
-# CS Push: Full Verification Gate Before Remote Push
-
-## Workflow Position
-
-```
-/massu-create-plan -> /massu-plan -> /massu-loop -> /massu-commit -> /massu-push
-(CREATE)           (AUDIT)        (IMPLEMENT)   (COMMIT)        (PUSH)
-```
-
-**This command is step 5 of 5 in the standard workflow.**
-
----
+# Massu Push: Verify, Push, Monitor CI
 
 ## Objective
 
-Execute COMPREHENSIVE verification including ALL tests and security checks before pushing to remote. This is the final gate - code MUST pass every check before leaving your machine.
-
-**Philosophy**: Commit often (quality checks), push verified (full checks + security + regression).
+Run deterministic pre-push checks, push, then monitor CI. If CI fails, auto-fix.
 
 ---
 
-## START NOW
+## EXECUTION
 
-**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
-
-Update `session-state/CURRENT.md` to include `AUTHORIZED_COMMAND: massu-push`.
-
-**Step 0.1: Workflow State Tracking**
-
-Write a transition entry to `.massu/workflow-log.md`:
-```
-| [timestamp] | VERIFY | DEPLOY | /massu-push | [session-id] |
-```
-
----
-
-## NON-NEGOTIABLE RULES
-
-- **ALL tests must pass** - vitest, full suite
-- **ALL security checks must pass** - npm audit, secrets scan
-- **Zero violations** - Pattern scanner, type check
-- **Do NOT push if ANY check fails**
-- **Document ALL test failures before fixing**
-- **Regression detection MANDATORY** - Compare against main branch
-- **FIX ALL ISSUES ENCOUNTERED (CR-9)** - Pre-existing or not
-
----
-
-## CRITICAL: DUAL VERIFICATION REQUIREMENT
-
-**Push completion requires BOTH verification gates to pass.**
-
-| Verification | What It Checks | Required for Push |
-|--------------|----------------|-------------------|
-| **Code Quality** | Build, types, patterns, tests pass | YES |
-| **Plan Coverage** | ALL plan items implemented (if from plan) | YES |
-
-**Code Quality: PASS + Plan Coverage: FAIL = DO NOT PUSH**
-
----
-
-## CRITICAL: REGRESSION DETECTION
-
-**Before pushing, verify no existing tests have regressed.**
-
-### Regression Detection Protocol
-
-#### Step 1: Establish Baseline
-```bash
-# If on main branch, compare against parent commit instead
-CURRENT_BRANCH=$(git branch --show-current)
-if [ "$CURRENT_BRANCH" = "main" ]; then
-  # Compare against parent commit
-  git stash -q 2>/dev/null || true
-  git checkout HEAD~1 -q
-  npm test 2>&1 | tee /tmp/baseline-tests.txt
-  git checkout - -q
-  git stash pop -q 2>/dev/null || true
-else
-  # Compare against main branch
-  git stash -q 2>/dev/null || true
-  git checkout main -q
-  npm test 2>&1 | tee /tmp/baseline-tests.txt
-  git checkout - -q
-  git stash pop -q 2>/dev/null || true
-fi
-```
-
-#### Step 2: Run Tests on Current Branch
-```bash
-npm test 2>&1 | tee /tmp/current-tests.txt
-```
-
-#### Step 3: Compare Results
-```bash
-# Parse vitest output: "Tests  N passed (N)" or "Tests  N failed | N passed (N)"
-BASELINE_PASS=$(grep -oP 'Tests\s+\K\d+(?=\s+passed)' /tmp/baseline-tests.txt || echo 0)
-BASELINE_FAIL=$(grep -oP '\K\d+(?=\s+failed)' /tmp/baseline-tests.txt || echo 0)
-
-CURRENT_PASS=$(grep -oP 'Tests\s+\K\d+(?=\s+passed)' /tmp/current-tests.txt || echo 0)
-CURRENT_FAIL=$(grep -oP '\K\d+(?=\s+failed)' /tmp/current-tests.txt || echo 0)
-
-echo "Baseline: $BASELINE_PASS passed, $BASELINE_FAIL failed"
-echo "Current:  $CURRENT_PASS passed, $CURRENT_FAIL failed"
-```
-
-#### Step 4: Gate Decision
-| Scenario | Action |
-|----------|--------|
-| No regressions | PASS - Continue to push |
-| Regressions found | FAIL - Fix before push |
-| New test failures | Investigate - may be new test or bug |
-
-```markdown
-### Regression Detection Report
-
-| Metric | Value |
-|--------|-------|
-| Baseline (main) passing tests | [N] |
-| Current branch passing tests | [N] |
-| Regressions (was passing, now failing) | [N] |
-
-**REGRESSION GATE: PASS / FAIL**
-```
-
----
-
-## VERIFICATION TIERS
-
-### Tier 1: Quick Checks (should already pass from massu-commit)
+### Phase 1: Pre-Flight
 
 ```bash
-# 1.1 Pattern Scanner
-bash scripts/massu-pattern-scanner.sh
-# MUST exit 0
-
-# 1.2 TypeScript
-cd packages/core && npx tsc --noEmit
-# MUST show 0 errors
-
-# 1.3 Hook Build
-cd packages/core && npm run build:hooks
-# MUST exit 0
-
-# 1.4 Generalization Compliance (VR-GENERIC)
-bash scripts/massu-generalization-scanner.sh
-# MUST exit 0
+# Verify commits to push
+git log origin/$(git branch --show-current)..HEAD --oneline
+git remote -v
 ```
 
-**Gate Check:**
-```markdown
-### Tier 1: Quick Checks
-| Check | Command | Result | Status |
-|-------|---------|--------|--------|
-| Pattern Scanner | massu-pattern-scanner.sh | Exit [X] | PASS/FAIL |
-| TypeScript | tsc --noEmit | [X] errors | PASS/FAIL |
-| Hook Build | build:hooks | Exit [X] | PASS/FAIL |
-| Generalization | massu-generalization-scanner.sh | Exit [X] | PASS/FAIL |
+If no commits to push, abort.
 
-**Tier 1 Status: PASS/FAIL**
-```
-
----
-
-### Tier 2: Full Test Suite (CRITICAL)
-
-#### 2.0 Regression Detection (MANDATORY FIRST)
-
-Run the regression detection protocol above before the full test suite.
-
-#### 2.1 All Tests (vitest)
-```bash
-npm test
-# MUST exit 0, all tests pass
-```
-
-Capture output:
-- Total tests
-- Passed tests
-- Failed tests
-- Skipped tests
-
-**If tests fail:**
-1. Document ALL failures
-2. Fix each failure
-3. Re-run ALL tests (not just failed ones)
-
-#### 2.2 Tool Registration Verification (if new tools in this push)
+### Phase 2: Pre-Push Verification
 
 ```bash
-# List new/modified tool files
-git diff origin/main..HEAD --name-only | grep "tools\|tool"
-
-# For EACH new tool, verify registration
-grep "getToolDefinitions\|isToolName\|handleToolCall" packages/core/src/tools.ts
+./scripts/push-verify.sh
 ```
 
-**Gate Check:**
-```markdown
-### Tier 2: Test Suite
-| Check | Command | Passed | Failed | Status |
-|-------|---------|--------|--------|--------|
-| Regression Detection | Compare vs main | 0 regressions | 0 | PASS/FAIL |
-| All Tests | npm test | [X]/[Y] | 0 | PASS/FAIL |
-| Tool Registration | grep tools.ts | All registered | 0 | PASS/FAIL |
+**This script runs pre-push checks: pattern scanner, coupling, UX quality, schema validation, ESLint, TypeScript.**
 
-**Tier 2 Status: PASS/FAIL**
-```
+If it exits non-zero, fix the failures before proceeding. Do NOT push with failing checks.
 
----
-
-### Tier 3: Security & Compliance
-
-#### 3.1 npm Audit
-```bash
-npm audit --audit-level=high
-# MUST have 0 high/critical vulnerabilities
-```
-
-**Vulnerability Handling:**
-- **Critical/High**: MUST fix before push
-- **Moderate**: Document and create ticket
-- **Low**: Informational only
-
-#### 3.2 Secrets Scan
-```bash
-# Check for staged secret files
-git diff --cached --name-only | grep -E '\.(env|pem|key|secret)' && echo "FAIL" || echo "PASS"
-
-# Check for hardcoded credentials in source
-grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|password.*=.*["\x27][^"\x27]\{8,\}' --include="*.ts" --include="*.tsx" \
-  packages/core/src/ 2>/dev/null \
-  | grep -v "process.env" \
-  | grep -v 'RegExp\|regex\|REDACT\|redact\|sanitize\|mask' \
-  | grep -v '\.test\.ts:' \
-  | wc -l
-# MUST be 0
-```
-
-#### 3.3 License Compliance (if deps changed)
-```bash
-# Check if package.json or package-lock.json changed
-git diff origin/main..HEAD --name-only | grep -E 'package(-lock)?\.json' && \
-  npm audit --audit-level=high 2>&1 || true
-```
-
-#### 3.3 Plan Coverage (if from plan)
-```markdown
-### Plan Coverage Verification
-
-| Item # | Description | Status | Proof |
-|--------|-------------|--------|-------|
-| P1-001 | [desc] | DONE | [evidence] |
-| ... | ... | ... | ... |
-
-**Coverage: X/X items = 100%**
-```
-
-**Gate Check:**
-```markdown
-### Tier 3: Security & Compliance
-| Check | Command | Result | Status |
-|-------|---------|--------|--------|
-| npm audit | npm audit --audit-level=high | [X] vulns | PASS/FAIL |
-| Secrets Scan | grep check | [X] found | PASS/FAIL |
-| Plan Coverage | item-by-item | [X]/[X] = [X]% | PASS/FAIL |
-
-**Tier 3 Status: PASS/FAIL**
-```
-
----
-
-## EXECUTION FLOW
-
-### Phase 1: Pre-Flight Verification
+### Phase 3: Push
 
 ```bash
-# Verify we're on a branch and have commits to push
-git status
-git log origin/main..HEAD --oneline
+git push origin $(git branch --show-current)
 ```
 
-If no commits to push, abort with message.
-
-### Phase 2: Run All Tiers
-
-Run Tier 1, Tier 2, and Tier 3 in order. Stop at first tier failure.
-
-### Phase 3: Final Gate & Push
-
-#### All Tiers Must Pass
-
-```markdown
-### PUSH GATE SUMMARY
-| Tier | Description | Status |
-|------|-------------|--------|
-| Tier 1 | Quick Checks (patterns, types, hooks) | PASS/FAIL |
-| Tier 2 | Full Test Suite + Regression | PASS/FAIL |
-| Tier 3 | Security & Compliance | PASS/FAIL |
-
-### DUAL VERIFICATION GATE
-| Gate | Status | Evidence |
-|------|--------|----------|
-| Code Quality | PASS/FAIL | Tiers 1-3 |
-| Plan Coverage | PASS/FAIL | X/X items (if plan) |
-
-**OVERALL: PASS / FAIL**
-```
-
-#### If ALL Pass
+### Phase 4: Monitor CI
 
 ```bash
-# Push to remote
-git push origin [current-branch]
+./scripts/ci-status.sh --wait --max-wait 300
 ```
 
-#### If ANY Fail
+Three outcomes:
+- **CI passes**: Done. Report success.
+- **CI fails**: Auto-run `/massu-ci-fix` protocol (diagnose, fix, commit, re-push, re-monitor).
+- **CI timeout**: Report timeout, suggest manual check.
 
-1. **Document ALL failures**
-2. **Fix each failure**
-3. **Re-run ENTIRE verification** (not just failed tiers)
-4. **Do NOT push until all tiers pass**
+### Phase 5: CI Auto-Fix (if CI failed)
+
+If CI failed, execute the `/massu-ci-fix` protocol inline:
+
+1. Pull failure logs: `gh run view [RUN_ID] --log-failed`
+2. Diagnose root cause
+3. Fix locally
+4. Verify fix: run the same check that failed
+5. Commit: `fix(ci): [description]`
+6. Re-push
+7. Re-monitor CI
+8. Max 3 fix attempts
 
 ---
 
-## TIMING EXPECTATIONS
+## OUTPUT FORMAT
 
-| Phase | Typical Duration |
-|-------|------------------|
-| Tier 1 (Quick) | ~30 seconds |
-| Tier 2 (Tests + Regression) | ~1-2 minutes |
-| Tier 3 (Security) | ~30 seconds |
-| Total | ~2-3 minutes |
-
----
-
-## ABORT CONDITIONS
-
-Immediately abort and report if:
-- Secrets detected in codebase
-- More than 10% of tests failing (indicates systemic issue)
-- Any HIGH/CRITICAL npm vulnerability with no fix available
-
-```markdown
-## PUSH ABORTED
-
-### Reason
-[SECURITY | TEST_FAILURE | OTHER]
-
-### Details
-[Specific issue]
-
-### Required Action
-[Steps to resolve]
-
-### Do NOT Attempt Push Until Resolved
 ```
+== MASSU PUSH ==
 
----
+Commits: 3 ahead of origin/main
+Remote: [your-remote-url]
 
-## MANDATORY: PLAN DOCUMENT UPDATE (If Push Completes Plan)
+Pre-Push Verification:
+  [1/N] Pattern Scanner...  PASS
+  [2/N] VR-COUPLING...      PASS
+  ...
+  ALL CHECKS PASSED
 
-**If this push completes work from a plan document, the plan MUST be updated.**
+Pushing to origin/main...
+  0382f95a..29b569dc main -> main
 
-Before push is considered complete:
-- [ ] Plan document has IMPLEMENTATION STATUS at TOP
-- [ ] All completed items marked with status
-- [ ] Verification evidence recorded
-- [ ] Push commit hash recorded in plan
+CI Status:
+  Schema Validation: success
+  (300s timeout)
 
-```markdown
-# IMPLEMENTATION STATUS
-
-**Plan**: [Plan Name]
-**Status**: COMPLETE - PUSHED
-**Last Updated**: [YYYY-MM-DD HH:MM]
-**Push Commit**: [commit hash]
-
-## Final Verification
-
-| Check | Result | Status |
-|-------|--------|--------|
-| Pattern Scanner | Exit 0 | PASS |
-| Type Check | 0 errors | PASS |
-| Tests | All pass | PASS |
-| Push | Successful | PASS |
+PUSH COMPLETE
 ```
 
 ---
 
-## AUTO-LEARNING PROTOCOL
+## GOTCHAS
 
-After pushing, if any issues were fixed during this verification:
-
-1. **Record the pattern** - What went wrong and how it was fixed
-2. **Check if pattern scanner should be updated**
-3. **Update session state**
+- Verify remote URL before push (`git remote -v`)
+- Verify branch before push (`git branch --show-current`)
+- Never force-push to main without explicit user confirmation
+- If push-verify.sh fails, fix issues first -- do NOT bypass
 
 ---
 
-## COMPLETION REPORT
+## QUALITY SCORING (silent)
 
-```markdown
-## CS PUSH COMPLETE
+After push completes, append one JSONL line to `.claude/metrics/command-scores.jsonl`:
 
-### Push Details
-- **Branch**: [branch]
-- **Commits**: [count]
-- **Remote**: origin/[branch]
+| Check | Pass condition |
+|-------|---------------|
+| `pre_push_verify_passed` | push-verify.sh exited 0 |
+| `ci_monitored` | CI status was checked after push |
+| `ci_passed_or_fixed` | CI passed (first try or after auto-fix) |
+| `no_force_push` | No --force flag used |
 
-### Verification Summary
-| Tier | Checks | Status |
-|------|--------|--------|
-| Tier 1 | Patterns, Types, Hooks | PASS |
-| Tier 2 | Tests ([X] passed), Regression (0) | PASS |
-| Tier 3 | npm audit (0 high/critical), Secrets (0) | PASS |
-
-### Dual Verification
-| Gate | Status |
-|------|--------|
-| Code Quality | PASS |
-| Plan Coverage | PASS (X/X = 100%) |
-
-**Push succeeded.**
+```json
+{"command":"massu-push","timestamp":"ISO8601","scores":{"pre_push_verify_passed":true,"ci_monitored":true,"ci_passed_or_fixed":true,"no_force_push":true},"pass_rate":"4/4","input_summary":"[branch]:[commit-range]"}
 ```

@@ -1,0 +1,58 @@
+---
+title: "/massu-autoresearch"
+description: "Autonomous iterative command optimization using eval-driven scoring with git-based accept/reject"
+order: 45
+---
+
+# /massu-autoresearch
+
+Iteratively improve a target command file by scoring output against an eval checklist, keeping improvements (git commit), reverting failures (git checkout), and repeating until convergence. Based on Karpathy's autoresearch pattern.
+
+## Usage
+
+```
+/massu-autoresearch [command-name]                    # Default: 20 iterations, 90% target
+/massu-autoresearch [command-name] --max-iterations N # Custom iteration cap
+/massu-autoresearch [command-name] --target-score N   # Custom target (default 90)
+/massu-autoresearch [command-name] --no-limit         # Never-stop mode (cost cap only)
+```
+
+## Three-File Architecture
+
+| Role | File | Mutable? |
+|------|------|----------|
+| **Target** (train.py) | `.claude/commands/[command].md` | YES -- agent edits this |
+| **Eval** (prepare.py) | `.claude/evals/[command].md` | NO -- immutable |
+| **Instructions** | This command file | NO -- agent follows this |
+
+## Protocol Steps
+
+1. **Parse arguments** -- extract command name, iteration cap, target score, no-limit flag
+2. **Validate files** -- confirm target, eval, and fixture files exist
+3. **Create git branch** -- `autoresearch/[command]-[YYYY-MM-DD]`
+4. **Backup target** -- save original to `.claude/metrics/backups/`
+5. **Measure baseline** -- run eval 3 times, take median score
+6. **Iteration loop** (one change per iteration):
+   - Read current target, eval checklist, and fixture input
+   - Hypothesize ONE improvement targeting a failing check
+   - Apply single edit to target file
+   - Run eval subagent to score the result
+   - **Tristate decision**: KEEP (score improved, commit), DISCARD (score same or worse, revert), or CRASH (eval error, retry once)
+   - Apply simplicity gate -- reject marginal improvement + added complexity
+7. **Graduated escalation** when stuck (3, 5, 8 consecutive reverts trigger escalation levels; 10 = bail)
+8. **Convergence criteria**: score >= target for 3 consecutive iterations, max iterations reached, stagnation bail, or cost cap (500K tokens)
+9. **Final report** -- score progression, kept/discarded/crashed counts, still-failing checks, next steps
+
+## When to Use
+
+- For overnight unattended command optimization runs
+- When a command's quality score is consistently below target
+- After `/massu-command-health` reveals weak commands that need systematic improvement
+- When manual `/massu-command-improve` is too slow for the number of failing checks
+
+## Key Rules
+
+- ONE change per iteration -- single-variable perturbation only
+- NEVER edit the eval file or lines containing CR/VR references
+- In `--no-limit` mode, do NOT pause to ask the human if you should continue
+- Crashes do NOT count toward stagnation

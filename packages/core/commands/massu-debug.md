@@ -1,31 +1,44 @@
 ---
 name: massu-debug
-description: Systematic debugging with hypothesis testing, root cause tracing, and verified fixes
+description: "When user reports a bug, error, 500, crash, unexpected behavior, broken feature, or pastes error logs/stack traces"
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-debug
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
 
-# CS Debug: Systematic Debugging Protocol
+> **Related Playbooks**: See `.claude/playbooks/debug-production-500.md`
+
+# Massu Debug: Systematic Debugging Protocol
 
 ## Objective
 
-Trace errors to root cause systematically using hypothesis-driven investigation. Never guess — read the code, form hypotheses, test them, and verify fixes don't break anything else.
-
-**Usage**: `/massu-debug [error description, test name, or stack trace]`
+Systematically debug issues using **evidence-based investigation**, not guessing. Follow the trace from symptom to root cause with VR-* verification at each step.
 
 ---
 
 ## NON-NEGOTIABLE RULES
 
-- **Never guess the root cause** — read the code
-- **Never apply a fix without understanding WHY it works**
-- **Always verify the fix doesn't break other tests**
-- **Record each hypothesis and its outcome**
-- **FIX ALL ISSUES ENCOUNTERED (CR-9)** — if you find additional bugs while debugging, fix those too
-- **Proof > reasoning. Commands > assumptions.**
-- **No blind changes** — Understand before modifying
+- **Evidence over assumptions (CR-1)** - Every hypothesis must be tested with VR-* proof
+- **Trace the full path** - From UI to API to DB and back. Check stored procedures
+- **Verify fixes via browser (CR-41)** - Playwright before/after snapshots for UI issues
+- **Check all environments** - Schema drift causes environment-specific failures. Verify the environment the user is reporting from
+- **Auto-learn every fix (CR-34)** - Ingest bugfix to memory, add wrong->correct pattern, scan codebase-wide (CR-9)
+- **No blind changes (CR-2)** - Run VR-SCHEMA-PRE before any query. See CLAUDE.md "Known Schema Mismatches"
+
+---
+
+## Skill Contents
+
+This skill is a folder. The following files are available for reference:
+
+| File | Purpose | Read When |
+|------|---------|-----------|
+| `references/investigation-phases.md` | Phases 0-7 investigation detail | Following debug phases |
+| `references/common-shortcuts.md` | Quick diagnosis patterns | Common issue shortcuts |
+| `references/codegraph-tracing.md` | Codegraph MCP tool usage | Tracing code dependencies |
+| `references/auto-learning.md` | Post-debug learning pipeline | After fixing a bug |
+| `references/report-format.md` | Debug report template | Writing debug reports |
 
 ---
 
@@ -58,427 +71,133 @@ DEBUG VERIFICATION LOOP:
 
 ## DOMAIN-SPECIFIC PATTERN LOADING
 
-Based on the bug's domain, load relevant pattern sections from CLAUDE.md:
+Based on the bug's domain, load relevant pattern files:
 
-| Domain | Section | Load When |
-|--------|---------|-----------|
-| Tool modules | Tool Registration Pattern | Tool registration/handler bugs |
-| Config | Config Access Pattern | Config parsing/access bugs |
-| Hooks | Hook stdin/stdout Pattern | Hook compilation/runtime bugs |
-| Build | Build & Test Commands | Build/compilation errors |
-| Database | SQLite Database Pattern | DB access bugs |
-
----
-
-## STEP 0: REPRODUCE THE FAILURE (MANDATORY)
-
-Before investigating root cause, CONFIRM you can trigger the exact error.
-
-1. Identify the exact reproduction steps from user report
-2. Execute those steps (or equivalent verification commands)
-3. Capture the actual error output
-4. If you CANNOT reproduce: document that and investigate why
-
-WHY: Debugging without reproduction is guessing. Fixes without reproduction cannot be verified.
-
-### 0.2 Memory Check
-
-Before investigating, search for past failures related to this issue:
-
-- Check session state (`.claude/session-state/CURRENT.md`) for recent failures
-- Search codebase for similar error patterns
-- Check if this is a known issue with an established fix pattern
-
-If matches found: read the previous failures and avoid repeating failed approaches.
+| Domain | Pattern File | Load When |
+|--------|--------------|-----------|
+| Database errors | `.claude/patterns/database-patterns.md` | 500 errors, query failures |
+| Auth issues | `.claude/patterns/auth-patterns.md` | 401/403 errors, session issues |
+| UI bugs | `.claude/patterns/ui-patterns.md` | Rendering, state, interaction bugs |
+| Realtime issues | `.claude/patterns/realtime-patterns.md` | Subscription failures |
+| Build failures | `.claude/patterns/build-patterns.md` | Compilation, bundling errors |
 
 ---
 
-## STEP 1: SYMPTOM CAPTURE
+## MANDATORY DATABASE VERIFICATION (For Database-Related Bugs)
 
-### 1.0 Error Category Matrix
+### VR-SCHEMA-PRE: Verify Schema BEFORE Assuming Bug Cause
 
-| Error Type | Likely Cause | First Check |
-|------------|--------------|-------------|
-| TypeError | Null/undefined value | Null guards in source |
-| Import error | Missing/wrong module path | ESM import path |
-| Config error | Missing config key | massu.config.yaml |
-| Build fail | TypeScript/esbuild error | tsc output |
-| Test fail | Assertion mismatch | Test expectations |
-| Tool not found | Missing registration | tools.ts wiring |
-| Hook timeout | Heavy dependency or infinite loop | Hook source |
-
-Record the exact error from `$ARGUMENTS`:
-
-```markdown
-### Symptom
-- **Error**: [exact error message or test name]
-- **Stack trace**: [if provided]
-- **Unexpected behavior**: [what happened vs what was expected]
-- **Reproducible**: [how to reproduce — test command, user action, etc.]
+```sql
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_name = '[SUSPECTED_TABLE]'
+ORDER BY ordinal_position;
 ```
 
-**If `$ARGUMENTS` is a test name:**
-```bash
-# Run the specific test to capture the full error
-npx vitest run [test-file-or-pattern] 2>&1
+**Common Bug Causes VR-SCHEMA-PRE Catches:**
+- Column doesn't exist (but code uses it)
+- Column has different type than expected
+- Column is nullable when code assumes non-null
+- Column name is different than expected (see Known Schema Mismatches in CLAUDE.md)
+
+### VR-DATA: Verify Config Data for "No Data" Bugs
+
+```sql
+SELECT DISTINCT jsonb_object_keys(config_column) as config_keys
+FROM [CONFIG_TABLE]
+WHERE config_column IS NOT NULL;
 ```
 
-**If `$ARGUMENTS` is an error message:**
-```bash
-# Search for the error message in the codebase
-grep -rn "[error message]" packages/core/src/ --include="*.ts" --include="*.tsx"
-```
-
-**If `$ARGUMENTS` is vague or missing:**
-```
-OUTPUT: "Please provide one of: (1) exact error message, (2) failing test name, (3) stack trace, (4) steps to reproduce"
-ABORT
-```
+**VR-DATA is the FIRST check for any "no data returned" bug.** Config keys may not match what the code expects.
 
 ---
 
-## STEP 2: LOCATE ERROR SOURCE
+## Gotchas
 
-### From Stack Trace
-
-Parse the stack trace for the originating file and line number:
-
-```bash
-# Read the file at the error location with 50 lines of surrounding context
-# (25 lines before, 25 lines after the error line)
-```
-
-### From Error Message
-
-```bash
-# Grep for the error message string in source code
-grep -rn "[error message text]" packages/core/src/ --include="*.ts"
-# Also search in other package directories if applicable
-grep -rn "[error message text]" packages/ --include="*.ts" --include="*.tsx"
-```
-
-### From Test Failure
-
-```bash
-# Read the failing test to understand what it expects
-# Read the source module the test imports
-```
-
-```markdown
-### Error Location
-- **File**: [file path]
-- **Line**: [line number]
-- **Function**: [function name]
-- **Context**: [what this code is supposed to do]
-```
+- **Don't guess schema (VR-SCHEMA-PRE)** -- ALWAYS query information_schema.columns before writing any database query. Column names you "remember" may be wrong
+- **Check all environments** -- bugs may manifest differently across environments due to schema drift. Always verify the environment the user is reporting from
+- **Dynamic imports for heavy deps** -- when debugging requires jsdom, cheerio, or other heavy packages, use `await import()` never static import
+- **Stored procedures may reference deleted columns** -- after ANY table migration, audit stored procedures on all databases
+- **Don't fix without understanding** -- read the code path end-to-end before proposing a fix. Surface-level patches create new bugs
 
 ---
 
-## STEP 3: TRACE CALL CHAIN
+## INVESTIGATION PHASES
 
-Follow function calls upstream to understand the full execution path:
+Read `references/investigation-phases.md` for full detail on all 8 phases:
 
-```bash
-# Find who calls this function
-grep -rn "[function_name](" packages/core/src/ --include="*.ts"
-
-# Find what arguments are passed
-# Read each caller to understand the data flow
-```
-
-Build the call chain:
-
-```markdown
-### Call Chain
-```
-caller_1() [file_1.ts:NN]
-  → caller_2() [file_2.ts:NN]
-    → error_site() [file_3.ts:NN]  ← ERROR HERE
-```
-
-### Data Flow
-| Step | Variable | Value/Type | Source |
-|------|----------|------------|--------|
-| 1 | [var] | [value/type] | [where it comes from] |
-| 2 | [var] | [value/type] | [transformation] |
-| 3 | [var] | [unexpected value] | ← MISMATCH |
-```
+0. **Reproduce the failure** -- confirm you can trigger the exact error; check memory for related failures
+1. **Symptom capture** -- document the issue, collect initial evidence
+2. **Categorize & load patterns** -- match error type to pattern file
+3. **Trace the path** -- UI layer, API layer, database layer investigation
+4. **Hypothesis testing** -- form and test each hypothesis with evidence
+5. **Root cause identification** -- document and verify the root cause
+6. **Fix & verify** -- for CRITICAL bugs, apply test-first protocol (see below); otherwise apply minimal fix, run VR-* protocols, check all environments
+7. **Regression check** -- verify related functionality, test full user flow
 
 ---
 
-## STEP 4: HYPOTHESIS FORMATION
+## CODEGRAPH-ENHANCED TRACING
 
-Based on code reading (NOT guessing), form up to 3 ranked hypotheses:
-
-```markdown
-### Hypotheses
-
-| # | Hypothesis | Confidence | Verification Method |
-|---|-----------|------------|---------------------|
-| H1 | [most likely cause based on code reading] | HIGH/MED/LOW | [specific command or check to verify] |
-| H2 | [alternative cause] | HIGH/MED/LOW | [specific command or check to verify] |
-| H3 | [least likely cause] | HIGH/MED/LOW | [specific command or check to verify] |
-```
-
-**Hypothesis quality requirements:**
-- Each hypothesis must be based on SPECIFIC code you read (cite file:line)
-- Each verification method must be a CONCRETE action (bash command, grep, read specific file)
-- "Something might be wrong" is NOT a valid hypothesis
-
----
-
-## STEP 5: HYPOTHESIS TESTING
-
-Test hypotheses in order of confidence (highest first):
-
-```
-FOR EACH hypothesis (highest confidence first):
-  1. Execute the verification method
-  2. Record the result
-  3. IF confirmed → proceed to STEP 6
-  4. IF rejected → record why and test next hypothesis
-
-IF all hypotheses rejected:
-  - Expand search scope
-  - Read more files in the call chain
-  - Check for environmental factors (config, DB state, imports)
-  - Form new hypotheses and repeat from STEP 4
-```
-
-```markdown
-### Hypothesis Testing Results
-
-| # | Hypothesis | Verification | Result | Outcome |
-|---|-----------|-------------|--------|---------|
-| H1 | [hypothesis] | [what you did] | [what you found] | CONFIRMED / REJECTED |
-| H2 | [hypothesis] | [what you did] | [what you found] | CONFIRMED / REJECTED |
-| H3 | [hypothesis] | [what you did] | [what you found] | CONFIRMED / REJECTED |
-```
-
----
-
-## STEP 6: ROOT CAUSE DOCUMENTATION
-
-Document the confirmed root cause before applying any fix:
-
-```markdown
-### Root Cause
-
-- **What**: [precise description of the bug]
-- **Why**: [why this bug exists — missing check, wrong assumption, stale code, etc.]
-- **Where**: [file(s) and line(s) affected]
-- **When introduced**: [if determinable — recent commit, original code, etc.]
-- **Blast radius**: [what else could be affected by this bug and by the fix]
-```
-
----
-
-## STEP 7: APPLY FIX
-
-### Scope Check
-
-```
-IF fix touches > 5 files:
-  OUTPUT: "Fix scope is large ([N] files). Consider using /massu-create-plan for a structured approach."
-  ASK user whether to proceed or create a plan
-```
-
-### Apply the Fix
-
-1. **Apply the minimal correct fix** following CLAUDE.md patterns
-2. **Document what was changed and why**
-3. **Do NOT make unrelated improvements** — fix the bug only
-
-```markdown
-### Fix Applied
-
-| File | Change | Reason |
-|------|--------|--------|
-| [file:line] | [what was changed] | [why this fixes the root cause] |
-```
-
----
-
-## STEP 8: VERIFY FIX
-
-### 8a. Targeted Test (if exists)
-
-```bash
-# Run the originally-failing test
-npx vitest run [test file] 2>&1
-```
-
-**Must pass.** If it still fails, go back to STEP 4 with new information.
-
-### 8b. Full Test Suite (VR-TEST)
-
-```bash
-npm test 2>&1
-# MUST exit 0, ALL tests pass
-```
-
-### 8c. Type Check (VR-TYPE)
-
-```bash
-cd packages/core && npx tsc --noEmit
-# MUST show 0 errors
-```
-
-### 8d. Pattern Scanner (VR-PATTERN)
-
-```bash
-bash scripts/massu-pattern-scanner.sh
-# MUST exit 0
-```
-
-### 8e. Hook Build (VR-HOOK-BUILD, if hooks modified)
-
-```bash
-cd packages/core && npm run build:hooks
-# MUST exit 0
-```
-
-**If ANY verification fails:**
-1. Investigate the new failure
-2. Determine if it was caused by the fix or is pre-existing
-3. Fix it (CR-9: fix ALL issues encountered)
-4. Re-run ALL verification from 8a
-
----
-
-## STEP 9: RECORD FOR LEARNING
-
-Update session state with the debugging outcome:
-
-```bash
-# Update .claude/session-state/CURRENT.md with:
-# - Bug description
-# - Root cause
-# - Fix applied
-# - Lesson learned
-```
-
-```markdown
-### Learning Record
-- **Bug**: [one-line description]
-- **Root Cause**: [one-line explanation]
-- **Fix**: [one-line description of fix]
-- **Lesson**: [what to watch for in the future to prevent similar bugs]
-- **Pattern**: [if this reveals a recurring pattern, note it for potential pattern scanner rule]
-```
-
----
-
-## ABORT CONDITIONS
-
-| Condition | Action |
-|-----------|--------|
-| Cannot reproduce the error | Report reproduction failure, ask for more details |
-| Root cause is in external dependency | Report finding, suggest dependency update or workaround |
-| Fix requires architectural changes | Abort, suggest `/massu-create-plan` |
-| All hypotheses rejected after 2 rounds | Report findings, escalate to user with all evidence gathered |
-
----
-
-## MANDATORY PLAN DOCUMENT UPDATE (If Debug From Plan)
-
-**If debug session was part of a plan, update the plan document.**
-
-```markdown
-# IMPLEMENTATION STATUS
-
-**Plan**: [Plan Name]
-**Status**: DEBUG COMPLETE / PARTIAL
-**Last Updated**: [YYYY-MM-DD HH:MM]
-
-## Bug Fixes Applied
-
-| # | Bug Description | Status | Verification | Date |
-|---|-----------------|--------|--------------|------|
-| 1 | [Bug from plan] | FIXED | VR-BUILD: Pass | [date] |
-
-## Root Causes Identified
-
-| Bug | Root Cause | Prevention |
-|-----|-----------|------------|
-| [bug] | [cause] | [how to prevent] |
-```
+Read `references/codegraph-tracing.md` for how to use codegraph MCP tools to trace call paths and understand full context before debugging.
 
 ---
 
 ## AUTO-LEARNING PROTOCOL (MANDATORY after every fix)
 
-After EVERY bug fix:
-
-### Step 1: Record the Pattern
-Update `.claude/session-state/CURRENT.md` with:
-- What was wrong (the incorrect pattern)
-- What fixed it (the correct pattern)
-- File(s) affected
-
-### Step 2: Add to Pattern Scanner (if grep-able)
-If the incorrect pattern can be detected by grep, consider adding it to `scripts/massu-pattern-scanner.sh`.
-
-### Step 3: Search Codebase-Wide (CR-9)
-```bash
-grep -rn "[bad_pattern]" packages/core/src/ --include="*.ts"
-```
-Fix ALL instances found, not just the one that was reported.
+Read `references/auto-learning.md` for the 4-step learning pipeline. **This is NOT optional.**
 
 ---
 
-## COMPLETION REPORT
+## TEST-FIRST PROTOCOL (CRITICAL bugs)
 
-```markdown
-## CS DEBUG COMPLETE
+For CRITICAL-severity bug fixes, apply the test-first protocol from `_shared-references/test-first-protocol.md`:
 
-### Symptom
-- **Error**: [original error]
+1. **Write a failing test** that demonstrates the bug BEFORE touching source code
+2. **Verify the test fails** for the expected reason
+3. **Apply the fix** — minimal and targeted
+4. **Verify the test passes** + full suite passes
 
-### Investigation
-- **Hypotheses tested**: [N]
-- **Confirmed hypothesis**: H[N] — [description]
+This is MANDATORY for CRITICAL bugs, RECOMMENDED for HIGH, and does NOT apply to LOW/MEDIUM pattern fixes. If the bug cannot be tested (race condition, visual-only), document why and use VR-BROWSER or VR-VISUAL as the evidence equivalent. Report `TEST_FIRST_GATE: PASS` or `TEST_FIRST_GATE: SKIPPED — [reason]`.
 
-### Root Cause
-- **What**: [bug description]
-- **Why**: [why it happened]
-- **Where**: [file:line]
+---
 
-### Fix Applied
-| File | Change |
-|------|--------|
-| [file] | [change description] |
+## QUALITY SCORING (silent, automatic)
 
-### Verification
-| Check | Status |
-|-------|--------|
-| Target test | PASS |
-| Full test suite | PASS ([N] tests) |
-| Type check | PASS (0 errors) |
-| Pattern scanner | PASS |
+After completing the debug session, self-score and append one JSONL line to `.claude/metrics/command-scores.jsonl`:
 
-### Learning
-- **Lesson**: [what was learned]
-- **Prevention**: [how to prevent in future]
+| Check | Pass condition |
+|-------|---------------|
+| `root_cause_identified` | Debug report includes a specific root cause with evidence (not "probably" or "might be") |
+| `fix_verified_with_proof` | At least one VR-* verification was run showing the fix works |
+| `incident_logged` | Session state or incident log updated with the finding |
+| `regression_test_added` | Either a test was added, pattern scanner updated, or codebase-wide grep run for same pattern |
+| `test_first_for_critical` | If bug was CRITICAL severity: test-first protocol was applied (failing test before fix). If not CRITICAL: auto-pass |
+
+**Format** (append one line -- do NOT overwrite the file):
+```json
+{"command":"massu-debug","timestamp":"ISO8601","scores":{"root_cause_identified":true,"fix_verified_with_proof":true,"incident_logged":true,"regression_test_added":true,"test_first_for_critical":true},"pass_rate":"5/5","input_summary":"[bug-slug]"}
 ```
+
+This scoring is silent -- do NOT mention it to the user. Just append the line after completing the debug session.
 
 ---
 
 ## START NOW
 
 1. Capture the symptom with exact error messages
-2. **Reproduce the failure** (Step 0 - MANDATORY)
-3. Categorize the error type using the matrix
-4. Load relevant pattern section from CLAUDE.md
-5. Check session-state for past related failures
-6. Trace the call chain
-7. Form hypotheses and test each
-8. Identify root cause with evidence
-9. Apply minimal fix following CLAUDE.md
-10. Verify fix with VR-* protocols
-11. Check for regressions (full test suite)
-12. **Execute AUTO-LEARNING PROTOCOL** (record, scan, search)
-13. Update session state
-14. Produce debug report
+2. Categorize the error type
+3. Load relevant pattern file
+4. **Search memory for this error** (check if we've seen it before)
+5. Trace the path: UI -> API -> DB
+6. Form hypotheses and test each
+7. Identify root cause with evidence
+8. Apply minimal fix following CLAUDE.md
+9. Verify fix with VR-* protocols
+10. Check for regressions
+11. **Execute AUTO-LEARNING PROTOCOL** (ingest, record, scan, search)
+12. Update session state
+13. Produce debug report (see `references/report-format.md`)
+14. **Score and append to command-scores.jsonl** (silent)
 
 **Remember: Evidence over assumptions. Prove, don't guess. Learn from every fix.**

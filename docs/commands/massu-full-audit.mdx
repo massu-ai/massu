@@ -1,0 +1,51 @@
+---
+title: "/massu-full-audit"
+description: "Run the full 5-layer verification audit across the entire application"
+order: 50
+---
+
+# /massu-full-audit
+
+Run the full 5-layer verification audit covering static analysis, feature flags, sentinel features, integration health, and backend-frontend wiring.
+
+## Usage
+
+```
+/massu-full-audit                        # Run via orchestrator
+./scripts/full-audit.sh                  # Full audit (all 5 layers)
+./scripts/full-audit.sh --quick          # Skip Layer 1 static analysis (~2min)
+./scripts/full-audit.sh --static-only    # Layer 1 only
+./scripts/full-audit.sh --report         # Generate markdown report
+```
+
+## Audit Layers
+
+| Layer | Script | What It Checks |
+|-------|--------|----------------|
+| 1 | `codebase-audit-full.sh` | 19-phase static analysis: schema drift, security, patterns, coupling, ESLint, TypeScript, dead code |
+| 2 | `audit-feature-flags.sh` | Feature flag DB vs code reconciliation: dead flags, phantom flags, disabled-but-checked |
+| 3 | `validate-features.sh` | Sentinel feature registry integrity: orphaned features, missing components |
+| 4 | `audit-integration-health.sh` | OAuth tokens, integration status, webhook health, cron config, event backlogs |
+| 5 | `check-coupling.sh` + `check-unwired-services.sh` + `check-page-reachability.sh` | Backend-frontend wiring, service connectivity, page navigation reachability |
+
+## Protocol Steps
+
+1. Run `./scripts/full-audit.sh --quick` first for a fast check
+2. Review the summary output -- each layer shows PASS/FAIL/WARN/SKIP
+3. For any FAIL layers, check the detailed log at `/tmp/full-audit-layer-N.log`
+4. Fix issues found, then re-run the failing layer individually
+5. For a full audit including static analysis, run without flags (~10min)
+6. Use `--report` to save a markdown report to the project docs directory
+
+## Exit Codes
+
+- `0` -- all layers pass
+- `N` -- number of layers with failures
+
+## When to Use
+
+- Before major releases or deployments
+- As a periodic codebase health check
+- After significant refactoring or feature additions
+- When investigating widespread quality issues
+- As part of a comprehensive code review process

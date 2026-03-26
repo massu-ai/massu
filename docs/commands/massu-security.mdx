@@ -1,0 +1,78 @@
+---
+title: "/massu-security"
+description: "Comprehensive security audit covering auth, secrets, RLS, injection, and OWASP top 10 vulnerabilities"
+order: 57
+---
+
+# /massu-security
+
+Execute a thorough security audit covering authentication, authorization, data protection, and common vulnerabilities across all 3 database environments. Zero tolerance for security gaps.
+
+## Usage
+
+```
+/massu-security
+```
+
+## Audit Sections
+
+### Section 1: Secrets and Credentials
+- Check for `.env` files in git history
+- Scan for hardcoded API keys, passwords, connection strings, AWS/GCP/Azure credentials, JWT secrets
+- Audit environment variable usage and `NEXT_PUBLIC_` exposure
+
+### Section 2: Authentication
+- Session management review (secure cookies, token handling)
+- Authentication flow analysis
+- Protected routes verification via middleware
+
+### Section 3: Authorization (tRPC)
+- **Critical**: verify zero `publicProcedure.mutation` instances -- all mutations must use `protectedProcedure`
+- Input validation coverage with Zod schemas
+- User context verification (`ctx.user.id` vs client-provided user IDs)
+
+### Section 4: Database Security (RLS)
+- RLS status check across all 3 environments (DEV, OLD PROD, NEW PROD)
+- Policy completeness audit
+- Grants verification for `service_role`, `authenticated`, and `anon` roles
+
+### Section 5: Injection Vulnerabilities
+- SQL injection: raw SQL usage, string concatenation in queries
+- XSS prevention: `dangerouslySetInnerHTML`, `innerHTML` assignments
+- Prototype pollution: `prototype:` and `__proto__` as object keys
+- Command injection: `exec()`, `spawn()`, `eval()` usage
+
+### Section 6: Data Exposure
+- Sensitive data logging (passwords, tokens in console.log)
+- API response exposure (password fields in returns)
+- Client-side exposure (server imports in client components)
+
+### Section 7: Additional Checks
+- CORS configuration, rate limiting, HTTPS enforcement
+- Dependency vulnerabilities via `npm audit`
+
+## Severity Levels
+
+| Level | Action |
+|-------|--------|
+| CRITICAL | HARD STOP -- fix immediately |
+| HIGH | Block deployment until fixed |
+| MEDIUM | Fix before next release |
+| LOW | Track for future fix |
+
+## When to Use
+
+- Before major releases or deployments
+- After adding new authentication or authorization logic
+- When new database tables are created (RLS verification)
+- As a periodic security health check
+- After incidents involving data exposure or unauthorized access
+- When onboarding new integrations with external services
+
+## Key Rules
+
+- Zero tolerance for CRITICAL and HIGH issues -- block deployment until fixed
+- All mutations must use `protectedProcedure`
+- All public tables must have RLS enabled with policies AND grants
+- The entire audit must pass in a SINGLE run (zero-gap loop)
+- FIX ALL issues encountered, including pre-existing ones (CR-9)

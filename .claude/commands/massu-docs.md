@@ -205,7 +205,7 @@ grep -c "tool\|hook\|config\|install\|usage" packages/core/README.md 2>/dev/null
 ```bash
 # Check if CLAUDE.md file locations match actual
 grep "packages/core/src/" .claude/CLAUDE.md | while read line; do
-  path=$(echo "$line" | grep -oP 'packages/core/src/[a-zA-Z0-9_./-]+')
+  path=$(echo "$line" | sed -n 's/.*\(packages\/core\/src\/[a-zA-Z0-9_.\/-]*\).*/\1/p')
   if [ -n "$path" ]; then
     [ -f "$path" ] && echo "OK: $path" || echo "MISSING: $path"
   fi

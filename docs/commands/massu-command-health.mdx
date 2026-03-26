@@ -1,0 +1,54 @@
+---
+title: "/massu-command-health"
+description: "Read-only dashboard showing command quality scores, trends, and alerts"
+order: 47
+---
+
+# /massu-command-health
+
+Read-only dashboard that displays command quality scores over time. Shows scorecard with averages, trends, weakest checks, usage frequency, and alerts for underperforming commands.
+
+## Usage
+
+```
+/massu-command-health                    # Full dashboard
+/massu-command-health massu-create-plan   # Detail for one command
+```
+
+## Data Sources
+
+- **Quality scores**: `.claude/metrics/command-scores.jsonl` -- per-run scoring data with individual check pass/fail
+- **Invocation frequency**: `.claude/metrics/command-invocations.jsonl` -- timestamps of command usage
+- **Autoresearch runs**: `.claude/metrics/autoresearch-runs.jsonl` -- autonomous optimization iteration data
+
+## Dashboard Sections
+
+1. **Overview** -- total scored runs, commands tracked, date range
+2. **Scorecard** -- per-command averages (last 5 runs), trend indicator (improving/declining/stable), weakest check, run count
+3. **Usage** -- invocations per week from the last 7 days
+4. **Alerts** -- commands below 60% on their last 3 runs
+5. **Check Detail** -- per-check breakdown for last 10 runs of each command
+6. **Autoresearch** -- last autoresearch run per command with iteration count and score progression
+
+## How It Works
+
+1. Reads all three JSONL metric files
+2. Groups scores by command, invocations by skill
+3. Calculates per-command average pass rate for last 5 runs
+4. Computes trend by comparing last 3 average vs prior 3 average
+5. Identifies weakest check (lowest pass rate across all runs)
+6. Sorts by average pass rate (worst commands first)
+7. Flags any command below 60% on last 3 runs as an alert
+
+## When to Use
+
+- To get an overview of which commands are performing well and which need improvement
+- Before running `/massu-command-improve` to identify which command to target
+- As a periodic health check on command quality
+- After running `/massu-autoresearch` to see if scores improved
+
+## Key Rules
+
+- This is a READ-ONLY command -- it does not modify any files
+- If no data exists yet, it displays guidance on how scores accumulate
+- Scores are recorded silently and automatically by instrumented commands

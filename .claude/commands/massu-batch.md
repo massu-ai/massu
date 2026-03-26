@@ -7,7 +7,7 @@ name: massu-batch
 
 # Massu Batch: Parallel Code Migration via Worktree Agents
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
+**Shared rules**: Read `.claude/commands/_shared-preamble.md` for POST-COMPACTION (CR-12), ENTERPRISE-GRADE (CR-14), AWS SECRETS (CR-5) rules.
 
 ---
 
@@ -17,7 +17,7 @@ name: massu-batch
 /massu-batch [migration] → /massu-simplify → /massu-commit → /massu-push
 ```
 
-**This command is for CODE-ONLY migrations. It REFUSES database work.**
+**This command is for CODE-ONLY migrations. It REFUSES database work (CR-36 safety).**
 
 ---
 
@@ -37,16 +37,35 @@ Takes a migration description, identifies all affected files, splits them into b
 
 Read `$ARGUMENTS` for the migration description.
 
-If no arguments provided, ask:
+If no arguments provided, use AskUserQuestion:
+```
+question: "What code migration do you want to run?"
+options:
+  - label: "Import path change"
+    description: "Rename/move imports across files (e.g., @/old/path → @/new/path)"
+  - label: "Component swap"
+    description: "Replace one component with another across files"
+  - label: "Pattern replacement"
+    description: "Replace a code pattern with a new one across files"
+  - label: "API update"
+    description: "Update API calls to a new format"
+```
+
+Then ask for specifics:
 - **Search pattern**: What to find (glob pattern or grep pattern)
 - **Transformation**: What to change it to
 - **Scope**: Directory to limit search (default: `src/`)
 
-### Step 2: DB Guard (Safety Gate — MANDATORY)
+### Step 2: DB Guard (CR-36 Safety Gate — MANDATORY)
 
 **This step CANNOT be skipped. No exceptions.**
 
-Check the migration description for these keywords:
+```bash
+# Run the DB guard script
+bash scripts/batch-db-guard.sh "$MIGRATION_DESCRIPTION" $TARGET_FILES
+```
+
+Additionally, check the migration description for these keywords:
 ```
 migration, schema, ALTER, CREATE TABLE, DROP, column, RLS, GRANT,
 database, prisma, supabase, ctx.db, ctx.prisma, $queryRaw, execute_sql
@@ -65,8 +84,8 @@ supabase/migrations/
 ```
 ## DB GUARD: Migration Blocked
 
-This migration touches database-related code. Database migrations require
-sequential coordination across environments.
+This migration touches database-related code. Database migrations MUST use
+/massu-loop to ensure CR-36 compliance (all 3 environments in same session).
 
 /massu-batch is designed for code-only migrations:
   - Import path changes
@@ -120,6 +139,18 @@ Each agent will:
 2. Run pattern-scanner.sh --single-file on each changed file
 3. Run tsc type check
 4. Report results
+```
+
+Use AskUserQuestion:
+```
+question: "Proceed with this batch migration plan?"
+options:
+  - label: "Proceed"
+    description: "Execute the migration with M parallel agents"
+  - label: "Adjust batch size"
+    description: "Change the number of files per agent"
+  - label: "Cancel"
+    description: "Abort the migration"
 ```
 
 **Wait for explicit user approval. Do NOT proceed without it.**
@@ -283,8 +314,8 @@ git worktree remove [path]
 
 | Rule | Enforcement |
 |------|-------------|
-| **No database changes** | DB guard inline keyword check + path check |
-| **User approval required** | Interactive approval before execution phase |
+| **No database changes** | DB guard script + inline keyword check + path check |
+| **User approval required** | AskUserQuestion before execution phase |
 | **No file overlap between batches** | Planning phase ensures each file appears in exactly one batch |
 | **Per-agent verification** | Each agent runs pattern-scanner + tsc before completing |
 | **Consolidated verification** | Full checks run after merge |
@@ -314,7 +345,7 @@ git worktree remove [path]
 
 | Scenario | Use Instead |
 |----------|-------------|
-| Database/schema changes | `/massu-loop` |
+| Database/schema changes | `/massu-loop` (CR-36: all 3 envs) |
 | < 5 files affected | Manual changes + `/massu-simplify` |
 | New feature development | `/massu-create-plan` → `/massu-loop` |
 | Cross-file dependencies | `/massu-loop` (sequential is safer) |
@@ -322,6 +353,7 @@ git worktree remove [path]
 
 ## Gotchas
 
-- **NEVER for database work** — batch migrations are CODE-ONLY. Database migrations must be applied to all environments in sequence, which requires coordination that parallel agents cannot provide
+- **NEVER for database work (CR-36)** — batch migrations are CODE-ONLY. Database migrations must be applied to all 3 environments in sequence, which requires coordination that parallel agents cannot provide
+- **DB guard auto-refuses** — `scripts/batch-db-guard.sh` automatically blocks batch items that reference database tables, migrations, or SQL
 - **Worktree isolation** — each agent runs in a git worktree. Changes must be mergeable. Agents editing the same file will cause merge conflicts
-- **One task per agent** — each worktree agent gets exactly one plan item. Never combine unrelated items in a single agent
+- **One task per agent (Principle #20)** — each worktree agent gets exactly one plan item. Never combine unrelated items in a single agent

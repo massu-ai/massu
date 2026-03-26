@@ -1,13 +1,13 @@
 ---
 name: massu-bearings
 description: "When user starts a new session, says 'good morning', asks 'where was I', 'what should I work on', or needs session orientation after being away"
-allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
+allowed-tools: Bash(*), Read(*), Grep(*), Glob(*), mcp__massu-codegraph__massu_cost_session, mcp__massu-codegraph__massu_cost_trend, mcp__massu-codegraph__massu_cost_feature
 ---
 name: massu-bearings
 
 # Massu Bearings: Session Orientation
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-14, CR-5, CR-12 enforced.
 
 ---
 
@@ -41,6 +41,9 @@ Read these in parallel where possible:
 | 10 | `.claude/metrics/command-invocations.jsonl` | Command usage frequency — top/least used in last 7 days |
 | 11 | `.claude/metrics/bearings-history.jsonl` | Previous bearings runs — show trends |
 | 12 | `.claude/commands/` (ls -d */`) | Detect folder-based skills (directories vs flat files) |
+| 13 | `bash scripts/memory-contradiction-check.sh` | Contradiction count, consolidation candidates |
+| 14 | `massu_cost_session` + `massu_cost_trend` MCP tools | Token spend this session, cost trend over time |
+| 15 | `session-state/deferred-verifications.md` | Pending production verifications from previous deploys |
 
 ---
 
@@ -93,9 +96,27 @@ COMMAND USAGE (last 7 days)
   Least: [command] (N invocations), [command] (N)
   (or "No invocation data yet")
 
+TOKEN SPEND
+  Session: $X.XX (N calls)
+  7-day trend: $XX.XX total, $X.XX/day avg
+  Top feature: [feature] ($X.XX)
+  (or "No cost data available — massu_cost_session returned empty")
+
 FOLDER-BASED SKILLS
   [list any commands that are directories: massu-golden-path, massu-debug, massu-loop, massu-data]
   (or "No folder-based skills detected")
+
+MEMORY HEALTH
+  Contradictions: [N] found
+  [1] file_a.md vs file_b.md — [brief description]
+  Consolidation candidates: [N]
+  (or "Memory is clean — 0 contradictions")
+
+DEFERRED VERIFICATIONS
+  ! [DV-001] [feature] — expected by [time], query: [sql snippet]
+  ! [DV-002] [feature] — expected by [time], query: [sql snippet]
+  (or "No deferred verifications pending")
+  Action: Run `/massu-production-verify --deferred` to check
 
 ACTIVE WARNINGS
   - [any correction rules or memory enforcement reminders]
@@ -109,11 +130,12 @@ ACTIVE WARNINGS
 ## Suggested Focus Logic
 
 Prioritize items in this order:
-1. **Blockers** — anything marked as blocked in CURRENT.md
-2. **In-progress tasks** — partially completed work from last session
-3. **Open plan items** — next items in an active plan
-4. **Aging squirrels** — ideas parked > 7 days ago (mention but don't auto-promote)
-5. **New work** — only if nothing else is open
+1. **Deferred verifications past due** — items in `session-state/deferred-verifications.md` past their expected verification time
+2. **Blockers** — anything marked as blocked in CURRENT.md
+3. **In-progress tasks** — partially completed work from last session
+4. **Open plan items** — next items in an active plan
+5. **Aging squirrels** — ideas parked > 7 days ago (mention but don't auto-promote)
+6. **New work** — only if nothing else is open
 
 Keep to 2-3 items. This is a focus list, not an inventory.
 
@@ -189,6 +211,18 @@ Read `.claude/metrics/command-invocations.jsonl`. Filter to last 7 days by `time
 
 ---
 
+## Token Spend Logic
+
+Call `massu_cost_session` MCP tool for current session cost. Call `massu_cost_trend` MCP tool for 7-day cost history. If either tool returns empty or errors, show "No cost data available — massu_cost_session returned empty". Otherwise:
+
+1. **Session cost**: Display total cost and call count from `massu_cost_session`
+2. **7-day trend**: Sum daily costs, calculate daily average from `massu_cost_trend`
+3. **Top feature**: If `massu_cost_feature` data is available, show the most expensive feature
+
+If the MCP tools are unavailable (server not running), skip this section silently — do NOT error or block the bearings output.
+
+---
+
 ## Folder-Based Skill Detection
 
 Run `ls -d .claude/commands/*/` to find commands that are directories. Display the list in FOLDER-BASED SKILLS section. Each folder-based skill has a `## Skill Contents` table in its main file listing sub-files.
@@ -197,7 +231,7 @@ Run `ls -d .claude/commands/*/` to find commands that are directories. Display t
 
 ## START NOW
 
-1. Read all data sources in parallel (CURRENT.md, archives, squirrels, plans, git log, git diff, corrections, metrics, bearings-history)
+1. Read all data sources in parallel (CURRENT.md, archives, squirrels, plans, git log, git diff, corrections, metrics, bearings-history, memory-contradiction-check, cost MCP tools)
 2. Synthesize into the output format above
 3. Present to terminal
 4. Append bearings-history.jsonl entry

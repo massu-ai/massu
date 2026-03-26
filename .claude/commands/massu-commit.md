@@ -5,9 +5,9 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-commit
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-12 enforced.
 
-# CS Commit: Pre-Commit Verification Gate
+# Massu Commit: Pre-Commit Verification Gate
 
 ## Objective
 
@@ -415,7 +415,7 @@ If changes span 3+ unrelated areas (e.g., `packages/core/` + `website/` + `scrip
 
 ## START NOW
 
-**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
+**Step 0: Write AUTHORIZED_COMMAND to session state (CR-12)**
 
 Update `session-state/CURRENT.md` to include `AUTHORIZED_COMMAND: massu-commit`.
 
@@ -457,7 +457,7 @@ If a NEW pattern or utility was created during the commit:
 ## COMPLETION REPORT
 
 ```markdown
-## CS COMMIT COMPLETE
+## MASSU COMMIT COMPLETE
 
 ### Commit Details
 - **Hash**: [hash]

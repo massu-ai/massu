@@ -1,0 +1,48 @@
+---
+title: "/massu-command-improve"
+description: "Score-driven prompt optimization with manual approval for one targeted edit at a time"
+order: 48
+---
+
+# /massu-command-improve
+
+Read accumulated command quality scores, identify consistently failing checks, propose one targeted prompt edit at a time, and wait for explicit user approval before applying. This is the manual-approval counterpart to autonomous `/massu-autoresearch`.
+
+## Usage
+
+```
+/massu-command-improve                    # Auto-pick weakest command
+/massu-command-improve massu-debug         # Target specific command
+```
+
+## Protocol Steps
+
+1. **Load score data** -- read `.claude/metrics/command-scores.jsonl`; require at least 3 scored runs for the target command
+2. **Analyze weaknesses** -- parse all JSONL lines, calculate per-check pass rates, identify the single weakest check
+3. **Diagnose the failing check** -- read the target command file, analyze why the check might be failing based on pass rate ranges
+4. **Propose ONE edit** -- design a single, targeted prompt edit:
+   - Add explicit rule (if check requirement is missing)
+   - Add worked example (if check is vague)
+   - Promote to NON-NEGOTIABLE (if check is buried)
+   - Add enforcement step (if check is easy to skip)
+   - Add banned pattern (if a specific anti-pattern causes failures)
+5. **Present to user** -- show data summary, weakest check, exact before/after diff, and rationale
+6. **Wait for approval** -- STOP and wait for explicit "yes", "skip", or "no"
+7. **Apply change** (if approved) -- create backup, apply edit, log to `command-changelog.jsonl`, confirm
+8. **Continue or stop** -- offer to address next weak check or next weakest command
+
+## When to Use
+
+- After `/massu-command-health` reveals commands with weak checks (below 85% pass rate)
+- When you want human-supervised, one-at-a-time prompt improvements
+- When `/massu-autoresearch` is too aggressive or you want to review each change
+- For targeted improvement of a specific command's quality score
+
+## Key Rules
+
+- ONE change per iteration -- never batch multiple edits
+- Always show the exact diff before applying
+- Never apply without explicit user approval
+- Always create a backup before editing
+- Always log the change to `command-changelog.jsonl`
+- Check changelog for recent rejections to avoid re-proposing the same edit type

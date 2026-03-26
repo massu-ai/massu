@@ -6,8 +6,6 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 
 # Scaffold New tRPC Router
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
-
 Creates a complete tRPC router following all project database and auth patterns.
 
 ## What Gets Created
@@ -109,6 +107,7 @@ export const appRouter = createTRPCRouter({
 - **No `include:`** — hybrid DB ignores include statements; use 3-step query
 - **user_profiles NOT users** — `ctx.db.user_profiles` (auth.users not exposed)
 - **BigInt**: convert to `Number()` on return, NEVER use `BigInt()` in INSERT
+- **Decimal**: use `serializeUnifiedProduct()` for unified_products (8 Decimal cols)
 - **New tables**: add to `src/lib/db.ts` DatabaseClient BEFORE using in routers
 - **Split-commit**: NEVER add import to root.ts before router file exists
 

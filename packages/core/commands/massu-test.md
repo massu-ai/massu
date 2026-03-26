@@ -5,9 +5,9 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-test
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-12 enforced.
 
-# CS Test: Intelligent Test Runner
+# Massu Test: Intelligent Test Runner
 
 ## Objective
 
@@ -476,7 +476,7 @@ Fix ALL instances found, not just the one that was reported.
 ## COMPLETION REPORT
 
 ```markdown
-## CS TEST COMPLETE
+## MASSU TEST COMPLETE
 
 ### Mode: [FULL_RUN / AFFECTED / COVERAGE / GENERATE / FIX]
 

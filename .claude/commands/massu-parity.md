@@ -3,9 +3,6 @@ name: massu-parity
 description: Generic feature parity check between two systems or components
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*), Write(*), Task(*)
 ---
-
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
-
 name: massu-parity
 
 # Massu Parity: Feature Parity Check

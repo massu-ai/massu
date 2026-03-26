@@ -1,0 +1,79 @@
+---
+title: "/massu-rollback"
+description: "Safe rollback protocol for code and database changes with state preservation and impact assessment"
+order: 56
+---
+
+# /massu-rollback
+
+Safely rollback code and/or database changes with state preservation, impact assessment, and verification. Know the blast radius before acting.
+
+## Usage
+
+```
+/massu-rollback
+```
+
+## Rollback Types
+
+| Type | Scope | Risk | Reversibility |
+|------|-------|------|---------------|
+| Code Only | Git revert | LOW | Easy |
+| Dependencies | package.json | MEDIUM | Moderate |
+| Schema | DB structure | HIGH | Hard |
+| Data | DB content | CRITICAL | Impossible |
+| Full | Code + DB | CRITICAL | Varies |
+
+## Protocol Steps
+
+### Phase 1: Assessment
+- Identify what to rollback (commits, files, database changes)
+- Assess code changes with `git show` and `git diff`
+- Review database migration history
+- Build impact matrix: current state, after-rollback state, risk, affected features, user impact
+
+### Phase 2: State Preservation
+- Capture current git state (HEAD, branch, recent commits, modified files)
+- Create database backup tables if DB rollback is involved
+- Document pre-rollback state snapshot
+
+### Phase 3: Code Rollback
+- **Revert commits** (safe, preserves history): `git revert [hash] --no-edit`
+- **Reset to commit** (destructive, use with caution): `git reset --hard [hash]`
+- Never force push to main unless explicitly approved
+
+### Phase 4: Dependency Rollback
+- Restore previous `package.json` and lock file from specific commit
+- Reinstall dependencies with `npm ci`
+
+### Phase 5: Database Rollback
+- Schema rollback via migration revert (always wrap in transaction)
+- Data rollback from backup tables (if backup exists)
+- RLS policy rollback
+- Apply to environments in order: DEV first, then OLD PROD, then NEW PROD
+
+### Phase 6: Verification
+- Type check, build, pattern scanner, coupling check, tests
+- Database schema and data integrity verification
+- Application startup verification
+
+### Phase 7: Deploy
+- Push to production after all verifications pass
+- Monitor deployment and production logs
+
+## When to Use
+
+- When a deployment introduces a critical bug
+- When a database migration causes data corruption or schema issues
+- When a dependency update breaks functionality
+- When an emergency revert is needed to restore service
+- As part of incident response
+
+## Key Rules
+
+- Assess before acting -- understand what will be undone
+- Preserve state -- document everything before rollback
+- Database caution -- data loss is permanent
+- Verify rollback -- confirm system works after rollback with all checks passing
+- Never force push to main unless explicitly approved
+- All verifications must pass in a SINGLE run after rollback

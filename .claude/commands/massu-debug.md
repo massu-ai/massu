@@ -5,7 +5,9 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-debug
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
+
+> **Related Playbooks**: See `.claude/playbooks/debug-production-500.md`
 
 # Massu Debug: Systematic Debugging Protocol
 
@@ -18,9 +20,11 @@ Systematically debug issues using **evidence-based investigation**, not guessing
 ## NON-NEGOTIABLE RULES
 
 - **Evidence over assumptions (CR-1)** - Every hypothesis must be tested with VR-* proof
-- **Trace the full path** - From tool call to handler to output and back
+- **Trace the full path** - From UI to API to DB and back. Check stored procedures
+- **Verify fixes via browser (CR-41)** - Playwright before/after snapshots for UI issues
+- **Check all environments** - Schema drift causes environment-specific failures. Verify the environment the user is reporting from
 - **Auto-learn every fix (CR-34)** - Ingest bugfix to memory, add wrong->correct pattern, scan codebase-wide (CR-9)
-- **No blind changes (CR-2)** - Read the code path end-to-end before proposing a fix
+- **No blind changes (CR-2)** - Run VR-SCHEMA-PRE before any query. See CLAUDE.md "Known Schema Mismatches"
 
 ---
 
@@ -71,38 +75,50 @@ Based on the bug's domain, load relevant pattern files:
 
 | Domain | Pattern File | Load When |
 |--------|--------------|-----------|
-| Tool issues | `.claude/patterns/tool-patterns.md` | Tool registration, handler bugs |
-| Config issues | `.claude/patterns/config-patterns.md` | YAML, config.ts problems |
+| Database errors | `.claude/patterns/database-patterns.md` | 500 errors, query failures |
+| Auth issues | `.claude/patterns/auth-patterns.md` | 401/403 errors, session issues |
+| UI bugs | `.claude/patterns/ui-patterns.md` | Rendering, state, interaction bugs |
+| Realtime issues | `.claude/patterns/realtime-patterns.md` | Subscription failures |
 | Build failures | `.claude/patterns/build-patterns.md` | Compilation, bundling errors |
-| Website issues | `.claude/patterns/website-patterns.md` | Next.js, Supabase errors |
-| Hook issues | `.claude/patterns/hook-patterns.md` | esbuild, hook compilation |
 
 ---
 
-## MANDATORY VERIFICATION COMMANDS
+## MANDATORY DATABASE VERIFICATION (For Database-Related Bugs)
 
-```bash
-# Type check
-cd packages/core && npx tsc --noEmit
+### VR-SCHEMA-PRE: Verify Schema BEFORE Assuming Bug Cause
 
-# Tests
-npm test
-
-# Pattern scanner
-bash scripts/massu-pattern-scanner.sh
-
-# Hook build
-cd packages/core && npm run build:hooks
+```sql
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_name = '[SUSPECTED_TABLE]'
+ORDER BY ordinal_position;
 ```
+
+**Common Bug Causes VR-SCHEMA-PRE Catches:**
+- Column doesn't exist (but code uses it)
+- Column has different type than expected
+- Column is nullable when code assumes non-null
+- Column name is different than expected (see Known Schema Mismatches in CLAUDE.md)
+
+### VR-DATA: Verify Config Data for "No Data" Bugs
+
+```sql
+SELECT DISTINCT jsonb_object_keys(config_column) as config_keys
+FROM [CONFIG_TABLE]
+WHERE config_column IS NOT NULL;
+```
+
+**VR-DATA is the FIRST check for any "no data returned" bug.** Config keys may not match what the code expects.
 
 ---
 
 ## Gotchas
 
+- **Don't guess schema (VR-SCHEMA-PRE)** -- ALWAYS query information_schema.columns before writing any database query. Column names you "remember" may be wrong
+- **Check all environments** -- bugs may manifest differently across environments due to schema drift. Always verify the environment the user is reporting from
+- **Dynamic imports for heavy deps** -- when debugging requires jsdom, cheerio, or other heavy packages, use `await import()` never static import
+- **Stored procedures may reference deleted columns** -- after ANY table migration, audit stored procedures on all databases
 - **Don't fix without understanding** -- read the code path end-to-end before proposing a fix. Surface-level patches create new bugs
-- **Check tool wiring** -- a tool may exist in its module but not be wired into tools.ts (3-function pattern)
-- **Hook compilation** -- hooks use esbuild; a TypeScript error in a hook source may not show in `tsc --noEmit` but will fail in `npm run build:hooks`
-- **Config interface drift** -- config.ts interface and massu.config.yaml may not match; always check both
 
 ---
 
@@ -113,11 +129,11 @@ Read `references/investigation-phases.md` for full detail on all 8 phases:
 0. **Reproduce the failure** -- confirm you can trigger the exact error; check memory for related failures
 1. **Symptom capture** -- document the issue, collect initial evidence
 2. **Categorize & load patterns** -- match error type to pattern file
-3. **Trace the path** -- tool call, handler, output layer investigation
+3. **Trace the path** -- UI layer, API layer, database layer investigation
 4. **Hypothesis testing** -- form and test each hypothesis with evidence
 5. **Root cause identification** -- document and verify the root cause
-6. **Fix & verify** -- apply minimal fix, run VR-* protocols
-7. **Regression check** -- verify related functionality, run full test suite
+6. **Fix & verify** -- for CRITICAL bugs, apply test-first protocol (see below); otherwise apply minimal fix, run VR-* protocols, check all environments
+7. **Regression check** -- verify related functionality, test full user flow
 
 ---
 
@@ -133,6 +149,19 @@ Read `references/auto-learning.md` for the 4-step learning pipeline. **This is N
 
 ---
 
+## TEST-FIRST PROTOCOL (CRITICAL bugs)
+
+For CRITICAL-severity bug fixes, apply the test-first protocol from `_shared-references/test-first-protocol.md`:
+
+1. **Write a failing test** that demonstrates the bug BEFORE touching source code
+2. **Verify the test fails** for the expected reason
+3. **Apply the fix** — minimal and targeted
+4. **Verify the test passes** + full suite passes
+
+This is MANDATORY for CRITICAL bugs, RECOMMENDED for HIGH, and does NOT apply to LOW/MEDIUM pattern fixes. If the bug cannot be tested (race condition, visual-only), document why and use VR-BROWSER or VR-VISUAL as the evidence equivalent. Report `TEST_FIRST_GATE: PASS` or `TEST_FIRST_GATE: SKIPPED — [reason]`.
+
+---
+
 ## QUALITY SCORING (silent, automatic)
 
 After completing the debug session, self-score and append one JSONL line to `.claude/metrics/command-scores.jsonl`:
@@ -143,10 +172,11 @@ After completing the debug session, self-score and append one JSONL line to `.cl
 | `fix_verified_with_proof` | At least one VR-* verification was run showing the fix works |
 | `incident_logged` | Session state or incident log updated with the finding |
 | `regression_test_added` | Either a test was added, pattern scanner updated, or codebase-wide grep run for same pattern |
+| `test_first_for_critical` | If bug was CRITICAL severity: test-first protocol was applied (failing test before fix). If not CRITICAL: auto-pass |
 
 **Format** (append one line -- do NOT overwrite the file):
 ```json
-{"command":"massu-debug","timestamp":"ISO8601","scores":{"root_cause_identified":true,"fix_verified_with_proof":true,"incident_logged":true,"regression_test_added":true},"pass_rate":"4/4","input_summary":"[bug-slug]"}
+{"command":"massu-debug","timestamp":"ISO8601","scores":{"root_cause_identified":true,"fix_verified_with_proof":true,"incident_logged":true,"regression_test_added":true,"test_first_for_critical":true},"pass_rate":"5/5","input_summary":"[bug-slug]"}
 ```
 
 This scoring is silent -- do NOT mention it to the user. Just append the line after completing the debug session.
@@ -158,8 +188,8 @@ This scoring is silent -- do NOT mention it to the user. Just append the line af
 1. Capture the symptom with exact error messages
 2. Categorize the error type
 3. Load relevant pattern file
-4. **Search massu_memory_failures for this error** (check if we've seen it before)
-5. Trace the path: tool call -> handler -> output
+4. **Search memory for this error** (check if we've seen it before)
+5. Trace the path: UI -> API -> DB
 6. Form hypotheses and test each
 7. Identify root cause with evidence
 8. Apply minimal fix following CLAUDE.md

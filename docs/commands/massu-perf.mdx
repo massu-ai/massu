@@ -1,0 +1,65 @@
+---
+title: "/massu-perf"
+description: "Performance audit covering database queries, bundle size, rendering, API calls, and network optimization"
+order: 54
+---
+
+# /massu-perf
+
+Identify and fix performance bottlenecks in database queries, bundle size, rendering, and API calls with measurable evidence. Follows a zero-gap audit loop: optimization is not complete until a single complete audit finds zero issues.
+
+## Usage
+
+```
+/massu-perf
+```
+
+## Audit Sections
+
+### Section 1: Database Performance
+- Query analysis using `pg_stat_statements` for slow queries
+- Index analysis: missing indexes (high sequential scans), unused indexes (removal candidates)
+- Query pattern checks: N+1 queries, missing WHERE clauses, large LIMIT values
+
+### Section 2: Bundle Size
+- Build output analysis for route and page sizes
+- Dynamic import verification (heavy deps like jsdom should use `await import`)
+- Tree shaking issues: namespace imports (`import *`), barrel imports from large packages
+
+### Section 3: Rendering Performance
+- Re-render analysis: missing `useMemo`, missing `useCallback`, inline object creation
+- Component optimization: large components, missing `React.memo`, expensive computations in render
+- List optimization: missing keys, virtualization opportunities
+
+### Section 4: API Performance
+- API call analysis: refetch configuration, stale time settings, parallel queries
+- Query deduplication: same query called from multiple locations
+
+### Section 5: Network Optimization
+- Request analysis: image optimization with `next/image`, preloading
+- Caching strategy: Cache-Control headers, revalidation, static generation
+
+## Protocol Steps
+
+1. Run all 5 audit sections with measurements
+2. Identify top issues by impact and prioritize
+3. Apply optimizations
+4. Re-run ALL verification checks (patterns, types, build, benchmarks)
+5. If issues remain, fix and re-verify entirely
+6. Produce performance report with before/after metrics
+7. Update session state
+
+## When to Use
+
+- When pages feel slow or users report performance issues
+- When bundle size is growing beyond acceptable limits
+- When database queries are taking too long
+- Before major releases as a performance baseline check
+- When investigating specific slow pages or API endpoints
+
+## Key Rules
+
+- Measure before optimizing -- prove the bottleneck exists
+- Measure after optimizing -- prove the fix worked
+- No premature optimization -- focus on actual issues, not theoretical ones
+- Document benchmarks with before/after metrics

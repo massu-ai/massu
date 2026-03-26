@@ -1,11 +1,11 @@
 ---
 name: massu-tdd
-description: Test-driven development cycle — RED (failing test) -> GREEN (minimal impl) -> IMPROVE (refactor)
+description: "When user wants test-driven development, says 'TDD', 'write tests first', 'red green refactor', or needs the RED-GREEN-IMPROVE cycle"
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-tdd
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
 
 # Massu TDD: Test-Driven Development Cycle
 
@@ -23,7 +23,7 @@ Implement features or fix bugs using strict test-first development. Write the te
 - **Minimal implementation** - in GREEN phase, write ONLY enough to pass the test
 - **Refactor ONLY when green** - never refactor with failing tests
 - **VR-proof at every step** - show test output proving RED/GREEN status
-- **Pattern compliance** - IMPROVE phase must apply CLAUDE.md patterns
+- **Pattern compliance** - IMPROVE phase must apply project patterns
 - **FIX ALL ISSUES ENCOUNTERED (CR-9)** - if tests reveal other bugs, fix them
 
 ---
@@ -42,9 +42,12 @@ Implement features or fix bugs using strict test-first development. Write the te
 ### Step 0: SCOPE
 
 User provides feature description or bug report. Identify:
-- **Test file location**: `packages/core/src/__tests__/[name].test.ts`
+- **Test file location**: Follow convention:
+  - Unit: `tests/unit/[domain]/[name].test.ts`
+  - Integration: `tests/integration/[domain]/[name].test.ts`
+  - Prevention: `scripts/tests/prevention/[name].test.ts`
 - **Target source file**: The file that will be implemented/modified
-- **Vitest config**: `packages/core/vitest.config.ts`
+- **Vitest config**: `vitest.config.ts` (main) or `vitest.config.prevention.ts` (prevention)
 
 ### Step 1: RED (Write Failing Test)
 
@@ -52,8 +55,8 @@ Write the test file FIRST. The test defines expected behavior.
 
 ```bash
 # Write test with assertions for expected behavior
-# Then run it -- it MUST FAIL
-cd packages/core && npx vitest run src/__tests__/[test-file] --reporter=verbose
+# Then run it — it MUST FAIL
+npx vitest run [test-file] --reporter=verbose
 ```
 
 **Verification**:
@@ -75,8 +78,8 @@ Rules:
 - Just make the test pass
 
 ```bash
-# Run the test again -- it MUST PASS
-cd packages/core && npx vitest run src/__tests__/[test-file] --reporter=verbose
+# Run the test again — it MUST PASS
+npx vitest run [test-file] --reporter=verbose
 ```
 
 **VR-proof**: Show test output with PASS status.
@@ -84,14 +87,14 @@ cd packages/core && npx vitest run src/__tests__/[test-file] --reporter=verbose
 ### Step 3: IMPROVE (Refactor)
 
 Now improve code quality while keeping tests green:
-- Apply CLAUDE.md patterns (config-driven, getConfig(), ESM imports, etc.)
+- Apply project patterns (database access, auth, etc.)
 - Improve naming, readability, structure
 - Add error handling
 - Extract reusable functions
 
 ```bash
-# Run test after refactoring -- MUST STILL PASS
-cd packages/core && npx vitest run src/__tests__/[test-file] --reporter=verbose
+# Run test after refactoring — MUST STILL PASS
+npx vitest run [test-file] --reporter=verbose
 ```
 
 **VR-proof**: Show test output with PASS status.
@@ -147,6 +150,16 @@ npm test
 
 ---
 
+## HELPER SCRIPT
+
+Use the TDD runner for cleaner output:
+
+```bash
+./scripts/tdd-runner.sh [test-file]
+```
+
+---
+
 ## TEST PATTERNS
 
 ### Unit Test Template
@@ -165,19 +178,22 @@ describe('[Feature]', () => {
 });
 ```
 
-### MCP Tool Test Template
+### Integration Test Template (tRPC Router)
 ```typescript
 import { describe, it, expect, vi } from 'vitest';
 
-describe('[ToolName]', () => {
-  it('should return correct result for valid input', () => {
-    // Arrange: set up mock database, config
-    // Act: call handleToolCall with tool name and args
-    // Assert: verify content[0].text contains expected output
-  });
+vi.mock('@/lib/db', () => ({
+  db: {
+    tableName: {
+      findMany: vi.fn().mockResolvedValue([]),
+      create: vi.fn().mockImplementation((data) => ({ id: 'test-id', ...data.data })),
+    },
+  },
+}));
 
-  it('should handle missing arguments gracefully', () => {
-    // Test error handling
+describe('[Router]', () => {
+  it('should [expected behavior]', async () => {
+    // Test router procedure
   });
 });
 ```

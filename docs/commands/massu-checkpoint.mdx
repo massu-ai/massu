@@ -1,0 +1,56 @@
+---
+title: "/massu-checkpoint"
+description: "Phase boundary audit requiring zero gaps before allowing progression"
+order: 46
+---
+
+# /massu-checkpoint
+
+Execute a full 15-step checkpoint audit for the current implementation phase. Requires ZERO gaps before allowing progression to the next phase. Uses a mandatory loop controller that spawns fresh audit passes until a complete pass discovers zero gaps.
+
+## Usage
+
+```
+/massu-checkpoint
+```
+
+## Protocol Steps
+
+The command operates as a loop controller:
+
+1. **Spawn auditor subagent** for one complete 15-step checkpoint pass
+2. **Parse result** -- extract `GAPS_DISCOVERED: N` from the structured output
+3. **If gaps > 0**: fix all gaps, then spawn another fresh checkpoint pass
+4. **If gaps == 0**: checkpoint passes -- proceed to commit
+5. Maximum 10 iterations before reporting to user
+
+### The 15-Step Audit
+
+- **Step 0**: Plan Coverage Gate -- extract ALL plan items, verify each at 100%
+- **Steps 1-2**: Read plan section, query database across all 3 environments (DEV, OLD PROD, NEW PROD)
+- **Step 2.5**: Verify config-code alignment (VR-DATA)
+- **Steps 3-4**: Grep router files, verify component files exist
+- **Step 4.5**: VR-RENDER -- verify every UI component is rendered in a page
+- **Steps 5-6**: Pattern compliance, build verification, type check, lint, tests
+- **Step 6.5-6.7**: VR-COUPLING, knowledge base health check
+- **Steps 7-8**: UI/UX verification, user flow verification (if UI changes)
+- **Steps 9-10**: API/router verification, environment and console check, secrets check
+- **Step 11**: Count all gaps found
+- **Steps 12-13**: Fix each gap, return to Step 1 if gaps remain
+- **Step 14**: Create checkpoint sign-off document
+- **Step 15**: Commit with verification summary
+
+## When to Use
+
+- At the boundary between implementation phases in a multi-phase plan
+- When you need mid-implementation quality verification
+- Before committing phase work to ensure nothing was missed
+- When transitioning from one plan phase to the next
+
+## Key Rules
+
+- Zero gaps required -- cannot proceed until gaps = 0
+- "Found and fixed" does NOT count as zero gaps -- a fresh clean pass is required
+- All 3 database environments must be verified
+- Plan coverage must be 100% before other checks begin
+- FIX ALL issues encountered, including pre-existing ones (CR-9)

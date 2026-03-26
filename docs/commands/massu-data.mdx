@@ -1,0 +1,57 @@
+---
+title: "/massu-data"
+description: "Structured data analysis and query library for database metrics, trends, and entity counts"
+order: 49
+---
+
+# /massu-data
+
+Structured data analysis and query library for project databases. Answers questions about data trends, metrics, funnel analysis, cohort comparison, entity counts, and storage usage.
+
+## Usage
+
+```
+/massu-data
+```
+
+The command prompts for what data you need, then selects the appropriate query approach.
+
+## Skill Contents
+
+This is a folder-based skill with pre-built SQL templates:
+
+| File | Purpose |
+|------|---------|
+| `references/common-queries.md` | Pre-built Supabase query templates |
+| `references/table-guide.md` | Key tables and relationships |
+| `scripts/entity-counts.sql` | Quick entity count dashboard |
+| `scripts/funnel-query.sql` | Contact lifecycle funnel analysis |
+| `scripts/cohort-compare.sql` | Compare two date ranges for trends |
+| `scripts/storage-usage.sql` | Storage bucket analysis |
+
+## Protocol Steps
+
+1. **Understand the question** -- determine what data the user needs
+2. **Identify target database** -- DEV (testing), NEW PROD (live data), or OLD PROD (historical)
+3. **Check for pre-built query** -- review `scripts/` for a matching SQL template
+4. **Verify schema** -- run VR-SCHEMA-PRE before any custom query
+5. **Execute query** -- use MCP `execute_sql` tool against the appropriate database
+6. **Present results** -- format as a table with clear labels
+
+## Database Selection
+
+| User Says | Database |
+|-----------|----------|
+| "production", "live", "real data" | NEW PROD |
+| "dev", "test", "local" | DEV |
+| "old prod", "historical" | OLD PROD |
+| No qualifier | NEW PROD (default) |
+
+## When to Use
+
+- When you need entity counts or a system overview
+- For analyzing conversion funnels or contact lifecycle stages
+- When comparing metrics between two date ranges (cohort analysis)
+- For checking storage bucket usage and disk consumption
+- When answering "what happened" questions about the database
+- For ad-hoc data queries with proper schema verification

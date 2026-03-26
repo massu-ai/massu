@@ -7,7 +7,7 @@ name: massu-squirrels
 
 # Massu Squirrels: Idea Parking Lot Manager
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-14, CR-5, CR-12 enforced.
 
 ---
 
@@ -61,7 +61,7 @@ Manage `.claude/session-state/squirrels.md` — a parking lot for stray ideas th
 1. Read squirrels.md, number the ideas (1-based, top to bottom)
 2. Display idea #N and ask: "Promote this to a plan, a task, or a session-state item?"
 3. Based on response:
-   - **Plan**: Create a plan stub in `.claude/plans/`
+   - **Plan**: Create a plan stub in the project docs plans directory
    - **Task**: Add to CURRENT.md as an open item
    - **Session-state**: Add to CURRENT.md as context
 4. Remove the idea from squirrels.md

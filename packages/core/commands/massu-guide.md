@@ -1,6 +1,6 @@
 ---
 name: massu-guide
-description: Interactive onboarding walkthrough for the Massu codebase and .claude/ infrastructure
+description: "When a new user or contributor asks 'how does this work', 'give me a tour', 'onboarding', or needs an interactive walkthrough of the codebase"
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
 name: massu-guide
@@ -9,7 +9,7 @@ name: massu-guide
 
 ## Objective
 
-Provide a guided orientation for new developers (or fresh AI sessions) to understand Massu -- its architecture, .claude/ infrastructure, workflows, and common gotchas. Read-only exploration, no modifications.
+Provide a guided orientation for new developers (or fresh AI sessions) to understand the project — its architecture, .claude/ infrastructure, workflows, and common gotchas. Read-only exploration, no modifications.
 
 ---
 
@@ -21,41 +21,50 @@ Read and present:
 
 ```bash
 # Tech stack from package.json
-cat packages/core/package.json | jq '{name, version, scripts: (.scripts | keys | length), dependencies: (.dependencies | keys | length), devDependencies: (.devDependencies | keys | length)}'
+cat package.json | jq '{name, version, scripts: (.scripts | keys | length), dependencies: (.dependencies | keys | length), devDependencies: (.devDependencies | keys | length)}'
+
+# Core framework versions
+cat package.json | jq '{next: .dependencies.next, react: .dependencies.react, prisma: .devDependencies.prisma, trpc: .dependencies["@trpc/server"], typescript: .devDependencies.typescript}'
 ```
 
-Read `.claude/CLAUDE.md` first 30 lines -- Project Overview and Architecture.
+Read `.claude/CLAUDE.md` first 30 lines — Prime Directive and CR table header.
 
 Count key entities:
 ```bash
-ls packages/core/src/*.ts 2>/dev/null | wc -l           # Source modules
-ls packages/core/src/__tests__/*.test.ts 2>/dev/null | wc -l  # Tests
-ls packages/core/src/hooks/*.ts 2>/dev/null | wc -l      # Hooks
+ls src/server/api/routers/*.ts 2>/dev/null | wc -l  # Routers
+find src/components -name "*.tsx" -maxdepth 3 | wc -l  # Components
+find src/app -name "page.tsx" | wc -l  # Pages
+find . -name "*.test.*" -o -name "*.spec.*" | grep -v node_modules | wc -l  # Tests
 ```
 
-Output: "Massu: TypeScript MCP Server + Claude Code Plugin with N source modules, N tests, N hooks."
+Output: "[Project Name]: Next.js [ver] / React [ver] / tRPC [ver] / Prisma [ver] / TypeScript [ver] with N routers, N components, N pages, N tests."
 
 ---
 
 ### Section 2: Architecture Map
 
-Count manually:
+Run the codebase map script (if available):
+```bash
+./scripts/codebase-map.sh 2>/dev/null || echo "Running manual count..."
+```
+
+Or count manually:
 ```bash
 echo "=== ARCHITECTURE MAP ==="
-echo "Source modules: $(ls packages/core/src/*.ts 2>/dev/null | wc -l)"
-echo "Test files:     $(ls packages/core/src/__tests__/*.test.ts 2>/dev/null | wc -l)"
-echo "Hook files:     $(ls packages/core/src/hooks/*.ts 2>/dev/null | wc -l)"
-echo "Scripts:        $(ls scripts/*.sh 2>/dev/null | wc -l)"
-echo "Commands:       $(ls .claude/commands/*.md 2>/dev/null | wc -l)"
+echo "Pages:      $(find src/app -name 'page.tsx' | wc -l)"
+echo "Layouts:    $(find src/app -name 'layout.tsx' | wc -l)"
+echo "API Routes: $(find src/app/api -name 'route.ts' 2>/dev/null | wc -l)"
+echo "Routers:    $(ls src/server/api/routers/*.ts | wc -l)"
+echo "Components: $(find src/components -name '*.tsx' -maxdepth 3 | wc -l)"
+echo "Lib files:  $(find src/lib -name '*.ts' | wc -l)"
+echo "Hooks:      $(find src -name 'use*.ts' -o -name 'use*.tsx' | grep -v node_modules | wc -l)"
 ```
 
 Highlight key files:
-- `packages/core/src/tools.ts` -- Tool definitions & routing (central hub)
-- `packages/core/src/config.ts` -- Config loader (massu.config.yaml)
-- `packages/core/src/server.ts` -- MCP server entry point
-- `packages/core/src/db.ts` -- Database connections (CodeGraph + Data)
-- `packages/core/src/memory-db.ts` -- Memory database (session, analytics, audit)
-- `massu.config.yaml` -- Single source of project-specific data
+- `src/lib/db.ts` — Database client (ctx.db)
+- `src/server/api/trpc.ts` — tRPC context + procedures
+- `src/middleware.ts` — Auth + routing
+- `src/server/api/root.ts` — Router aggregation
 
 ---
 
@@ -63,23 +72,28 @@ Highlight key files:
 
 ```bash
 echo "=== .CLAUDE/ INFRASTRUCTURE ==="
-echo "Commands:   $(ls .claude/commands/*.md 2>/dev/null | wc -l)"
-echo "CR Rules:   $(grep -c '^| CR-' .claude/CLAUDE.md 2>/dev/null)"
-echo "VR Types:   $(grep -c '^| VR-' .claude/CLAUDE.md 2>/dev/null)"
-echo "Scripts:    $(ls scripts/*.sh 2>/dev/null | wc -l)"
+echo "Commands:   $(ls .claude/commands/*.md | wc -l)"
+echo "Patterns:   $(ls .claude/patterns/*.md | wc -l)"
+echo "Protocols:  $(ls .claude/protocols/*.md | wc -l)"
+echo "References: $(ls .claude/reference/*.md | wc -l)"
+echo "Incidents:  $(grep -c '^### Incident' .claude/incidents/INCIDENT-LOG.md 2>/dev/null || echo 0)"
+echo "CR Rules:   $(grep -c '^| CR-' .claude/CLAUDE.md)"
+echo "VR Types:   $(grep -c '^| VR-' .claude/reference/vr-verification-reference.md 2>/dev/null || echo '50+')"
+echo "Hook Scripts: $(ls scripts/hooks/*.sh 2>/dev/null | wc -l)"
+echo "Audit Scripts: $(ls scripts/audit-*.sh scripts/check-*.sh 2>/dev/null | wc -l)"
 ```
 
 List top 10 most-used commands:
-- `/massu-loop` -- Main implementation loop with verification
-- `/massu-create-plan` -- Plan generation from requirements
-- `/massu-plan` -- Plan audit and improvement
-- `/massu-commit` -- Pre-commit verification gate
-- `/massu-push` -- Pre-push full verification
-- `/massu-verify` -- Run all VR-* checks
-- `/massu-test` -- Test coverage audit
-- `/massu-tdd` -- Test-driven development cycle
-- `/massu-hotfix` -- Emergency fix protocol
-- `/massu-debug` -- Systematic debugging
+- `/massu-loop` — Main implementation loop with verification
+- `/massu-create-plan` — Plan generation from requirements
+- `/massu-plan` — Plan audit and improvement
+- `/massu-commit` — Pre-commit verification gate
+- `/massu-push` — Pre-push full verification
+- `/massu-verify` — Run all VR-* checks
+- `/massu-test` — Test coverage audit
+- `/massu-tdd` — Test-driven development cycle
+- `/massu-hotfix` — Emergency fix protocol
+- `/massu-debug` — Systematic debugging
 
 ---
 
@@ -89,56 +103,45 @@ Present the standard development workflow:
 
 ```
 /massu-create-plan -> /massu-plan -> /massu-loop -> /massu-commit -> /massu-push
-(CREATE)            (AUDIT)        (IMPLEMENT)   (COMMIT)        (PUSH)
+(CREATE)           (AUDIT)       (IMPLEMENT)  (COMMIT)       (PUSH)
 ```
 
 Explain the verification system:
 - **VR-BUILD**: `npm run build` must exit 0
-- **VR-TYPE**: `cd packages/core && npx tsc --noEmit` must have 0 errors
+- **VR-TYPE**: `npx tsc --noEmit` must have 0 errors
 - **VR-TEST**: `npm test` must pass (MANDATORY)
-- **VR-PATTERN**: `bash scripts/massu-pattern-scanner.sh` must exit 0
+- **VR-SCHEMA**: Query database before using column names
 - **VR-NEGATIVE**: grep returns 0 matches for removed code
 
 Explain the audit commands:
-- `/massu-internal-codebase-audit` -- Full quality assessment
-- `/massu-internal-security-scan` -- Security-focused audit
-- `/massu-internal-db-audit` -- Database schema audit
-- `/massu-dead-code` -- Unused code detection
+- `/massu-dead-code` — Unused code detection
 
 ---
 
 ### Section 5: Common Gotchas
 
-Extract from CLAUDE.md:
-
-**Config Rules**:
-- Use `getConfig()` NOT direct YAML parsing
-- Use `massu.config.yaml` for ALL project-specific data
-- Tool prefix is configurable (`massu_` default)
-
-**Build Rules**:
-- ESM imports require `.ts` extension: `import { x } from './y.ts'`
-- Hooks MUST compile with esbuild: `cd packages/core && npm run build:hooks`
-- All 3 databases have different access patterns (CodeGraph=read-only)
-
-**Tool Registration Rules**:
-- Every new tool MUST be wired in `tools.ts` (CR-11)
-- Preferred: 3-function pattern (getDefs + isTool + handleCall)
-- Legacy: 2-function + inline routing
+Extract from CLAUDE.md and project patterns:
 
 **Database Rules**:
-- `getCodeGraphDb()` -- NEVER write to this (read-only)
-- `getDataDb()` -- Import edges, tRPC, sentinel
-- `getMemoryDb()` -- Session memory (ALWAYS close after use)
+- Use `ctx.db` NOT `ctx.prisma`
+- Use `user_profiles` NOT `users`
+- 3-step query pattern (no `include:`)
+- BigInt: use `Number()` on return
+- RLS + Grants: both needed
 
-**Known Patterns**:
+**Build Rules**:
+- JSDOM/Cheerio: dynamic import only
+- Client/Server boundary: no `@/lib/db` in client components
+- Suspense boundaries for `use(params)` pages
 
-| Pattern | Correct | Error if Wrong |
-|---------|---------|----------------|
-| ESM imports | `import { x } from './y.ts'` | Pattern scanner fails |
-| Config access | `getConfig().toolPrefix` | Direct YAML parse bypasses caching |
-| Tool prefix | `p('tool_name')` helper | Hardcoded prefix breaks portability |
-| memDb lifecycle | `try { ... } finally { memDb.close(); }` | DB connection leak |
+**UI Rules**:
+- Select.Item: never `value=""`, use `__none__`
+- Null guards: `(status || "pending").replace()`
+- Page layout: always `page-container` class
+
+**Known Schema Mismatches**:
+- ALWAYS run VR-SCHEMA-PRE before writing queries
+- Column names may differ from what you expect — verify against `information_schema.columns`
 
 ---
 
@@ -152,9 +155,9 @@ Present each section with a clear header and structured output. After all 5 sect
 You are now oriented with:
 - [X] Project tech stack and scale
 - [X] Architecture map with key files
-- [X] .claude/ infrastructure (commands, scripts, rules)
+- [X] .claude/ infrastructure (commands, hooks, rules)
 - [X] Standard workflows and verification system
-- [X] Common gotchas and patterns
+- [X] Common gotchas and schema traps
 
 **Ready to start work. Recommended next steps:**
 1. Read the plan file if one exists
@@ -164,4 +167,4 @@ You are now oriented with:
 
 ---
 
-**This is a read-only command. It explores and presents -- it does not modify any files.**
+**This is a read-only command. It explores and presents — it does not modify any files.**

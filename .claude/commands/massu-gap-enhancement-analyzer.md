@@ -1,11 +1,11 @@
 ---
 name: massu-gap-enhancement-analyzer
 description: "When user says 'analyze gaps', 'find enhancements', 'gap analysis', or has completed a massu-loop implementation and needs to identify remaining gaps and enhancement opportunities"
-allowed-tools: Bash(*), Read(*), Write(*), Grep(*), Glob(*)
+allowed-tools: Bash(*), Read(*), Write(*), Grep(*), Glob(*), ToolSearch(mcp__supabase__*)
 ---
 name: massu-gap-enhancement-analyzer
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-14, CR-5, CR-12 enforced.
 
 # Massu Gap & Enhancement Analyzer
 
@@ -52,8 +52,8 @@ cat [PLAN_FILE_PATH]
 
 | Category | What to Extract |
 |----------|-----------------|
-| **Database** | Tables, columns, migrations, policies, grants (if applicable) |
-| **API/Backend** | Endpoints, procedures, inputs, outputs, mutations, queries |
+| **Database** | Tables, columns, migrations, RLS policies, grants |
+| **API/Routers** | Procedures, inputs, outputs, mutations, queries |
 | **Components** | UI components, their locations, dependencies |
 | **Pages** | Routes, page files, layouts |
 | **Features** | User-facing functionality, workflows, integrations |
@@ -69,50 +69,58 @@ cat [PLAN_FILE_PATH]
 | ID | Category | Item Description | Expected Location | Status |
 |----|----------|------------------|-------------------|--------|
 | P-001 | DB | [table_name] table | migration file | PENDING |
-| P-002 | API | [endpoint_name] endpoint | [path from plan] | PENDING |
-| P-003 | UI | [ComponentName] component | [path from plan] | PENDING |
-| P-004 | Feature | [Feature description] | [path from plan] | PENDING |
+| P-002 | API | [procedure_name] procedure | routers/[file].ts | PENDING |
+| P-003 | UI | [ComponentName] component | components/[path]/ | PENDING |
+| P-004 | Feature | [Feature description] | [location] | PENDING |
 ```
 
 ---
 
 ## PHASE 2: IMPLEMENTATION VERIFICATION
 
-> **IMPORTANT**: Derive all file paths from the plan document. Do NOT assume any specific framework directory structure. The plan specifies where files should live — use those paths for all verification commands below.
-
 ### Step 2.1: Database Verification
 
-> **Skip this section if the plan does not include database changes.**
+For EACH database item in the plan:
 
-For EACH database item in the plan, use the project's database CLI or query tool to verify:
+```sql
+-- Verify table exists
+SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = '[TABLE]';
 
-- Table exists with expected name
-- Columns match plan (names, types, nullability)
-- Access policies exist (RLS, grants, permissions — whatever the project uses)
-- Indexes or constraints mentioned in the plan are present
+-- Verify columns match plan
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_name = '[TABLE]'
+ORDER BY ordinal_position;
 
-```bash
-# Example: check migration files exist
-ls -la [MIGRATION_PATH_FROM_PLAN]
+-- Verify RLS policies
+SELECT polname, polcmd FROM pg_policies WHERE tablename = '[TABLE]';
 
-# Example: grep migration content for expected table/column names
-grep -n "[TABLE_NAME]" [MIGRATION_FILE]
-grep -n "[COLUMN_NAME]" [MIGRATION_FILE]
+-- Verify grants
+SELECT grantee, privilege_type FROM information_schema.table_privileges
+WHERE table_name = '[TABLE]' AND grantee IN ('authenticated', 'service_role');
 ```
 
-### Step 2.2: API/Backend Verification
+**Check ALL 3 environments:**
+- DEV (gwqkbjymbarkufwvdmar)
+- OLD PROD (hwaxogapihsqleyzpqtj)
+- NEW PROD (cnfxxvrhhvjefyvpoqlq)
 
-For EACH endpoint or procedure in the plan:
+### Step 2.2: API/Router Verification
+
+For EACH procedure in the plan:
 
 ```bash
-# Verify endpoint/procedure exists at the path specified in the plan
-grep -n "[endpoint_name]" [BACKEND_FILE_FROM_PLAN]
+# Verify procedure exists
+grep -n "[procedure_name]:" src/server/api/routers/[router].ts
 
-# Verify input validation/schema
-grep -A 20 "[endpoint_name]" [BACKEND_FILE_FROM_PLAN] | grep -A 10 "input\|schema\|validate"
+# Verify uses correct procedure type
+grep -B 2 "[procedure_name]:" src/server/api/routers/[router].ts | grep "protectedProcedure\|publicProcedure"
 
-# Verify the backend module is registered/exported in the project's routing layer
-grep "[module_name]" [ROUTER_OR_ENTRY_FILE_FROM_PLAN]
+# Verify input schema
+grep -A 20 "[procedure_name]:" src/server/api/routers/[router].ts | grep -A 10 "input:"
+
+# Verify router is exported in root
+grep "[router]" src/server/api/root.ts
 ```
 
 ### Step 2.3: Component Verification
@@ -120,36 +128,57 @@ grep "[module_name]" [ROUTER_OR_ENTRY_FILE_FROM_PLAN]
 For EACH UI component in the plan:
 
 ```bash
-# Verify component file exists at the path specified in the plan
-ls -la [COMPONENT_PATH_FROM_PLAN]
+# Verify component file exists
+ls -la src/components/[path]/[ComponentName].tsx
+
+# Verify component is exported
+grep "export.*[ComponentName]" src/components/[path]/index.ts
 
 # CRITICAL: Verify component is RENDERED in a page
-grep -rn "[ComponentName]" [PAGES_DIR_FROM_PLAN]
+grep -rn "<[ComponentName]" src/app/
 
 # Verify component imports are correct
-grep -rn "import.*[ComponentName]" [PAGES_DIR_FROM_PLAN]
+grep -n "import.*[ComponentName]" src/app/**/page.tsx
 ```
 
-### Step 2.4: Backend-Frontend Coupling Verification (CRITICAL)
+### Step 2.4: Feature Verification
+
+For EACH feature in the plan:
+
+```bash
+# Feature-specific verification based on plan requirements
+# This varies by feature type - document what was checked
+```
+
+### Step 2.5: Configuration Verification
+
+```bash
+# Verify feature flags exist and are enabled
+# Use MCP tools to query feature_flags table in all environments
+
+# Verify environment variables are documented
+grep -rn "process.env.[VAR_NAME]" src/
+```
+
+### Step 2.6: Backend-Frontend Coupling Verification (CRITICAL - Added Jan 2026)
 
 **MANDATORY**: Verify ALL backend features are exposed in frontend.
 
-Use grep to check that every backend endpoint/procedure is called from at least one frontend file:
-
 ```bash
-# For each backend endpoint, verify frontend usage
-grep -rn "[endpoint_or_procedure_name]" [FRONTEND_DIR_FROM_PLAN]
-# If 0 results, the backend feature is unreachable from the UI
+# Run automated coupling check
+./scripts/check-coupling.sh
 ```
 
 **Manual verification for plan-specific items:**
 
 | Backend Item | Frontend Requirement | Verification |
 |--------------|---------------------|--------------|
-| Enum/constant values in backend | SELECT options in form | grep values in constants/config files |
-| New API endpoint | UI component calls it | grep endpoint name in frontend files |
+| z.enum values in router | SELECT options in form | grep values in constants.ts |
+| New API procedure | UI component calls it | grep api.[router].[proc] in components |
 | Input schema fields | Form has all fields | grep field names in form component |
-| Type definitions | Frontend types match | compare backend types to component types |
+| Type definitions | Frontend types match | compare router types to component types |
+
+**Why this matters**: Jan 2026 Incident - Backend had tier-based scraper types (browserless, persistent_browser, manual_assist, auto) but UI form only showed original 7 options. ALL other verifications passed. VR-COUPLING catches this class of gap.
 
 ```markdown
 ### Backend-Frontend Coupling Status
@@ -172,6 +201,22 @@ grep -rn "[endpoint_or_procedure_name]" [FRONTEND_DIR_FROM_PLAN]
 | **MINOR** | Small missing piece, cosmetic issue | P2 |
 | **DEVIATION** | Implemented differently than planned (may be intentional) | P3 |
 
+### Gap Type: COUPLING (Added Jan 2026)
+
+**Definition**: Backend has a feature (enum value, procedure, type) that frontend doesn't expose.
+
+**Why P0 (Critical)**: Users cannot access the feature even though the code exists. This is a complete failure from the user's perspective.
+
+**Examples**:
+- Backend z.enum has value "auto" but UI SELECT doesn't show it
+- Backend has procedure `analyze` but UI never calls it
+- Backend input schema has field `maxRetries` but form doesn't include it
+
+**How to detect**:
+```bash
+./scripts/check-coupling.sh
+```
+
 ### Gap Detection Methods
 
 #### 3.1: Plan-to-Implementation Gaps
@@ -184,7 +229,7 @@ Compare plan items against actual implementation:
 | Plan Item | Expected | Actual | Gap Type | Severity |
 |-----------|----------|--------|----------|----------|
 | P-001 | Table X with columns A,B,C | Only A,B exist | MISSING_COLUMN | MAJOR |
-| P-002 | Endpoint Y | Not found | MISSING_ENDPOINT | CRITICAL |
+| P-002 | Procedure Y | Not found | MISSING_PROCEDURE | CRITICAL |
 | P-003 | Component Z | File exists but not rendered | NOT_RENDERED | CRITICAL |
 ```
 
@@ -193,25 +238,60 @@ Compare plan items against actual implementation:
 Check for inconsistencies between layers:
 
 ```bash
-# Backend endpoints without UI consumers (use paths from plan)
-grep -rn "[endpoint_name]" [FRONTEND_DIR_FROM_PLAN] | wc -l
-# If 0, endpoint may be unused
+# API procedures without UI consumers
+grep -rn "api\.[router]\.[procedure]" src/components/ src/app/ | wc -l
+# If 0, procedure may be unused
 
-# Components without page integration (use paths from plan)
-find [COMPONENTS_DIR_FROM_PLAN] -name "*.tsx" -o -name "*.jsx" -o -name "*.vue" | while read f; do
-  name=$(basename "$f" | sed 's/\.[^.]*$//')
-  grep -rn "$name" [PAGES_DIR_FROM_PLAN] || echo "ORPHAN: $name"
+# Components without page integration
+find src/components/[feature]/ -name "*.tsx" | while read f; do
+  name=$(basename "$f" .tsx)
+  grep -rn "<$name" src/app/ || echo "ORPHAN: $name"
 done
+
+# Database columns not used in routers
+# Compare schema columns against router select/where clauses
 ```
 
-#### 3.3: Error Handling Gaps
+#### 3.3: User Flow Gaps
+
+Trace complete user journeys:
+
+```markdown
+### USER FLOW ANALYSIS
+
+| Flow | Entry Point | Steps | Completion | Gaps |
+|------|-------------|-------|------------|------|
+| [Flow name] | [route] | 1. Click X, 2. Enter Y | Complete/Broken | [gaps] |
+```
+
+#### 3.4: Error Handling Gaps
 
 ```bash
-# Check for try/catch in async operations (use paths from plan)
-grep -rn "async" [BACKEND_FILES_FROM_PLAN] | grep -v "try" | head -20
+# Check for try/catch in async operations
+grep -rn "async.*=>" src/server/api/routers/[feature]*.ts | grep -v "try" | head -20
 
-# Check for loading states (use paths from plan)
-grep -rn "loading\|isLoading\|isPending" [FRONTEND_FILES_FROM_PLAN] | wc -l
+# Check for toast.error on mutations
+grep -rn "useMutation" src/components/[feature]/ | while read f; do
+  grep -L "toast.error\|onError" "$f"
+done
+
+# Check for loading states
+grep -rn "useState.*loading\|isLoading\|isPending" src/components/[feature]/ | wc -l
+```
+
+#### 3.5: Test Coverage Gaps
+
+```bash
+# Find files without corresponding tests
+find src/server/api/routers/[feature]*.ts | while read f; do
+  test="${f%.ts}.test.ts"
+  [ ! -f "$test" ] && echo "NO TEST: $f"
+done
+
+find src/components/[feature]/ -name "*.tsx" | while read f; do
+  test="${f%.tsx}.test.tsx"
+  [ ! -f "$test" ] && echo "NO TEST: $f"
+done
 ```
 
 ---
@@ -234,41 +314,81 @@ grep -rn "loading\|isLoading\|isPending" [FRONTEND_FILES_FROM_PLAN] | wc -l
 #### 4.1: UX Enhancements
 
 ```bash
-# Empty states - are they helpful? (use paths from plan)
-grep -rn "length === 0\|EmptyState\|empty" [FRONTEND_FILES_FROM_PLAN]
+# Empty states - are they helpful?
+grep -rn "length === 0\|EmptyState" src/components/[feature]/
 
 # Loading states - are they smooth?
-grep -rn "isLoading\|Skeleton\|Spinner\|loading" [FRONTEND_FILES_FROM_PLAN]
+grep -rn "isLoading\|Skeleton\|Spinner" src/components/[feature]/
 
 # Success feedback - is it clear?
-grep -rn "toast\|notification\|alert\|success" [FRONTEND_FILES_FROM_PLAN]
+grep -rn "toast.success" src/components/[feature]/
+
+# Form validation - is it immediate?
+grep -rn "FormField\|FormMessage\|error" src/components/[feature]/
 ```
+
+**UX Enhancement Checklist:**
+- [ ] Keyboard navigation supported?
+- [ ] Focus management correct?
+- [ ] Transitions smooth?
+- [ ] Error messages helpful?
+- [ ] Success states clear?
+- [ ] Undo/recovery options?
 
 #### 4.2: Performance Enhancements
 
 ```bash
-# Large list rendering - virtualization needed? (use paths from plan)
-grep -rn "\.map(" [FRONTEND_FILES_FROM_PLAN] | grep -v "slice\|virtualized\|paginate"
+# Large list rendering - virtualization needed?
+grep -rn "map.*=>" src/components/[feature]/ | grep -v "slice\|virtualized"
+
+# Unnecessary re-renders - memo needed?
+grep -rn "useMemo\|useCallback\|React.memo" src/components/[feature]/ | wc -l
+
+# Heavy computations - should be cached?
+grep -rn "filter\|reduce\|sort" src/components/[feature]/ | grep -v "useMemo"
 
 # API calls - batching opportunity?
-grep -rn "fetch\|useQuery\|useMutation\|axios\|request" [FRONTEND_FILES_FROM_PLAN] | wc -l
+grep -rn "useQuery\|useMutation" src/components/[feature]/ | wc -l
 ```
 
 #### 4.3: Security Enhancements
 
 ```bash
-# Input validation - are all string inputs constrained? (use paths from plan)
-grep -rn "string\|text\|varchar" [BACKEND_FILES_FROM_PLAN] | grep -v "min\|max\|regex\|length\|validate"
+# Input sanitization
+grep -rn "z\.string()" src/server/api/routers/[feature]*.ts | grep -v "min\|max\|regex"
+
+# Rate limiting considerations
+grep -rn "rateLimit\|throttle" src/server/api/routers/[feature]*.ts
+
+# Audit logging
+grep -rn "log\.\|console\." src/server/api/routers/[feature]*.ts | grep -v "error"
 ```
 
-#### 4.4: Accessibility Enhancements
+#### 4.4: Functionality Enhancements
+
+Review the feature for natural extensions:
+- Bulk operations where only single exists
+- Export/import capabilities
+- Filtering/sorting options
+- Search functionality
+- Pagination improvements
+- Notification/alert options
+- Integration opportunities
+
+#### 4.5: Accessibility Enhancements
 
 ```bash
-# ARIA attributes (use paths from plan)
-grep -rn "aria-\|role=" [FRONTEND_FILES_FROM_PLAN]
+# ARIA attributes
+grep -rn "aria-\|role=" src/components/[feature]/
 
 # Alt text
-grep -rn "<img\|<Image" [FRONTEND_FILES_FROM_PLAN] | grep -v "alt="
+grep -rn "<img\|<Image" src/components/[feature]/ | grep -v "alt="
+
+# Focus indicators
+grep -rn "focus:\|:focus" src/components/[feature]/
+
+# Color contrast (manual check needed)
+grep -rn "text-\|bg-" src/components/[feature]/ | head -20
 ```
 
 ---
@@ -303,6 +423,7 @@ grep -rn "<img\|<Image" [FRONTEND_FILES_FROM_PLAN] | grep -v "alt="
 |-------|-------|----------|------|----------|
 | Phase 1 | [N] | [X] | [G] | [%]% |
 | Phase 2 | [N] | [X] | [G] | [%]% |
+| ... | ... | ... | ... | ... |
 | **TOTAL** | [N] | [X] | [G] | [%]% |
 
 ---
@@ -319,11 +440,19 @@ grep -rn "<img\|<Image" [FRONTEND_FILES_FROM_PLAN] | grep -v "alt="
 
 | ID | Gap Description | Expected | Actual | Impact | Remediation |
 |----|-----------------|----------|--------|--------|-------------|
+| G-002 | [description] | [expected] | [actual] | [impact] | [fix steps] |
 
 ### Minor Gaps (P2) - Nice to Fix
 
 | ID | Gap Description | Expected | Actual | Impact | Remediation |
 |----|-----------------|----------|--------|--------|-------------|
+| G-003 | [description] | [expected] | [actual] | [impact] | [fix steps] |
+
+### Deviations (P3) - Review Needed
+
+| ID | Deviation | Plan Specified | Implemented As | Reason (if known) |
+|----|-----------|----------------|----------------|-------------------|
+| D-001 | [description] | [plan] | [actual] | [reason] |
 
 ---
 
@@ -334,6 +463,40 @@ grep -rn "<img\|<Image" [FRONTEND_FILES_FROM_PLAN] | grep -v "alt="
 | ID | Enhancement | Category | Impact | Effort | Priority |
 |----|-------------|----------|--------|--------|----------|
 | E-001 | [description] | UX/Perf/Sec | High/Med/Low | High/Med/Low | [1-5] |
+
+**Detailed Recommendations:**
+
+#### E-001: [Enhancement Title]
+
+**Current State**: [what exists now]
+
+**Proposed Enhancement**: [what should be added/changed]
+
+**Benefits**:
+- [benefit 1]
+- [benefit 2]
+
+**Implementation Notes**:
+- [note 1]
+- [note 2]
+
+**Estimated Scope**: [small/medium/large]
+
+---
+
+### Medium-Impact Enhancements (Consider)
+
+| ID | Enhancement | Category | Impact | Effort | Priority |
+|----|-------------|----------|--------|--------|----------|
+| E-002 | [description] | [category] | Medium | [effort] | [priority] |
+
+---
+
+### Low-Impact Enhancements (Backlog)
+
+| ID | Enhancement | Category | Notes |
+|----|-------------|----------|-------|
+| E-003 | [description] | [category] | [notes] |
 
 ---
 
@@ -350,14 +513,38 @@ grep -rn "<img\|<Image" [FRONTEND_FILES_FROM_PLAN] | grep -v "alt="
 ### Immediate Actions (Gaps)
 
 - [ ] G-001: [fix description]
+- [ ] G-002: [fix description]
 
 ### Recommended Enhancements
 
 - [ ] E-001: [enhancement description]
+- [ ] E-002: [enhancement description]
 
 ### Technical Debt Items
 
 - [ ] TD-001: [debt resolution]
+
+---
+
+## Appendix: Verification Evidence
+
+### Database Verification
+
+| Table | DEV | OLD PROD | NEW PROD | Status |
+|-------|-----|----------|----------|--------|
+| [table] | [result] | [result] | [result] | PASS/FAIL |
+
+### API Verification
+
+| Procedure | File | Line | Protected | Status |
+|-----------|------|------|-----------|--------|
+| [proc] | [file] | [line] | YES/NO | PASS/FAIL |
+
+### Component Verification
+
+| Component | File Exists | Exported | Rendered | Status |
+|-----------|-------------|----------|----------|--------|
+| [comp] | YES/NO | YES/NO | YES/NO | PASS/FAIL |
 ```
 
 ---
@@ -375,8 +562,8 @@ START
   |
   v
 [PHASE 2: Implementation Verification]
-  - Database verification (if applicable)
-  - API/Backend verification
+  - Database verification (all 3 envs)
+  - API/Router verification
   - Component verification
   - Feature verification
   - Configuration verification
@@ -385,13 +572,16 @@ START
 [PHASE 3: Gap Analysis]
   - Plan-to-implementation gaps
   - Cross-reference gaps
+  - User flow gaps
   - Error handling gaps
+  - Test coverage gaps
   |
   v
 [PHASE 4: Enhancement Analysis]
   - UX enhancements
   - Performance enhancements
   - Security enhancements
+  - Functionality enhancements
   - Accessibility enhancements
   |
   v
@@ -403,7 +593,9 @@ START
   |
   v
 [PHASE 6: Report Saving]
-  - Save report to .claude/reports/gap-analysis/
+  - Create reports directory
+  - Save report to project docs reports/gap-analysis/
+  - Update INDEX.md
   - Verify file saved
   |
   v
@@ -427,10 +619,12 @@ The final output MUST include:
 
 ## PHASE 6: REPORT SAVING (MANDATORY)
 
+**The report MUST be saved to the file system for future reference.**
+
 ### Report Storage Location
 
 ```
-.claude/reports/gap-analysis/
+reports/gap-analysis/
 ```
 
 ### Report Naming Convention
@@ -439,24 +633,87 @@ The final output MUST include:
 [YYYY-MM-DD]-[plan-name-slug]-gap-analysis.md
 ```
 
+**Example**: `2026-01-23-development-intelligence-lead-qualification-gap-analysis.md`
+
 ### Step 6.1: Create Reports Directory (if needed)
 
 ```bash
-mkdir -p .claude/reports/gap-analysis
+mkdir -p reports/gap-analysis
 ```
 
-### Step 6.2: Save the Complete Report
+### Step 6.2: Generate Report Filename
 
-Write the full report (from Phase 5) to the report file.
+Extract plan name from the plan file path and create slug:
 
-### Step 6.3: Verification
+```bash
+# Example: /path/to/2026-01-22-development-intelligence-lead-qualification-system.md
+# Becomes: development-intelligence-lead-qualification-system
+
+PLAN_NAME=$(basename "[PLAN_FILE_PATH]" .md | sed 's/^[0-9-]*//')
+DATE=$(date +%Y-%m-%d)
+REPORT_FILE="reports/gap-analysis/${DATE}-${PLAN_NAME}-gap-analysis.md"
+```
+
+### Step 6.3: Save the Complete Report
+
+Write the full report (from Phase 5) to the report file:
+
+```bash
+# Use the Write tool to save the complete report to:
+# reports/gap-analysis/[DATE]-[plan-name]-gap-analysis.md
+```
+
+### Step 6.4: Create/Update Reports Index
+
+Maintain an index file at `reports/gap-analysis/INDEX.md`:
+
+```markdown
+# Gap & Enhancement Analysis Reports
+
+| Date | Plan | Gaps | Enhancements | Coverage | Report |
+|------|------|------|--------------|----------|--------|
+| 2026-01-23 | [Plan Name] | [G] | [E] | [%]% | [link to report] |
+```
+
+### Step 6.5: Verification
 
 ```bash
 # Verify report was saved
-ls -la .claude/reports/gap-analysis/[REPORT_FILE]
+ls -la reports/gap-analysis/[REPORT_FILE]
 
 # Verify report has content
-wc -l .claude/reports/gap-analysis/[REPORT_FILE]
+wc -l reports/gap-analysis/[REPORT_FILE]
+```
+
+### Report Header (Include in Saved File)
+
+The saved report MUST include this metadata header:
+
+```markdown
+---
+title: Gap & Enhancement Analysis Report
+plan: [PLAN_FILE_PATH]
+plan_name: [Plan Title]
+analyzed_date: [YYYY-MM-DD HH:MM]
+analyzer: Claude Code (massu-gap-enhancement-analyzer)
+---
+```
+
+### Report Footer (Include in Saved File)
+
+```markdown
+---
+
+## Report Metadata
+
+- **Generated**: [YYYY-MM-DD HH:MM]
+- **Plan File**: [PLAN_FILE_PATH]
+- **Report Location**: reports/gap-analysis/[REPORT_FILE]
+- **Analyzer**: massu-gap-enhancement-analyzer v1.0
+
+---
+
+*This report was generated by Claude Code using the massu-gap-enhancement-analyzer command.*
 ```
 
 ---
@@ -466,6 +723,8 @@ wc -l .claude/reports/gap-analysis/[REPORT_FILE]
 - This command is READ-ONLY - it does NOT make changes
 - All findings are recommendations - user decides what to act on
 - Enhancements are optional - focus on gaps first
+- Cross-reference findings with CLAUDE.md patterns
+- Use VR-* verification protocols for all checks
 - Document evidence for every finding
 
 ---
@@ -476,5 +735,6 @@ wc -l .claude/reports/gap-analysis/[REPORT_FILE]
 2. Read the complete plan document
 3. Execute Phase 1-5 in order
 4. Generate comprehensive report
-5. Save report to `.claude/reports/gap-analysis/`
-6. Present findings to user with report location
+5. **Save report to `reports/gap-analysis/[DATE]-[plan-name]-gap-analysis.md`**
+6. **Update INDEX.md with report entry**
+7. Present findings to user with report location

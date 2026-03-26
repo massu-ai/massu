@@ -6,8 +6,6 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 
 # Scaffold New Hook
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
-
 Creates a complete Claude Code hook following the 3-tier profile system.
 
 ## What Gets Created
@@ -60,7 +58,7 @@ exit 0
   "hooks": [
     {
       "type": "command",
-      "command": "PROFILE=${LIMN_HOOK_PROFILE:-strict}; [ \"$PROFILE\" = \"minimal\" ] && exit 0; bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/hook-name.sh\""
+      "command": "PROFILE=${MASSU_HOOK_PROFILE:-strict}; [ \"$PROFILE\" = \"minimal\" ] && exit 0; bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/hook-name.sh\""
     }
   ]
 }
@@ -79,7 +77,7 @@ exit 0
 - **stdin piping**: Hook receives tool input via stdin — `TOOL_INPUT=$(cat)` must be first
 - **Exit codes**: Exit 0 = success/allow, non-zero = hook failure (not tool blocking)
 - **hook-gate.sh sourcing**: MUST use `2>/dev/null || true` suffix (hook-gate may not exist in CI)
-- **Inline PROFILE check**: settings.json entry needs `PROFILE=${LIMN_HOOK_PROFILE:-strict}` prefix for minimal profile bypass
+- **Inline PROFILE check**: settings.json entry needs `PROFILE=${MASSU_HOOK_PROFILE:-strict}` prefix for minimal profile bypass
 - **jq dependency**: Use `jq` for JSON parsing (installed on dev machine), never grep for JSON fields
 - **Performance**: Hooks run on every tool invocation — keep under 10ms for standard tier
 

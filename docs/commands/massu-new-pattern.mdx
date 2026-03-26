@@ -1,0 +1,63 @@
+---
+title: "/massu-new-pattern"
+description: "Formalize a recurring solution into the patterns library with approval workflow and WRONG/CORRECT examples"
+order: 53
+---
+
+# /massu-new-pattern
+
+Create new patterns when existing patterns do not cover a required functionality. Follows a structured approval workflow ensuring patterns are well-documented with WRONG vs CORRECT examples before any implementation uses them.
+
+## Usage
+
+```
+/massu-new-pattern
+```
+
+## Protocol Steps
+
+### Phase 1: Verify No Existing Pattern
+- Search CLAUDE.md, all `patterns/*.md` files, and `reference/patterns-quickref.md`
+- Document search results and why existing patterns are not suitable
+- Confirm a new pattern is genuinely needed
+
+### Phase 2: Define the New Pattern
+- Fill out the pattern definition template:
+  - Pattern Name, ID (e.g., DB-012, UI-016), Domain, Purpose
+  - WRONG example (what NOT to do, with explanation)
+  - CORRECT example (what TO do, with explanation)
+  - Error consequence if violated
+  - Verification commands (grep checks for compliance)
+
+### Phase 3: User Approval
+- Present the full pattern definition to the user
+- Ask: Does it make sense? Are examples clear? Critical or recommended?
+- Incorporate feedback if modifications are requested
+- Only proceed when explicitly approved
+
+### Phase 4: Save Pattern
+- Add to the appropriate domain pattern file (`patterns/database-patterns.md`, `patterns/ui-patterns.md`, etc.)
+- Add to `reference/patterns-quickref.md`
+- Add to `CLAUDE.md` if marked as CRITICAL (blocks deployment)
+
+### Phase 5: Verification
+- Grep to confirm pattern exists in all target files
+- Document the addition with timestamps and approval record
+
+### Phase 6: Update Session State
+- Record pattern name, ID, domain, saved locations, and approval details in `session-state/CURRENT.md`
+
+## When to Use
+
+- When you need functionality with no existing pattern in CLAUDE.md or `patterns/*.md`
+- When existing patterns do not fit the specific use case
+- When a recurring solution should be formalized to prevent inconsistency
+- When a new incident reveals a pattern that should be documented
+
+## Key Rules
+
+- Never implement without a documented pattern
+- User approval is required before saving
+- Every pattern must include WRONG and CORRECT examples
+- Every pattern must explain what breaks if violated
+- Pattern must be saved BEFORE any code uses it

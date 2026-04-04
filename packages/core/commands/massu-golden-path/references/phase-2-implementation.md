@@ -199,6 +199,12 @@ WHILE true:
     VR-PIPELINE: For features with data pipelines (AI, cron, generation),
     trigger the pipeline procedure and verify output is non-empty. Empty = gap.
 
+    VR-BOOT (CR-44): For ANY plan item that creates/modifies a daemon,
+    LaunchAgent, or service: actually start it and verify it stays alive for 5s.
+    Check: venv exists, imports resolve, process exit code 0, no stderr crashes.
+    Static verification CANNOT catch missing venvs, missing pip packages, or
+    Python version incompatibilities. This check is MANDATORY for service items.
+
     SPRINT CONTRACT VERIFICATION: For each plan item with a sprint contract
     (from Phase 2A.5), verify EVERY acceptance criterion is met:
     - Read the contract's acceptance criteria list

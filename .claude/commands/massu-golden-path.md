@@ -12,10 +12,10 @@ name: massu-golden-path
 ## Objective
 
 Execute the COMPLETE development workflow in one continuous run:
-**Requirements -> Plan Creation -> Plan Audit -> Implementation -> Gap Analysis -> Simplification -> Commit -> Push**
+**Requirements -> Plan Creation -> Plan Audit -> Implementation -> Gap Analysis -> Simplification -> Security Audit -> Commit -> Push**
 
 This command has FULL FEATURE PARITY with the individual commands it replaces:
-`/massu-create-plan` -> `/massu-plan` -> `/massu-loop` -> `/massu-loop-playwright` -> `/massu-simplify` -> `/massu-commit` -> `/massu-push`
+`/massu-create-plan` -> `/massu-plan` -> `/massu-loop` -> `/massu-loop-playwright` -> `/massu-simplify` -> `/massu-security` -> `/massu-commit` -> `/massu-push`
 
 ---
 
@@ -76,6 +76,7 @@ After receiving approval, immediately continue. Do NOT ask "shall I continue?" -
 | 2-COMP | Competitive Implementation | Spawn N agents with bias presets, score, select winner (`--competitive` only) | WINNER SELECTION |
 | 2.5 | Gap & Enhancement Analysis | Find+fix gaps, UX issues, security, pattern compliance; loop until zero | -- |
 | 3 | Simplification | Pattern scanner, parallel semantic review, apply findings | -- |
+| 3.5 | Deep Security Audit | Full adversarial audit loop with parallel red-team agents, iterate to zero findings | -- |
 | 4 | Pre-Commit Verification | Verification gates, quality scoring | COMMIT APPROVAL |
 | 5 | Push Verification | `scripts/push-verify.sh`, CI monitoring via `scripts/ci-status.sh` | PUSH APPROVAL |
 | 6 | Completion | Final report, plan update, auto-learning, feature registration | -- |
@@ -137,6 +138,14 @@ Read `references/phase-3-simplify.md` for full details.
 
 ---
 
+## PHASE 3.5: DEEP SECURITY AUDIT
+
+Read `references/phase-3.5-security-audit.md` for full details.
+
+**Summary**: Run a full adversarial security audit loop against ALL changed files. Launches 2-4 parallel red-team agents (injection, network/leakage, DoS, bypass) per iteration. Every finding is fixed in-place. Loop iterates until zero findings remain (max 5 iterations). This phase is NEVER skipped -- security is non-negotiable. Security fixes flow into Phase 4's verification gates automatically.
+
+---
+
 ## PHASE 4: PRE-COMMIT VERIFICATION
 
 Read `references/phase-4-commit.md` for full details.
@@ -179,6 +188,7 @@ This skill is a folder. The following files are available for reference:
 | `references/vr-visual-calibration.md` | Score 5/3/1 calibration examples for VR-VISUAL weighted dimensions | Calibrating VR-VISUAL evaluator scoring |
 | `references/phase-2.5-gap-analyzer.md` | Gap/enhancement analysis loop, 7 categories (incl. sprint contract compliance), fix-and-repass until zero | After implementation, before simplification |
 | `references/phase-3-simplify.md` | Pattern scanner fast gate, dead code detection, parallel semantic review agents | Running simplification after implementation |
+| `references/phase-3.5-security-audit.md` | Deep adversarial security audit loop with parallel red-team agents, iterate to zero findings | After simplification, before commit verification |
 | `references/phase-4-commit.md` | Verification gates, quality scoring, commit format | Preparing a commit |
 | `references/phase-5-push.md` | Pre-flight, push verification, regression detection | Preparing to push to remote |
 | `references/phase-6-completion.md` | Final report, plan status update, auto-learning, feature registration | After all verification; completing the golden path |
@@ -232,6 +242,7 @@ AUTHORIZED_COMMAND: massu-golden-path
 4a. **Phase 2-COMP**: Competitive implementation (if --competitive) -> **PAUSE: Winner Selection**
 5. **Phase 2.5**: Gap & enhancement analysis loop (until zero gaps)
 6. **Phase 3**: Simplification (efficiency, reuse, patterns)
+6.5. **Phase 3.5**: Deep security audit (adversarial red-team loop to zero findings)
 7. **Phase 4**: Pre-commit verification -> **PAUSE: Commit Approval**
 8. **Phase 5**: Push verification via `scripts/push-verify.sh` -> **PAUSE: Push Approval**
 9. **Phase 6**: Completion, learning, quality metrics

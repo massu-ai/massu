@@ -91,6 +91,20 @@ WHILE iteration < MAX_ITERATIONS:
     - Background-only features (crons, webhooks): WRITE->STORE->READ sufficient
     - Query-only features (read views): READ->DISPLAY sufficient
 
+    I. RUNTIME & BOOT VERIFICATION (CR-44, Incident 2026-03-29)
+    - For EACH service that was created, modified, or registered in this session:
+      1. VR-DEPS: Verify .venv/bin/python3 exists (if plist references it)
+      2. VR-DEPS: Parse imports from main.py, verify each is installed in the venv
+      3. VR-COMPAT: Check for Python 3.10+ syntax (x | None, match/case) on Python 3.9 systems
+      4. VR-BOOT: Actually start the service (launchctl bootstrap or direct python), wait 5s, verify:
+         - Process is still alive (pgrep)
+         - Exit code is 0 (launchctl list | grep service)
+         - stderr log has no import errors or crashes
+      5. If boot fails: read stderr log, diagnose (missing package? wrong path? syntax error?), fix, retry
+    - Skip condition: plan has NO service/daemon/LaunchAgent items
+    - This category exists because static verification (VR-SYNTAX, VR-GREP) cannot catch:
+      missing venvs, missing pip packages, Python version incompatibilities, or runtime import errors
+
     H. SPRINT CONTRACT COMPLIANCE (if contracts exist from Phase 2A.5)
     - Read the sprint contracts from the Phase 2A tracking table
     - For EACH plan item with a sprint contract:

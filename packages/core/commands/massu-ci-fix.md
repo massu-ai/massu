@@ -5,9 +5,9 @@ allowed-tools: Bash(*), Read(*), Edit(*), Write(*), Grep(*), Glob(*)
 ---
 name: massu-ci-fix
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
-
 # Massu CI Fix: Auto-Diagnose and Fix CI Failures
+
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
 
 ## Objective
 

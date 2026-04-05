@@ -1,8 +1,10 @@
 # Competitive Mode Protocol
 
+> **Shared rules apply.** Read .claude/commands/_shared-preamble.md before proceeding.
+
 > Reference doc for `/massu-golden-path --competitive`. Return to main file for overview.
 
-**Purpose**: Spawn 2-3 competing implementations of the same plan with different optimization biases, score all implementations, and select the winner before proceeding with Massu's verification rigor.
+**Purpose**: Spawn 2-3 competing implementations of the same plan with different optimization biases, score all implementations, and select the winner before proceeding with verification rigor.
 
 **Triggering**: Only when `/massu-golden-path --competitive` is explicitly used. Never automatic.
 
@@ -17,7 +19,7 @@ SCAN plan for:
   - Items with type = MIGRATION
   - Items containing ALTER TABLE, CREATE TABLE, DROP TABLE
   - Items containing RLS policies or grants
-  - Items referencing database migrations
+  - Items referencing all database environments
 
 IF any found:
   ABORT competitive mode with message:
@@ -25,7 +27,7 @@ IF any found:
    Apply migrations first, then re-run with --competitive."
 ```
 
-This mirrors the `/massu-batch` DB guard pattern (`scripts/batch-db-guard.sh`).
+This mirrors the `/massu-batch` DB guard pattern.
 
 ---
 
@@ -75,8 +77,8 @@ IMPLEMENTATION RULES:
 1. Read the plan from disk and implement ALL items
 2. Follow ALL CLAUDE.md patterns (ctx.db, protectedProcedure, etc.)
 3. Do NOT run database migrations (handled separately)
-4. Run pattern-scanner after each file: ./scripts/pattern-scanner.sh
-5. Run tsc after implementation: npx tsc --noEmit
+4. Run pattern-scanner after each file: bash scripts/massu-pattern-scanner.sh
+5. Run tsc after implementation: cd packages/core && npx tsc --noEmit
 6. Fix any issues before declaring done
 
 OUTPUT FORMAT (at completion):
@@ -249,8 +251,8 @@ IF cleanup fails:
 ### Post-Merge Verification
 
 ```
-1. Run ./scripts/pattern-scanner.sh (exit 0 required)
-2. Run npx tsc --noEmit (0 errors required)
+1. Run bash scripts/massu-pattern-scanner.sh (exit 0 required)
+2. Run cd packages/core && npx tsc --noEmit (0 errors required)
 3. IF either fails:
      Fix issues from merge
      Re-run verification

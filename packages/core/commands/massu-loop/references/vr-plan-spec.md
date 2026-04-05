@@ -10,16 +10,16 @@
 ### VR-PLAN: Verification Strategy
 
 **Work being verified**: [description]
-**Domains touched**: [database / UI / API / auth / build / config]
+**Domains touched**: [tools / hooks / config / tests / website]
 
 | # | VR-* Check | Target File/Component | Why Applicable | Status |
 |---|------------|----------------------|----------------|--------|
 | 1 | VR-BUILD | Full project | Always required | PENDING |
-| 2 | VR-TYPE | Full project | Always required | PENDING |
-| 3 | VR-TEST | Full project | Always required (CR-21) | PENDING |
+| 2 | VR-TYPE | packages/core | Always required | PENDING |
+| 3 | VR-TEST | All tests | Always required | PENDING |
 | ... | ... | ... | ... | ... |
 
-**Execution order**: VR-SCHEMA first -> VR-BUILD/VR-TYPE -> VR-TEST -> VR-RENDER/VR-COUPLING -> VR-RUNTIME
+**Execution order**: VR-FILE first -> VR-BUILD/VR-TYPE -> VR-TEST -> VR-TOOL-REG -> VR-HOOK-BUILD -> VR-PATTERN
 ```
 
 ### Mandatory Checks (ALWAYS include)
@@ -28,20 +28,16 @@
 |-------|----------------|
 | VR-BUILD | ALWAYS |
 | VR-TYPE | ALWAYS |
-| VR-TEST | ALWAYS (CR-21) |
+| VR-TEST | ALWAYS |
 | VR-FILE | When files created |
 | VR-GREP | When code added |
 | VR-NEGATIVE | When code removed |
-| VR-SCHEMA | When DB changed |
-| VR-DATA | When config-driven features touched |
-| VR-RENDER | When UI components created |
-| VR-COUPLING | When backend features added |
-| VR-HANDLER | When buttons/actions added |
-| VR-API-CONTRACT | When frontend calls backend |
+| VR-TOOL-REG | When new tools added (3-function pattern in tools.ts) |
+| VR-HOOK-BUILD | When hooks added or modified |
+| VR-CONFIG | When config.ts or massu.config.yaml changed |
+| VR-PATTERN | Always (pattern scanner) |
 | VR-PLAN-COVERAGE | When implementing a plan |
-| VR-SPEC-MATCH | When UI items specify CSS classes/structure (CR-42) |
-| VR-PIPELINE | When data pipeline features implemented (CR-43) |
-| VR-RUNTIME | After all other checks pass |
+| VR-COUNT | When verifying numeric expectations |
 
 Do NOT start verification until VR-PLAN is complete with all domains, checks, targets, and execution order.
 
@@ -49,18 +45,16 @@ Do NOT start verification until VR-PLAN is complete with all domains, checks, ta
 
 ## COMPLETION CRITERIA
 
-Massu Loop is COMPLETE **only when BOTH gates pass: Code Quality AND Plan Coverage**.
+CS Loop is COMPLETE **only when BOTH gates pass: Code Quality AND Plan Coverage**.
 
 ### GATE 1: Code Quality Verification (All Must Pass in SAME Audit Run)
 - [ ] All phases executed, all checkpoints passed with zero gaps
 - [ ] Pattern scanner: Exit 0
 - [ ] Type check: 0 errors
 - [ ] Build: Exit 0
-- [ ] Lint: Exit 0
-- [ ] Prisma validate: Exit 0
 - [ ] Tests: ALL PASS (MANDATORY)
+- [ ] Hook build: Exit 0
 - [ ] Security: No secrets staged
-- [ ] VR-RENDER: All UI components rendered in pages
 
 ### GATE 2: Plan Coverage Verification
 - [ ] Plan file read (actual file, not memory)
@@ -77,7 +71,7 @@ Massu Loop is COMPLETE **only when BOTH gates pass: Code Quality AND Plan Covera
 ## DUAL VERIFICATION RESULT
 | Gate | Status | Details |
 |------|--------|---------|
-| Code Quality | PASS/FAIL | Pattern scanner, build, types |
+| Code Quality | PASS/FAIL | Pattern scanner, build, types, tests |
 | Plan Coverage | PASS/FAIL | X/Y items (Z%) |
 
 **RESULT: COMPLETE** (only if both PASS)
@@ -86,12 +80,10 @@ Massu Loop is COMPLETE **only when BOTH gates pass: Code Quality AND Plan Covera
 **Code Quality: PASS + Plan Coverage: FAIL = NOT COMPLETE**
 
 ### Additional Verification
-- [ ] User Flow: ALL buttons, navigation, props, callbacks, state, e2e flows verified
-- [ ] Component Reuse: Checked existing before creating new
-- [ ] DB verified: all environments
+- [ ] Tool Registration: ALL new tools wired in tools.ts (3-function pattern)
+- [ ] Hook Build: esbuild compilation succeeds
 - [ ] Session state shows COMPLETED
 - [ ] Phase archives created
-- [ ] Help site updated for user-facing changes (or N/A)
 - [ ] Plan document completion table added at TOP
 
 ---
@@ -99,7 +91,7 @@ Massu Loop is COMPLETE **only when BOTH gates pass: Code Quality AND Plan Covera
 ## COMPLETION OUTPUT
 
 ```markdown
-## [MASSU LOOP - COMPLETE]
+## [CS LOOP - COMPLETE]
 
 ### Dual Verification Certification
 - **Audit loops required**: N (loop #N achieved 0 gaps + 100% coverage)
@@ -115,11 +107,11 @@ Massu Loop is COMPLETE **only when BOTH gates pass: Code Quality AND Plan Covera
 ### GATE 1: Code Quality Evidence
 | Gate | Command | Result |
 |------|---------|--------|
-| Pattern scanner | `./scripts/pattern-scanner.sh` | Exit 0 |
-| Type check | `npx tsc --noEmit` | 0 errors |
+| Pattern scanner | `bash scripts/massu-pattern-scanner.sh` | Exit 0 |
+| Type check | `cd packages/core && npx tsc --noEmit` | 0 errors |
 | Build | `npm run build` | Exit 0 |
-| DB (DEV) | VR-SCHEMA | VERIFIED |
-| DB (PROD) | VR-SCHEMA | VERIFIED |
+| Tests | `npm test` | All pass |
+| Hook build | `cd packages/core && npm run build:hooks` | Exit 0 |
 
 ### GATE 2: Plan Coverage Evidence
 | Item # | Description | Verification | Status |

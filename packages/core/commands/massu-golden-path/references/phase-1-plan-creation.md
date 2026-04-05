@@ -12,84 +12,74 @@
 
 ### 1A.1 Feature Understanding
 
-- Call `massu_knowledge_search`, `massu_knowledge_pattern`, `massu_knowledge_schema_check` with feature name
 - Document: exact user request, feature type, affected domains
-- Search codebase for similar features, routers, pages
+- Search codebase for similar features, tool modules, existing patterns
+- Read `massu.config.yaml` for relevant config sections
 
-### 1A.2 Database Reality Check (VR-SCHEMA-PRE)
+### 1A.2 Config & Schema Reality Check
 
-For EACH table the feature might use, query via MCP:
+For features touching config or databases:
 
-```sql
-SELECT column_name, data_type, is_nullable, column_default
-FROM information_schema.columns WHERE table_name = '[TABLE]' ORDER BY ordinal_position;
+- Parse `massu.config.yaml` and verify all referenced config keys exist
+- Check SQLite schema for affected tables (`getCodeGraphDb`, `getDataDb`, `getMemoryDb`)
+- Verify tool definitions in `tools.ts` for any tools being modified
 
-SELECT polname, polcmd FROM pg_policies WHERE tablename = '[TABLE]';
+Document: existing config keys, required new keys, required schema changes.
 
-SELECT grantee, privilege_type FROM information_schema.table_privileges WHERE table_name = '[TABLE]';
+### 1A.3 Config-Code Alignment (VR-CONFIG)
+
+If feature uses config-driven values:
+
+```bash
+# Check config keys used in code
+grep -rn "getConfig()" packages/core/src/ | grep -o 'config\.\w\+' | sort -u
+# Compare to massu.config.yaml structure
 ```
-
-Run `./scripts/check-bad-columns.sh`. Call `massu_schema` for Prisma cross-reference.
-Document: existing tables, required new tables/columns, migration SQL previews.
-
-### 1A.3 Config-Code Alignment (VR-DATA)
-
-If feature uses DB-stored configs:
-
-```sql
-SELECT DISTINCT jsonb_object_keys(config_column) as keys FROM config_table;
-```
-
-Compare to code: `grep -rn "config\." src/lib/[feature]/ | grep -oP 'config\.\w+' | sort -u`
 
 ### 1A.4 Codebase Reality Check
 
 - Verify target directories/files exist
-- Read similar routers and components
-- Load relevant pattern files (database/auth/ui/realtime/build)
+- Read similar tool modules and handlers
+- Load relevant pattern files (build/testing/security/database/mcp)
 
 ### 1A.5 Blast Radius Analysis (CR-25)
 
-**MANDATORY when plan changes any constant, path, route, enum, or config key.**
+**MANDATORY when plan changes any constant, export name, config key, or tool name.**
 
 1. Identify ALL changed values (old -> new)
 2. Codebase-wide grep for EACH value
-3. Call `massu_impact` for indirect impact through import chains
-4. If plan deletes files: call `massu_sentinel_impact` -- zero orphaned features allowed
-5. Categorize EVERY occurrence: CHANGE / KEEP (with reason) / INVESTIGATE
-6. Resolve ALL INVESTIGATE to 0. Add ALL CHANGE items as plan deliverables.
+3. If plan deletes files: verify no remaining imports or references
+4. Categorize EVERY occurrence: CHANGE / KEEP (with reason) / INVESTIGATE
+5. Resolve ALL INVESTIGATE to 0. Add ALL CHANGE items as plan deliverables.
 
 ### 1A.6 Pattern Compliance Check
 
-Check applicable patterns: ctx.db, user_profiles, 3-step query, BigInt/Decimal, RLS+Grants, Suspense, Select.Item, protectedProcedure, Zod validation. Read most similar router/component for patterns used.
+Check applicable patterns: ESM imports (.ts extensions), config access (getConfig()), tool registration (3-function pattern), hook compilation (esbuild), SQLite DB access (getCodeGraphDb/getDataDb/getMemoryDb), memDb lifecycle (try/finally close).
 
-### 1A.7 Backend-Frontend Coupling Check (CR-12)
+Read most similar tool module for patterns used.
 
-For EVERY backend z.enum, type, or procedure planned -- verify a corresponding frontend item exists. If NOT, ADD IT.
+### 1A.7 Tool Registration Check
+
+For EVERY new MCP tool planned -- verify a corresponding registration item exists in the plan (definitions + routing + handler in `tools.ts`). If NOT, ADD IT.
 
 ### 1A.8 Question Filtering
 
 1. List all open questions
-2. Self-answer anything answerable by reading code or querying DB
+2. Self-answer anything answerable by reading code or config
 3. Surface only business logic / UX / scope / priority questions to user via AskUserQuestion
 4. If all self-answerable, skip user prompt
 
-### 1A.9 Security Pre-Screen (6 Dimensions)
+### 1A.9 Security Pre-Screen (5 Dimensions)
 
 | Dim | Check | If Triggered |
 |-----|-------|-------------|
-| S1 | PII / Sensitive Data | Add RLS + column-level access |
-| S2 | Authentication | Verify protectedProcedure |
-| S3 | Authorization | Add RBAC checks, RLS policies |
-| S4 | Injection Surfaces | Add Zod validation, parameterized queries |
-| S5 | Secrets Management (CR-5) | Add AWS Secrets Manager items |
-| S6 | Rate Limiting | Add rate limiting middleware |
+| S1 | PII / Sensitive Data | Add access controls |
+| S2 | Authentication | Verify auth checks |
+| S3 | Authorization | Add permission checks |
+| S4 | Injection Surfaces | Add input validation, parameterized queries |
+| S5 | Rate Limiting | Add rate limiting considerations |
 
 **BLOCKS_REMAINING must = 0 before proceeding.**
-
-### 1A.10 ADR Generation (Optional)
-
-For architectural decisions: `massu_adr_list` -> `massu_adr_generate`.
 
 Mark all coverage dimensions as `done` or `n/a`.
 
@@ -101,25 +91,24 @@ Mark all coverage dimensions as `done` or `n/a`.
 [GOLDEN PATH -- PHASE 1B: PLAN GENERATION]
 ```
 
-Write plan to: `plans/[YYYY-MM-DD]-[feature-name].md`
+Write plan to: `docs/plans/[YYYY-MM-DD]-[feature-name].md`
 
 **Plan structure** (P-XXX numbered items):
 - Overview (feature, complexity, domains, item count)
 - Requirements Coverage Map (D1-D10 all resolved)
-- Phase 0: Credentials & Secrets (CR-5)
-- Phase 1: Database Changes (migrations with exact SQL)
-- Phase 2: Backend Implementation (routers, procedures, input schemas)
-- Phase 3: Frontend Implementation (components, pages, renders-in)
+- Phase 1: Configuration Changes (massu.config.yaml)
+- Phase 2: Backend Implementation (tool modules, handlers, SQLite schema)
+- Phase 3: Frontend/Hook Implementation (hooks, plugin code)
 - Phase 4: Testing & Verification
-- Phase 5: Documentation (help site pages, changelog)
+- Phase 5: Documentation
 - Verification Commands table
 - Item Summary table
 - Risk Assessment
 - Dependencies
 
-**Item numbering**: P0-XXX (secrets), P1-XXX (database), P2-XXX (backend), P3-XXX (frontend), P4-XXX (testing), P5-XXX (docs).
+**Item numbering**: P1-XXX (config), P2-XXX (backend), P3-XXX (frontend/hooks), P4-XXX (testing), P5-XXX (docs).
 
-**Implementation Specificity Check**: Every item MUST have exact file path, exact content/SQL, insertion point, format matches target, verification command.
+**Implementation Specificity Check**: Every item MUST have exact file path, exact content, insertion point, format matches target, verification command.
 
 **Documentation Impact Assessment**: If ANY user-facing features, Phase 5 deliverables are MANDATORY.
 
@@ -141,7 +130,7 @@ WHILE true:
   result = Task(subagent_type="massu-plan-auditor", model="opus", prompt="
     Audit iteration {iteration} for plan: {PLAN_PATH}
     Execute ONE complete audit pass. Verify ALL deliverables.
-    Check: VR-PLAN-FEASIBILITY, VR-PLAN-SPECIFICITY, Pattern Alignment, Schema Reality.
+    Check: VR-PLAN-FEASIBILITY, VR-PLAN-SPECIFICITY, Pattern Alignment, Config Reality.
     Fix any plan document gaps you find.
 
     CRITICAL: Report GAPS_DISCOVERED as total gaps FOUND, EVEN IF you fixed them.
@@ -157,7 +146,7 @@ WHILE true:
 END WHILE
 ```
 
-**VR-PLAN-FEASIBILITY**: DB schema exists, files exist, dependencies available, patterns documented, credentials planned.
+**VR-PLAN-FEASIBILITY**: Files exist, config keys valid, dependencies available, patterns documented.
 **VR-PLAN-SPECIFICITY**: Every item has exact path, exact content, insertion point, verification command.
 **Pattern Alignment**: Cross-reference ALL applicable patterns from CLAUDE.md and patterns/*.md.
 

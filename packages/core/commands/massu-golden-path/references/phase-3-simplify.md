@@ -9,7 +9,7 @@
 ## 3.1 Fast Gate
 
 ```bash
-./scripts/pattern-scanner.sh  # Fix ALL violations before semantic analysis
+bash scripts/massu-pattern-scanner.sh  # Fix ALL violations before semantic analysis
 ```
 
 ## 3.1.5 Dead Code Detection
@@ -23,13 +23,13 @@ Review output for unused exports, files, and dependencies. Remove dead code befo
 
 ## 3.2 Parallel Semantic Review (3 Agents)
 
-Spawn IN PARALLEL (Principle #20 -- one task per agent):
+Spawn IN PARALLEL (one task per agent):
 
-**Efficiency Reviewer** (haiku): Query inefficiency (findMany.length -> SQL COUNT, N+1, unbounded queries), React inefficiency (useState for derived, useEffect->setState, missing useMemo/useCallback), algorithmic inefficiency (O(n^2), repeated sort/filter).
+**Efficiency Reviewer** (haiku): Query inefficiency (findMany equivalent vs SQL COUNT, N+1 queries, unbounded queries), algorithmic inefficiency (O(n^2), repeated sort/filter), unnecessary allocations, missing caching opportunities.
 
-**Reuse Reviewer** (haiku): Known utilities (formatFileSize, serializeUnifiedProduct, mergeWhereWithTenant, emptyToNull, PhoneInputField, sanitizeContentHtml), component duplication against src/components/shared/ and ui/, pattern duplication across new files.
+**Reuse Reviewer** (haiku): Known utilities (getConfig(), stripPrefix(), tool registration patterns, memDb lifecycle pattern), module duplication against existing tool modules, pattern duplication across new files, config values that should be in massu.config.yaml.
 
-**Pattern Compliance Reviewer** (haiku): React Query v5 (no onSuccess in useQuery), DB patterns (Object.assign->mergeWhereWithTenant, include:->3-step, BigInt Number()), UI patterns (Select value="", missing states, Suspense), security (z.string()->z.enum() for orderBy, CR-5 precedence, CRON_SECRET guard), architecture (link table scoping, SQL aggregates, client/server boundary).
+**Pattern Compliance Reviewer** (haiku): ESM compliance (.ts import extensions, no require()), config-driven patterns (no hardcoded project-specific values -- VR-GENERIC), TypeScript strict mode compliance, tool registration (3-function pattern preferred), hook compilation (esbuild compatible), memDb lifecycle (try/finally close), security (input validation, no eval/exec).
 
 ## 3.3 Apply ALL Findings
 

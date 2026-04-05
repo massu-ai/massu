@@ -1,18 +1,18 @@
 ---
 title: "Workflow Commands"
-description: "59 workflow commands that enforce a verification-first approach to AI-assisted development"
+description: "43 workflow commands that enforce a verification-first approach to AI-assisted development"
 order: 0
 ---
 
 # Workflow Commands
 
-Massu AI provides 59 workflow commands organized into categories that enforce a structured, verification-first approach to AI-assisted development. These are not suggestions -- they are mandatory execution protocols that ensure every plan is thorough, every implementation is verified, and every commit meets quality standards.
+Massu AI provides 43 workflow commands organized into categories that enforce a structured, verification-first approach to AI-assisted development. These are not suggestions -- they are mandatory execution protocols that ensure every plan is thorough, every implementation is verified, and every commit meets quality standards.
 
 ## Installation
 
-All 59 commands are **automatically installed** when you run `npx massu init`. The command files are deployed into `.claude/commands/` in your project directory and are available immediately in Claude Code.
+All 43 commands are **automatically installed** when you run `npx massu init`. The command files are deployed into `.claude/commands/` in your project directory and are available immediately in Claude Code.
 
-The command definitions ship inside the `@massu/core` npm package. When you update `@massu/core` to a new version, run `npx massu install-commands` to get the latest command definitions without re-running full init. v0.6.0+ also installs 11 agent definitions, 9 pattern files, 3 protocols, and 8 reference documents.
+The command definitions ship inside the `@massu/core` npm package. When you update `@massu/core` to a new version, run `npx massu install-commands` to get the latest command definitions without re-running full init.
 
 ```bash
 # Re-install or update commands only
@@ -42,7 +42,7 @@ The core pipeline for structured development:
 
 ## Development Tools
 
-12 commands for day-to-day development tasks:
+10 commands for day-to-day development tasks:
 
 | Command | Edits Source Code? | Purpose |
 |---------|-------------------|---------|
@@ -56,12 +56,10 @@ The core pipeline for structured development:
 | [/massu-simplify](/docs/commands/massu-simplify) | Yes | Code simplification and complexity reduction |
 | [/massu-scaffold-page](/docs/commands/massu-scaffold-page) | Yes | Scaffold new page with layout, loading/error states |
 | [/massu-scaffold-router](/docs/commands/massu-scaffold-router) | Yes | Scaffold new tRPC router or API endpoint |
-| [/massu-rollback](/docs/commands/massu-rollback) | Yes | Safely revert a problematic deployment or commit |
-| [/massu-checkpoint](/docs/commands/massu-checkpoint) | No | Save implementation progress snapshot mid-session |
 
 ## Quality & Verification
 
-13 analysis commands for code quality:
+7 analysis commands for code quality:
 
 | Command | Edits Source Code? | Purpose |
 |---------|-------------------|---------|
@@ -72,16 +70,10 @@ The core pipeline for structured development:
 | [/massu-estimate](/docs/commands/massu-estimate) | No | Effort estimation with complexity scoring |
 | [/massu-gap-enhancement-analyzer](/docs/commands/massu-gap-enhancement-analyzer) | No | Post-implementation gap analysis with enhancement recommendations |
 | [/massu-parity](/docs/commands/massu-parity) | No | Feature parity check between two systems |
-| [/massu-security](/docs/commands/massu-security) | No | Security audit across OWASP Top 10 and project-specific rules |
-| [/massu-perf](/docs/commands/massu-perf) | No | Performance profiling, bundle analysis, and optimization |
-| [/massu-ui-audit](/docs/commands/massu-ui-audit) | No | Visual UI audit against design tokens and component specs |
-| [/massu-type-mismatch-audit](/docs/commands/massu-type-mismatch-audit) | No | Detect type mismatches between API, DB, and UI layers |
-| [/massu-full-audit](/docs/commands/massu-full-audit) | No | Comprehensive codebase audit across all dimensions |
-| [/massu-production-verify](/docs/commands/massu-production-verify) | No | Post-deploy production verification checklist |
 
 ## Release & Ops
 
-5 commands for release and operational tasks:
+4 commands for release and operational tasks:
 
 | Command | Edits Source Code? | Purpose |
 |---------|-------------------|---------|
@@ -89,11 +81,10 @@ The core pipeline for structured development:
 | [/massu-changelog](/docs/commands/massu-changelog) | CHANGELOG.md only | Generate changelog from commits |
 | [/massu-deploy](/docs/commands/massu-deploy) | No | Structured deployment with pre-deploy verification |
 | [/massu-incident](/docs/commands/massu-incident) | Yes | Incident documentation with root cause and prevention |
-| [/massu-rollback](/docs/commands/massu-rollback) | Yes | Safely revert a problematic deployment or commit |
 
 ## Productivity
 
-10 commands for codebase hygiene, documentation, and guided workflows:
+8 commands for codebase hygiene, documentation, and guided workflows:
 
 | Command | Edits Source Code? | Purpose |
 |---------|-------------------|---------|
@@ -105,12 +96,10 @@ The core pipeline for structured development:
 | [/massu-guide](/docs/commands/massu-guide) | No | Interactive onboarding walkthrough |
 | [/massu-loop-playwright](/docs/commands/massu-loop-playwright) | Yes | Browser-based audit and fix loop |
 | [/massu-scaffold-hook](/docs/commands/massu-scaffold-hook) | Yes | Scaffold new Claude Code hook with settings registration |
-| [/massu-article-review](/docs/commands/massu-article-review) | Yes (docs only) | Review and improve technical articles and blog posts |
-| [/massu-new-pattern](/docs/commands/massu-new-pattern) | Yes (patterns only) | Create new pattern documentation from implementation learnings |
 
 ## Session Lifecycle
 
-5 commands for session management and context:
+4 commands for session management and context:
 
 | Command | Edits Source Code? | Purpose |
 |---------|-------------------|---------|
@@ -118,22 +107,15 @@ The core pipeline for structured development:
 | [/massu-recap](/docs/commands/massu-recap) | No | End-of-session summary with handoff notes |
 | [/massu-squirrels](/docs/commands/massu-squirrels) | No | Park tangential ideas for later review |
 | [/massu-hooks](/docs/commands/massu-hooks) | No | Hook status diagnostics and configuration check |
-| [/massu-checkpoint](/docs/commands/massu-checkpoint) | No | Save progress snapshot mid-session for recovery |
 
-## Diagnostics & Governance
+## Diagnostics
 
-8 read-only commands for project health and governance:
+2 read-only commands for project health:
 
 | Command | Edits Source Code? | Purpose |
 |---------|-------------------|---------|
 | [/massu-status](/docs/commands/massu-status) | No | Project health dashboard with 14 checks |
 | [/massu-review](/docs/commands/massu-review) | No | Automated 7-dimension code review |
-| [/massu-command-health](/docs/commands/massu-command-health) | No | Audit command quality and coverage |
-| [/massu-command-improve](/docs/commands/massu-command-improve) | Yes | Improve command definitions based on usage data |
-| [/massu-infra-audit](/docs/commands/massu-infra-audit) | No | Infrastructure configuration audit |
-| [/massu-learning-audit](/docs/commands/massu-learning-audit) | No | Audit pattern learning effectiveness |
-| [/massu-autoresearch](/docs/commands/massu-autoresearch) | No | Autonomous research loop with graduated escalation |
-| [/massu-data](/docs/commands/massu-data) | No | Database exploration and query helper |
 
 ## Decision Tree
 
@@ -175,22 +157,6 @@ Not sure which command to use?
 - **Ending a session** -- `/massu-recap`
 - **Got a tangential idea** -- `/massu-squirrels`
 - **Check hook status** -- `/massu-hooks`
-- **Security audit** -- `/massu-security`
-- **Performance profiling** -- `/massu-perf`
-- **UI design audit** -- `/massu-ui-audit`
-- **Type safety across layers** -- `/massu-type-mismatch-audit`
-- **Full codebase audit** -- `/massu-full-audit`
-- **Post-deploy verification** -- `/massu-production-verify`
-- **Revert a bad deploy** -- `/massu-rollback`
-- **Save mid-session progress** -- `/massu-checkpoint`
-- **Review an article** -- `/massu-article-review`
-- **Extract a new pattern** -- `/massu-new-pattern`
-- **Autonomous research** -- `/massu-autoresearch`
-- **Database exploration** -- `/massu-data`
-- **Command quality check** -- `/massu-command-health`
-- **Improve a command** -- `/massu-command-improve`
-- **Infrastructure audit** -- `/massu-infra-audit`
-- **Learning effectiveness** -- `/massu-learning-audit`
 
 ## Why This Workflow?
 

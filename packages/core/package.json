@@ -1,6 +1,6 @@
 {
   "name": "@massu/core",
-  "version": "0.6.1",
+  "version": "0.6.0",
   "type": "module",
   "description": "AI Engineering Governance MCP Server - Session memory, knowledge system, feature registry, code intelligence, rule enforcement, tiered tooling (12 free / 72 total), 55+ workflow commands, 11 agents, 20+ patterns",
   "main": "src/server.ts",
@@ -10,11 +10,9 @@
   "scripts": {
     "start": "npx tsx src/server.ts",
     "test": "vitest run",
-    "build": "tsc --noEmit && npm run build:cli && npm run build:hooks && npm run build:postinstall",
+    "build": "tsc --noEmit && npm run build:cli && npm run build:hooks",
     "build:cli": "esbuild --bundle --platform=node --format=esm --outfile=dist/cli.js src/cli.ts --external:better-sqlite3 --external:yaml --external:zod --banner:js='#!/usr/bin/env node\nimport{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
     "build:hooks": "esbuild --bundle --platform=node --format=esm --outdir=dist/hooks src/hooks/*.ts --external:better-sqlite3 --external:yaml --external:zod --banner:js='import{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
-    "build:postinstall": "esbuild --bundle --platform=node --format=esm --outfile=dist/postinstall.js src/postinstall.ts --external:better-sqlite3 --external:yaml --external:zod --banner:js='#!/usr/bin/env node\nimport{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
-    "postinstall": "node dist/postinstall.js",
     "prepublishOnly": "bash ../../scripts/prepublish-check.sh && npm run build"
   },
   "dependencies": {

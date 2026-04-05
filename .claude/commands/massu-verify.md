@@ -1,11 +1,11 @@
 ---
 name: massu-verify
-description: "When user says 'verify', 'run verification', 'check everything', or needs to run all VR-* verification checks with mandatory proof output before claiming work is complete"
+description: Run all VR-* verification checks for current work with mandatory proof output
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
 name: massu-verify
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-5, CR-12 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 
 # Massu Verify: Comprehensive Verification Protocol
 
@@ -20,15 +20,15 @@ Run ALL applicable VR-* verification checks and produce proof output. This comma
 - **Proof > Claims** - Show command output, not summaries
 - **ALL checks run** - Do not skip any applicable verification
 - **Zero tolerance** - Any failure blocks "complete" status
-- **No assumptions** - Query schema AND data, don't guess
+- **No assumptions** - Check actual state, don't guess
 - **Plan Coverage** - Verify ALL plan items, not just code quality
 - **VR-CONFIG mandatory** - For config-driven features, verify config values match code expectations
-- **VR-TEST mandatory** - ALL tests MUST pass, tests are NEVER optional
+- **VR-TEST mandatory (CR-7)** - ALL tests MUST pass, tests are NEVER optional
 - **FIX ALL ISSUES ENCOUNTERED (CR-9)** - If ANY issue is discovered during verification - whether from current changes OR pre-existing - fix it immediately. "Not in scope" and "pre-existing" are NEVER valid reasons to skip a fix. When fixing a bug, search entire codebase for same pattern and fix ALL instances.
 
 ---
 
-## TEST REQUIREMENT (MANDATORY)
+## CR-7: TEST REQUIREMENT (MANDATORY)
 
 **ALL tests MUST pass before verification can be marked complete. Tests are NEVER optional.**
 
@@ -44,7 +44,7 @@ npm test
 | Tests not run | Run tests first | NO |
 | "Tests not applicable" | INVALID - tests are ALWAYS applicable | NO |
 
-**Why This Is Mandatory:**
+**Why This Is Mandatory (CR-7):**
 - "Tests are optional" escape hatch led to false "complete" claims
 - Tests catch regressions other checks miss
 - Production-grade means ALL tests pass
@@ -89,7 +89,7 @@ Based on verification scope, load relevant pattern files:
 | Tool modules | `.claude/patterns/tool-patterns.md` | Verifying MCP tools |
 | Config | `.claude/patterns/config-patterns.md` | Verifying config changes |
 | Hooks | `.claude/patterns/hook-patterns.md` | Verifying hook changes |
-| Build issues | `.claude/patterns/build-patterns.md` | Investigating failures |
+| Build | `.claude/patterns/build-patterns.md` | Investigating failures |
 
 ---
 
@@ -122,13 +122,13 @@ grep -rn "[removed_pattern]" packages/core/src/ | wc -l
 ### VR-BUILD: Build Integrity Verification
 ```bash
 npm run build
-# Expected: Exit 0, "Build complete" message
+# Expected: Exit 0
 # Failure: Exit non-zero or errors
 ```
 
 ### VR-TYPE: Type Safety Verification
 ```bash
-npx tsc --noEmit
+cd packages/core && npx tsc --noEmit
 # Expected: 0 errors
 # Failure: Any type errors
 ```
@@ -145,11 +145,11 @@ grep -c "[pattern]" [file]
 **Config existence does not equal correctness. A config key can exist with completely wrong values.**
 
 ```bash
-# VR-CONFIG-001: Validate config file
+# VR-CONFIG-001: Parse and validate massu.config.yaml
 node -e "const yaml = require('yaml'); const fs = require('fs'); yaml.parse(fs.readFileSync('massu.config.yaml', 'utf-8'));"
 
 # VR-CONFIG-002: Extract ALL config keys used in code
-grep -rn "getConfig()" packages/core/src/ | sed 's/.*\(config\.[a-zA-Z_]*\).*/\1/' | sort -u
+grep -rn "getConfig()" packages/core/src/ | grep -oP 'config\.\w+' | sort -u
 
 # VR-CONFIG-003: Verify config values match code expectations
 grep -rn "toolPrefix\|config\." packages/core/src/ | head -20
@@ -188,29 +188,18 @@ grep "getXToolDefinitions\|isXTool\|handleXToolCall" packages/core/src/tools.ts
 
 **Why this matters**: Build/type checks pass when code compiles, but don't verify tools are REGISTERED. A tool module that exists but isn't wired into tools.ts is USELESS to users.
 
-### VR-RENDER: Component Render Verification (CRITICAL)
-```bash
-# For EACH UI component claimed to be "implemented":
-
-# 1. Verify component file exists
-ls -la src/components/[feature]/ComponentName.tsx
-
-# 2. Verify component is exported
-grep "export.*ComponentName" src/components/[feature]/index.ts
-
-# 3. CRITICAL: Verify component is RENDERED in a page
-grep "<ComponentName" src/app/**/page.tsx
-# Expected: Match found in at least one page file
-# Failure: 0 matches = component NOT implemented (just created)
-```
-
-**Why this matters**: Build/type checks pass when code compiles, but don't verify components are USED. A component that exists but isn't rendered in any page is USELESS to users.
-
 ### VR-INTEGRATION: Full Integration Verification
 ```bash
-# Module is imported AND registered AND build passes
+# Tool is imported AND registered AND build passes
 grep "[ModuleName]" packages/core/src/tools.ts && npm run build
 # Expected: Both checks pass
+```
+
+### VR-HOOK-BUILD: Hook Compilation Verification
+```bash
+cd packages/core && npm run build:hooks
+# Expected: Exit 0
+# Failure: Compilation error
 ```
 
 ### VR-REUSE: Component/Code Reuse Verification
@@ -221,33 +210,14 @@ grep -rn "[functionality]" packages/core/src/
 # Expected: Use existing or document why new needed
 ```
 
-### VR-FLOW: User Flow Verification
-```bash
-# For each button/action, trace complete path:
-# 1. Button onClick handler exists
-grep "onClick={" [component]
-
-# 2. Handler calls API
-grep "api\.[router]\.[procedure]" [component]
-
-# 3. Response handled
-grep "onSuccess\|onError\|toast\." [component]
-
-# 4. UI updates
-grep "refetch\|invalidate\|set" [component]
-```
-
 ### VR-STATES: State Completeness Verification
 ```bash
-# For data fetching components, verify all states:
-# Loading state
-grep "isLoading\|isPending" [file]
+# For tool handlers, verify all states:
+# Success response
+grep "content.*text" [file]
 
-# Error state
-grep "isError\|error\s*&&" [file]
-
-# Empty state
-grep "length === 0\|EmptyState" [file]
+# Error handling
+grep "try\|catch\|error" [file]
 
 # Expected: All states handled
 ```
@@ -258,7 +228,7 @@ grep "length === 0\|EmptyState" [file]
 
 ```bash
 # Step 1: Find where type is defined
-grep "interface.*Props" [parent_component] | grep "[propName]"
+grep "interface\|type.*=" [source_file]
 
 # Step 2: Verify type is exported
 grep "export.*TypeName" [source_file]
@@ -277,110 +247,36 @@ grep "TypeName" [consumer_file] | grep -v "import"
 | ToolResult | tools.ts | module.ts | handler | YES/NO | PASS/FAIL |
 ```
 
-### VR-HANDLER: Tool/Button Handler Verification (CRITICAL)
+### VR-HANDLER: Tool Handler Verification (CRITICAL)
 
-**For EVERY tool or button, verify the handler exists AND does something.**
+**For EVERY tool, verify the handler exists AND does something.**
 
 ```bash
-# Step 1: Find all tool definitions or buttons with onClick
-grep -rn "name:.*_tool_\|onClick={" [component_or_module]
+# Step 1: Find all tool definitions
+grep -rn "name:.*_tool_" packages/core/src/
 
-# Step 2: For each, find the handler
-grep "case.*tool_name\|const [handlerName] = " [file]
+# Step 2: For each tool, find the handler
+grep "case.*tool_name" packages/core/src/
 
 # Step 3: Verify handler does something (not empty)
-grep -A 10 "case.*tool_name\|const [handlerName] = " [file] | grep "return\|api\.\|toast\.\|set\|router"
+grep -A 10 "case.*tool_name" packages/core/src/ | grep "return"
 ```
-
-**Common failures:**
-- `onClick={handleSomething}` but `handleSomething` not defined
-- `onClick={() => {}}` - empty handler
-- `onClick={handleSomething}` but `handleSomething` only logs to console
 
 ```markdown
 ### VR-HANDLER Verification
-| Tool/Action | Handler | Defined? | Does Something? | Status |
-|-------------|---------|----------|-----------------|--------|
+| Tool | Handler | Defined? | Does Something? | Status |
+|------|---------|----------|-----------------|--------|
 | tool_action | handleAction | YES | Returns result | PASS |
-| Delete button | handleDelete | YES | Empty function | FAIL |
-```
-
-### VR-API-CONTRACT: Frontend-Backend Contract Verification (CRITICAL)
-
-**Verify frontend calls EXACTLY match backend procedure definitions.**
-
-```bash
-# Step 1: Find frontend API calls
-grep -rn "api\.[router]\.[procedure]" src/components/ src/app/
-
-# Step 2: Verify procedure exists in router
-grep "[procedure]:" src/server/api/routers/[router].ts
-
-# Step 3: Verify input schema matches
-# Frontend call:
-grep -A 5 "api\.[router]\.[procedure]" [component] | grep "mutate\|useQuery"
-
-# Backend expects:
-grep -A 10 "[procedure]:" src/server/api/routers/[router].ts | grep "input"
-```
-
-**Common failures:**
-- Frontend calls `api.users.getUser` but backend has `api.users.getUserById`
-- Frontend sends `{ id }` but backend expects `{ userId }`
-- Frontend expects return type that backend doesn't return
-
-```markdown
-### VR-API-CONTRACT Matrix
-| Frontend Call | Backend Procedure | Exists? | Input Matches? | Status |
-|---------------|-------------------|---------|----------------|--------|
-| api.users.getById | users.getById | YES | YES | PASS |
-| api.products.create | products.create | YES | NO (missing field) | FAIL |
+| tool_other | undefined | NO | N/A | FAIL |
 ```
 
 ### VR-ENV: Environment Variable Parity
-
-**Verify all required environment variables exist across all deployment environments.**
-
 ```bash
 # Step 1: Find all env var usage
-grep -rn "process.env\." packages/core/src/ src/ | sed 's/.*\(process\.env\.[a-zA-Z_]*\).*/\1/' | sort -u
+grep -rn "process.env\." packages/core/src/ | grep -oP 'process\.env\.\w+' | sort -u
 
-# Step 2: Compare to .env.example
-cat .env.example | grep -v "^#" | cut -d= -f1 | sort
-
-# Step 3: Verify each env var is documented
+# Step 2: Verify each env var is documented
 ```
-
-```markdown
-### VR-ENV Matrix
-| Variable | .env.example | CI/CD | Status |
-|----------|--------------|-------|--------|
-| DATABASE_URL | YES | YES | PASS |
-| API_KEY | YES | NO | FAIL |
-```
-
-### VR-RUNTIME: Runtime Behavior Verification
-
-**After ALL other VR-* checks pass, verify feature actually WORKS at runtime.**
-
-```markdown
-### VR-RUNTIME Manual Verification Checklist
-
-For each feature/change:
-1. [ ] Start dev server or run the tool
-2. [ ] Navigate to affected page or invoke affected command
-3. [ ] Perform the action being implemented
-4. [ ] Verify expected result occurs
-5. [ ] Check for errors in output/console
-6. [ ] Verify data persisted (if applicable)
-
-### Runtime Test Results
-| Feature | Action Taken | Expected Result | Actual Result | Status |
-|---------|--------------|-----------------|---------------|--------|
-| [feature] | [action] | [expected] | [actual] | PASS/FAIL |
-```
-
-**Why this is last**: All other VR-* verifications check that code EXISTS and COMPILES. VR-RUNTIME verifies it actually WORKS.
 
 ### VR-DEFAULTS: Default Value Alignment
 
@@ -397,7 +293,6 @@ grep -rn "?? '" packages/core/src/ | grep -v node_modules
 | Field | Config Default | Code Default | Match? | Status |
 |-------|---------------|--------------|--------|--------|
 | toolPrefix | 'massu' | 'massu' | YES | PASS |
-| priority | 'normal' | 'high' | NO | FAIL |
 ```
 
 ### VR-PLAN-COVERAGE: Plan Item Coverage Verification (CRITICAL)
@@ -459,7 +354,7 @@ git diff --cached --name-only | grep -E '\.(env|pem|key|secret)' && echo "FAIL: 
 
 ### No Credentials in Code
 ```bash
-grep -rn "sk-\|password.*=.*['\"]" --include="*.ts" --include="*.tsx" packages/core/src/ src/ | grep -v "process.env" | wc -l
+grep -rn "sk-\|password.*=.*['\"]" --include="*.ts" packages/core/src/ | grep -v "process.env" | wc -l
 # Expected: 0
 ```
 
@@ -510,7 +405,7 @@ npm run build
 
 ## VR-TYPE Verification
 ```bash
-npx tsc --noEmit
+cd packages/core && npx tsc --noEmit
 ```
 **Status**: PASS/FAIL
 **Errors**: 0/N
@@ -563,7 +458,7 @@ npx tsc --noEmit
 - VR-BUILD: PASS/FAIL
 - VR-TYPE: PASS/FAIL
 - VR-CONFIG: X/X PASS (config-code alignment verified)
-- VR-TOOL-REG: X/X PASS (tools registered)
+- VR-TOOL-REG: X/X PASS (tools registered in tools.ts)
 - Patterns: X/X PASS
 - Security: X/X PASS
 
@@ -600,8 +495,9 @@ For faster verification, use **Task agents** to run independent checks simultane
 ```markdown
 ### Launch Parallel Verification Agents (single message, all at once)
 - Agent 1: "Run pattern scanner" -> bash scripts/massu-pattern-scanner.sh
-- Agent 2: "Run TypeScript check" -> npx tsc --noEmit
+- Agent 2: "Run TypeScript check" -> cd packages/core && npx tsc --noEmit
 - Agent 3: "Run unit tests" -> npm test
+- Agent 4: "Run hook build" -> cd packages/core && npm run build:hooks
 ```
 
 ### Benefits
@@ -620,7 +516,7 @@ For quick checks without full report:
 ```bash
 # Run all critical checks
 bash scripts/massu-pattern-scanner.sh && \
-npx tsc --noEmit && \
+cd packages/core && npx tsc --noEmit && \
 npm run build && \
 echo "QUICK VERIFY: PASS"
 ```
@@ -718,7 +614,7 @@ Complete this enumeration before running any commands:
 |---|------------|--------|----------------|--------|
 | 1 | VR-BUILD | Full project | Always required | PENDING |
 | 2 | VR-TYPE | Full project | Always required | PENDING |
-| 3 | VR-TEST | Full project | Always required | PENDING |
+| 3 | VR-TEST | Full project | Always required (CR-7) | PENDING |
 | ... | ... | ... | ... | ... |
 
 **Total checks planned**: [N]
@@ -733,9 +629,9 @@ Complete this enumeration before running any commands:
 | VR-NEGATIVE | Code removed |
 | VR-CONFIG | Config changes |
 | VR-TOOL-REG | New MCP tools |
-| VR-HANDLER, VR-API-CONTRACT | Tool handlers, frontend-backend calls |
+| VR-HOOK-BUILD | Hook changes |
+| VR-HANDLER | Tool handlers added |
 | VR-PLAN-COVERAGE | Implementing a plan |
-| VR-RUNTIME | After all other checks pass |
 
 ---
 

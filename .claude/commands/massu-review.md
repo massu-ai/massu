@@ -19,11 +19,11 @@ Perform a comprehensive code review across 7 dimensions: pattern compliance, sec
 
 ## NON-NEGOTIABLE RULES
 
-- Do NOT modify any files
-- Do NOT fix any issues found (report only)
+- Do NOT modify any files (this is a report-only tool)
 - Review ALL changed files, not just a sample
 - Security findings are ALWAYS reported, even if minor
 - Output structured findings that can be acted on
+- **ALL findings at ALL severity levels MUST be fixed by the caller (CR-45)** — this tool reports, the caller fixes. No severity is exempt. When used as part of a workflow (golden path, massu-loop, etc.), the parent command is responsible for fixing every finding before proceeding
 
 ---
 

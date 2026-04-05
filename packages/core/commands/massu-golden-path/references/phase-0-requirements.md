@@ -8,9 +8,9 @@
 [GOLDEN PATH -- PHASE 0: REQUIREMENTS & CONTEXT]
 ```
 
-- Call `massu_memory_sessions` for recent session context
-- Call `massu_memory_search` + `massu_memory_failures` with feature keywords
 - Read `session-state/CURRENT.md` for any prior state
+- Read `massu.config.yaml` for project configuration
+- Search memory files for relevant prior context
 
 ## 0.2 Requirements Coverage Map
 
@@ -20,7 +20,7 @@ Initialize ALL dimensions as `pending`:
 |---|-----------|--------|-------------|
 | D1 | Problem & Scope | pending | User request + interview |
 | D2 | Users & Personas | pending | Interview |
-| D3 | Data Model | pending | Phase 1A (DB Reality Check) |
+| D3 | Data Model | pending | Phase 1A (Config/Schema Reality Check) |
 | D4 | Backend / API | pending | Phase 1A (Codebase Reality Check) |
 | D5 | Frontend / UX | pending | Interview + Phase 1A |
 | D6 | Auth & Permissions | pending | Phase 1A (Security Pre-Screen) |

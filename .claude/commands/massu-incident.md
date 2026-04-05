@@ -1,23 +1,22 @@
 ---
 name: massu-incident
 description: "When a bug is confirmed, a production issue is found, or user reports 'this broke', 'incident', 'production error' — triggers incident documentation protocol"
-allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), mcp__massu-codegraph__massu_memory_ingest
+allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-incident
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
-
 # Massu Incident: Automated Post-Mortem & Prevention Pipeline
+
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
 
 ## Objective
 
 When a bug is discovered that an audit should have caught, execute a
 structured post-mortem that AUTOMATICALLY:
 1. Logs the incident to INCIDENT-LOG.md
-2. Ingests it into massu memory (high importance)
-3. Proposes a new CR rule or VR-* check
-4. Proposes a pattern-scanner addition
-5. Updates relevant protocol files with incident reminder
+2. Proposes a new CR rule or VR-* check
+3. Proposes a pattern-scanner addition
+4. Updates relevant protocol files with incident reminder
 
 ## INPUT
 
@@ -65,54 +64,32 @@ Append to `.claude/incidents/INCIDENT-LOG.md`:
 **Lesson**: [one-line lesson]
 ```
 
-## STEP 4: INGEST INTO MASSU MEMORY
+## STEP 4: PROPOSE PREVENTION
 
-Use `mcp__massu-codegraph__massu_memory_ingest` to record:
-```json
-{
-  "type": "failed_attempt",
-  "title": "INCIDENT #[N]: [short title]",
-  "detail": "[root cause and lesson]",
-  "importance": 5,
-  "cr_rule": "[relevant CR]",
-  "files_involved": "[file list]"
-}
-```
-
-This ensures the incident surfaces automatically in future sessions
-via the session-start hook's failed_attempt query.
-
-## STEP 5: PROPOSE PREVENTION
-
-### 5a: New CR Rule (if pattern is new)
+### 4a: New CR Rule (if pattern is new)
 If the failure mode isn't covered by existing CRs:
 - Propose CR-[N+1] with rule text
 - Add to CLAUDE.md CR table
-- Add to Zero Tolerance table
 
-### 5b: New VR-* Check (always)
+### 4b: New VR-* Check (always)
 Every incident MUST produce a verifiable check:
 - Define the verification command
 - Add to VR table in CLAUDE.md
 - Specify when to run it
 
-### 5c: Pattern Scanner Rule (if automatable)
+### 4c: Pattern Scanner Rule (if automatable)
 If the failure can be caught by grep:
 - Add rule to `scripts/pattern-scanner.sh`
 - Test it catches the original failure
 - Verify it doesn't false-positive
 
-### 5d: Protocol Update (always)
+### 4d: Protocol Update (always)
 Add incident reminder to the protocol that should have caught it:
 - Add `## INCIDENT #[N] REMINDER` section
 - Explain the failure mode
 - Explain what to check for
 
-## STEP 6: UPDATE CLAUDE.md INCIDENT SUMMARY
-
-Update the incident count and add the new row to the incident table.
-
-## STEP 7: VERIFY PREVENTION WORKS
+## STEP 5: VERIFY PREVENTION WORKS
 
 ```bash
 # If pattern-scanner rule added:
@@ -120,9 +97,6 @@ Update the incident count and add the new row to the incident table.
 
 # If VR-* check added, run it:
 [verification command]
-
-# Confirm incident is in memory:
-# (will surface at next session start automatically)
 ```
 
 ## OUTPUT
@@ -132,23 +106,21 @@ Update the incident count and add the new row to the incident table.
 
 ### Incident #[N]: [Title]
 - Logged to: INCIDENT-LOG.md
-- Ingested to: massu memory (importance: 5)
 - CR rule: [CR-XX added/updated]
 - VR check: [VR-XX added]
 - Pattern scanner: [rule added / not automatable]
 - Protocol updated: [which protocol]
 
 ### Prevention Chain
-1. Memory: Will surface at session start in related domains
-2. Pattern scanner: Will catch at pre-push
-3. Protocol: Explicit reminder in [protocol name]
-4. CR rule: Documented in CLAUDE.md
-5. MEMORY.md: Wrong vs correct pattern recorded for all future sessions
+1. Pattern scanner: Will catch at pre-push
+2. Protocol: Explicit reminder in [protocol name]
+3. CR rule: Documented in CLAUDE.md
+4. MEMORY.md: Wrong vs correct pattern recorded for all future sessions
 
-**This failure mode is now prevented at 5 levels.**
+**This failure mode is now prevented at 4 levels.**
 ```
 
-## STEP 8: UPDATE MEMORY.md (MANDATORY)
+## STEP 6: UPDATE MEMORY.md (MANDATORY)
 
 Every incident MUST be recorded in `memory/MEMORY.md` with the wrong vs correct pattern:
 
@@ -162,7 +134,7 @@ Every incident MUST be recorded in `memory/MEMORY.md` with the wrong vs correct 
 This ensures that even without accessing the incident log, future sessions
 will have the pattern in their system prompt via MEMORY.md.
 
-## STEP 9: CODEBASE-WIDE SEARCH (CR-9)
+## STEP 7: CODEBASE-WIDE SEARCH (CR-9)
 
 Search the ENTIRE codebase for the same bad pattern that caused the incident:
 ```bash
@@ -171,7 +143,7 @@ grep -rn "[bad_pattern]" src/ --include="*.ts" --include="*.tsx"
 Fix ALL instances found. The incident that triggered this post-mortem
 may not be the only occurrence.
 
-## STEP 10: VR-COUPLING CHECK
+## STEP 8: COUPLING CHECK
 
 If the incident involved a feature that was implemented but not exposed in the UI, run the coupling check to verify all backend procedures have UI exposure:
 
@@ -184,7 +156,6 @@ If the incident involved a feature that was implemented but not exposed in the U
 
 ## Gotchas
 
-- **Ingest to memory immediately** — every incident MUST be saved to `.claude/memory/` files BEFORE the session ends. Lost incident knowledge = repeated incidents
 - **Update INCIDENT-LOG.md** — every incident gets a numbered entry in `incidents/INCIDENT-LOG.md` with root cause, prevention, and CR reference
 - **Add CR if pattern emerges** — if the incident reveals a repeatable failure pattern, add a new Canonical Rule to CLAUDE.md
 - **Update pattern scanner** — if the incident could be caught by static analysis, add a check to `scripts/pattern-scanner.sh`

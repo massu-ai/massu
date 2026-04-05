@@ -14,6 +14,20 @@
 
 ---
 
+## ZERO-TOLERANCE: FIX ALL ISSUES AT ALL SEVERITY LEVELS (CR-45)
+
+**Every issue discovered during any command — security, design, gaps, enhancements, accessibility, performance, UX, architecture — MUST be fixed regardless of severity.** CRITICAL, HIGH, MEDIUM, LOW: all get fixed. No severity is exempt. No deferring. No "document and proceed." No "user decides." If the command finds it, the command fixes it.
+
+This applies universally to:
+- Security audits (CRITICAL through LOW — all fixed)
+- Gap & enhancement analysis (all gaps AND all enhancements — implemented)
+- Code reviews (all findings — fixed before completion)
+- Simplification (all efficiency/reuse/pattern findings — applied)
+- Multi-perspective reviews (security, architecture, UX — all findings fixed)
+- Any other review, audit, or analysis phase
+
+**"Clean pass" means ZERO findings at ALL severity levels.** Declaring completion with unfixed LOW/MEDIUM findings is a protocol violation.
+
 ## ENTERPRISE-GRADE SOLUTIONS ONLY (CR-14)
 
 All work MUST be enterprise-grade: production-ready, permanent, professional. No temporary fixes, workarounds, or "quick fixes". If a proper solution requires more work, do that work.

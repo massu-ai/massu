@@ -7,7 +7,7 @@
 ```
 ITERATION N:
   1. [EXECUTE] Perform task segment
-  2. [GUARDRAIL] Run pattern-scanner.sh (ABORT if fails)
+  2. [GUARDRAIL] Run massu-pattern-scanner.sh (ABORT if fails)
   3. [GUARDRAIL] Check for security violations
   4. [VERIFY] Run applicable VR-* checks
   5. [AUDIT] Count gaps
@@ -22,27 +22,27 @@ ITERATION N:
 
 ### MEMORY CHECK (Start of Each Iteration)
 
-Query `massu_memory_failures` and `massu_memory_search` for failures related to this plan's domain and files being modified. Surface relevant past failures as additional audit checkpoints.
+Search memory files and session state for failures related to this plan's domain and files being modified. Surface relevant past failures as additional audit checkpoints.
 
 ### Enhanced Context Loading
 
 For each file being modified:
 - `massu_context` - Load CR rules, schema alerts, patterns relevant to the file
-- `massu_coupling_check` - Verify frontend-backend coupling (CR-12/CR-23)
+- `massu_coupling_check` - Verify tool registration coupling (CR-11)
 - `massu_knowledge_rule` - Load applicable CR rules for the file's domain
 - `massu_knowledge_verification` - Load required VR-* checks for the file type
 
-For VR-COUPLING checks, also call `massu_trpc_map` to get automated procedure-to-UI mapping and compare against check-coupling.sh results for comprehensive coverage.
+For VR-TOOL-REG checks, also call `massu_trpc_map` to get automated tool-to-handler mapping for comprehensive coverage.
 
-When verifying CR-32 feature registration, use `massu_sentinel_detail` to get full feature details and verify all linked components/procedures/pages exist.
+When verifying CR-11 tool registration, use `massu_sentinel_detail` to get full feature details and verify all linked components/tools/handlers exist.
 
 When CR-30 applies (rebuilds), call `massu_sentinel_parity` to compare old vs new implementation for feature parity.
 
 ### Mandatory Checks
 
 ```bash
-# Pattern scanner (covers P-001 through P-008)
-./scripts/pattern-scanner.sh
+# Pattern scanner (covers all pattern checks)
+bash scripts/massu-pattern-scanner.sh
 # Exit 0 = PASS, non-zero = ABORT iteration
 
 # Security check
@@ -51,21 +51,53 @@ git diff --cached --name-only | grep -E '\.(env|pem|key|secret)' && echo "SECURI
 
 ---
 
-## UI/UX VERIFICATION (When UI Work Done)
+## IMPLEMENTATION PROTOCOL
 
-Trace ALL: buttons (onClick -> handler -> API), navigation (href/router.push), props chains (source -> consumer), callbacks (defined -> called), state (init -> update -> render), end-to-end flows. Verify loading/error/empty/success states exist. Run `./scripts/check-ux-quality.sh`.
+### For EACH Plan Item
+
+1. **Read the plan item** from the extracted list
+2. **Read any referenced files** before modifying
+3. **Implement** following CLAUDE.md patterns
+4. **Verify** with the item's verification command
+5. **Update coverage** count
+6. **Continue** to next item
+
+### Pattern Compliance During Implementation
+
+For every file you create or modify, verify against:
+
+```bash
+# Run pattern scanner
+bash scripts/massu-pattern-scanner.sh
+
+# Type check
+cd packages/core && npx tsc --noEmit
+
+# Tests still pass
+npm test
+```
+
+### Massu-Specific Implementation Checks
+
+| If Implementing | Must Also |
+|-----------------|-----------|
+| New MCP tool | Wire 3 functions into tools.ts (CR-11) |
+| New hook | Verify esbuild compilation (CR-12) |
+| Config changes | Update interface in config.ts AND example in YAML |
+| New test | Place in `__tests__/` directory |
+| New module | Use ESM imports, getConfig() for config |
 
 ---
 
-## API/ROUTER VERIFICATION (When API Work Done)
+## API/TOOL VERIFICATION (When Tool Work Done)
 
-Verify procedures exist with `protectedProcedure` for mutations, input schemas defined, client calls match server definitions, and procedures exported in root router.
+Verify tools exist with 3-function pattern (getDefs, isTool, handleCall) in tools.ts, input schemas defined, and tool registration is complete.
 
 ---
 
 ## ENVIRONMENT & CONFIG VERIFICATION
 
-Verify env vars documented, no hardcoded secrets (`grep -rn "sk-\|password.*=" src/` = 0), config files exist.
+Verify env vars documented, no hardcoded secrets (`grep -rn "sk-\|password.*=" packages/core/src/` = 0), config files exist.
 
 ---
 
@@ -78,7 +110,7 @@ Check for `console.log` (remove for production), error boundaries exist, null sa
 ## ITERATION OUTPUT FORMAT
 
 ```markdown
-## [MASSU LOOP - Iteration N]
+## [CS LOOP - Iteration N]
 
 ### Task
 Phase: X | Task: [description]
@@ -112,4 +144,4 @@ Update `session-state/CURRENT.md` with: loop status (task, iteration, phase, che
 
 ## CONTEXT MANAGEMENT
 
-Use Task tool with subagents for exploration to keep main context clean. Update session state before compaction. After compaction, read recovery.md and resume from correct step. Never mix unrelated tasks during a protocol.
+Use Task tool with subagents for exploration to keep main context clean. Update session state before compaction. After compaction, read session state and resume from correct step. Never mix unrelated tasks during a protocol.

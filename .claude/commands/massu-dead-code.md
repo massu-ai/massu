@@ -1,17 +1,17 @@
 ---
 name: massu-dead-code
-description: "When user asks about unused code, says 'find dead code', 'clean up unused', or wants to reduce codebase size by removing unreferenced exports"
+description: Detect and remove dead code — orphaned modules, unused exports, unused dependencies
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-dead-code
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu Dead Code: Automated Dead Code Detection & Removal
 
 ## Objective
 
-Identify and safely remove dead code (orphaned components, unused exports, unused dependencies, unreferenced files) using a combination of knip, audit-dead-code.sh, and manual verification.
+Identify and safely remove dead code (orphaned modules, unused exports, unused dependencies, unreferenced files) using manual verification and codebase analysis.
 
 ---
 
@@ -27,31 +27,36 @@ Identify and safely remove dead code (orphaned components, unused exports, unuse
 
 ## PROTOCOL
 
-### Step 1: Run knip
+### Step 1: Inventory Source Files
 
 ```bash
-npm run knip 2>&1 | tee /tmp/knip-output.txt
+# List all source files
+find packages/core/src -name "*.ts" -not -path "*/__tests__/*" -not -path "*/node_modules/*" | sort
+
+# List all exports
+grep -rn "export " packages/core/src/ --include="*.ts" | grep -v "__tests__" | grep -v "node_modules"
 ```
 
-Capture counts: unused files, unused dependencies, unused exports, unused types.
+### Step 2: Find Unused Exports
 
-### Step 2: Run audit-dead-code.sh
+For each exported function/class/constant, check if it's imported elsewhere:
 
 ```bash
-./scripts/audit-dead-code.sh 2>&1 | tee /tmp/dead-code-audit.txt
+# For each export, verify it has importers
+grep -rn "import.*[name]" packages/core/src/ --include="*.ts"
 ```
 
-Cross-reference with knip findings.
+Cross-reference with `tools.ts` registrations - tool definitions and handlers are always "used" even if not directly imported elsewhere.
 
 ### Step 3: Categorize Findings
 
 | Category | Source | Action |
 |----------|--------|--------|
-| ORPHANED_COMPONENT | knip + audit | Verify no dynamic imports, remove if truly orphaned |
-| UNUSED_EXPORT | knip | Check if used via barrel re-export, remove if dead |
-| UNUSED_DEPENDENCY | knip | `npm uninstall` after verifying not dynamically required |
-| UNUSED_FILE | knip | Verify no require() or dynamic import(), remove if dead |
-| DEAD_PROCEDURE | audit | Verify not called from any UI, remove if dead |
+| ORPHANED_MODULE | No imports found | Verify not dynamically loaded, remove if truly orphaned |
+| UNUSED_EXPORT | No importers | Check if used via re-export, remove if dead |
+| UNUSED_DEPENDENCY | package.json | `npm uninstall` after verifying not dynamically required |
+| UNUSED_FILE | No references | Verify no require() or dynamic import(), remove if dead |
+| DEAD_FUNCTION | Never called | Verify not exported for external use, remove if dead |
 
 ### Step 4: Verify Each Finding
 
@@ -59,10 +64,10 @@ For EACH candidate removal:
 
 ```bash
 # Check for all possible import patterns
-grep -rn "import.*[name]" src/ --include="*.ts" --include="*.tsx"
-grep -rn "require.*[name]" src/ --include="*.ts" --include="*.tsx"
-grep -rn "dynamic.*import.*[name]" src/ --include="*.ts" --include="*.tsx"
-grep -rn "<[ComponentName]" src/ --include="*.tsx"
+grep -rn "import.*[name]" packages/core/src/ --include="*.ts"
+grep -rn "require.*[name]" packages/core/src/ --include="*.ts"
+grep -rn "[name]" packages/core/src/tools.ts
+grep -rn "[name]" massu.config.yaml
 ```
 
 If ANY reference found: KEEP (mark as false positive).
@@ -75,7 +80,7 @@ If NO references found: candidate for removal.
 
 | # | File/Export | Category | References Found | Action | Risk |
 |---|------------|----------|-----------------|--------|------|
-| 1 | src/components/X.tsx | ORPHAN | 0 | REMOVE | Low |
+| 1 | packages/core/src/X.ts | ORPHAN | 0 | REMOVE | Low |
 | 2 | lodash (dep) | UNUSED_DEP | 0 direct | UNINSTALL | Medium |
 ```
 
@@ -86,9 +91,9 @@ If NO references found: candidate for removal.
 After user approval:
 1. Remove files/exports/dependencies
 2. Run `npm run build` (VR-BUILD)
-3. Run `npx tsc --noEmit` (VR-TYPE)
+3. Run `cd packages/core && npx tsc --noEmit` (VR-TYPE)
 4. Run `npm test` (VR-TEST)
-5. Run `./scripts/pattern-scanner.sh`
+5. Run `bash scripts/massu-pattern-scanner.sh`
 
 ### Step 7: Report
 
@@ -108,17 +113,17 @@ After user approval:
 ## QUICK COMMANDS
 
 ```bash
-# Full knip report
-npm run knip
-
-# Strict mode (fails on any issue)
-npm run knip:strict
-
-# Existing dead code audit
-./scripts/audit-dead-code.sh
+# Check for unused dependencies
+npx depcheck packages/core
 
 # Pattern scanner (verify no violations introduced)
-./scripts/pattern-scanner.sh
+bash scripts/massu-pattern-scanner.sh
+
+# Full build verification
+npm run build
+
+# Full test suite
+npm test
 ```
 
 ---

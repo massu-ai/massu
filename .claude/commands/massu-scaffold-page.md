@@ -6,6 +6,8 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 
 # Scaffold New Page
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
+
 Creates a complete Next.js App Router page following all project patterns.
 
 ## What Gets Created
@@ -91,8 +93,7 @@ export default function Error({ error, reset }: { error: Error; reset: () => voi
 - **ALWAYS use `page-container`** class on root div — never `container mx-auto`
 - **Suspense boundaries** are REQUIRED for pages using `use(params)` or `useSearchParams()`
 - **protectedProcedure** for ALL tRPC queries that need auth
-- **No `sm:page-container`** — only exception is mobile chat layouts
-- **Breadcrumbs**: Add to PageHeader if page is nested (e.g., `/crm/contacts/[id]`)
+- **Breadcrumbs**: Add to PageHeader if page is nested (e.g., `/dashboard/settings/[id]`)
 
 ## Process
 

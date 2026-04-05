@@ -23,9 +23,6 @@
 | VR-BROWSER | Playwright: navigate, snapshot, console_messages, interact | 0 errors, UI works | ANY UI fix/change (CR-41) |
 | VR-SPEC-MATCH | Grep for EXACT CSS classes/structure from plan | All plan-specified strings found | UI plan items (CR-42) |
 | VR-PIPELINE | Trigger pipeline procedure, verify non-empty output | Output contains data | Data pipeline features (CR-43) |
-| VR-BOOT | Start service via launchctl/python, wait 5s, check process alive + exit 0 | Process running after 5s | ANY plan item creating/modifying a daemon, LaunchAgent, or service (CR-44) |
-| VR-DEPS | Verify `.venv/bin/python3` exists + all imports in main.py are importable | All imports resolve | ANY Python service with a venv-based plist (CR-44) |
-| VR-COMPAT | Check Python version vs syntax used (`\|` unions require 3.10+, `match` requires 3.10+) | No version-incompatible syntax | Python services on systems with Python < 3.10 (CR-44) |
 
 **Full VR-* reference (50+ types)**: [reference/vr-verification-reference.md](../../reference/vr-verification-reference.md)
 

@@ -1,5 +1,7 @@
 # Error Handling
 
+> **Shared rules apply.** Read .claude/commands/_shared-preamble.md before proceeding.
+
 > Reference doc for `/massu-golden-path`. Return to main file for overview.
 
 ## Recoverable Errors
@@ -54,11 +56,11 @@ TO RESUME:
 
 ---
 
-## Post-Compaction Re-Verification (CR-42)
+## Post-Compaction Re-Verification (CR-12)
 
 **After ANY context compaction during a golden path run**, BEFORE continuing implementation:
 
-1. **Re-read the FULL plan document** from disk (CR-5 -- never from memory)
+1. **Re-read the FULL plan document** from disk (never from memory)
 2. **Diff every completed item against actual code**: For each item marked complete in the tracking table, re-run its VR-* verification command
 3. **VR-SPEC-MATCH audit**: For every completed UI item with specific CSS classes/structure in the plan, grep for those EXACT strings in the implementation
 4. **Flag mismatches**: Any item where implementation doesn't match the plan's exact spec -> mark as gap, fix before continuing

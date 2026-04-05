@@ -7,24 +7,20 @@
 ```
 CHECKPOINT AUDIT FLOW:
 [1] READ plan section for this checkpoint
-[2] QUERY database to verify tables/columns/policies/grants (all envs)
-[3] GREP router files to verify procedures exist
-[4] LS component files to verify they exist
-[5] VR-RENDER: Verify UI components are RENDERED in pages (not just created)
-[6] VR-COUPLING: Run ./scripts/check-coupling.sh (backend features exposed in UI)
-[7] GREP for pattern violations (P-001 through P-008)
-[8] RUN build verification (npm run build)
-[9] RUN type verification (npx tsc --noEmit)
-[10] RUN lint verification (npm run lint)
-[11] RUN prisma validate (npx prisma validate)
-[12] RUN tests (npm test) - MANDATORY, NOT optional
-[13] RUN UI/UX verification (if UI changes)
-[14] RUN API/router verification (if API changes)
-[15] RUN security check (secrets staged)
-[16] COUNT gaps found
-[17] IF gaps > 0: FIX each gap, return to Step 1
-[18] IF gaps = 0: UPDATE session state
-[19] IF gaps = 0: Create checkpoint sign-off
+[2] GREP source files to verify modules/tools exist
+[3] LS files to verify they exist
+[4] VR-TOOL-REG: Verify tools are WIRED in tools.ts (not just created)
+[5] GREP for pattern violations
+[6] RUN build verification (npm run build)
+[7] RUN type verification (cd packages/core && npx tsc --noEmit)
+[8] RUN tests (npm test) - MANDATORY, NOT optional
+[9] RUN hook build (cd packages/core && npm run build:hooks)
+[10] RUN pattern scanner (bash scripts/massu-pattern-scanner.sh)
+[11] RUN security check (secrets staged)
+[12] COUNT gaps found
+[13] IF gaps > 0: FIX each gap, return to Step 1
+[14] IF gaps = 0: UPDATE session state
+[15] IF gaps = 0: Create checkpoint sign-off
 ```
 
 ---

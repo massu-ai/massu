@@ -12,6 +12,6 @@
 6. **Post-Compaction Recovery** - Read session state FIRST, re-read plan, resume from exact point.
 7. **No Claims Without Evidence** - "I verified...", "Build passed..." require accompanying proof output.
 8. **Failure Acknowledgment** - Acknowledge failures, re-execute audit from Step 1, log in session state.
-9. **User Flow Audit Required** - ALL buttons, links, callbacks, flows verified AFTER technical audits pass.
-10. **Component Reuse Verification** - Check existing components before creating new ones.
-11. **No Workarounds Allowed** - ctx.prisma, TODOs, ts-ignore are BLOCKING violations. Pattern scanner is a HARD GATE.
+9. **User Flow Audit Required** - ALL tools, hooks, handlers, flows verified AFTER technical audits pass.
+10. **Component Reuse Verification** - Check existing modules before creating new ones.
+11. **No Workarounds Allowed** - TODOs, ts-ignore are BLOCKING violations. Pattern scanner is a HARD GATE.

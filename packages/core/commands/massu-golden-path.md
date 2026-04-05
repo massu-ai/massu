@@ -5,17 +5,17 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Task(*), m
 ---
 name: massu-golden-path
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-12, CR-9 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 # Massu Golden Path: Requirements to Production Push
 
 ## Objective
 
 Execute the COMPLETE development workflow in one continuous run:
-**Requirements -> Plan Creation -> Plan Audit -> Implementation -> Gap Analysis -> Simplification -> Security Audit -> Commit -> Push**
+**Requirements -> Plan Creation -> Plan Audit -> Implementation -> Gap Analysis -> Simplification -> Commit -> Push**
 
 This command has FULL FEATURE PARITY with the individual commands it replaces:
-`/massu-create-plan` -> `/massu-plan` -> `/massu-loop` -> `/massu-loop-playwright` -> `/massu-simplify` -> `/massu-security` -> `/massu-commit` -> `/massu-push`
+`/massu-create-plan` -> `/massu-plan` -> `/massu-loop` -> `/massu-loop-playwright` -> `/massu-simplify` -> `/massu-commit` -> `/massu-push`
 
 ---
 
@@ -24,7 +24,7 @@ This command has FULL FEATURE PARITY with the individual commands it replaces:
 - **Complete workflow (CR-11)** -- ALL phases must execute, no skipping. 100% plan coverage required
 - **Zero failures** -- Each phase gate must pass before proceeding
 - **Proof required (CR-1)** -- VR-* output pasted, not summarized. "I verified" without output = invalid
-- **FIX ALL ISSUES ENCOUNTERED (CR-9)** -- Whether from current changes or pre-existing
+- **FIX ALL ISSUES AT ALL SEVERITY LEVELS (CR-9 + CR-45)** -- Whether from current changes or pre-existing. CRITICAL, HIGH, MEDIUM, LOW — ALL get fixed. No severity is exempt. This applies to security findings, gap analysis, enhancement analysis, code review, simplification, and every other review phase
 - **MEMORY IS MANDATORY (CR-38)** -- Persist ALL learnings before session ends
 - **Stagnation bail-out (CR-37)** -- If same item fails 3+ times, replan instead of grinding
 
@@ -62,7 +62,6 @@ After receiving approval, immediately continue. Do NOT ask "shall I continue?" -
 | **Continue** | `/massu-golden-path "Continue [feature]"` | Resume from session state |
 | **Competitive** | `/massu-golden-path --competitive "task"` | Spawn 2-3 competing implementations with bias presets, score, select winner |
 | **Competitive (3 agents)** | `/massu-golden-path --competitive --agents 3 "task"` | 3 agents with quality/ux/robust biases (default: 2 agents = quality + robust) |
-| **External Loop** | `/massu-golden-path --external /path/to/plan.md` | Phase 2 uses `scripts/loop-external.sh` for context-fresh iterations |
 
 ---
 
@@ -76,10 +75,9 @@ After receiving approval, immediately continue. Do NOT ask "shall I continue?" -
 | 2-COMP | Competitive Implementation | Spawn N agents with bias presets, score, select winner (`--competitive` only) | WINNER SELECTION |
 | 2.5 | Gap & Enhancement Analysis | Find+fix gaps, UX issues, security, pattern compliance; loop until zero | -- |
 | 3 | Simplification | Pattern scanner, parallel semantic review, apply findings | -- |
-| 3.5 | Deep Security Audit | Full adversarial audit loop with parallel red-team agents, iterate to zero findings | -- |
 | 4 | Pre-Commit Verification | Verification gates, quality scoring | COMMIT APPROVAL |
-| 5 | Push Verification | `scripts/push-verify.sh`, CI monitoring via `scripts/ci-status.sh` | PUSH APPROVAL |
-| 6 | Completion | Final report, plan update, auto-learning, feature registration | -- |
+| 5 | Push Verification | Push verification checks, CI monitoring | PUSH APPROVAL |
+| 6 | Completion | Final report, plan update, auto-learning | -- |
 
 ---
 
@@ -87,7 +85,7 @@ After receiving approval, immediately continue. Do NOT ask "shall I continue?" -
 
 Read `references/phase-0-requirements.md` for full details.
 
-**Summary**: Load session context via memory tools. Build a 10-dimension requirements coverage map (D1-D10). Run ambiguity detection (7 signals). If ambiguity score >= 2, enter interview loop. Fast-track to Phase 1 when D1, D2, D5 covered or user says "skip" / "just do it".
+**Summary**: Load session context via memory files. Build a 10-dimension requirements coverage map (D1-D10). Run ambiguity detection (7 signals). If ambiguity score >= 2, enter interview loop. Fast-track to Phase 1 when D1, D2, D5 covered or user says "skip" / "just do it".
 
 ---
 
@@ -96,8 +94,8 @@ Read `references/phase-0-requirements.md` for full details.
 Read `references/phase-1-plan-creation.md` for full details.
 
 **Summary**: Three sub-phases:
-- **1A: Research & Reality Check** -- Feature understanding, codebase check, blast radius analysis (CR-25), pattern compliance, backend-frontend coupling (CR-12), question filtering, security pre-screen (6 dimensions).
-- **1B: Plan Generation** -- Write plan to `docs/plans/[YYYY-MM-DD]-[feature-name].md` with P-XXX numbered items across 6 phases.
+- **1A: Research & Reality Check** -- Feature understanding, config/schema reality check, config-code alignment, codebase check, blast radius analysis (CR-25), pattern compliance, tool registration check, question filtering, security pre-screen (5 dimensions).
+- **1B: Plan Generation** -- Write plan to `docs/plans/[YYYY-MM-DD]-[feature-name].md` with P-XXX numbered items across 5 phases.
 - **1C: Plan Audit Loop** -- Subagent architecture. Iterate until GAPS_DISCOVERED = 0. Max 10 iterations.
 
 **Gate**: APPROVAL POINT #1: PLAN
@@ -108,12 +106,11 @@ Read `references/phase-1-plan-creation.md` for full details.
 
 Read `references/phase-2-implementation.md` for full details.
 
-**Summary**: Nine sub-phases (or external loop via `--external` flag using `scripts/loop-external.sh` for context-fresh iterations):
+**Summary**: Seven sub-phases:
 - **2A**: Extract plan items into tracking table, initialize session state
-- **2A.5**: Sprint contracts -- negotiate definition-of-done per plan item before implementation (scope boundary, acceptance criteria, VR-* mapping). See `references/sprint-contract-protocol.md`
 - **2B**: Implementation loop (pre-check, execute, guardrail, verify, update per item)
-- **2C**: Multi-perspective review (3 parallel agents: security, architecture, UX) + **QA evaluator** (conditional, UI plans only -- adversarial Playwright-based acceptance testing against sprint contracts). See `references/qa-evaluator-spec.md`
-- **2D**: Verification audit loop (subagent, circuit breaker CR-37, refine-or-pivot at 3+ iterations, sprint contract verification, max 10 iterations)
+- **2C**: Multi-perspective review (3 parallel agents: security, architecture, quality)
+- **2D**: Verification audit loop (subagent, circuit breaker CR-37, max 10 iterations)
 - **2E**: Post-build reflection + memory persist (CR-38)
 - **2F**: Documentation sync (if user-facing features)
 - **2G**: Browser verification & fix loop (auto-triggers if UI files changed, Playwright MCP)
@@ -126,7 +123,7 @@ Read `references/phase-2-implementation.md` for full details.
 
 Read `references/phase-2.5-gap-analyzer.md` for full details.
 
-**Summary**: After implementation completes, run a continuous gap and enhancement analysis loop. A subagent analyzes all changed files across 7 categories (functional gaps, UX gaps, data integrity, security, pattern compliance, enhancements, sprint contract compliance). VR-VISUAL uses weighted 4-dimension scoring (threshold >= 3.0). Every gap/enhancement found is fixed immediately. The loop re-runs until a full pass discovers ZERO gaps. Max 10 iterations. Skippable only for documentation-only changes or explicit user request.
+**Summary**: After implementation completes, run a continuous gap and enhancement analysis loop. A subagent analyzes all changed files across 6 categories (functional gaps, UX gaps, data integrity, security, pattern compliance, enhancements). Every gap/enhancement found is fixed immediately. The loop re-runs until a full pass discovers ZERO gaps. Max 10 iterations. Skippable only for documentation-only changes or explicit user request.
 
 ---
 
@@ -138,19 +135,11 @@ Read `references/phase-3-simplify.md` for full details.
 
 ---
 
-## PHASE 3.5: DEEP SECURITY AUDIT
-
-Read `references/phase-3.5-security-audit.md` for full details.
-
-**Summary**: Run a full adversarial security audit loop against ALL changed files. Launches 2-4 parallel red-team agents (injection, network/leakage, DoS, bypass) per iteration. Every finding is fixed in-place. Loop iterates until zero findings remain (max 5 iterations). This phase is NEVER skipped -- security is non-negotiable. Security fixes flow into Phase 4's verification gates automatically.
-
----
-
 ## PHASE 4: PRE-COMMIT VERIFICATION
 
 Read `references/phase-4-commit.md` for full details.
 
-**Summary**: Verification gates (pattern scanner, tsc, build, lint, secrets, VR-RENDER, VR-COUPLING, plan coverage, plan status, dep security). Quality scoring gate. Auto-fix on failure.
+**Summary**: Auto-verification gates (pattern scanner, tsc, build, tests, hooks, generalization, security, secrets, tool registration, plan coverage, plan status, dep security). Quality scoring gate. Auto-fix on failure.
 
 **Gate**: APPROVAL POINT #3: COMMIT
 
@@ -160,7 +149,7 @@ Read `references/phase-4-commit.md` for full details.
 
 Read `references/phase-5-push.md` for full details.
 
-**Summary**: Pre-flight (commits to push). Tier 1: quick re-verification. Tier 2: test suite with mandatory regression detection. Tier 3: security & compliance (npm audit, secrets scan). Tier 4: final gate.
+**Summary**: Pre-flight (commits to push). Tier 1: quick re-verification. Tier 2: test suite with mandatory regression detection. Tier 3: security & compliance. Tier 4: final gate.
 
 **Gate**: APPROVAL POINT #4: PUSH
 
@@ -170,7 +159,7 @@ Read `references/phase-5-push.md` for full details.
 
 Read `references/phase-6-completion.md` for full details.
 
-**Summary**: Final report with phase-by-phase status. Plan document update (IMPLEMENTATION STATUS at top). Auto-learning protocol (memory ingest for all fixes/patterns). Quality & observability report. Feature registration. Session state update.
+**Summary**: Final report with phase-by-phase status. Plan document update (IMPLEMENTATION STATUS at top). Auto-learning protocol (memory updates for all fixes/patterns). Session state update.
 
 ---
 
@@ -181,17 +170,13 @@ This skill is a folder. The following files are available for reference:
 | File | Purpose | Read When |
 |------|---------|-----------|
 | `references/phase-0-requirements.md` | Requirements interview, ambiguity detection, 10-dimension coverage map | Starting a new implementation from a task description |
-| `references/phase-1-plan-creation.md` | Blast radius analysis, plan generation, audit loop | Writing or auditing a plan |
-| `references/phase-2-implementation.md` | Item loop, sprint contracts, multi-perspective review, QA evaluator, verification audit, browser testing | Executing implementation; any Phase 2 sub-phase |
-| `references/sprint-contract-protocol.md` | Sprint contract template, quality bar, negotiation rules, skip conditions | Phase 2A.5 sprint contract negotiation |
-| `references/qa-evaluator-spec.md` | Adversarial QA evaluator: 4 dimensions, anti-leniency rules, known failure patterns | Phase 2C.2 QA evaluation (UI plans only) |
-| `references/vr-visual-calibration.md` | Score 5/3/1 calibration examples for VR-VISUAL weighted dimensions | Calibrating VR-VISUAL evaluator scoring |
-| `references/phase-2.5-gap-analyzer.md` | Gap/enhancement analysis loop, 7 categories (incl. sprint contract compliance), fix-and-repass until zero | After implementation, before simplification |
+| `references/phase-1-plan-creation.md` | Config/schema reality check, blast radius analysis, plan generation, audit loop | Writing or auditing a plan |
+| `references/phase-2-implementation.md` | Item loop, multi-perspective review, verification audit, browser testing | Executing implementation; any Phase 2 sub-phase |
+| `references/phase-2.5-gap-analyzer.md` | Gap/enhancement analysis loop, 6 categories, fix-and-repass until zero | After implementation, before simplification |
 | `references/phase-3-simplify.md` | Pattern scanner fast gate, dead code detection, parallel semantic review agents | Running simplification after implementation |
-| `references/phase-3.5-security-audit.md` | Deep adversarial security audit loop with parallel red-team agents, iterate to zero findings | After simplification, before commit verification |
-| `references/phase-4-commit.md` | Verification gates, quality scoring, commit format | Preparing a commit |
-| `references/phase-5-push.md` | Pre-flight, push verification, regression detection | Preparing to push to remote |
-| `references/phase-6-completion.md` | Final report, plan status update, auto-learning, feature registration | After all verification; completing the golden path |
+| `references/phase-4-commit.md` | Auto-verification gates, quality scoring, commit format | Preparing a commit |
+| `references/phase-5-push.md` | Pre-flight, 4-tier push verification, regression detection | Preparing to push to remote |
+| `references/phase-6-completion.md` | Final report, plan status update, auto-learning | After push; completing the golden path |
 | `references/approval-points.md` | Exact format and options for all 4 approval points (5 with --competitive: Plan, New Pattern, Winner Selection, Commit, Push) | Presenting any approval gate to the user |
 | `references/competitive-mode.md` | Competitive mode protocol: agent spawning, scoring, winner selection | Using --competitive flag |
 | `references/error-handling.md` | Abort handling, non-recoverable errors, post-compaction re-verification, competitive mode errors | On user abort, blocker error, or after context compaction |
@@ -201,8 +186,8 @@ This skill is a folder. The following files are available for reference:
 ## Gotchas
 
 - **Compaction mid-loop loses plan state** -- if context compaction occurs during implementation, the plan file path and current item must be recoverable from session-state/CURRENT.md
-- **UI items need browser verification (CR-41)** -- any plan item touching UI files must be verified with Playwright before claiming done
-- **Approval points must not be skipped** -- there are 4 approval gates (5 with --competitive: Plan, New Pattern, Winner Selection, Commit, Push)
+- **UI items need browser verification** -- any plan item touching UI files must be verified with Playwright before claiming done
+- **Approval points must not be skipped** -- there are 4 approval gates (5 with --competitive: Plan, New Pattern, Winner Selection, Commit, Push). Skipping any gate is a violation
 - **Plan file must be re-read from disk, not memory (CR-5)** -- after compaction, always re-read the plan file. Memory of plan contents drifts from reality
 - **100% coverage required (CR-11)** -- never stop early. "Most items done" is not "all items done"
 - **--competitive increases token cost ~2-3x for Phase 2** -- use for high-stakes features only
@@ -219,8 +204,8 @@ This skill is a folder. The following files are available for reference:
 | Code Clarity | 1-5 | Naming, structure, comments |
 | Pattern Compliance | 1-5 | CLAUDE.md patterns followed |
 | Error Handling | 1-5 | Edge cases, validation, fallbacks |
-| UX Quality | 1-5 | Loading/error/empty states, accessibility |
 | Test Coverage | 1-5 | Test files exist for new code |
+| Config-Driven Design | 1-5 | No hardcoded project-specific values |
 
 All >= 3: PASS. Any < 3: FAIL.
 
@@ -228,7 +213,7 @@ All >= 3: PASS. Any < 3: FAIL.
 
 ## START NOW
 
-**Step 0: Write AUTHORIZED_COMMAND to session state (CR-12)**
+**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
 
 Update `session-state/CURRENT.md`:
 ```
@@ -242,9 +227,8 @@ AUTHORIZED_COMMAND: massu-golden-path
 4a. **Phase 2-COMP**: Competitive implementation (if --competitive) -> **PAUSE: Winner Selection**
 5. **Phase 2.5**: Gap & enhancement analysis loop (until zero gaps)
 6. **Phase 3**: Simplification (efficiency, reuse, patterns)
-6.5. **Phase 3.5**: Deep security audit (adversarial red-team loop to zero findings)
 7. **Phase 4**: Pre-commit verification -> **PAUSE: Commit Approval**
-8. **Phase 5**: Push verification via `scripts/push-verify.sh` -> **PAUSE: Push Approval**
+8. **Phase 5**: Push verification -> **PAUSE: Push Approval**
 9. **Phase 6**: Completion, learning, quality metrics
 
 **This command does NOT stop to ask "should I continue?" -- it runs straight through.**

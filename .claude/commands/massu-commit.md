@@ -1,22 +1,17 @@
 ---
 name: massu-commit
-description: "When user says 'commit', 'ready to commit', 'save my work', or has completed implementation and wants to commit changes"
+description: Pre-commit verification audit with zero-fail release gate
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-commit
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-12 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 
-# Massu Commit: Continuous Verification Audit with Zero-Fail Release Gate
+# CS Commit: Pre-Commit Verification Gate
 
 ## Objective
 
-Run a continuous AUDIT -> FIX -> VERIFY -> RE-AUDIT loop that proves (with evidence) that the implementation exactly matches:
-
-1. **The Plan** (source of truth for requirements)
-2. **CLAUDE.md** (source of truth for patterns, constraints, architecture)
-
-The loop MUST continue until a full audit produces ZERO gaps, ZERO failures, and ZERO verification errors.
+Run a continuous AUDIT -> FIX -> VERIFY -> RE-AUDIT loop that proves (with evidence, not assumptions) that the implementation is correct and complete.
 
 ---
 
@@ -33,14 +28,13 @@ The loop MUST continue until a full audit produces ZERO gaps, ZERO failures, and
 
 ## RELATIONSHIP WITH /massu-push AND /massu-loop
 
-| Command | Purpose | Speed | Runs Tests |
-|---------|---------|-------|------------|
-| `/massu-simplify` | Efficiency + reuse + semantic pattern analysis | ~1-2 min | NO |
+| Command | Purpose | Speed | Runs Full Tests |
+|---------|---------|-------|-----------------|
 | `/massu-commit` | Fast quality gates for committing | ~1-2 min | YES (vitest is fast) |
 | `/massu-push` | Full verification + security before pushing | ~5 min | YES + regression |
-| `/massu-loop` | Autonomous execution with full verification | Varies | YES - MANDATORY |
+| `/massu-loop` | Autonomous execution with FULL verification | Varies | YES - MANDATORY |
 
-**Philosophy**: Commit often (fast checks), push verified (full checks + security).
+**Philosophy**: Commit often (quality checks), push verified (full checks + security).
 
 ---
 
@@ -53,44 +47,15 @@ Write a transition entry to `.massu/workflow-log.md`:
 
 ---
 
-## PRIME DIRECTIVE: NO ASSUMPTIONS
-
-**NEVER assume module interfaces or config structure. ALWAYS verify against real code.**
-
-Before committing any tool or config changes, verify ALL references exist:
-```bash
-# Verify tool definitions match handler cases
-grep -n "name:" packages/core/src/[module]-tools.ts
-grep -n "case " packages/core/src/[module]-tools.ts
-
-# Verify config keys match getConfig() usage
-grep -rn "getConfig()" packages/core/src/ | head -20
-```
-
----
-
-## PATTERN DISCOVERY VERIFICATION
-
-Before committing, verify ALL new code follows existing patterns by searching for existing implementations of the same thing and confirming the new code uses the SAME approach.
-
-If new code uses a DIFFERENT approach than existing working code, the commit MUST NOT proceed unless the existing pattern is documented as deprecated or a new pattern is documented with justification.
-
----
-
-## DUAL VERIFICATION REQUIREMENT
-
-Both Code Quality and Plan Coverage gates must pass. Code Quality: PASS + Plan Coverage: FAIL = COMMIT BLOCKED.
-
----
-
 ## NON-NEGOTIABLE RULES
 
-1. Do NOT commit unless ALL gates pass -- no downgrading failures to warnings
-2. Do NOT push unless user explicitly instructs (`/massu-push` for full verification)
-3. Plan Coverage verification required -- 100% item-by-item proof (VR-PLAN-COVERAGE)
-4. FIX ALL ISSUES ENCOUNTERED (CR-9) -- whether current or pre-existing, all severities
-5. Auto-learn every fix -- record pattern, update scanner
-6. **Proof > reasoning. Commands > assumptions.**
+- Do NOT stop early
+- Do NOT skip checks
+- Do NOT downgrade failures to warnings
+- Do NOT commit unless ALL gates pass
+- Do NOT push unless user explicitly instructs
+- **Proof > reasoning. Commands > assumptions.**
+- **FIX ALL ISSUES ENCOUNTERED (CR-9)** - If ANY issue is discovered during verification - whether from current changes OR pre-existing - fix it immediately.
 
 ---
 
@@ -100,7 +65,7 @@ Both Code Quality and Plan Coverage gates must pass. Code Quality: PASS + Plan C
 
 ```
 COMMIT AUDIT LOOP:
-  1. Run ALL pre-commit checks (Gates 1-10)
+  1. Run ALL pre-commit checks (Gates 1-8)
   2. Count total gaps/failures found
   3. IF gaps > 0:
        - Fix ALL gaps
@@ -116,6 +81,19 @@ COMMIT AUDIT LOOP:
 | Re-check finds 0 issues | **NOW** commit can proceed |
 
 **Partial re-checks are NOT valid. ALL gates must pass in a SINGLE run before commit.**
+
+---
+
+## CRITICAL: DUAL VERIFICATION REQUIREMENT
+
+**Commits verify BOTH code quality AND plan coverage.**
+
+| Verification | What It Checks | Required for Commit |
+|--------------|----------------|---------------------|
+| **Code Quality** | Is the code correct? | YES |
+| **Plan Coverage** | Did we build everything? (if from plan) | YES |
+
+**Code Quality: PASS + Plan Coverage: FAIL = COMMIT BLOCKED**
 
 ---
 
@@ -183,11 +161,6 @@ Document each rule:
 | [name] | [file:line] | [file:line] | [test file] | PASS/FAIL |
 ```
 
-#### A4. User Flow Map
-
-| Flow | Entry | Actions | API Calls | Data Ops | Status |
-|------|-------|---------|-----------|----------|--------|
-
 ---
 
 ### PASS B: Verification & Breakage Hunting
@@ -226,15 +199,6 @@ cd packages/core && npm run build:hooks
 - Check for incomplete refactors
 - Verify no silent failures introduced
 
-#### B6. Pattern Consistency
-- Verify against CLAUDE.md rules
-- Check new code matches established patterns
-
-#### B7. Import/Export Integrity
-- All exports have consumers
-- No circular imports
-- ESM-only patterns preserved
-
 ---
 
 ## FIX PROTOCOL
@@ -246,14 +210,6 @@ cd packages/core && npm run build:hooks
 | **P0** | Broken tools, data loss, security gaps, secrets exposed |
 | **P1** | Incorrect behavior, missing requirements, build failures |
 | **P2** | Consistency issues, pattern violations, test failures |
-
-### Technical Debt (discovered during audit)
-
-| Debt Type | Action |
-|-----------|--------|
-| Pre-existing pattern violation | Fix immediately (CR-9) |
-| TODO/FIXME in changed files | Resolve or document with issue |
-| Deprecated API usage | Update to current pattern |
 
 ### For Each Fix
 1. Apply smallest correct fix matching CLAUDE.md patterns
@@ -321,7 +277,6 @@ grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|password.*=.*["\x27][^"\x27]\{8,\}' --include="
 - `*.test.ts` - test fixtures with mock data
 
 ### Gate 8: Plan Coverage (if from plan)
-
 ```markdown
 ### PLAN COVERAGE GATE
 
@@ -335,19 +290,10 @@ grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|password.*=.*["\x27][^"\x27]\{8,\}' --include="
 **PLAN COVERAGE GATE: PASS / FAIL**
 ```
 
-### Gate 9: VR-PLAN-STATUS (if from plan)
-```bash
-grep "IMPLEMENTATION STATUS" [plan_file]  # Expected: Match found
-grep -c "100% COMPLETE\|DONE\|\*\*DONE\*\*" [plan_file]  # Expected: count matches completed phases
-```
-If FAIL: add completion table to plan, mark phases DONE, record commit hash.
+---
 
-### Gate 10: Dependency Security
-```bash
-npm audit --audit-level=high  # 0 high/critical vulnerabilities
-```
+## GATE SUMMARY
 
-### Gate Summary Format
 ```markdown
 ### PRE-COMMIT GATE SUMMARY
 
@@ -361,10 +307,7 @@ npm audit --audit-level=high  # 0 high/critical vulnerabilities
 | 6. No Secrets Staged | git diff --cached check | [result] | PASS/FAIL |
 | 7. No Credentials | grep check | [X] found | PASS/FAIL |
 | 8. Plan Coverage | item-by-item | [X]/[X] = [X]% | PASS/FAIL |
-| 9. Plan Status | plan doc updated | Match | PASS/FAIL |
-| 10. Security | npm audit | 0 high/crit | PASS/FAIL |
 
-BLOCKING GATES: 1-10
 **OVERALL: PASS / FAIL**
 ```
 
@@ -394,45 +337,6 @@ git log -1 --oneline
 2. **Fix EACH failure** following CLAUDE.md patterns
 3. **Re-run ENTIRE gate sequence** (not just failed gates)
 4. **Repeat until ALL gates pass in a SINGLE run**
-
----
-
-## SESSION STATE UPDATE (REQUIRED)
-
-Before committing, update `session-state/CURRENT.md`:
-
-```markdown
-## PRE-COMMIT STATE
-### Work Completed
-- [List all work with file paths]
-### Files Changed
-- Created: [list] | Modified: [list] | Deleted: [list]
-### Verification Summary
-- Pattern scanner: PASS | Type check: PASS | Tests: PASS
-- Hook build: PASS | Generalization: PASS | Security: PASS
-### Commit Ready
-- All gates passed: YES | Commit message drafted: YES
-```
-
----
-
-## AUDIT LOOP (Repeat Until Zero Issues)
-
-```
-ITERATION N:
-  1. Run PASS A (Inventory & Mapping)
-  2. Run PASS B (Verification & Breakage Hunting)
-  3. IF gaps: Build Fix Queue (P0->P1->P2), apply, run ALL gates, return to Step 1
-  4. IF zero gaps AND all gates pass: Update session state, proceed to COMMIT
-```
-
-### Stop Conditions (ALL must be true)
-- Plan items: 100% verified with VR-* proof
-- CLAUDE.md patterns: 0 violations
-- All code quality gates (1-10): PASS
-- Security gate: 0 high/critical vulnerabilities
-- Tool registration: All tools wired and tested
-- Hook compilation: Exit 0
 
 ---
 
@@ -469,6 +373,7 @@ Analyze `git diff --cached --name-only` to determine scope:
 | All in `website/` | `website` |
 | All in `.claude/commands/` | `commands` |
 | All in `scripts/` | `tooling` |
+| All in `website/supabase/` | `supabase` |
 | Mixed across areas | Most dominant area, or omit scope |
 
 ### BREAKING CHANGE DETECTION
@@ -508,54 +413,9 @@ If changes span 3+ unrelated areas (e.g., `packages/core/` + `website/` + `scrip
 
 ---
 
-## COMMIT PROTOCOL (Final Step Only)
-
-### Pre-Commit Checklist
-- [ ] All audit gates passed
-- [ ] Session state updated
-- [ ] No .env or credential files staged
-- [ ] Commit message drafted
-
-### Check Staged Files
-```bash
-git status  # Review ALL staged files, verify NO .env* or credential files
-```
-
----
-
-## POST-COMMIT (Do NOT Auto-Push)
-
-```bash
-git status  # Verify commit succeeded, show hash
-```
-
-**DO NOT PUSH** unless user explicitly says "push" or "push to remote".
-
----
-
-## MANDATORY: PLAN DOCUMENT UPDATE (After Commit)
-
-If commit is from a plan, update the plan document TOP with:
-- IMPLEMENTATION STATUS table (status, last updated, commit hash)
-- Task completion summary with verification evidence
-
-Verify: `grep "IMPLEMENTATION STATUS" [plan_file]` returns match.
-
----
-
-## Gotchas
-
-- **Pattern scanner must pass** -- `scripts/massu-pattern-scanner.sh` runs automatically and MUST exit 0. Never bypass with `--no-verify`
-- **Never skip pre-commit hooks** -- `--no-verify` is forbidden. If a hook fails, fix the underlying issue
-- **Check for .env files in staged changes** -- `git status` must show ZERO `.env*` files staged. Secrets leaked to git history cannot be un-leaked
-- **Commit message must match changes** -- "fix" means bug fix, "add" means new feature, "update" means enhancement. Mismatched messages cause confusion in changelog
-- **Never amend after hook failure** -- when a pre-commit hook fails, the commit did NOT happen. Create a NEW commit after fixing; `--amend` would modify the PREVIOUS commit
-
----
-
 ## START NOW
 
-**Step 0: Write AUTHORIZED_COMMAND to session state (CR-12)**
+**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
 
 Update `session-state/CURRENT.md` to include `AUTHORIZED_COMMAND: massu-commit`.
 
@@ -567,6 +427,16 @@ Update `session-state/CURRENT.md` to include `AUTHORIZED_COMMAND: massu-commit`.
 6. Execute AUTO-LEARNING PROTOCOL
 7. Commit only when ALL conditions met
 8. Report completion, await push instruction
+
+---
+
+## MANDATORY: PLAN DOCUMENT UPDATE (After Commit)
+
+If commit is from a plan, update the plan document TOP with:
+- IMPLEMENTATION STATUS table (status, last updated, commit hash)
+- Task completion summary with verification evidence
+
+Verify: `grep "IMPLEMENTATION STATUS" [plan_file]` returns match.
 
 ---
 
@@ -587,14 +457,7 @@ If a NEW pattern or utility was created during the commit:
 ## COMPLETION REPORT
 
 ```markdown
-## MASSU COMMIT COMPLETE
-
-| Gate Category | Status | Evidence |
-|---------------|--------|----------|
-| Code Quality (1-7) | PASS | All gates passed |
-| Plan Coverage (8) | PASS | [X]/[X] = 100% |
-| Plan Status (9) | PASS | Plan doc updated |
-| Security (10) | PASS | 0 high/critical |
+## CS COMMIT COMPLETE
 
 ### Commit Details
 - **Hash**: [hash]
@@ -612,31 +475,7 @@ If a NEW pattern or utility was created during the commit:
 | No Secrets | PASS |
 | No Credentials | PASS |
 | Plan Coverage | PASS (X/X = 100%) |
-| Plan Status | PASS |
-| Security | PASS |
-
-### Push Status
-- Pushed: NO (awaiting user instruction)
-
-**DUAL VERIFICATION PASSED - READY FOR PUSH ON USER COMMAND**
 
 ### Next Steps
 - Run `/massu-push` to push with full verification
-```
-
----
-
-## QUALITY SCORING (silent)
-
-After committing, append one JSONL line to `.claude/metrics/command-scores.jsonl`:
-
-| Check | Pass condition |
-|-------|---------------|
-| `all_gates_passed` | All 10 gates exit 0 |
-| `plan_coverage_100` | Plan coverage gate = 100% (or N/A if no plan) |
-| `zero_gap_single_run` | Final audit run found 0 gaps |
-| `conventional_commit` | Commit message matches type(scope): description |
-
-```json
-{"command":"massu-commit","timestamp":"ISO8601","scores":{"all_gates_passed":true,"plan_coverage_100":true,"zero_gap_single_run":true,"conventional_commit":true},"pass_rate":"4/4","input_summary":"[commit-hash]:[message-summary]"}
 ```

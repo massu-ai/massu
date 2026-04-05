@@ -44,7 +44,7 @@ Total Items: [N]
 Phases: [list]
 
 Requirements Coverage: [X]/10 dimensions resolved
-Feasibility: VERIFIED (DB, files, patterns, security)
+Feasibility: VERIFIED (config, files, patterns, security)
 Audit Passes: {iteration} (final pass: 0 gaps)
 --------------------------------------------------------------------------
 
@@ -75,7 +75,7 @@ Existing patterns checked:
 PROPOSED NEW PATTERN:
 --------------------------------------------------------------------------
 Name: [Pattern Name]
-Domain: [UI/Database/Auth/etc.]
+Domain: [Config/MCP/Hook/etc.]
 
 WRONG: [code]
 CORRECT: [code]
@@ -108,15 +108,12 @@ VERIFICATION RESULTS:
   Pattern scanner: Exit 0
   Type check: 0 errors
   Build: Exit 0
-  Lint: Exit 0
-  Prisma: Valid
+  Tests: ALL pass
+  Hook compilation: Exit 0
+  Generalization: Exit 0
   Security: No secrets staged, no credentials in code
-  VR-RENDER: All UI components rendered
-  VR-COUPLING: All backend features exposed in UI
-  VR-COLOR: No hardcoded Tailwind colors
+  Tool registration: All new tools wired
   Plan Coverage: [X]/[X] = 100%
-  Database: All environments verified
-  Help site: UP TO DATE / N/A
   Quality Score: [X.X]/5.0
 --------------------------------------------------------------------------
 
@@ -161,8 +158,8 @@ Files changed: [N] | +[N] / -[N]
 Branch: [branch] -> origin
 
 Tier 1 (Quick): PASS
-Tier 2 (Tests): PASS -- Unit: X/X, E2E: X/X, Regression: 0
-Tier 3 (Security): PASS -- Audit: 0 high/crit, RLS: verified, Secrets: clean
+Tier 2 (Tests): PASS -- Unit: X/X, Regression: 0
+Tier 3 (Security): PASS -- Audit: 0 high/crit, Secrets: clean
 --------------------------------------------------------------------------
 
 OPTIONS:
@@ -200,7 +197,7 @@ COMPETITIVE SCORECARD:
 NOTABLE DIFFERENCES:
   [Aspect]: Agent A did [X], Agent B did [Y]
 
-RECOMMENDATION: Agent {X} ({bias}) — [reason]
+RECOMMENDATION: Agent {X} ({bias}) -- [reason]
 --------------------------------------------------------------------------
 
 PER-AGENT NOTES:

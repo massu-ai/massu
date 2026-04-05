@@ -5,9 +5,9 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-test
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-12 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 
-# Massu Test: Intelligent Test Runner
+# CS Test: Intelligent Test Runner
 
 ## Objective
 
@@ -222,24 +222,6 @@ Cross-reference: for each source module, check if a corresponding test file exis
 | analytics.ts | analytics.test.ts | COVERED / MISSING |
 | config.ts | config.test.ts | COVERED / MISSING |
 | ... | ... | ... |
-
-**Coverage: [X]/[Y] modules ([Z]%)**
-```
-
-### Package Coverage (other packages)
-
-```bash
-# List other package modules
-ls packages/plugin/src/*.ts 2>/dev/null
-ls packages/shared/src/*.ts 2>/dev/null
-```
-
-```markdown
-### Package Coverage
-
-| Source Module | Test File | Status |
-|--------------|-----------|--------|
-| [module] | [test] | COVERED / MISSING |
 
 **Coverage: [X]/[Y] modules ([Z]%)**
 ```
@@ -476,7 +458,7 @@ Fix ALL instances found, not just the one that was reported.
 ## COMPLETION REPORT
 
 ```markdown
-## MASSU TEST COMPLETE
+## CS TEST COMPLETE
 
 ### Mode: [FULL_RUN / AFFECTED / COVERAGE / GENERATE / FIX]
 

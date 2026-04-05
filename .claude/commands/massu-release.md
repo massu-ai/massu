@@ -245,7 +245,6 @@ grep -rn '"version"' packages/*/package.json package.json 2>/dev/null
 
 Update version in:
 - `packages/core/package.json`
-- `packages/plugin/package.json` (if exists)
 - Root `package.json` (if has version field)
 
 ### 4.2 Verify Consistency
@@ -350,7 +349,6 @@ git show vX.Y.Z --quiet
 ### Files Modified
 - `CHANGELOG.md`
 - `packages/core/package.json`
-- `packages/plugin/package.json` (if exists)
 
 ### Release Artifacts
 - Commit: [hash]

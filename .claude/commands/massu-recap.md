@@ -7,7 +7,7 @@ name: massu-recap
 
 # Massu Recap: Session Handoff
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-14, CR-5, CR-12 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
 
 ---
 
@@ -73,7 +73,7 @@ UNCOMMITTED CHANGES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-### Step 2: Memory Persistence Check (CR-38)
+### Step 2: Memory Persistence Check
 
 Check whether significant work was done this session:
 
@@ -98,31 +98,6 @@ MEMORY CHECK
 ```
 
 If no significant work: skip this section.
-
-### Step 2.5: Memory Contradiction Check
-
-Run the memory contradiction scanner:
-
-```bash
-bash scripts/memory-contradiction-check.sh
-```
-
-Parse the output:
-- **CONTRADICTION_COUNT: 0** — Memory is clean. Proceed.
-- **CONTRADICTION_COUNT: N** — Display each contradiction to the user:
-
-```
-MEMORY HEALTH
-  Contradictions found: N
-  [1] CONFLICT: file_a.md vs file_b.md
-      File A: "X works correctly"
-      File B: "X is broken and fails"
-      Action: Review and resolve — delete or update the stale entry
-```
-
-**Do NOT auto-resolve contradictions.** Surface them so the user can decide which memory is stale.
-
-If the script is missing or fails, note: "Memory contradiction check unavailable — run `bash scripts/memory-contradiction-check.sh` manually."
 
 ### Step 3: Update Session State
 
@@ -182,8 +157,7 @@ On next recap, read last 3 entries from `recap-history.jsonl` to compare session
 
 1. Read all data sources in parallel
 2. Generate and present the session summary
-3. Run the memory persistence check (CR-38)
-3.5. Run the memory contradiction check (Step 2.5)
+3. Run the memory persistence check
 4. Update CURRENT.md with final state
 5. Append recap-history.jsonl entry
 6. If task is complete, ask about archiving

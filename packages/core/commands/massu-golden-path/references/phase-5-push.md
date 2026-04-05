@@ -18,13 +18,11 @@ Run in parallel where possible:
 
 | Check | Command |
 |-------|---------|
-| Pattern Scanner | `./scripts/pattern-scanner.sh` |
-| VR-COUPLING | `./scripts/check-coupling.sh` |
-| VR-UX | `./scripts/check-ux-quality.sh` |
-| TypeScript | `NODE_OPTIONS="--max-old-space-size=8192" npx tsc --noEmit` |
+| Pattern Scanner | `bash scripts/massu-pattern-scanner.sh` |
+| Generalization | `bash scripts/massu-generalization-scanner.sh` |
+| TypeScript | `cd packages/core && npx tsc --noEmit` |
 | Build | `npm run build` |
-| Prisma | `npx prisma validate` |
-| Schema Mismatch | `./scripts/check-schema-mismatches.sh` |
+| Hook Compilation | `cd packages/core && npm run build:hooks` |
 
 ## 5.3 Tier 2: Test Suite (CRITICAL)
 
@@ -33,33 +31,29 @@ Run in parallel where possible:
 ```bash
 # Establish baseline on main
 git stash && git checkout main -q
-npm run test:run 2>&1 | tee /tmp/baseline-tests.txt
+npm test 2>&1 | tee /tmp/baseline-tests.txt
 git checkout - -q && git stash pop -q
 
 # Run on current branch
-npm run test:run 2>&1 | tee /tmp/current-tests.txt
+npm test 2>&1 | tee /tmp/current-tests.txt
 
 # Compare: any test passing on main but failing now = REGRESSION
 # Regressions MUST be fixed before push
 ```
 
-### 5.3.1-5.3.5 Test Execution
+### 5.3.1-5.3.3 Test Execution
 
 Use **parallel Task agents** for independent checks:
 
 ```
 Agent Group A (parallel):
-- Agent 1: npm run test:run (unit tests)
+- Agent 1: npm test (unit tests)
 - Agent 2: npm audit --audit-level=high
-- Agent 3: npx tsx scripts/detect-secrets.ts
-
-Agent Group B (parallel, after A):
-- Agent 1: npm run test:e2e (E2E tests)
-- Agent 2: npm run test:visual:run (visual regression)
+- Agent 3: bash scripts/massu-security-scanner.sh
 
 Sequential:
-- ./scripts/validate-router-contracts.sh
-- VR-RENDER: verify ALL new components rendered in pages
+- VR-TOOL-REG: verify ALL new tools registered in tools.ts
+- VR-GENERIC: verify ALL files pass generalization scanner
 ```
 
 ## 5.4 Tier 3: Security & Compliance
@@ -67,35 +61,8 @@ Sequential:
 | Check | Command |
 |-------|---------|
 | npm audit | `npm audit --audit-level=high` |
-| Secrets scan | `npx tsx scripts/detect-secrets.ts` |
-| Accessibility | `./scripts/verify-accessibility.sh` |
-| DB sync | Verify schema match across all environments |
-
-### VR-STORED-PROC (If migrations in push)
-
-```sql
-SELECT proname, prosrc FROM pg_proc
-JOIN pg_namespace n ON n.oid = pronamespace
-WHERE n.nspname = 'public' AND prosrc LIKE '%old_table_name%';
--- Run on all environments. Expected: 0 rows.
-```
-
-### VR-RLS-AUDIT (CR-33)
-
-```sql
-SELECT c.relname FROM pg_class c
-JOIN pg_namespace n ON c.relnamespace = n.oid
-WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relrowsecurity = false;
--- Run on all environments. Expected: 0 rows.
-```
-
-### VR-DATA (Config-Code Alignment)
-
-If push includes config-driven features, verify config keys match code expectations.
-
-### Compliance Audit Trail
-
-Generate: `massu_audit_log`, `massu_audit_report`, `massu_validation_report`.
+| Security scan | `bash scripts/massu-security-scanner.sh` |
+| Config validation | Parse massu.config.yaml without errors |
 
 ## 5.5 Tier 4: Final Gate
 
@@ -113,4 +80,4 @@ All tiers must pass:
 
 See `approval-points.md` for the exact format.
 
-After approval: `git push origin [branch]`, then monitor CI with `./scripts/ci-status.sh --wait --max-wait 300`. If CI fails, auto-run `/massu-ci-fix` protocol.
+After approval: `git push origin [branch]`, then verify with `gh run list --limit 3`.

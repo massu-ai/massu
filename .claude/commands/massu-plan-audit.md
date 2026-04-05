@@ -29,7 +29,7 @@ This command COMBINES /massu-create-plan + /massu-plan into ONE uninterrupted fl
 ### Phase A: Plan Creation
 1. Parse $ARGUMENTS as task description
 2. Follow massu-create-plan Phase 1-6 (requirements, DB check, codebase check, patterns, security, generation)
-3. Write plan document to `docs/plans/[date]-[name].md`
+3. Write plan document to `.claude/plans/[date]-[name].md`
 4. Do NOT present plan to user yet — proceed directly to Phase B
 
 ### Phase B: Audit Loop (IMMEDIATE — no pause)

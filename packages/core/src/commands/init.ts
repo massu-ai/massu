@@ -482,8 +482,9 @@ export function installHooks(projectRoot: string): { installed: boolean; count: 
  * matching the path used by memory-db.ts / knowledge-tools.ts.
  */
 export function initMemoryDir(projectRoot: string): { created: boolean; memoryMdCreated: boolean } {
-  // Encode the project root the same way as getResolvedPaths() in config.ts
-  const encodedRoot = '-' + projectRoot.replace(/\//g, '-');
+  // Encode the project root the same way Claude Code does:
+  // /Users/foo/bar → -Users-foo-bar (replace / with -, leading / becomes leading -)
+  const encodedRoot = projectRoot.replace(/\//g, '-');
   const memoryDir = resolve(homedir(), `.claude/projects/${encodedRoot}/memory`);
 
   let created = false;

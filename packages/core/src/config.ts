@@ -147,6 +147,35 @@ const RegressionConfigSchema = z.object({
 }).optional();
 export type RegressionConfig = z.infer<typeof RegressionConfigSchema>;
 
+// --- Auto-Learning Config ---
+const AutoLearningConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  incidentDir: z.string().default('docs/incidents'),
+  memoryDir: z.string().default('memory'),
+  memoryIndexFile: z.string().default('MEMORY.md'),
+  enforcementHooksDir: z.string().default('scripts/hooks'),
+  fixDetection: z.object({
+    enabled: z.boolean().default(true),
+    lookbackDays: z.number().default(7),
+    signals: z.array(z.string()).default([
+      'removed_broken_code',
+      'added_error_handling',
+      'method_name_correction',
+      'auth_fix',
+      'nil_handling_fix',
+      'concurrency_fix',
+      'async_pattern_fix',
+      'added_missing_import',
+    ]),
+  }).default({}),
+  pipeline: z.object({
+    requireIncidentReport: z.boolean().default(true),
+    requirePreventionRule: z.boolean().default(true),
+    requireEnforcement: z.boolean().default(true),
+  }).default({}),
+}).optional();
+export type AutoLearningConfig = z.infer<typeof AutoLearningConfigSchema>;
+
 // --- Cloud Config ---
 const CloudConfigSchema = z.object({
   enabled: z.boolean().default(false),
@@ -240,6 +269,7 @@ const RawConfigSchema = z.object({
   cloud: CloudConfigSchema,
   conventions: ConventionsConfigSchema,
   python: PythonConfigSchema,
+  autoLearning: AutoLearningConfigSchema,
 }).passthrough();
 
 // --- Final Config interface (derived from Zod) ---
@@ -261,6 +291,7 @@ export interface Config {
   cloud?: CloudConfig;
   conventions?: ConventionsConfig;
   python?: PythonConfig;
+  autoLearning?: AutoLearningConfig;
 }
 
 let _config: Config | null = null;

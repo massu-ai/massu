@@ -14,8 +14,8 @@ This sets up the MCP server, configuration, and lifecycle hooks in one command.
 
 Massu is a source-available [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that adds governance capabilities to AI coding assistants like Claude Code. It provides:
 
-- **51 MCP Tools** — quality analytics, cost tracking, security scoring, dependency analysis, and more
-- **11 Lifecycle Hooks** — pre-commit gates, security scanning, intent suggestion, and session management
+- **73 MCP Tools** — quality analytics, cost tracking, security scoring, dependency analysis, and more
+- **15 Lifecycle Hooks** — pre-commit gates, security scanning, intent suggestion, session management, and auto-learning pipeline
 - **3-Database Architecture** — code graph (read-only), data (imports/mappings), and memory (sessions/analytics)
 - **Config-Driven** — all project-specific data lives in `massu.config.yaml`
 

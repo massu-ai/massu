@@ -378,6 +378,47 @@ conventions:
 
 For detailed examples including monorepo and custom layout configurations, see [Configuration Conventions](/docs/getting-started/conventions).
 
+### autoLearning
+
+Controls the automatic fix-to-enforcement pipeline. When a bug fix is detected, the pipeline ensures an incident report, prevention rule, and enforcement hook are created.
+
+```yaml
+autoLearning:
+  enabled: true                  # Enable the pipeline (default: true)
+  incidentDir: docs/incidents    # Where incident reports are written
+  memoryDir: memory              # Where prevention rules are written
+  memoryIndexFile: MEMORY.md     # Memory index file
+  enforcementHooksDir: scripts/hooks  # Where enforcement hooks live
+  fixDetection:
+    enabled: true                # Enable fix detection (default: true)
+    lookbackDays: 7              # Days of git history to analyze
+    signals:                     # Fix signal types to detect
+      - removed_broken_code
+      - added_error_handling
+      - method_name_correction
+      - auth_fix
+      - nil_handling_fix
+      - concurrency_fix
+      - async_pattern_fix
+      - added_missing_import
+  pipeline:
+    requireIncidentReport: true  # Require incident report for each fix
+    requirePreventionRule: true   # Require rule derivation from incident
+    requireEnforcement: true      # Require enforcement placement
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | boolean | `true` | Enable the auto-learning pipeline |
+| `incidentDir` | string | `"docs/incidents"` | Directory for incident report files |
+| `memoryDir` | string | `"memory"` | Directory for prevention rule files |
+| `fixDetection.enabled` | boolean | `true` | Enable fix detection via git diff |
+| `fixDetection.lookbackDays` | number | `7` | Days of git history to analyze |
+| `fixDetection.signals` | string[] | see above | Fix signal types to detect |
+| `pipeline.requireIncidentReport` | boolean | `true` | Require incident report for fixes |
+| `pipeline.requirePreventionRule` | boolean | `true` | Require rule derivation |
+| `pipeline.requireEnforcement` | boolean | `true` | Require enforcement placement |
+
 ### cloud
 
 Cloud sync settings for connecting to Massu AI Cloud. Requires a paid subscription and API key.

@@ -55,7 +55,8 @@ async function main(): Promise<void> {
     }
 
     // Must be in a memory-like directory
-    if (!relPath.includes(memoryDir) && !relPath.includes('memory/') && !relPath.includes('.claude/')) {
+    const claudeDir = config.conventions?.claudeDirName ?? '.claude';
+    if (!relPath.includes(memoryDir) && !relPath.includes('memory/') && !relPath.includes(claudeDir + '/')) {
       process.exit(0);
       return;
     }

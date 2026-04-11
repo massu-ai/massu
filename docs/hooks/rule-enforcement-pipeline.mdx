@@ -1,0 +1,77 @@
+---
+title: "rule-enforcement-pipeline"
+description: "Triggers enforcement placement when prevention rules are written"
+order: 15
+---
+
+# rule-enforcement-pipeline
+
+The `rule-enforcement-pipeline` hook fires when a new prevention rule (feedback memory file) is written. It prompts Claude to place enforcement for the rule in project hooks or configuration, completing the auto-learning pipeline.
+
+## Overview
+
+| Property | Value |
+|----------|-------|
+| **Event** | PostToolUse |
+| **Matcher** | Write |
+| **Source** | `packages/core/src/hooks/rule-enforcement-pipeline.ts` |
+| **Compiled** | `dist/hooks/rule-enforcement-pipeline.js` |
+| **Timeout** | < 500ms |
+| **Part of** | Auto-Learning Pipeline (Step 3 of 4) |
+
+## How It Works
+
+1. Intercepts Write tool calls
+2. Checks if the written file matches the rule file pattern (default: `memory/feedback_*.md`)
+3. If it matches, reads the rule content
+4. Outputs instructions for Claude to place enforcement for the rule
+5. Suggests enforcement locations based on the rule content (hooks, config rules, or pattern scanner)
+
+## Trigger Condition
+
+The hook triggers when a feedback memory file is written:
+
+```
+memory/feedback_null_checks.md        → triggers
+memory/feedback_auth_validation.md    → triggers
+memory/user_preferences.md            → does not trigger
+src/server/routers/orders.ts          → does not trigger
+```
+
+## Output
+
+When triggered, the hook outputs instructions like:
+
+```
+[RULE-ENFORCEMENT] New prevention rule detected.
+
+File: memory/feedback_null_checks.md
+Rule: Always validate nullable fields before accessing properties
+
+Next step: Place enforcement for this rule.
+Options:
+  1. Add to massu.config.yaml rules section (pattern-matched rule surfacing)
+  2. Add to a project hook in scripts/hooks/ (real-time enforcement)
+  3. Add to pattern-scanner checks (pre-commit blocking)
+
+Choose the enforcement method that best matches the rule scope.
+```
+
+## Configuration
+
+Controlled via `autoLearning.memoryDir` and `autoLearning.enforcementHooksDir` in `massu.config.yaml`:
+
+```yaml
+autoLearning:
+  memoryDir: memory                    # Directory to watch for rule files
+  enforcementHooksDir: scripts/hooks   # Directory for enforcement hooks
+```
+
+## Pipeline Context
+
+```
+fix-detector ──► incident-pipeline ──► [rule-enforcement-pipeline] ──► auto-learning-pipeline
+                                           (YOU ARE HERE)
+```
+
+This is Step 3. After a prevention rule is derived from an incident, this hook prompts the placement of enforcement. The auto-learning-pipeline (Step 4) verifies all steps completed at session end.

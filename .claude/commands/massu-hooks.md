@@ -32,8 +32,8 @@ Display hook infrastructure status, profile configuration, and per-hook gating i
 ### Step 1: Read Current Profile
 
 ```bash
-echo "Current LIMN_HOOK_PROFILE: ${LIMN_HOOK_PROFILE:-strict}"
-echo "Disabled hooks: ${LIMN_DISABLED_HOOKS:-none}"
+echo "Current MASSU_HOOK_PROFILE: ${MASSU_HOOK_PROFILE:-strict}"
+echo "Disabled hooks: ${MASSU_DISABLED_HOOKS:-none}"
 ```
 
 ### Step 2: Display Hook Inventory

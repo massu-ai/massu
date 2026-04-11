@@ -106,15 +106,16 @@ describe('Memory Tools', () => {
   });
 
   describe('Tool Definitions', () => {
-    it('returns 6 memory tool definitions', () => {
+    it('returns 7 memory tool definitions', () => {
       const defs = getMemoryToolDefinitions();
-      expect(defs.length).toBe(6);
+      expect(defs.length).toBe(7);
       const names = defs.map(d => d.name);
       expect(names).toContain('massu_memory_search');
       expect(names).toContain('massu_memory_timeline');
       expect(names).toContain('massu_memory_detail');
       expect(names).toContain('massu_memory_sessions');
       expect(names).toContain('massu_memory_failures');
+      expect(names).toContain('massu_memory_backfill');
       expect(names).toContain('massu_memory_ingest');
     });
   });

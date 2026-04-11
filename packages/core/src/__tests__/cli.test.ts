@@ -213,7 +213,7 @@ describe('CLI: Hooks Installation', () => {
   it('creates .claude/settings.local.json with hooks', () => {
     const { installed, count } = installHooks(TEST_DIR);
     expect(installed).toBe(true);
-    expect(count).toBe(11);
+    expect(count).toBe(15);
 
     const settingsPath = resolve(TEST_DIR, '.claude/settings.local.json');
     expect(existsSync(settingsPath)).toBe(true);
@@ -254,18 +254,23 @@ describe('CLI: Hooks Installation', () => {
     expect(preToolUse[1].matcher).toBe('Bash|Write');
     expect(preToolUse[1].hooks[0].command).toContain('pre-delete-check.js');
 
-    // Check PostToolUse has all 4 hooks
+    // Check PostToolUse has all 7 hooks across 3 groups
     const postToolUse = hooksConfig.PostToolUse;
-    expect(postToolUse).toHaveLength(2);
+    expect(postToolUse).toHaveLength(3);
     expect(postToolUse[0].hooks).toHaveLength(3);
     expect(postToolUse[0].hooks[0].command).toContain('post-tool-use.js');
     expect(postToolUse[0].hooks[1].command).toContain('quality-event.js');
     expect(postToolUse[0].hooks[2].command).toContain('cost-tracker.js');
     expect(postToolUse[1].matcher).toBe('Edit|Write');
     expect(postToolUse[1].hooks[0].command).toContain('post-edit-context.js');
+    expect(postToolUse[1].hooks[1].command).toContain('fix-detector.js');
+    expect(postToolUse[2].matcher).toBe('Write');
+    expect(postToolUse[2].hooks[0].command).toContain('incident-pipeline.js');
+    expect(postToolUse[2].hooks[1].command).toContain('rule-enforcement-pipeline.js');
 
-    // Check Stop has session-end
+    // Check Stop has session-end and auto-learning-pipeline
     expect(hooksConfig.Stop[0].hooks[0].command).toContain('session-end.js');
+    expect(hooksConfig.Stop[0].hooks[1].command).toContain('auto-learning-pipeline.js');
 
     // Check PreCompact
     expect(hooksConfig.PreCompact[0].hooks[0].command).toContain('pre-compact.js');
@@ -277,7 +282,7 @@ describe('CLI: Hooks Installation', () => {
     expect(userPrompt[0].hooks[1].command).toContain('intent-suggester.js');
   });
 
-  it('counts all 11 hooks correctly', () => {
+  it('counts all 15 hooks correctly', () => {
     const hooksConfig = buildHooksConfig('test/path');
     let count = 0;
     for (const groups of Object.values(hooksConfig)) {
@@ -285,6 +290,6 @@ describe('CLI: Hooks Installation', () => {
         count += group.hooks.length;
       }
     }
-    expect(count).toBe(11);
+    expect(count).toBe(15);
   });
 });

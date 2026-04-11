@@ -8,7 +8,7 @@
  * 1. massu.config.yaml exists and parses correctly
  * 2. .mcp.json has massu entry
  * 3. .claude/settings.local.json has hooks config
- * 4. All 11 compiled hook files exist
+ * 4. All 15 compiled hook files exist
  * 5. Knowledge DB exists (.massu/memory.db)
  * 6. Memory directory exists (~/.claude/projects/.../memory/)
  * 7. Shell hooks wired in settings.local.json

@@ -52,7 +52,7 @@ async function main(): Promise<void> {
         process.stdout.write(
           '=== MASSU AI: Active ===\n' +
           'Session memory, code intelligence, and governance are now active.\n' +
-          `11 hooks monitoring this session. Type "${getConfig().toolPrefix ?? 'massu'}_sync" to index your codebase.\n` +
+          `15 hooks monitoring this session. Type "${getConfig().toolPrefix ?? 'massu'}_sync" to index your codebase.\n` +
           '=== END MASSU ===\n\n'
         );
       }

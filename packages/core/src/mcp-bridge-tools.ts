@@ -68,7 +68,7 @@ const ENV_DENY_PATTERNS = [
 function buildSubprocessEnv(): Record<string, string> {
   const env: Record<string, string> = {};
   // Derive safe env prefixes from the project name in massu.config.yaml.
-  // e.g., project name "example-project" -> allow HEDGE_CONFIG_, HEDGE_LOG_ etc.
+  // e.g., project name "myapp" -> allow MYAPP_CONFIG_, MYAPP_LOG_ etc.
   // This makes the bridge work for any Massu user's project without hardcoding.
   const projectName = getConfig().project?.name?.toUpperCase() || '';
   const safePrefixes = projectName

@@ -67,14 +67,14 @@ async function main(): Promise<void> {
       } catch { /* ignore parse errors */ }
     }
 
-    // Source 2: Scan uncommitted git diff for fix patterns
+    // Source 2: Scan uncommitted git diff for fix patterns (language-agnostic)
     let uncommittedFix = false;
     try {
       const diff = execSync('git diff --name-only', { cwd: root, timeout: 3000, encoding: 'utf-8' });
       if (diff.trim()) {
         const fullDiff = execSync('git diff', { cwd: root, timeout: 5000, encoding: 'utf-8' });
-        const fixPatterns = (fullDiff.match(/^\+.*(try|except|catch|guard|@MainActor|asyncio\.timeout|X-Service-Token|\.save\(|return False)/gm) || []).length;
-        const removedBroken = (fullDiff.match(/^-.*(bug|broken|crash|\.store\(|= nil|error)/gm) || []).length;
+        const fixPatterns = (fullDiff.match(/^\+.*(try|except|catch|guard|throw|raise|assert|validate|if.*null|if.*nil|if.*None|if.*undefined)/gm) || []).length;
+        const removedBroken = (fullDiff.match(/^-.*(bug|broken|crash|wrong|incorrect|typo|fail|error|miss|stale)/gm) || []).length;
         if (fixPatterns > 3 || removedBroken > 1) {
           uncommittedFix = true;
         }

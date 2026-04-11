@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] - 2026-04-10
+
+### Added
+- **Auto-learning pipeline** — 4 new hooks that turn bug fixes into enforced rules automatically
+  - `fix-detector` (PostToolUse) — detects bug fixes via git diff heuristics (removed broken code, added error handling, auth fixes, nil handling, concurrency fixes, etc.)
+  - `auto-learning-pipeline` (Stop) — enforces pipeline completion at session end; ensures no fix goes undocumented
+  - `incident-pipeline` (PostToolUse) — triggers rule derivation when incident reports are written to `docs/incidents/`
+  - `rule-enforcement-pipeline` (PostToolUse) — triggers enforcement placement when prevention rules (`memory/feedback_*.md`) are written
+- **`autoLearning` config section** — new `massu.config.yaml` section with Zod-validated defaults for controlling the auto-learning pipeline (enabled, incidentDir, memoryDir, fixDetection signals, pipeline requirements)
+- Config schema now uses Zod defaults throughout for all optional sections
+
+### Changed
+- Hook count increased from 11 to 15 (4 new auto-learning hooks)
+- Package description updated to reflect auto-learning pipeline
+
 ## [0.3.0] - 2026-02-25
 
 ### Added

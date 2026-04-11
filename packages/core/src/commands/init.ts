@@ -7,7 +7,7 @@
  * 1. Detects project framework (scans package.json)
  * 2. Generates massu.config.yaml (or preserves existing)
  * 3. Registers MCP server in .mcp.json (creates or merges)
- * 4. Installs all 11 hooks in .claude/settings.local.json
+ * 4. Installs all 15 hooks in .claude/settings.local.json
  * 5. Installs slash commands into .claude/commands/
  * 6. Initializes memory directory
  * 7. Prints success summary
@@ -402,6 +402,14 @@ export function buildHooksConfig(hooksDir: string): HooksConfig {
         matcher: 'Edit|Write',
         hooks: [
           { type: 'command', command: hookCmd(hooksDir, 'post-edit-context.js'), timeout: 5 },
+          { type: 'command', command: hookCmd(hooksDir, 'fix-detector.js'), timeout: 5 },
+        ],
+      },
+      {
+        matcher: 'Write',
+        hooks: [
+          { type: 'command', command: hookCmd(hooksDir, 'incident-pipeline.js'), timeout: 5 },
+          { type: 'command', command: hookCmd(hooksDir, 'rule-enforcement-pipeline.js'), timeout: 5 },
         ],
       },
     ],
@@ -409,6 +417,7 @@ export function buildHooksConfig(hooksDir: string): HooksConfig {
       {
         hooks: [
           { type: 'command', command: hookCmd(hooksDir, 'session-end.js'), timeout: 15 },
+          { type: 'command', command: hookCmd(hooksDir, 'auto-learning-pipeline.js'), timeout: 10 },
         ],
       },
     ],

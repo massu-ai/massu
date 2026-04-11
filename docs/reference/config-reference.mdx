@@ -139,7 +139,51 @@ python:
     - name: string          # Domain name
       packages: string[]    # Python package paths in this domain (e.g., ["app.api", "app.routers"])
       allowed_imports_from: string[]  # Package paths this domain may import from
+
+# Auto-learning pipeline (optional)
+autoLearning:
+  enabled: boolean            # Enable the auto-learning pipeline (default: true)
+  incidentDir: string         # Directory for incident reports (default: "docs/incidents")
+  memoryDir: string           # Directory for memory/rule files (default: "memory")
+  memoryIndexFile: string     # Memory index file name (default: "MEMORY.md")
+  enforcementHooksDir: string # Directory for enforcement hooks (default: "scripts/hooks")
+  fixDetection:
+    enabled: boolean          # Enable fix detection (default: true)
+    lookbackDays: number      # Days to look back for fix context (default: 7)
+    signals: string[]         # Fix detection signal types (default below)
+  pipeline:
+    requireIncidentReport: boolean  # Require incident report for fixes (default: true)
+    requirePreventionRule: boolean  # Require prevention rule derivation (default: true)
+    requireEnforcement: boolean     # Require enforcement placement (default: true)
 ```
+
+## Auto-Learning Configuration
+
+The `autoLearning` section controls the automatic fix-to-enforcement pipeline. When enabled (the default), Massu AI detects bug fixes via git diff analysis and ensures that each fix produces an incident report, a prevention rule, and an enforcement hook.
+
+### Default Fix Detection Signals
+
+```yaml
+signals:
+  - removed_broken_code      # Lines containing "bug", "broken", "wrong", etc. were removed
+  - added_error_handling      # try/catch or error handling was added
+  - method_name_correction    # A method/function name was corrected
+  - auth_fix                  # Authentication/authorization code was modified
+  - nil_handling_fix          # Null/nil/undefined checks were added
+  - concurrency_fix           # Race condition or concurrency handling was added
+  - async_pattern_fix         # Async/await patterns were corrected
+  - added_missing_import      # A missing import was added
+```
+
+### Pipeline Requirements
+
+All three pipeline requirements default to `true`. Setting any to `false` makes that step optional:
+
+| Requirement | What It Enforces |
+|-------------|-----------------|
+| `requireIncidentReport` | A `docs/incidents/*.md` file must be written for each detected fix |
+| `requirePreventionRule` | A `memory/feedback_*.md` rule must be derived from the incident |
+| `requireEnforcement` | The rule must be placed into project hooks or config for enforcement |
 
 ## Python Configuration
 
@@ -261,6 +305,7 @@ Some tools are only available when specific configuration is set:
 | `paths.middleware` set | Middleware tree analysis |
 | `team.enabled: true` | Team knowledge tools |
 | `python.root` set | All 8 `massu_py_*` tools (Pro tier) |
+| `autoLearning.enabled: true` | Fix detection, incident pipeline, rule enforcement pipeline, auto-learning enforcement hooks |
 
 ## Environment Variables
 

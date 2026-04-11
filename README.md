@@ -17,7 +17,8 @@ Massu is an MCP server and Claude Code plugin that transforms AI coding assistan
 - **Rule Engine** — Contextual coding rules surfaced automatically when editing files
 - **Documentation Sync** — Detect when docs drift from code changes
 - **Observability** — Session replay, prompt analysis, tool usage patterns, cost tracking
-- **Shell Hooks** — 11 security and workflow lifecycle hooks (session-start, session-end, pre-delete-check, security-gate, and more)
+- **Auto-Learning Pipeline** — Automatically turns bug fixes into enforced rules: fix detection → incident report → prevention rule → enforcement hook
+- **Shell Hooks** — 15 lifecycle hooks (session-start, session-end, pre-delete-check, security-gate, fix-detector, auto-learning-pipeline, and more)
 
 ## Why?
 
@@ -35,12 +36,12 @@ Massu uses a tiered model. All hooks and commands are free. Tools are gated by t
 
 | Tier | Tools | What You Get |
 |------|-------|--------------|
-| **Free** | 12 tools | Core navigation, basic memory, regression detection, license status |
-| **Pro** | 47 tools | Everything in Free + knowledge system (12 tools), advanced memory, analytics, cost tracking, observability, docs |
-| **Team** | 56 tools | Everything in Pro + sentinel feature registry, team knowledge sharing |
-| **Enterprise** | 62 tools | Everything in Team + audit trail, security scoring, dependency analysis |
+| **Free** | 13 tools | Core navigation, basic memory, regression detection, license status |
+| **Pro** | 48 tools | Everything in Free + knowledge system (12 tools), advanced memory, analytics, cost tracking, observability, docs |
+| **Team** | 57 tools | Everything in Pro + sentinel feature registry, team knowledge sharing |
+| **Enterprise** | 63 tools | Everything in Team + audit trail, security scoring, dependency analysis |
 
-All 11 lifecycle hooks and all 43 slash commands are included at every tier.
+All 15 lifecycle hooks and all 43 slash commands are included at every tier.
 
 ## Quick Start
 
@@ -59,7 +60,7 @@ That's it. `massu init` automatically:
 - Detects your framework (TypeScript, Next.js, Prisma, tRPC, etc.)
 - Creates `massu.config.yaml` with detected settings
 - Registers the MCP server in `.mcp.json`
-- Installs all 11 lifecycle hooks in `.claude/settings.local.json`
+- Installs all 15 lifecycle hooks in `.claude/settings.local.json`
 - Installs all 43 slash commands into `.claude/commands/`
 - Databases auto-create on first session
 
@@ -77,7 +78,7 @@ npx massu install-commands
 
 ### Unlocking Pro Features
 
-Free tier includes 12 tools. To unlock all 62 tools:
+Free tier includes 13 tools. To unlock all 63 tools:
 
 ```bash
 # Add your API key (get one at https://massu.ai/dashboard/api-keys)

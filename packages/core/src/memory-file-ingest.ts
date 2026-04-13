@@ -11,7 +11,6 @@
 import type Database from 'better-sqlite3';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { parse as parseYaml } from 'yaml';
 import { addObservation } from './memory-db.ts';
 
 export type IngestResult = 'inserted' | 'updated' | 'skipped';
@@ -42,13 +41,21 @@ export function ingestMemoryFile(
 
   if (frontmatterMatch) {
     try {
-      const fm = parseYaml(frontmatterMatch[1]) as Record<string, unknown>;
-      name = (fm.name as string) ?? basename;
-      description = (fm.description as string) ?? '';
-      type = (fm.type as string) ?? 'discovery';
+      // Simple key: value parser for memory file frontmatter
+      // (avoids importing yaml library — frontmatter is flat key-value pairs)
+      const fm: Record<string, string> = {};
+      for (const line of frontmatterMatch[1].split('\n')) {
+        const sep = line.indexOf(':');
+        if (sep > 0) {
+          fm[line.slice(0, sep).trim()] = line.slice(sep + 1).trim();
+        }
+      }
+      name = fm.name ?? basename;
+      description = fm.description ?? '';
+      type = fm.type ?? 'discovery';
       confidence = fm.confidence != null ? Number(fm.confidence) : undefined;
     } catch {
-      // Use defaults if YAML parsing fails
+      // Use defaults if frontmatter parsing fails
     }
   }
 

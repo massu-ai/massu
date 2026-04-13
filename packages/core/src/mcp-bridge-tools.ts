@@ -50,7 +50,6 @@ process.on('exit', () => {
 });
 process.on('SIGTERM', () => {
   for (const [name] of connections) disconnectServer(name);
-  process.exit(0);
 });
 
 // Environment variables safe to forward to MCP subprocesses.

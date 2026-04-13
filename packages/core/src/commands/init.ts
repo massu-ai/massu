@@ -346,25 +346,18 @@ type HooksConfig = Record<string, HookGroup[]>;
  * Handles both local development and npm-installed scenarios.
  */
 export function resolveHooksDir(): string {
-  // Try to find the hooks in node_modules first (installed via npm)
-  const cwd = process.cwd();
-  const nodeModulesPath = resolve(cwd, 'node_modules/@massu/core/dist/hooks');
-  if (existsSync(nodeModulesPath)) {
-    return 'node_modules/@massu/core/dist/hooks';
-  }
-
-  // Fall back to finding relative to this source file
-  const localPath = resolve(__dirname, '../dist/hooks');
-  if (existsSync(localPath)) {
-    return localPath;
-  }
-
-  // Default to node_modules path (will be created on npm install)
+  // Always use node_modules/@massu/core/dist/hooks relative to project root.
+  // hookCmd() wraps each command with a parent-directory walk to find the
+  // project root, so hooks resolve correctly even from subdirectories.
   return 'node_modules/@massu/core/dist/hooks';
 }
 
 function hookCmd(hooksDir: string, hookFile: string): string {
-  return `node ${hooksDir}/${hookFile}`;
+  // Walk up from cwd to find the directory containing node_modules/@massu/core,
+  // then cd there before running the hook. This handles subdirectories like
+  // website/, packages/foo/, etc. where node_modules doesn't exist.
+  const hookPath = `${hooksDir}/${hookFile}`;
+  return `d="$PWD"; while [ "$d" != "/" ] && [ ! -f "$d/${hookPath}" ]; do d="$(dirname "$d")"; done; cd "$d" && node ${hookPath}`;
 }
 
 export function buildHooksConfig(hooksDir: string): HooksConfig {

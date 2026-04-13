@@ -587,6 +587,29 @@ export function initMemorySchema(db: Database.Database): void {
       features TEXT DEFAULT '[]'
     );
   `);
+
+  // ============================================================
+  // Failure Classification: Taxonomy of known failure patterns
+  // ============================================================
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS failure_classes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL,
+      diff_patterns TEXT NOT NULL DEFAULT '[]',
+      file_patterns TEXT NOT NULL DEFAULT '[]',
+      prompt_keywords TEXT NOT NULL DEFAULT '[]',
+      incidents TEXT NOT NULL DEFAULT '[]',
+      rules TEXT NOT NULL DEFAULT '[]',
+      scanner_checks TEXT NOT NULL DEFAULT '[]',
+      known_message TEXT NOT NULL DEFAULT '',
+      needs_review INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_fc_name ON failure_classes(name);
+    CREATE INDEX IF NOT EXISTS idx_fc_needs_review ON failure_classes(needs_review);
+  `);
 }
 
 // ============================================================
@@ -1386,4 +1409,182 @@ export function getObservabilityDbSize(db: Database.Database): {
     db_page_size: pageSize,
     estimated_size_mb: Math.round((pageCount * pageSize) / (1024 * 1024) * 100) / 100,
   };
+}
+
+// ============================================================
+// Failure Classification: CRUD functions
+// ============================================================
+
+export interface FailureClass {
+  id: number;
+  name: string;
+  description: string;
+  diff_patterns: string[];
+  file_patterns: string[];
+  prompt_keywords: string[];
+  incidents: string[];
+  rules: string[];
+  scanner_checks: string[];
+  known_message: string;
+  needs_review: boolean;
+}
+
+export interface AddFailureClassOpts {
+  name: string;
+  description: string;
+  diffPatterns?: string[];
+  filePatterns?: string[];
+  promptKeywords?: string[];
+  incidents?: string[];
+  rules?: string[];
+  scannerChecks?: string[];
+  knownMessage?: string;
+  needsReview?: boolean;
+}
+
+/**
+ * Add a new failure class to the taxonomy.
+ */
+export function addFailureClass(db: Database.Database, opts: AddFailureClassOpts): number {
+  const result = db.prepare(`
+    INSERT OR IGNORE INTO failure_classes (name, description, diff_patterns, file_patterns, prompt_keywords, incidents, rules, scanner_checks, known_message, needs_review)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    opts.name,
+    opts.description,
+    JSON.stringify(opts.diffPatterns ?? []),
+    JSON.stringify(opts.filePatterns ?? []),
+    JSON.stringify(opts.promptKeywords ?? []),
+    JSON.stringify(opts.incidents ?? []),
+    JSON.stringify(opts.rules ?? []),
+    JSON.stringify(opts.scannerChecks ?? []),
+    opts.knownMessage ?? '',
+    opts.needsReview ? 1 : 0
+  );
+  return Number(result.lastInsertRowid);
+}
+
+/**
+ * Get all failure classes from the taxonomy.
+ */
+export function getFailureClasses(db: Database.Database): FailureClass[] {
+  const rows = db.prepare('SELECT * FROM failure_classes ORDER BY name').all() as Array<Record<string, unknown>>;
+  return rows.map(row => ({
+    id: row.id as number,
+    name: row.name as string,
+    description: row.description as string,
+    diff_patterns: JSON.parse((row.diff_patterns as string) || '[]'),
+    file_patterns: JSON.parse((row.file_patterns as string) || '[]'),
+    prompt_keywords: JSON.parse((row.prompt_keywords as string) || '[]'),
+    incidents: JSON.parse((row.incidents as string) || '[]'),
+    rules: JSON.parse((row.rules as string) || '[]'),
+    scanner_checks: JSON.parse((row.scanner_checks as string) || '[]'),
+    known_message: row.known_message as string,
+    needs_review: !!(row.needs_review as number),
+  }));
+}
+
+/**
+ * Append an incident identifier to an existing failure class.
+ */
+export function appendIncidentToFailureClass(db: Database.Database, className: string, incidentId: string): void {
+  const row = db.prepare('SELECT incidents FROM failure_classes WHERE name = ?').get(className) as { incidents: string } | undefined;
+  if (!row) return;
+  const incidents: string[] = JSON.parse(row.incidents || '[]');
+  if (!incidents.includes(incidentId)) {
+    incidents.push(incidentId);
+    db.prepare('UPDATE failure_classes SET incidents = ?, updated_at = datetime(\'now\') WHERE name = ?')
+      .run(JSON.stringify(incidents), className);
+  }
+}
+
+export interface FailureClassMatch {
+  name: string;
+  score: number;
+  incidentCount: number;
+  rules: string[];
+  knownMessage: string;
+}
+
+/**
+ * Score all failure classes against provided match text, file path, and prompt context.
+ * Returns the best match with its score.
+ *
+ * Scoring:
+ *   +diffPatternWeight (default 3) per diff_pattern match
+ *   +filePatternWeight (default 2) per file_pattern match
+ *   +promptKeywordWeight (default 2) per prompt_keyword match
+ */
+export function scoreFailureClasses(
+  db: Database.Database,
+  matchText: string,
+  filePath: string,
+  promptContext: string,
+  weights?: { diffPatternWeight?: number; filePatternWeight?: number; promptKeywordWeight?: number }
+): FailureClassMatch | null {
+  const classes = getFailureClasses(db);
+  if (classes.length === 0) return null;
+
+  const diffWeight = weights?.diffPatternWeight ?? 3;
+  const fileWeight = weights?.filePatternWeight ?? 2;
+  const promptWeight = weights?.promptKeywordWeight ?? 2;
+
+  let bestMatch: FailureClassMatch | null = null;
+
+  for (const fc of classes) {
+    let score = 0;
+
+    for (const pattern of fc.diff_patterns) {
+      if (!pattern) continue;
+      try {
+        if (new RegExp(pattern, 'i').test(matchText)) {
+          score += diffWeight;
+        }
+      } catch {
+        if (matchText.toLowerCase().includes(pattern.toLowerCase())) {
+          score += diffWeight;
+        }
+      }
+    }
+
+    for (const pattern of fc.file_patterns) {
+      if (!pattern) continue;
+      try {
+        if (new RegExp(pattern).test(filePath)) {
+          score += fileWeight;
+        }
+      } catch {
+        if (filePath.includes(pattern)) {
+          score += fileWeight;
+        }
+      }
+    }
+
+    if (promptContext) {
+      for (const keyword of fc.prompt_keywords) {
+        if (!keyword) continue;
+        try {
+          if (new RegExp(keyword, 'i').test(promptContext)) {
+            score += promptWeight;
+          }
+        } catch {
+          if (promptContext.toLowerCase().includes(keyword.toLowerCase())) {
+            score += promptWeight;
+          }
+        }
+      }
+    }
+
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = {
+        name: fc.name,
+        score,
+        incidentCount: fc.incidents.length,
+        rules: fc.rules,
+        knownMessage: fc.known_message,
+      };
+    }
+  }
+
+  return bestMatch;
 }

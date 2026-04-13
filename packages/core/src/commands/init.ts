@@ -403,6 +403,7 @@ export function buildHooksConfig(hooksDir: string): HooksConfig {
         hooks: [
           { type: 'command', command: hookCmd(hooksDir, 'post-edit-context.js'), timeout: 5 },
           { type: 'command', command: hookCmd(hooksDir, 'fix-detector.js'), timeout: 5 },
+          { type: 'command', command: hookCmd(hooksDir, 'classify-failure.js'), timeout: 5 },
         ],
       },
       {

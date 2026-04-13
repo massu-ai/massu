@@ -168,6 +168,18 @@ const AutoLearningConfigSchema = z.object({
       'added_missing_import',
     ]),
   }).default({}),
+  failureClassification: z.object({
+    enabled: z.boolean().default(true),
+    thresholds: z.object({
+      known: z.number().default(5),
+      similar: z.number().default(3),
+    }).default({}),
+    scoring: z.object({
+      diffPatternWeight: z.number().default(3),
+      filePatternWeight: z.number().default(2),
+      promptKeywordWeight: z.number().default(2),
+    }).default({}),
+  }).default({}),
   pipeline: z.object({
     requireIncidentReport: z.boolean().default(true),
     requirePreventionRule: z.boolean().default(true),

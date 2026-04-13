@@ -17,6 +17,7 @@
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { basename, dirname, resolve } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
+import { getMemoryDb, scoreFailureClasses, appendIncidentToFailureClass, addFailureClass } from '../memory-db.ts';
 
 interface HookInput {
   session_id: string;
@@ -129,6 +130,47 @@ async function main(): Promise<void> {
     lines.push('');
 
     console.log(lines.join('\n'));
+
+    // ============================================================
+    // Taxonomy Update: Score incident against failure classes
+    // If KNOWN match → append incident to existing class
+    // If NEW → create stub entry with needs_review=true
+    // ============================================================
+    try {
+      const taxonomyConfig = config.autoLearning?.failureClassification;
+      if (taxonomyConfig?.enabled !== false) {
+        const db = getMemoryDb();
+        try {
+          const thresholds = taxonomyConfig?.thresholds ?? { known: 5, similar: 3 };
+          const scoringWeights = taxonomyConfig?.scoring;
+
+          // Extract incident number from filename (e.g., "incident-042.md" → "42")
+          const incidentNumMatch = basename(filePath, '.md').match(/(\d+)/);
+          const incidentId = incidentNumMatch ? incidentNumMatch[1] : basename(filePath, '.md');
+
+          // Score incident content against taxonomy
+          const bestMatch = scoreFailureClasses(db, content, filePath, title, scoringWeights);
+
+          if (bestMatch && bestMatch.score >= thresholds.similar) {
+            // Known or similar — append incident to existing class
+            appendIncidentToFailureClass(db, bestMatch.name, incidentId);
+          } else {
+            // New pattern — create stub entry for review
+            const stubName = `auto_${slug.replace(/[^a-z0-9_]/g, '_').slice(0, 50)}`;
+            addFailureClass(db, {
+              name: stubName,
+              description: `Auto-created from incident ${incidentId}: ${title.slice(0, 100)}`,
+              incidents: [incidentId],
+              needsReview: true,
+            });
+          }
+        } finally {
+          db.close();
+        }
+      }
+    } catch {
+      // Best-effort: taxonomy update failure must not block the pipeline
+    }
   } catch {
     // Best-effort: never block Claude Code
   }

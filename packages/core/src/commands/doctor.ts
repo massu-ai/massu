@@ -15,6 +15,7 @@
  * 8. better-sqlite3 native module loads
  * 9. Node.js version >= 18
  * 10. Git repository detected
+ * 11. CLAUDE.md exists with content
  */
 
 import { existsSync, readFileSync, readdirSync } from 'fs';
@@ -373,6 +374,32 @@ function checkPythonHealth(projectRoot: string): CheckResult | null {
   };
 }
 
+function checkClaudeMd(projectRoot: string): CheckResult {
+  const claudeMdPath = resolve(projectRoot, 'CLAUDE.md');
+  if (!existsSync(claudeMdPath)) {
+    return {
+      name: 'CLAUDE.md',
+      status: 'warn',
+      detail: 'CLAUDE.md not found. Run: npx massu init (or create manually)',
+    };
+  }
+
+  const content = readFileSync(claudeMdPath, 'utf-8');
+  if (content.trim().length < 50) {
+    return {
+      name: 'CLAUDE.md',
+      status: 'warn',
+      detail: 'CLAUDE.md exists but appears empty or minimal',
+    };
+  }
+
+  return {
+    name: 'CLAUDE.md',
+    status: 'pass',
+    detail: 'CLAUDE.md found and has content',
+  };
+}
+
 // ============================================================
 // Main Doctor Flow
 // ============================================================
@@ -397,6 +424,7 @@ export async function runDoctor(): Promise<void> {
     checkNodeVersion(),
     await checkGitRepo(projectRoot),
     await checkLicenseStatus(),
+    checkClaudeMd(projectRoot),
   ];
 
   // Add Python health check if configured

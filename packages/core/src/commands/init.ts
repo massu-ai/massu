@@ -18,6 +18,7 @@ import { resolve, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { backfillMemoryFiles } from '../memory-file-ingest.ts';
+import { buildClaudeMdContent } from '../claude-md-templates.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -37,6 +38,8 @@ interface FrameworkDetection {
 }
 
 interface InitResult {
+  claudeMdCreated: boolean;
+  claudeMdSkipped: boolean;
   configCreated: boolean;
   configSkipped: boolean;
   mcpRegistered: boolean;
@@ -287,6 +290,28 @@ ${yamlStringify(config)}`;
 
   writeFileSync(configPath, yamlContent, 'utf-8');
   return true;
+}
+
+// ============================================================
+// CLAUDE.md Generation
+// ============================================================
+
+export function generateClaudeMd(
+  projectRoot: string,
+  framework: FrameworkDetection,
+  python: PythonDetection,
+): { created: boolean; skipped: boolean } {
+  const claudeMdPath = resolve(projectRoot, 'CLAUDE.md');
+
+  // NEVER overwrite existing CLAUDE.md
+  if (existsSync(claudeMdPath)) {
+    return { created: false, skipped: true };
+  }
+
+  const projectName = basename(projectRoot);
+  const content = buildClaudeMdContent(projectName, projectRoot, framework, python);
+  writeFileSync(claudeMdPath, content, 'utf-8');
+  return { created: true, skipped: false };
 }
 
 // ============================================================
@@ -550,6 +575,14 @@ export async function runInit(): Promise<void> {
     if (python.hasSqlalchemy) pyParts.push('SQLAlchemy');
     if (python.hasAlembic) pyParts.push('Alembic');
     console.log(`  Detected: ${pyParts.join(', ')} (root: ${python.root})`);
+  }
+
+  // Step 1.5: Generate CLAUDE.md (MUST be first content step — incident 2026-04-13)
+  const claudeMdResult = generateClaudeMd(projectRoot, framework, python);
+  if (claudeMdResult.created) {
+    console.log('  Created CLAUDE.md (project instructions for Claude Code)');
+  } else {
+    console.log('  CLAUDE.md already exists (preserved)');
   }
 
   // Step 2: Create config

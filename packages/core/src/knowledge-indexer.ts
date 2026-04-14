@@ -599,7 +599,7 @@ export function indexAllKnowledge(db: Database.Database): IndexStats {
       // Parse plan documents for structured metadata
       if (category === 'plan') {
         // Extract plan items (P1-001, P2-001, etc.)
-        const planItemRegex = /^###\s+(P\d+-\d+):\s+(.+)$/gm;
+        const planItemRegex = /^###\s+(P[-A-Z]*\d*-?\w+):\s+(.+)$/gm;
         let planMatch;
         while ((planMatch = planItemRegex.exec(content)) !== null) {
           insertChunk.run(docId, 'pattern', planMatch[1], `${planMatch[1]}: ${planMatch[2]}`, null, null, JSON.stringify({ plan_item_id: planMatch[1] }));

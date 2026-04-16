@@ -1,31 +1,29 @@
 ---
 name: massu-gap-enhancement-analyzer
 description: "When user says 'analyze gaps', 'find enhancements', 'gap analysis', or has completed a massu-loop implementation and needs to identify remaining gaps and enhancement opportunities"
-allowed-tools: Bash(*), Read(*), Write(*), Grep(*), Glob(*)
+allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Task(*)
 ---
 name: massu-gap-enhancement-analyzer
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-12, CR-45 enforced.
 
-# Massu Gap & Enhancement Analyzer
+# Massu Gap & Enhancement Analyzer — Zero-Gap Loop
 
 ## Objective
 
-Perform a comprehensive post-implementation review of a plan executed through massu-loop to identify:
-1. **Gaps**: Missing functionality, incomplete implementations, untested paths, or deviations from plan
-2. **Enhancements**: Opportunities to improve UX, performance, security, or functionality beyond the original scope
+Run a continuous analysis→fix→re-analysis loop that catches everything implementation missed: incomplete features, missing edge cases, UX gaps, untested paths, security issues, and enhancement opportunities.
 
-This tool produces a detailed analysis report. ALL gaps and enhancements identified MUST be fixed/implemented — no severity is exempt (CR-45).
+**ALL gaps and enhancements found MUST be fixed/implemented — no severity is exempt (CR-45).**
+
+**This command loops until a FULL PASS discovers ZERO gaps AND ZERO enhancements.**
 
 ---
 
 ## WHEN TO USE THIS COMMAND
 
-Use this command AFTER a plan has been implemented through `/massu-loop` to:
-- Validate that ALL plan items were actually implemented
-- Identify gaps that may have been missed during implementation
-- Discover enhancement opportunities that became apparent during implementation
-- Create a prioritized action list for follow-up work
+- **Standalone**: After a plan has been implemented via `/massu-loop` or manual implementation
+- **Inside golden path**: Invoked automatically as Phase 2.5
+- **Ad hoc**: Any time you want to sweep a codebase area for gaps and enhancements
 
 ---
 
@@ -33,134 +31,198 @@ Use this command AFTER a plan has been implemented through `/massu-loop` to:
 
 The user MUST provide:
 1. **Plan file path**: The original plan document that was implemented
-2. **Implementation scope**: Files/directories that were touched during implementation
 
-If not provided, ask for these inputs before proceeding.
+If not provided, ask for the plan path before proceeding.
 
 ---
 
-## PHASE 1: PLAN EXTRACTION & INVENTORY
+## THIS IS A LOOP CONTROLLER
 
-### Step 1.1: Read the Complete Plan
+**Your job is to:**
+1. Spawn a `general-purpose` subagent for ONE complete analysis-and-fix pass
+2. Parse the structured result (`GAPS_DISCOVERED: N`)
+3. If gaps discovered > 0: spawn ANOTHER full pass (even if all gaps were fixed)
+4. Only when a COMPLETE FRESH PASS discovers ZERO gaps can you declare complete
 
-```bash
-# Read the entire plan document
-cat [PLAN_FILE_PATH]
+**You are NOT the analyzer. You are the LOOP. The analyzer runs inside Task subagents.**
+
+---
+
+## CRITICAL: GAPS_DISCOVERED Semantics
+
+**`GAPS_DISCOVERED` = total gaps + enhancements FOUND during the pass, REGARDLESS of whether they were also fixed.**
+
+| Scenario | GAPS_DISCOVERED | Loop Action |
+|----------|----------------|-------------|
+| Pass finds 0 gaps/enhancements | 0 | **EXIT** — analysis complete |
+| Pass finds 12 gaps, fixes all 12 | **12** (NOT 0) | **CONTINUE** — must re-analyze |
+| Pass finds 5 gaps, fixes 3, 2 need controller | **5** | **CONTINUE** — fix remaining, re-analyze |
+
+**THE RULE**: A clean pass means zero issues DISCOVERED from the start. Fixing gaps during a pass does NOT make it a clean pass. Only a fresh pass starting clean and finding nothing wrong proves the implementation is complete.
+
+---
+
+## MANDATORY LOOP CONTROLLER (EXECUTE THIS — DO NOT SKIP)
+
+```
+PLAN_PATH = $ARGUMENTS (the plan file path)
+iteration = 0
+MAX_ITERATIONS = 10
+
+WHILE iteration < MAX_ITERATIONS:
+  iteration += 1
+
+  result = Task(subagent_type="general-purpose", prompt="
+    Gap & Enhancement Analysis — Iteration {iteration}
+
+    CONTEXT:
+    - Plan file: {PLAN_PATH}
+    - Implementation is COMPLETE
+    - Your job: find ALL gaps and enhancements, then FIX every one
+
+    INSTRUCTIONS:
+    1. Read the plan file from disk
+    2. Read CLAUDE.md for rules and patterns
+    3. Review ALL files changed: git diff origin/main --name-only (or git diff HEAD~10 --name-only)
+    4. Run ALL analysis categories below (A through H)
+    5. For EACH gap/enhancement found: FIX IT immediately
+    6. Verify each fix (build, type-check, test as appropriate)
+    7. Report GAPS_DISCOVERED as total FOUND (even if all fixed)
+
+    ANALYSIS CATEGORIES:
+
+    A. FUNCTIONAL GAPS
+    - Missing error handling (try/catch, error boundaries, fallbacks)
+    - Missing loading states (spinners, skeletons, disabled buttons)
+    - Missing empty states ('No items found' messaging)
+    - Missing null/undefined guards on nullable fields
+    - Missing input validation (required fields, format, bounds)
+    - Incomplete CRUD (create exists but no edit/delete, or vice versa)
+    - Missing timeout wrappers on async calls (asyncio.timeout)
+    - Missing concurrency limits on external clients (semaphores)
+
+    B. UX GAPS
+    - Missing success feedback after mutations
+    - Missing confirmation for destructive actions
+    - Missing keyboard navigation
+    - Missing responsive behavior
+    - Inconsistent spacing or layout
+    - Missing breadcrumbs or navigation context
+    - User-unfriendly error messages (must be human-readable)
+
+    C. DATA INTEGRITY GAPS
+    - Optimistic updates without rollback
+    - Missing cache invalidation after mutations
+    - Stale data after navigation
+    - Missing pagination for large datasets
+    - Unhandled serialization edge cases
+
+    D. SECURITY GAPS
+    - Missing auth checks on mutations
+    - Missing input validation on API inputs
+    - Missing access control policies on new tables/resources
+    - Exposed sensitive data in responses
+    - Service token auth ordering (must precede auth bypass)
+
+    E. PATTERN COMPLIANCE
+    - Check for pattern violations against CLAUDE.md rules
+    - Verify naming conventions (snake_case, PascalCase, etc.)
+    - Check for hardcoded values that should be configurable
+    - Verify async patterns (lazy lock init, strong task refs, timeouts)
+
+    F. ENHANCEMENT OPPORTUNITIES
+    - Type safety improvements (replace Any with proper types)
+    - Code deduplication (extract shared logic)
+    - Performance optimizations (caching, batching, lazy loading)
+    - Accessibility improvements (aria-labels, focus management)
+    - Better logging (WARNING for dropped data, structured log levels)
+
+    G. E2E WIRING GAPS
+    - For each data flow, verify the complete chain:
+      WRITE: mutation/action reachable from UI or scheduler
+      STORE: data persists to real storage
+      READ: query reads from that same storage
+      DISPLAY: component/log renders the data
+    - Background features: WRITE->STORE->READ sufficient
+    - Query-only features: READ->DISPLAY sufficient
+
+    H. TEST COVERAGE GAPS
+    - Files without corresponding tests
+    - Tests behind guards that don't mock the guard
+    - Missing edge case tests (empty input, max bounds, error paths)
+    - Missing integration tests for multi-stage pipelines
+
+    FOR EACH FINDING:
+    1. Classify: GAP or ENHANCEMENT
+    2. Severity: P0 (broken/security) / P1 (incorrect/major) / P2 (polish/minor)
+    3. FIX IT immediately
+    4. Verify the fix works
+
+    CRITICAL INSTRUCTION FOR GAPS_DISCOVERED:
+    Report GAPS_DISCOVERED as the total number of issues you FOUND during this pass,
+    EVEN IF you also fixed them. Finding 12 issues and fixing all 12 = GAPS_DISCOVERED: 12.
+    A clean pass that finds nothing wrong from the start = GAPS_DISCOVERED: 0.
+
+    Return the structured result block at the end:
+    ---STRUCTURED-RESULT---
+    ITERATION: {iteration}
+    GAPS_DISCOVERED: [number]
+    ENHANCEMENTS_DISCOVERED: [number]
+    TOTAL_ISSUES: [number]  (gaps + enhancements)
+    ITEMS_FIXED: [number]
+    ITEMS_REMAINING: [number]
+    ---END-RESULT---
+  ")
+
+  # Parse structured result
+  gaps = parse TOTAL_ISSUES from result (fallback: GAPS_DISCOVERED)
+
+  # Report iteration to user
+  Output: "Iteration {iteration}: {gaps} issues discovered"
+
+  IF gaps == 0:
+    Output: "GAP ANALYSIS COMPLETE — Clean pass with zero issues in iteration {iteration}"
+    BREAK
+  ELSE:
+    Output: "{gaps} issues discovered (and fixed) in iteration {iteration}, starting fresh re-analysis..."
+    CONTINUE
+
+IF iteration == MAX_ITERATIONS AND gaps > 0:
+  Output: "WARNING: Gap analyzer did not converge after {MAX_ITERATIONS} iterations. {gaps} issues remain."
 ```
 
-**Extract ALL of the following into structured inventory:**
+---
+
+## RULES FOR THE LOOP CONTROLLER
+
+| Rule | Meaning |
+|------|---------|
+| **NEVER output a final verdict while gaps > 0** | Only a zero-issue-from-start iteration produces the final report |
+| **NEVER treat "found and fixed" as zero gaps** | Fixing during a pass still means gaps were discovered |
+| **NEVER ask user "should I continue?"** | The loop is mandatory |
+| **NEVER stop after fixing gaps** | Requires a FRESH re-analysis to verify |
+| **ALWAYS use Task tool for analysis passes** | Subagents keep context clean |
+| **ALWAYS parse GAPS_DISCOVERED from result** | This is the loop control variable |
+| **Maximum 10 iterations** | If still failing after 10, report to user |
+| **Enhancements are NOT optional** | All enhancements MUST be implemented (CR-45) |
+| **No severity exemptions** | CRITICAL through MINOR, all get fixed |
+
+---
+
+## ANALYSIS DETAIL: PLAN EXTRACTION (Subagent does this in each pass)
+
+### Plan Inventory
+
+The subagent reads the plan and extracts ALL items:
 
 | Category | What to Extract |
 |----------|-----------------|
-| **Database** | Tables, columns, migrations, policies, grants (if applicable) |
-| **API/Backend** | Endpoints, procedures, inputs, outputs, mutations, queries |
-| **Components** | UI components, their locations, dependencies |
-| **Pages** | Routes, page files, layouts |
+| **Database** | Tables, columns, migrations, policies, grants |
+| **API/Routers** | Endpoints, inputs, outputs, mutations, queries |
+| **Components** | UI components, locations, dependencies |
 | **Features** | User-facing functionality, workflows, integrations |
 | **Configuration** | Environment variables, feature flags, settings |
-| **Tests** | Test files, test coverage requirements |
-| **Documentation** | Help site updates, README changes |
-
-### Step 1.2: Create Plan Item Checklist
-
-```markdown
-## PLAN ITEM INVENTORY
-
-| ID | Category | Item Description | Expected Location | Status |
-|----|----------|------------------|-------------------|--------|
-| P-001 | DB | [table_name] table | migration file | PENDING |
-| P-002 | API | [endpoint_name] endpoint | [path from plan] | PENDING |
-| P-003 | UI | [ComponentName] component | [path from plan] | PENDING |
-| P-004 | Feature | [Feature description] | [path from plan] | PENDING |
-```
-
----
-
-## PHASE 2: IMPLEMENTATION VERIFICATION
-
-> **IMPORTANT**: Derive all file paths from the plan document. Do NOT assume any specific framework directory structure. The plan specifies where files should live — use those paths for all verification commands below.
-
-### Step 2.1: Database Verification
-
-> **Skip this section if the plan does not include database changes.**
-
-For EACH database item in the plan, use the project's database CLI or query tool to verify:
-
-- Table exists with expected name
-- Columns match plan (names, types, nullability)
-- Access policies exist (RLS, grants, permissions — whatever the project uses)
-- Indexes or constraints mentioned in the plan are present
-
-```bash
-# Example: check migration files exist
-ls -la [MIGRATION_PATH_FROM_PLAN]
-
-# Example: grep migration content for expected table/column names
-grep -n "[TABLE_NAME]" [MIGRATION_FILE]
-grep -n "[COLUMN_NAME]" [MIGRATION_FILE]
-```
-
-### Step 2.2: API/Backend Verification
-
-For EACH endpoint or procedure in the plan:
-
-```bash
-# Verify endpoint/procedure exists at the path specified in the plan
-grep -n "[endpoint_name]" [BACKEND_FILE_FROM_PLAN]
-
-# Verify input validation/schema
-grep -A 20 "[endpoint_name]" [BACKEND_FILE_FROM_PLAN] | grep -A 10 "input\|schema\|validate"
-
-# Verify the backend module is registered/exported in the project's routing layer
-grep "[module_name]" [ROUTER_OR_ENTRY_FILE_FROM_PLAN]
-```
-
-### Step 2.3: Component Verification
-
-For EACH UI component in the plan:
-
-```bash
-# Verify component file exists at the path specified in the plan
-ls -la [COMPONENT_PATH_FROM_PLAN]
-
-# CRITICAL: Verify component is RENDERED in a page
-grep -rn "[ComponentName]" [PAGES_DIR_FROM_PLAN]
-
-# Verify component imports are correct
-grep -rn "import.*[ComponentName]" [PAGES_DIR_FROM_PLAN]
-```
-
-### Step 2.4: Backend-Frontend Coupling Verification (CRITICAL)
-
-**MANDATORY**: Verify ALL backend features are exposed in frontend.
-
-Use grep to check that every backend endpoint/procedure is called from at least one frontend file:
-
-```bash
-# For each backend endpoint, verify frontend usage
-grep -rn "[endpoint_or_procedure_name]" [FRONTEND_DIR_FROM_PLAN]
-# If 0 results, the backend feature is unreachable from the UI
-```
-
-**Manual verification for plan-specific items:**
-
-| Backend Item | Frontend Requirement | Verification |
-|--------------|---------------------|--------------|
-| Enum/constant values in backend | SELECT options in form | grep values in constants/config files |
-| New API endpoint | UI component calls it | grep endpoint name in frontend files |
-| Input schema fields | Form has all fields | grep field names in form component |
-| Type definitions | Frontend types match | compare backend types to component types |
-
-```markdown
-### Backend-Frontend Coupling Status
-| Backend Feature | Frontend Exposure | Status |
-|-----------------|-------------------|--------|
-| [feature] | [component/form] | PRESENT/MISSING |
-```
-
----
-
-## PHASE 3: GAP ANALYSIS
+| **Tests** | Test files, coverage requirements |
 
 ### Gap Categories
 
@@ -170,194 +232,82 @@ grep -rn "[endpoint_or_procedure_name]" [FRONTEND_DIR_FROM_PLAN]
 | **COUPLING** | Backend feature not exposed in UI (users can't access it) | P0 |
 | **MAJOR** | Significant functionality missing, UX broken | P1 |
 | **MINOR** | Small missing piece, cosmetic issue | P2 |
-| **DEVIATION** | Implemented differently than planned (may be intentional) | P3 |
+| **ENHANCEMENT** | Improvement opportunity beyond original scope | P2 |
 
-### Gap Detection Methods
+### Backend-Frontend Coupling (VR-COUPLING)
 
-#### 3.1: Plan-to-Implementation Gaps
+**MANDATORY**: Verify ALL backend features are exposed in frontend.
 
-Compare plan items against actual implementation:
-
-```markdown
-### PLAN-TO-IMPLEMENTATION GAPS
-
-| Plan Item | Expected | Actual | Gap Type | Severity |
-|-----------|----------|--------|----------|----------|
-| P-001 | Table X with columns A,B,C | Only A,B exist | MISSING_COLUMN | MAJOR |
-| P-002 | Endpoint Y | Not found | MISSING_ENDPOINT | CRITICAL |
-| P-003 | Component Z | File exists but not rendered | NOT_RENDERED | CRITICAL |
-```
-
-#### 3.2: Cross-Reference Gaps
-
-Check for inconsistencies between layers:
-
-```bash
-# Backend endpoints without UI consumers (use paths from plan)
-grep -rn "[endpoint_name]" [FRONTEND_DIR_FROM_PLAN] | wc -l
-# If 0, endpoint may be unused
-
-# Components without page integration (use paths from plan)
-find [COMPONENTS_DIR_FROM_PLAN] -name "*.tsx" -o -name "*.jsx" -o -name "*.vue" | while read f; do
-  name=$(basename "$f" | sed 's/\.[^.]*$//')
-  grep -rn "$name" [PAGES_DIR_FROM_PLAN] || echo "ORPHAN: $name"
-done
-```
-
-#### 3.3: Error Handling Gaps
-
-```bash
-# Check for try/catch in async operations (use paths from plan)
-grep -rn "async" [BACKEND_FILES_FROM_PLAN] | grep -v "try" | head -20
-
-# Check for loading states (use paths from plan)
-grep -rn "loading\|isLoading\|isPending" [FRONTEND_FILES_FROM_PLAN] | wc -l
-```
+| Backend Item | Frontend Requirement |
+|--------------|---------------------|
+| Enum values in router | SELECT/UI options match |
+| New API endpoint | UI component calls it |
+| Input schema fields | Form has all fields |
+| Response fields | Display component renders them |
 
 ---
 
-## PHASE 4: ENHANCEMENT ANALYSIS
+## POST-LOOP: REPORT GENERATION
 
-### Enhancement Categories
+After the loop exits with zero gaps, generate a final summary report.
 
-| Category | Description | Priority Framework |
-|----------|-------------|-------------------|
-| **UX** | User experience improvements | Impact vs Effort |
-| **Performance** | Speed, efficiency optimizations | Measurable benefit |
-| **Security** | Hardening, additional checks | Risk reduction |
-| **Functionality** | Feature extensions | User value |
-| **Developer Experience** | Code quality, maintainability | Long-term value |
-| **Accessibility** | A11y improvements | Compliance + UX |
+### Report Storage
 
-### Enhancement Detection Methods
-
-#### 4.1: UX Enhancements
-
-```bash
-# Empty states - are they helpful? (use paths from plan)
-grep -rn "length === 0\|EmptyState\|empty" [FRONTEND_FILES_FROM_PLAN]
-
-# Loading states - are they smooth?
-grep -rn "isLoading\|Skeleton\|Spinner\|loading" [FRONTEND_FILES_FROM_PLAN]
-
-# Success feedback - is it clear?
-grep -rn "toast\|notification\|alert\|success" [FRONTEND_FILES_FROM_PLAN]
+```
+reports/gap-analysis/[YYYY-MM-DD]-[plan-name-slug]-gap-analysis.md
 ```
 
-#### 4.2: Performance Enhancements
-
-```bash
-# Large list rendering - virtualization needed? (use paths from plan)
-grep -rn "\.map(" [FRONTEND_FILES_FROM_PLAN] | grep -v "slice\|virtualized\|paginate"
-
-# API calls - batching opportunity?
-grep -rn "fetch\|useQuery\|useMutation\|axios\|request" [FRONTEND_FILES_FROM_PLAN] | wc -l
-```
-
-#### 4.3: Security Enhancements
-
-```bash
-# Input validation - are all string inputs constrained? (use paths from plan)
-grep -rn "string\|text\|varchar" [BACKEND_FILES_FROM_PLAN] | grep -v "min\|max\|regex\|length\|validate"
-```
-
-#### 4.4: Accessibility Enhancements
-
-```bash
-# ARIA attributes (use paths from plan)
-grep -rn "aria-\|role=" [FRONTEND_FILES_FROM_PLAN]
-
-# Alt text
-grep -rn "<img\|<Image" [FRONTEND_FILES_FROM_PLAN] | grep -v "alt="
-```
-
----
-
-## PHASE 5: REPORT GENERATION
-
-### Report Structure
+### Report Contents
 
 ```markdown
+---
+title: Gap & Enhancement Analysis Report
+plan: [PLAN_FILE_PATH]
+analyzed_date: [YYYY-MM-DD HH:MM]
+analyzer: massu-gap-enhancement-analyzer v2.0 (loop-until-zero)
+iterations: [N]
+---
+
 # Gap & Enhancement Analysis Report
 
 ## Executive Summary
 
 | Metric | Count |
 |--------|-------|
-| Plan Items | [N] |
-| Verified Complete | [X] |
-| Gaps Found | [G] |
-| Critical Gaps | [C] |
-| Enhancements Identified | [E] |
+| Total Iterations | [N] |
+| Total Gaps Found (all iterations) | [G] |
+| Total Enhancements Found (all iterations) | [E] |
+| All Fixed | YES |
+| Clean Pass | Iteration [N] |
 
-**Overall Score**: [X/N] items verified ([%]%)
-**Gap Severity Distribution**: [C] Critical, [M] Major, [m] Minor
+## Iteration Log
 
----
+| Iteration | Gaps | Enhancements | Fixed | Status |
+|-----------|------|--------------|-------|--------|
+| 1 | [N] | [N] | [N] | CONTINUE |
+| 2 | [N] | [N] | [N] | CONTINUE |
+| ... | | | | |
+| [final] | 0 | 0 | 0 | CLEAN PASS |
 
-## Section 1: Plan Coverage Analysis
+## Items Fixed (All Iterations)
 
-### Coverage Matrix
-
-| Phase | Items | Complete | Gaps | Coverage |
-|-------|-------|----------|------|----------|
-| Phase 1 | [N] | [X] | [G] | [%]% |
-| Phase 2 | [N] | [X] | [G] | [%]% |
-| **TOTAL** | [N] | [X] | [G] | [%]% |
-
----
-
-## Section 2: Gap Report
-
-### Critical Gaps (P0) - Must Fix
-
-| ID | Gap Description | Expected | Actual | Impact | Remediation |
-|----|-----------------|----------|--------|--------|-------------|
-| G-001 | [description] | [expected] | [actual] | [impact] | [fix steps] |
-
-### Major Gaps (P1) - Should Fix
-
-| ID | Gap Description | Expected | Actual | Impact | Remediation |
-|----|-----------------|----------|--------|--------|-------------|
-
-### Minor Gaps (P2) - Nice to Fix
-
-| ID | Gap Description | Expected | Actual | Impact | Remediation |
-|----|-----------------|----------|--------|--------|-------------|
+| # | Type | Severity | Description | File | Iteration |
+|---|------|----------|-------------|------|-----------|
+| 1 | GAP | P0 | [description] | [file] | 1 |
+| 2 | ENHANCEMENT | P2 | [description] | [file] | 1 |
 
 ---
+*Generated by massu-gap-enhancement-analyzer v2.0 (loop-until-zero)*
+```
 
-## Section 3: Enhancement Recommendations
+### Report Index
 
-### High-Impact Enhancements (Recommended)
+Update `reports/gap-analysis/INDEX.md`:
 
-| ID | Enhancement | Category | Impact | Effort | Priority |
-|----|-------------|----------|--------|--------|----------|
-| E-001 | [description] | UX/Perf/Sec | High/Med/Low | High/Med/Low | [1-5] |
-
----
-
-## Section 4: Technical Debt Identified
-
-| ID | Debt Type | Location | Description | Risk if Unaddressed |
-|----|-----------|----------|-------------|---------------------|
-| TD-001 | [type] | [file:line] | [description] | [risk] |
-
----
-
-## Section 5: Action Items
-
-### Immediate Actions (Gaps)
-
-- [ ] G-001: [fix description]
-
-### Recommended Enhancements
-
-- [ ] E-001: [enhancement description]
-
-### Technical Debt Items
-
-- [ ] TD-001: [debt resolution]
+```markdown
+| Date | Plan | Iterations | Gaps Fixed | Enhancements | Report |
+|------|------|------------|------------|--------------|--------|
+| [date] | [plan] | [N] | [G] | [E] | [link] |
 ```
 
 ---
@@ -368,113 +318,36 @@ grep -rn "<img\|<Image" [FRONTEND_FILES_FROM_PLAN] | grep -v "alt="
 START
   |
   v
-[PHASE 1: Plan Extraction]
-  - Read complete plan file
-  - Extract all items into inventory
-  - Create checklist
+[Parse plan path from $ARGUMENTS]
   |
   v
-[PHASE 2: Implementation Verification]
-  - Database verification (if applicable)
-  - API/Backend verification
-  - Component verification
-  - Feature verification
-  - Configuration verification
+[LOOP ITERATION 1]
+  - Spawn subagent
+  - Subagent: read plan, read CLAUDE.md, analyze categories A-H
+  - Subagent: fix ALL issues found
+  - Subagent: return GAPS_DISCOVERED count
   |
   v
-[PHASE 3: Gap Analysis]
-  - Plan-to-implementation gaps
-  - Cross-reference gaps
-  - Error handling gaps
+[GAPS > 0?] --YES--> [LOOP ITERATION 2] --> ...
+  |
+  NO
   |
   v
-[PHASE 4: Enhancement Analysis]
-  - UX enhancements
-  - Performance enhancements
-  - Security enhancements
-  - Accessibility enhancements
+[GENERATE FINAL REPORT]
+  - Save to reports/gap-analysis/
+  - Update INDEX.md
   |
   v
-[PHASE 5: Report Generation]
-  - Executive summary
-  - Detailed gap report
-  - Enhancement recommendations
-  - Action items
-  |
-  v
-[PHASE 6: Report Saving]
-  - Save report to .claude/reports/gap-analysis/
-  - Verify file saved
-  |
-  v
-OUTPUT: Full analysis report (displayed AND saved)
+[OUTPUT: Zero-gap certification + report location]
 ```
-
----
-
-## OUTPUT REQUIREMENTS
-
-The final output MUST include:
-
-1. **Executive Summary** with key metrics
-2. **Coverage Matrix** showing plan completion percentage
-3. **Gap Report** with severity, impact, and remediation for each gap
-4. **Enhancement Recommendations** prioritized by impact/effort
-5. **Action Items** checklist for follow-up work
-6. **Verification Evidence** proving each check was performed
-
----
-
-## PHASE 6: REPORT SAVING (MANDATORY)
-
-### Report Storage Location
-
-```
-.claude/reports/gap-analysis/
-```
-
-### Report Naming Convention
-
-```
-[YYYY-MM-DD]-[plan-name-slug]-gap-analysis.md
-```
-
-### Step 6.1: Create Reports Directory (if needed)
-
-```bash
-mkdir -p .claude/reports/gap-analysis
-```
-
-### Step 6.2: Save the Complete Report
-
-Write the full report (from Phase 5) to the report file.
-
-### Step 6.3: Verification
-
-```bash
-# Verify report was saved
-ls -la .claude/reports/gap-analysis/[REPORT_FILE]
-
-# Verify report has content
-wc -l .claude/reports/gap-analysis/[REPORT_FILE]
-```
-
----
-
-## IMPORTANT NOTES
-
-- **When invoked standalone**: This command produces a report. ALL identified gaps and enhancements MUST then be fixed/implemented before the task is considered complete (CR-45). No severity level is exempt — CRITICAL through MINOR, all get fixed.
-- **When invoked as part of golden path/massu-loop**: Gaps and enhancements are fixed inline by the subagent during analysis.
-- Document evidence for every finding
-- **Enhancements are NOT optional** — all identified enhancements must be implemented (CR-45)
 
 ---
 
 ## START NOW
 
-1. Confirm plan file path with user
-2. Read the complete plan document
-3. Execute Phase 1-5 in order
-4. Generate comprehensive report
-5. Save report to `.claude/reports/gap-analysis/`
-6. Present findings to user with report location
+1. Parse plan file path from `$ARGUMENTS`
+2. Start the loop: spawn subagent for iteration 1
+3. Parse `GAPS_DISCOVERED` / `TOTAL_ISSUES` from the result
+4. If > 0: spawn another iteration (DO NOT ASK — loop is mandatory)
+5. If == 0: generate report, output final summary
+6. Continue until zero or max 10 iterations

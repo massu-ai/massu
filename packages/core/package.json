@@ -1,6 +1,6 @@
 {
   "name": "@massu/core",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "type": "module",
   "description": "AI Engineering Governance MCP Server - Session memory, knowledge system, feature registry, code intelligence, rule enforcement, auto-learning pipeline, tiered tooling (12 free / 72 total), 55+ workflow commands, 15 agents, 20+ patterns",
   "main": "src/server.ts",

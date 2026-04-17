@@ -93,6 +93,6 @@ SECURITY_GATE: PASS/FAIL
 ## Rules
 1. Assume code is vulnerable until proven safe
 2. Every finding needs file:line reference
-3. CRITICAL/HIGH findings = FAIL gate
-4. MEDIUM findings = WARNING (document, may proceed)
+3. ANY finding at ANY severity (CRITICAL, HIGH, MEDIUM, or LOW) = FAIL gate. The gate only passes with ZERO findings at ALL levels
+4. The consuming agent MUST fix every finding at every severity before the security gate can pass — no exceptions, no "proceed with warnings"
 5. Do NOT loop - one complete pass and return

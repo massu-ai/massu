@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { resolve } from 'path';
 import {
@@ -128,28 +128,43 @@ describe('CLI: Config Generation', () => {
   beforeEach(setupTestDir);
   afterEach(cleanupTestDir);
 
+  // P2-002: generateConfig is deprecated since 1.2.1. These smoke tests silence
+  // the deprecation warning to keep CI output clean. The function's behavior
+  // contract is unchanged.
   it('creates massu.config.yaml', () => {
-    const framework = { type: 'typescript', router: 'trpc', orm: 'prisma', ui: 'nextjs' };
-    const created = generateConfig(TEST_DIR, framework);
-    expect(created).toBe(true);
-    expect(existsSync(resolve(TEST_DIR, 'massu.config.yaml'))).toBe(true);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const framework = { type: 'typescript', router: 'trpc', orm: 'prisma', ui: 'nextjs' };
+      const created = generateConfig(TEST_DIR, framework);
+      expect(created).toBe(true);
+      expect(existsSync(resolve(TEST_DIR, 'massu.config.yaml'))).toBe(true);
 
-    const content = readFileSync(resolve(TEST_DIR, 'massu.config.yaml'), 'utf-8');
-    expect(content).toContain('toolPrefix: massu');
-    expect(content).toContain('type: typescript');
-    expect(content).toContain('router: trpc');
-    expect(content).toContain('orm: prisma');
-    expect(content).toContain('ui: nextjs');
+      const content = readFileSync(resolve(TEST_DIR, 'massu.config.yaml'), 'utf-8');
+      expect(content).toContain('toolPrefix: massu');
+      expect(content).toContain('type: typescript');
+      expect(content).toContain('router: trpc');
+      expect(content).toContain('orm: prisma');
+      expect(content).toContain('ui: nextjs');
+      // Deprecation warn emitted.
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('deprecated since 1.2.1'));
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('skips if config already exists', () => {
-    writeFileSync(resolve(TEST_DIR, 'massu.config.yaml'), 'existing: true\n');
-    const framework = { type: 'typescript', router: 'none', orm: 'none', ui: 'none' };
-    const created = generateConfig(TEST_DIR, framework);
-    expect(created).toBe(false);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      writeFileSync(resolve(TEST_DIR, 'massu.config.yaml'), 'existing: true\n');
+      const framework = { type: 'typescript', router: 'none', orm: 'none', ui: 'none' };
+      const created = generateConfig(TEST_DIR, framework);
+      expect(created).toBe(false);
 
-    const content = readFileSync(resolve(TEST_DIR, 'massu.config.yaml'), 'utf-8');
-    expect(content).toBe('existing: true\n');
+      const content = readFileSync(resolve(TEST_DIR, 'massu.config.yaml'), 'utf-8');
+      expect(content).toBe('existing: true\n');
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 
@@ -213,6 +228,7 @@ describe('CLI: Hooks Installation', () => {
   it('creates .claude/settings.local.json with hooks', () => {
     const { installed, count } = installHooks(TEST_DIR);
     expect(installed).toBe(true);
+    // 16 total: 1 SessionStart + 2 PreToolUse + 8 PostToolUse + 2 Stop + 1 PreCompact + 2 UserPromptSubmit
     expect(count).toBe(16);
 
     const settingsPath = resolve(TEST_DIR, '.claude/settings.local.json');
@@ -254,7 +270,8 @@ describe('CLI: Hooks Installation', () => {
     expect(preToolUse[1].matcher).toBe('Bash|Write');
     expect(preToolUse[1].hooks[0].command).toContain('pre-delete-check.js');
 
-    // Check PostToolUse has all 8 hooks across 3 groups
+    // PostToolUse has three groups: all-matcher (3 hooks), Edit|Write (3 hooks),
+    // and Write-only (2 hooks for auto-learning pipelines).
     const postToolUse = hooksConfig.PostToolUse;
     expect(postToolUse).toHaveLength(3);
     expect(postToolUse[0].hooks).toHaveLength(3);
@@ -262,14 +279,17 @@ describe('CLI: Hooks Installation', () => {
     expect(postToolUse[0].hooks[1].command).toContain('quality-event.js');
     expect(postToolUse[0].hooks[2].command).toContain('cost-tracker.js');
     expect(postToolUse[1].matcher).toBe('Edit|Write');
+    expect(postToolUse[1].hooks).toHaveLength(3);
     expect(postToolUse[1].hooks[0].command).toContain('post-edit-context.js');
     expect(postToolUse[1].hooks[1].command).toContain('fix-detector.js');
     expect(postToolUse[1].hooks[2].command).toContain('classify-failure.js');
     expect(postToolUse[2].matcher).toBe('Write');
+    expect(postToolUse[2].hooks).toHaveLength(2);
     expect(postToolUse[2].hooks[0].command).toContain('incident-pipeline.js');
     expect(postToolUse[2].hooks[1].command).toContain('rule-enforcement-pipeline.js');
 
-    // Check Stop has session-end and auto-learning-pipeline
+    // Check Stop has session-end + auto-learning aggregation
+    expect(hooksConfig.Stop[0].hooks).toHaveLength(2);
     expect(hooksConfig.Stop[0].hooks[0].command).toContain('session-end.js');
     expect(hooksConfig.Stop[0].hooks[1].command).toContain('auto-learning-pipeline.js');
 
@@ -284,6 +304,7 @@ describe('CLI: Hooks Installation', () => {
   });
 
   it('counts all 16 hooks correctly', () => {
+    // 2 PreToolUse + 8 PostToolUse (3+3+2) + 2 Stop + 1 PreCompact + 2 UserPromptSubmit + 1 SessionStart = 16
     const hooksConfig = buildHooksConfig('test/path');
     let count = 0;
     for (const groups of Object.values(hooksConfig)) {

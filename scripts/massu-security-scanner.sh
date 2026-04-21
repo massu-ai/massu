@@ -166,13 +166,13 @@ if [ -d "$API_DIR" ]; then
     REL_PATH="${ROUTE_FILE#"$API_DIR"/}"
     # Skip known public or internally-authed routes
     case "$REL_PATH" in
-      contact/*|badge/*|sso/*|stripe/webhook/*|export/*|github-stars/*)
+      contact/*|badge/*|sso/*|stripe/webhook/*|lemon-squeezy/webhook/*|license/activate/*|export/*|github-stars/*)
         EXCLUDED_ROUTES=$((EXCLUDED_ROUTES + 1))
         continue
         ;;
     esac
     TOTAL_ROUTES=$((TOTAL_ROUTES + 1))
-    HAS_AUTH=$(grep -c 'createServerSupabaseClient\|authenticateApiKey\|authenticateApi\|getServerSession\|auth()' "$ROUTE_FILE" 2>/dev/null || true)
+    HAS_AUTH=$(grep -c 'createServerSupabaseClient\|authenticateApiKey\|authenticateApi\|getServerSession\|auth()\|getCurrentUser\|getCurrentOrg' "$ROUTE_FILE" 2>/dev/null || true)
     if [ "$HAS_AUTH" -eq 0 ]; then
       MISSING_AUTH=$((MISSING_AUTH + 1))
       warn "  No auth found: ${ROUTE_FILE#"$REPO_ROOT"/}"

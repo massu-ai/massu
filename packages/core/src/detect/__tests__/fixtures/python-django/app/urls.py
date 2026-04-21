@@ -1,0 +1,2 @@
+"""URL patterns."""
+urlpatterns: list = []

@@ -1,0 +1,201 @@
+---
+title: "MCP Bridge / Cross-Project Tool Mesh"
+description: "Call tools on external MCP servers from Claude Code — connect your Python, Node, or any MCP-compatible tools across projects"
+order: 16
+---
+
+# MCP Bridge / Cross-Project Tool Mesh
+
+Massu AI's MCP Bridge lets you call tools on external MCP servers directly from Claude Code. Any project can define servers in a `.mcp.json` file, and Massu will automatically discover and connect to them — creating a tool mesh across your projects.
+
+## Why This Matters
+
+AI coding assistants are powerful within a single project, but real-world development often involves multiple projects, services, and toolchains. MCP Bridge breaks down these silos:
+
+- **Cross-project tool access** — call tools from your Python backend while working in your TypeScript frontend
+- **Custom tool integration** — expose domain-specific tools (data pipelines, deployment scripts, internal APIs) to Claude Code
+- **Unified workflow** — no context switching between terminals or projects
+- **Security by default** — environment variable filtering, deny patterns, and allow-lists protect sensitive data
+
+## Configuration
+
+Define your MCP servers in a `.mcp.json` file at your project root:
+
+```json
+{
+  "mcpServers": {
+    "my-python-tools": {
+      "command": "python",
+      "args": ["-m", "my_mcp_server"],
+      "cwd": "/path/to/python-project",
+      "env": {
+        "DATABASE_URL": "postgresql://localhost/mydb"
+      }
+    },
+    "data-pipeline": {
+      "command": "node",
+      "args": ["./tools/mcp-server.js"],
+      "cwd": "/path/to/data-project"
+    }
+  }
+}
+```
+
+Each server entry specifies:
+
+- **`command`** — the executable to launch the MCP server
+- **`args`** — command-line arguments
+- **`cwd`** — working directory for the server process
+- **`env`** — environment variables passed to the server (filtered by security rules)
+
+## Security
+
+MCP Bridge includes multiple security layers:
+
+### Environment Variable Filtering
+
+Sensitive environment variables are automatically filtered before being passed to external servers. Variables matching common secret patterns (`*_SECRET`, `*_TOKEN`, `*_KEY`, `*_PASSWORD`) are stripped unless explicitly allow-listed.
+
+### Deny Patterns
+
+Configure deny patterns to block specific tool calls or server connections:
+
+```yaml
+# In massu.config.yaml
+mcp_bridge:
+  deny_patterns:
+    - "dangerous_tool_*"
+    - "admin_*"
+```
+
+### Allow-Lists
+
+Restrict which servers and tools are accessible:
+
+```yaml
+# In massu.config.yaml
+mcp_bridge:
+  allow_servers:
+    - "my-python-tools"
+    - "data-pipeline"
+  allow_tools:
+    - "query_database"
+    - "run_migration"
+```
+
+## Tools
+
+### `massu_mcp_servers`
+
+**What it does:** Lists all MCP servers configured in your project's `.mcp.json` file. Shows server names, connection types (stdio/SSE), commands, and environment configuration.
+
+**Usage:**
+
+```
+massu_mcp_servers
+```
+
+**Example output:**
+
+```
+Configured MCP Servers:
+  my-python-tools  stdio  python -m my_mcp_server  (3 env vars)
+  data-pipeline    stdio  node ./tools/mcp-server.js  (0 env vars)
+```
+
+**Tier:** Pro
+
+---
+
+### `massu_mcp_tools`
+
+**What it does:** Discovers available tools on any connected MCP server. Shows tool names, descriptions, and input schemas.
+
+**Usage:**
+
+```
+massu_mcp_tools { "server": "my-python-tools" }
+```
+
+**Example output:**
+
+```
+Tools on my-python-tools:
+  query_database    Query the project database with parameterized SQL
+  run_migration     Apply pending Alembic migrations
+  seed_data         Insert test data for development
+```
+
+**Tier:** Pro
+
+---
+
+### `massu_mcp_call`
+
+**What it does:** Invokes a tool on an external MCP server with full argument forwarding. Supports stdio and SSE transports with automatic connection management.
+
+**Usage:**
+
+```
+massu_mcp_call {
+  "server": "my-python-tools",
+  "tool": "query_database",
+  "arguments": {
+    "query": "SELECT COUNT(*) FROM users",
+    "params": []
+  }
+}
+```
+
+The tool connects to the specified server, calls the named tool with the provided arguments, and returns the result directly to your Claude Code session.
+
+**Tier:** Pro
+
+---
+
+### `massu_mcp_status`
+
+**What it does:** Checks connection health and latency of all configured MCP servers. Shows uptime, response times, and error counts.
+
+**Usage:**
+
+```
+massu_mcp_status
+```
+
+**Example output:**
+
+```
+MCP Server Status:
+  my-python-tools  ✓ healthy  latency: 12ms   errors: 0
+  data-pipeline    ✓ healthy  latency: 8ms    errors: 0
+```
+
+**Tier:** Pro
+
+## Common Use Cases
+
+### Full-Stack Development
+
+Working on a TypeScript frontend but need to check your Python backend's database schema? Use MCP Bridge to call your Python project's tools without leaving your current session:
+
+```
+massu_mcp_call { "server": "backend", "tool": "list_models" }
+```
+
+### Shared Internal Tools
+
+Expose your team's internal tools (deployment scripts, data pipelines, monitoring) as MCP servers and access them from any project:
+
+```
+massu_mcp_call { "server": "deploy-tools", "tool": "check_staging" }
+```
+
+### Multi-Service Architecture
+
+In a microservices setup, connect to each service's MCP server to understand the full system without cloning every repository:
+
+```
+massu_mcp_tools { "server": "auth-service" }
+massu_mcp_tools { "server": "billing-service" }
+```

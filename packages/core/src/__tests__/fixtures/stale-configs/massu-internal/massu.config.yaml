@@ -1,0 +1,15 @@
+project:
+  name: massu-internal
+  root: auto
+framework:
+  type: typescript
+  router: none
+  orm: none
+  ui: none
+paths:
+  source: website
+  aliases:
+    "@": website
+toolPrefix: massu
+domains: []
+rules: []

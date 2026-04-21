@@ -1,0 +1,43 @@
+# Massu AI Configuration — TypeScript / Next.js template
+# schema_version 2 — https://massu.ai/docs/getting-started/configuration
+
+schema_version: 2
+
+project:
+  name: "{{PROJECT_NAME}}"
+  root: auto
+
+framework:
+  type: typescript
+  router: none
+  orm: none
+  ui: nextjs
+  languages:
+    typescript:
+      framework: next
+      test_framework: vitest
+      ui: nextjs
+      source_dirs:
+        - src
+
+paths:
+  source: src
+  aliases:
+    "@": src
+
+toolPrefix: massu
+
+domains: []
+
+rules:
+  - pattern: src/**/*.ts
+    language: typescript
+    rules:
+      - Use ESM imports, not CommonJS
+
+verification:
+  typescript:
+    test: npm test
+    type: npx tsc --noEmit
+    build: npm run build
+    lint: npx eslint .

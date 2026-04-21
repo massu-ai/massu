@@ -39,7 +39,6 @@ import { getKnowledgeDb } from './knowledge-db.ts';
 import { getPythonToolDefinitions, isPythonTool, handlePythonToolCall } from './python-tools.ts';
 import { getConfig, getProjectRoot, getResolvedPaths } from './config.ts';
 import { getCurrentTier, getToolTier, isToolAllowed, annotateToolDefinitions, getLicenseToolDefinitions, isLicenseTool, handleLicenseToolCall } from './license.ts';
-import { getMcpBridgeToolDefinitions, isMcpBridgeTool, handleMcpBridgeToolCall } from './mcp-bridge-tools.ts';
 
 export interface ToolDefinition {
   name: string;
@@ -167,8 +166,6 @@ export function getToolDefinitions(): ToolDefinition[] {
     ...getKnowledgeToolDefinitions(),
     // Python code intelligence tools
     ...getPythonToolDefinitions(),
-    // MCP bridge tools (cross-project tool mesh)
-    ...getMcpBridgeToolDefinitions(),
     // License tools (always available)
     ...getLicenseToolDefinitions(),
     // Core tools
@@ -381,11 +378,6 @@ export async function handleToolCall(
     // Route Python tools (uses dataDb, not memDb)
     if (isPythonTool(name)) {
       return handlePythonToolCall(name, args, dataDb);
-    }
-
-    // Route MCP bridge tools (cross-project tool mesh)
-    if (isMcpBridgeTool(name)) {
-      return await handleMcpBridgeToolCall(name, args);
     }
 
     // Route license tools

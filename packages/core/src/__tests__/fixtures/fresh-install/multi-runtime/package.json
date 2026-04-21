@@ -1,0 +1,16 @@
+{
+  "name": "multi-runtime-fixture",
+  "version": "0.0.0",
+  "scripts": {
+    "build": "next build",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "next": "14.x",
+    "react": "18.x",
+    "react-dom": "18.x"
+  },
+  "devDependencies": {
+    "vitest": "1.x"
+  }
+}

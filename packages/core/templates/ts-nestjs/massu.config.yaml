@@ -1,0 +1,43 @@
+# Massu AI Configuration — TypeScript / NestJS template
+# schema_version 2 — https://massu.ai/docs/getting-started/configuration
+
+schema_version: 2
+
+project:
+  name: "{{PROJECT_NAME}}"
+  root: auto
+
+framework:
+  type: typescript
+  router: rest
+  orm: none
+  ui: none
+  languages:
+    typescript:
+      framework: nestjs
+      test_framework: jest
+      router: rest
+      source_dirs:
+        - src
+
+paths:
+  source: src
+  aliases:
+    "@": src
+
+toolPrefix: massu
+
+domains: []
+
+rules:
+  - pattern: src/**/*.ts
+    language: typescript
+    rules:
+      - Use ESM imports, not CommonJS
+
+verification:
+  typescript:
+    test: npm test
+    type: npx tsc --noEmit
+    build: npm run build
+    lint: npx eslint .

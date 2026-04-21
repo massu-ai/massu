@@ -8,9 +8,7 @@
 // ============================================================
 
 import { getMemoryDb, createSession, addUserPrompt, linkSessionToTask, autoDetectTaskId, addObservation } from '../memory-db.ts';
-import { existsSync, writeFileSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { existsSync } from 'fs';
 import { getResolvedPaths } from '../config.ts';
 
 interface HookInput {
@@ -107,24 +105,6 @@ async function main(): Promise<void> {
           }
         }
       } catch (_memoryNagErr) {
-        // Best-effort: never block prompt capture
-      }
-
-      // 7. Failure context markers: write detected failure keywords to temp file
-      //    so classify-failure.ts can use them for scoring
-      try {
-        const failureKeywords = [
-          'bug', 'broken', 'crash', 'error', 'fail', 'fix', 'wrong', 'missing',
-          'undefined', 'null', 'exception', 'stack trace', 'regression', 'revert',
-          'doesn\'t work', 'not working', 'stopped working', 'broke',
-        ];
-        const promptLower = prompt.toLowerCase();
-        const matched = failureKeywords.filter(kw => promptLower.includes(kw));
-        if (matched.length > 0) {
-          const contextFile = join(tmpdir(), `massu-failure-context-${session_id.slice(0, 8)}-${Date.now()}`);
-          writeFileSync(contextFile, matched.join(' '), 'utf-8');
-        }
-      } catch {
         // Best-effort: never block prompt capture
       }
     } finally {

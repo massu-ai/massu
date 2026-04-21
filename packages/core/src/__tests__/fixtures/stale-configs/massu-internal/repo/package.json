@@ -1,0 +1,6 @@
+{
+  "name": "massu-internal",
+  "private": true,
+  "workspaces": ["packages/core"],
+  "devDependencies": { "typescript": "^5.0.0" }
+}

@@ -32,7 +32,6 @@ const EXPECTED_TOOL_NAMES: string[] = [
   // --- Free tier: memory tools ---
   'memory_search',
   'memory_ingest',
-  'memory_backfill',
 
   // --- Free tier: regression tools ---
   'regression_risk',

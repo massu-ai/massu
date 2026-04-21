@@ -5,9 +5,11 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-test
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-12 enforced.
 
-# CS Test: Intelligent Test Runner
+> **Config lookup (framework-aware)**: This command reads `config.framework.type` and `config.verification.<primary_language>` from `massu.config.yaml` to choose the right verification commands. Hardcoded references below to `packages/core`, `tools.ts`, `vitest`, `VR-TOOL-REG`, and `VR-HOOK-BUILD` are **MCP-project specific** and only apply when `config.framework.type === 'mcp'` (or `languages.typescript.runtime === 'mcp'`). For other projects, substitute: type-check → `config.verification.<primary_language>.type`, tests → `.test`, build → `.build`, lint → `.lint`. See `.claude/reference/vr-verification-reference.md` for the config-driven VR-* catalog.
+
+# Massu Test: Intelligent Test Runner
 
 ## Objective
 
@@ -222,6 +224,24 @@ Cross-reference: for each source module, check if a corresponding test file exis
 | analytics.ts | analytics.test.ts | COVERED / MISSING |
 | config.ts | config.test.ts | COVERED / MISSING |
 | ... | ... | ... |
+
+**Coverage: [X]/[Y] modules ([Z]%)**
+```
+
+### Package Coverage (other packages)
+
+```bash
+# List other package modules
+ls packages/plugin/src/*.ts 2>/dev/null
+ls packages/shared/src/*.ts 2>/dev/null
+```
+
+```markdown
+### Package Coverage
+
+| Source Module | Test File | Status |
+|--------------|-----------|--------|
+| [module] | [test] | COVERED / MISSING |
 
 **Coverage: [X]/[Y] modules ([Z]%)**
 ```
@@ -458,7 +478,7 @@ Fix ALL instances found, not just the one that was reported.
 ## COMPLETION REPORT
 
 ```markdown
-## CS TEST COMPLETE
+## MASSU TEST COMPLETE
 
 ### Mode: [FULL_RUN / AFFECTED / COVERAGE / GENERATE / FIX]
 

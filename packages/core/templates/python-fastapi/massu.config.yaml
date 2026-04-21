@@ -1,0 +1,50 @@
+# Massu AI Configuration — Python / FastAPI template
+# schema_version 2 — https://massu.ai/docs/getting-started/configuration
+
+schema_version: 2
+
+project:
+  name: "{{PROJECT_NAME}}"
+  root: auto
+
+framework:
+  type: python
+  router: fastapi-router
+  orm: sqlalchemy
+  ui: none
+  languages:
+    python:
+      framework: fastapi
+      test_framework: pytest
+      orm: sqlalchemy
+      source_dirs:
+        - app
+
+paths:
+  source: app
+  aliases:
+    "@": app
+
+toolPrefix: massu
+
+domains: []
+
+rules: []
+
+verification:
+  python:
+    test: cd app && python3 -m pytest -q
+    type: cd app && python3 -m mypy .
+    syntax: cd app && python3 -m py_compile
+    lint: cd app && python3 -m ruff check .
+
+python:
+  root: app
+  exclude_dirs:
+    - __pycache__
+    - .venv
+    - venv
+    - .mypy_cache
+    - .pytest_cache
+  framework: fastapi
+  orm: sqlalchemy

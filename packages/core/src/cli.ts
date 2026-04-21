@@ -52,6 +52,10 @@ async function main(): Promise<void> {
       await runValidateConfig();
       break;
     }
+    case 'config': {
+      await handleConfigSubcommand(args.slice(1));
+      break;
+    }
     case '--help':
     case '-h': {
       printHelp();
@@ -70,6 +74,56 @@ async function main(): Promise<void> {
   }
 }
 
+async function handleConfigSubcommand(configArgs: string[]): Promise<void> {
+  const sub = configArgs[0];
+  const flags = new Set(configArgs.slice(1));
+  switch (sub) {
+    case 'refresh': {
+      const { runConfigRefresh } = await import('./commands/config-refresh.ts');
+      const result = await runConfigRefresh({ dryRun: flags.has('--dry-run') });
+      process.exit(result.exitCode);
+      return;
+    }
+    case 'validate': {
+      const { runValidateConfig } = await import('./commands/doctor.ts');
+      await runValidateConfig();
+      return;
+    }
+    case 'upgrade': {
+      const { runConfigUpgrade } = await import('./commands/config-upgrade.ts');
+      const result = await runConfigUpgrade({
+        rollback: flags.has('--rollback'),
+        ci: flags.has('--ci') || flags.has('--yes'),
+      });
+      process.exit(result.exitCode);
+      return;
+    }
+    case 'doctor': {
+      const { runDoctor } = await import('./commands/doctor.ts');
+      await runDoctor();
+      return;
+    }
+    case 'check-drift': {
+      const { runConfigCheckDrift } = await import('./commands/config-check-drift.ts');
+      const result = await runConfigCheckDrift({ verbose: flags.has('--verbose') });
+      process.exit(result.exitCode);
+      return;
+    }
+    case '--help':
+    case '-h':
+    case undefined: {
+      printConfigHelp();
+      return;
+    }
+    default: {
+      process.stderr.write(`massu: unknown config subcommand: ${sub}\n`);
+      printConfigHelp();
+      process.exit(1);
+      return;
+    }
+  }
+}
+
 function printHelp(): void {
   console.log(`
 Massu AI - Engineering Governance Platform
@@ -82,16 +136,41 @@ Commands:
   doctor            Check installation health
   install-hooks     Install/update Claude Code hooks
   install-commands  Install/update slash commands
-  validate-config   Validate massu.config.yaml
+  validate-config   Validate massu.config.yaml (alias: config validate)
+  config <sub>      Config lifecycle: refresh | validate | upgrade | doctor | check-drift
 
 Options:
   --help, -h        Show this help message
   --version, -v     Show version
 
 Getting started:
-  npx massu init    # Full setup in one command
+  npx massu init              # Full setup in one command
+  npx massu init --help       # Show all init options (--ci, --force, --template)
+  npx massu config --help     # Show config subcommands
 
 Documentation: https://massu.ai/docs
+`);
+}
+
+function printConfigHelp(): void {
+  console.log(`
+massu config <subcommand>
+
+Subcommands:
+  refresh       Re-run detection and apply changes to massu.config.yaml.
+                  --dry-run    Print diff and exit without writing.
+  validate      Validate massu.config.yaml (alias of \`massu validate-config\`).
+  upgrade       Migrate a v1 config to schema_version=2.
+                  --rollback   Restore from .bak file.
+                  --ci, --yes  Non-interactive mode (no prompts).
+  doctor        Run the full health check (alias of \`massu doctor\`).
+  check-drift   CI-safe drift gate; exits 1 on drift.
+                  --verbose    Print detailed changes to stdout.
+
+Examples:
+  npx massu config refresh --dry-run
+  npx massu config upgrade --ci
+  npx massu config check-drift --verbose
 `);
 }
 

@@ -6,8 +6,6 @@ allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 
 # Scaffold New Hook
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding.
-
 Creates a complete Claude Code hook following the 3-tier profile system.
 
 ## What Gets Created

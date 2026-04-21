@@ -52,9 +52,9 @@ Security blocking -> advisory warnings -> matcher-specific -> observability.
 
 ---
 
-## PostToolUse (14 hooks)
+## PostToolUse (11 hooks)
 
-Security scan -> immediate feedback -> context tracking -> fix detection -> incident capture -> pipeline triggers -> memory sync -> observability.
+Security scan -> immediate feedback -> context tracking -> incident capture -> memory sync -> observability.
 
 | position: 1 | CI monitor | standard | Bash(git push) -- immediate push feedback |
 |---|---|---|---|
@@ -62,23 +62,17 @@ Security scan -> immediate feedback -> context tracking -> fix detection -> inci
 | position: 3 | `pattern-feedback.sh` | standard | Edit\|Write -- immediate pattern violation feedback |
 | position: 4 | `post-edit-context.js` | strict | Edit\|Write -- detailed semantic analysis |
 | position: 5 | `post-tool-use.js` | standard | Edit\|Write\|Bash -- structured context tracking |
-| position: 6 | `fix-detector.js` | standard | Edit\|Write -- detect bug fixes via git diff heuristics |
-| position: 7 | `auto-ingest-incident.sh` | strict | Edit\|Write -- auto-capture incident patterns |
-| position: 8 | `incident-pipeline.js` | standard | Write -- trigger rule derivation on incident report writes |
-| position: 9 | `rule-enforcement-pipeline.js` | standard | Write -- trigger enforcement on prevention rule writes |
-| position: 10 | `memory-auto-ingest.sh` | standard | Write -- auto-sync memory files to codegraph SQLite DB |
-| position: 11 | `validate-deliverables.sh` | strict | Bash\|Edit\|Write -- deliverable validation |
-| position: 12 | `pattern-scanner.sh --single-file` | strict | Edit\|Write -- per-file pattern scan |
-| position: 13 | `mcp-usage-tracker.sh` | strict | MCP tools -- append-only MCP audit log |
-| position: 14 | `compaction-advisor.sh` | standard | Bash\|Edit\|Write\|Read\|Grep\|Glob -- context tracking, widest matcher |
+| position: 6 | `auto-ingest-incident.sh` | strict | Edit\|Write -- auto-capture incident patterns |
+| position: 7 | `memory-auto-ingest.sh` | standard | Write -- auto-sync memory files to codegraph SQLite DB |
+| position: 8 | `validate-deliverables.sh` | strict | Bash\|Edit\|Write -- deliverable validation |
+| position: 9 | `pattern-scanner.sh --single-file` | strict | Edit\|Write -- per-file pattern scan |
+| position: 10 | `mcp-usage-tracker.sh` | strict | MCP tools -- append-only MCP audit log |
+| position: 11 | `compaction-advisor.sh` | standard | Bash\|Edit\|Write\|Read\|Grep\|Glob -- context tracking, widest matcher |
 
 **Dependencies**:
 - `output-secret-filter.sh` MUST run before any feedback hooks -- security first
 - `pattern-feedback.sh` before `post-tool-use.js` -- immediate feedback before tracking
-- `fix-detector.js` after `post-tool-use.js` -- needs structured tracking context
-- `incident-pipeline.js` after `auto-ingest-incident.sh` -- incident must be captured first
-- `rule-enforcement-pipeline.js` after `incident-pipeline.js` -- rule derivation before enforcement
-- `memory-auto-ingest.sh` runs after pipeline hooks -- memory sync is data-writing, before validation
+- `memory-auto-ingest.sh` runs after incident capture -- memory sync is data-writing, before validation
 - `compaction-advisor.sh` MUST be last -- widest matcher, just counts tool calls
 
 ---
@@ -111,23 +105,21 @@ Quick state capture -> full DB snapshot.
 
 ---
 
-## Stop (8 hooks)
+## Stop (7 hooks)
 
-Session summary -> auto-learning check -> warnings -> memory extraction -> review -> validation.
+Session summary -> warnings -> memory extraction -> review -> validation.
 
 | position: 1 | `session-end.js` | standard | Write session summary to memory DB |
 |---|---|---|---|
-| position: 2 | `auto-learning-pipeline.js` | standard | Enforce fix→incident→rule→enforcement pipeline completion |
-| position: 3 | Uncommitted changes warning | standard (inline) | Alert user about unstaged work |
-| position: 4 | `memory-auto-extract.sh` | standard | Auto-extract memories from DB observations |
-| position: 5 | `auto-review-on-stop.sh` | strict | Automated code review of session changes |
-| position: 6 | `surface-review-findings.sh` | strict | Display review findings to user |
-| position: 7 | `validate-deliverables.sh` | strict | Final deliverable validation |
-| position: 8 | `pattern-extractor.sh` | advisory | Extract new patterns from session |
+| position: 2 | Uncommitted changes warning | standard (inline) | Alert user about unstaged work |
+| position: 3 | `memory-auto-extract.sh` | standard | Auto-extract memories from DB observations |
+| position: 4 | `auto-review-on-stop.sh` | strict | Automated code review of session changes |
+| position: 5 | `surface-review-findings.sh` | strict | Display review findings to user |
+| position: 6 | `validate-deliverables.sh` | strict | Final deliverable validation |
+| position: 7 | `pattern-extractor.sh` | advisory | Extract new patterns from session |
 
 **Dependencies**:
 - `session-end.js` MUST be position 1 -- writes DB data that `memory-auto-extract.sh` reads
-- `auto-learning-pipeline.js` MUST run early -- needs to output mandatory instructions before session ends
 - `memory-auto-extract.sh` MUST come after `session-end.js` -- depends on DB observations
 - `surface-review-findings.sh` MUST come after `auto-review-on-stop.sh` -- displays its output
 - `pattern-extractor.sh` runs last -- advisory tier (skipped in minimal/standard profiles)

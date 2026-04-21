@@ -117,6 +117,19 @@ fi
 #           parses YAML to verify config integrity before getConfig())
 # Excludes: hooks/*.ts (compiled standalone — cannot import getConfig(),
 #           must parse massu.config.yaml directly per P2-023a)
+# Excludes: memory-file-ingest.ts (parses YAML frontmatter from markdown
+#           memory files — NOT massu.config.yaml; this is document metadata
+#           parsing, not application config access)
+# Excludes: detect/monorepo-detector.ts (Phase 1 auto-detection — parses
+#           pnpm-workspace.yaml to discover workspaces before any config
+#           exists; NOT massu.config.yaml)
+# Excludes: commands/init.ts (atomic-write post-validator — parses the config
+#           file it just wrote before rename, to verify valid YAML structure;
+#           mirrors existing exemption for doctor.ts)
+# Excludes: commands/config-refresh.ts, commands/config-upgrade.ts,
+#           commands/config-check-drift.ts (v1.1.0 config lifecycle commands —
+#           must parse raw YAML at arbitrary cwd because getConfig() caches
+#           against process.cwd() and Zod-rejects pre-migration v1 configs)
 # -------------------------------------------------------
 echo "Check 5: Config access via getConfig() only"
 YAML_PARSE_COUNT=$(grep -rn 'yaml\.parse\|parseYaml\|parse.*yaml' "$SRC_DIR" --include="*.ts" \
@@ -125,11 +138,17 @@ YAML_PARSE_COUNT=$(grep -rn 'yaml\.parse\|parseYaml\|parse.*yaml' "$SRC_DIR" --i
   | grep -v 'node_modules' \
   | grep -v '\.test\.ts:' \
   | grep -v 'commands/doctor\.ts' \
+  | grep -v 'commands/init\.ts' \
+  | grep -v 'commands/config-refresh\.ts' \
+  | grep -v 'commands/config-upgrade\.ts' \
+  | grep -v 'commands/config-check-drift\.ts' \
   | grep -v 'hooks/' \
+  | grep -v 'memory-file-ingest\.ts' \
+  | grep -v 'detect/monorepo-detector\.ts' \
   | wc -l | tr -d ' ')
 if [ "$YAML_PARSE_COUNT" -gt 0 ]; then
   fail "Found $YAML_PARSE_COUNT direct YAML parse calls outside config.ts (use getConfig())"
-  grep -rn 'yaml\.parse\|parseYaml' "$SRC_DIR" --include="*.ts" | grep -v 'config\.ts' | grep -v '__tests__' | grep -v 'commands/doctor\.ts' | grep -v 'hooks/' | head -5
+  grep -rn 'yaml\.parse\|parseYaml' "$SRC_DIR" --include="*.ts" | grep -v 'config\.ts' | grep -v '__tests__' | grep -v 'commands/doctor\.ts' | grep -v 'commands/init\.ts' | grep -v 'commands/config-refresh\.ts' | grep -v 'commands/config-upgrade\.ts' | grep -v 'commands/config-check-drift\.ts' | grep -v 'hooks/' | grep -v 'memory-file-ingest\.ts' | grep -v 'detect/monorepo-detector\.ts' | head -5
 else
   pass "Config access via getConfig() only"
 fi

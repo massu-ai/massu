@@ -1,0 +1,22 @@
+project:
+  name: eko-ultra-automations
+  root: auto
+framework:
+  type: typescript
+  router: hand-rolled
+  orm: none
+  ui: none
+paths:
+  source: src
+  aliases:
+    "@": src
+toolPrefix: eko
+domains:
+  - name: Agents
+    routers: [agents]
+    tables: []
+    pages: []
+    allowedImportsFrom: []
+rules: []
+canonical_paths:
+  agents: src/agents

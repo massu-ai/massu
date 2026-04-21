@@ -1,0 +1,11 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "dependencies": {
+    "next": "^14.0.0",
+    "react": "^18.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

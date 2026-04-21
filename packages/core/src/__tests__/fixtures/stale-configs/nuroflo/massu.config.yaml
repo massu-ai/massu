@@ -1,0 +1,20 @@
+project:
+  name: nuroflo
+  root: auto
+framework:
+  type: typescript
+  router: trpc
+  orm: drizzle
+  ui: nextjs
+paths:
+  source: apps/web/src
+  aliases:
+    "@": apps/web/src
+toolPrefix: nuroflo
+domains:
+  - name: Workflows
+    routers: [workflows]
+    pages: [workflows]
+    tables: [workflows, runs]
+    allowedImportsFrom: []
+rules: []

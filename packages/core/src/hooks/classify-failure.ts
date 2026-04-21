@@ -20,7 +20,7 @@
 // Must complete in <1000ms.
 // ============================================================
 
-import { existsSync, readFileSync, readdirSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, basename } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
@@ -166,7 +166,7 @@ async function main(): Promise<void> {
 
     // Mark that we've classified this file
     try {
-      require('fs').writeFileSync(dedupeMarker, '1');
+      writeFileSync(dedupeMarker, '1');
     } catch { /* ignore */ }
 
     // Score against failure taxonomy in database

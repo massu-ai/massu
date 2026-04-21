@@ -1,12 +1,12 @@
 ---
 title: "Lifecycle Hooks"
-description: "15 MCP lifecycle hooks plus 11 shell hooks that capture context, enforce rules, auto-learn from bug fixes, and preserve memory without any manual effort"
+description: "11 MCP lifecycle hooks plus 11 shell hooks that capture context, enforce rules, and preserve memory without any manual effort"
 order: 0
 ---
 
 # Lifecycle Hooks
 
-Massu AI includes 15 MCP lifecycle hooks and 11 shell utility hooks that run automatically during Claude Code sessions. Together they capture observations, inject context, enforce rules, detect and learn from bug fixes, filter output, and preserve state -- all without any manual effort from the developer.
+Massu AI includes 11 MCP lifecycle hooks and 11 shell utility hooks that run automatically during Claude Code sessions. Together they capture observations, inject context, enforce rules, filter output, and preserve state -- all without any manual effort from the developer.
 
 ## How Hooks Work
 
@@ -19,7 +19,7 @@ Hooks are compiled TypeScript files that Claude Code executes at specific lifecy
 
 Hooks are compiled with esbuild into standalone JavaScript files bundled inside the `@massu/core` npm package (`dist/hooks/`). They are automatically configured in `.claude/settings.local.json` when you run `npx massu init`. They have no runtime dependencies beyond Node.js built-ins and the bundled Massu AI modules.
 
-## The 15-Hook Lifecycle
+## The 11-Hook Lifecycle
 
 | Hook | Event | Purpose | Timing |
 |------|-------|---------|--------|
@@ -34,10 +34,6 @@ Hooks are compiled with esbuild into standalone JavaScript files bundled inside 
 | [cost-tracker](/docs/hooks/cost-tracker) | After each tool call | Track token usage and costs | After every tool |
 | [quality-event](/docs/hooks/quality-event) | After each tool call | Detect quality signals | After every tool |
 | [intent-suggester](/docs/hooks/intent-suggester) | User submits prompt | Suggest relevant commands | Every prompt |
-| [fix-detector](/docs/hooks/fix-detector) | After file edit | Detect bug fixes via git diff | After Edit/Write on tracked files |
-| [auto-learning-pipeline](/docs/hooks/auto-learning-pipeline) | Session ends | Enforce pipeline completion | Session stop |
-| [incident-pipeline](/docs/hooks/incident-pipeline) | After file write | Trigger rule derivation from incidents | After Write to incident files |
-| [rule-enforcement-pipeline](/docs/hooks/rule-enforcement-pipeline) | After file write | Trigger enforcement from rules | After Write to rule files |
 
 ## Session Lifecycle Flow
 
@@ -60,9 +56,6 @@ Claude Code processes (reads, edits, runs commands)
   v
 [post-tool-use hook] --> Captures observation per tool call
 [post-edit-context hook] --> Surfaces rules on file edits
-[fix-detector hook] --> Detects bug fixes via git diff
-[incident-pipeline hook] --> Triggers rule derivation on incident writes
-[rule-enforcement-pipeline hook] --> Triggers enforcement on rule writes
 [pre-delete-check hook] --> Checks feature impact on deletions
 [security-gate hook] --> Validates security policies
 [cost-tracker hook] --> Records token usage
@@ -78,7 +71,6 @@ Session ends
   |
   v
 [session-end hook] --> Generates summary, archives CURRENT.md
-[auto-learning-pipeline hook] --> Enforces fix→incident→rule→enforcement completion
 ```
 
 ## Zero Effort for Users
@@ -115,52 +107,10 @@ Click any hook below for complete documentation including input/output formats, 
 - [cost-tracker](/docs/hooks/cost-tracker) -- Token usage tracking per tool call
 - [quality-event](/docs/hooks/quality-event) -- Quality signal detection after tool calls
 - [intent-suggester](/docs/hooks/intent-suggester) -- Command suggestion based on prompt intent
-- [fix-detector](/docs/hooks/fix-detector) -- Bug fix detection via git diff heuristics
-- [auto-learning-pipeline](/docs/hooks/auto-learning-pipeline) -- Pipeline completion enforcement at session end
-- [incident-pipeline](/docs/hooks/incident-pipeline) -- Rule derivation trigger on incident report writes
-- [rule-enforcement-pipeline](/docs/hooks/rule-enforcement-pipeline) -- Enforcement placement trigger on rule writes
-
-## The Auto-Learning Pipeline
-
-The 4 auto-learning hooks form a closed-loop system that turns every bug fix into an enforced project rule:
-
-```
-Bug Fix Detected ──► Incident Report ──► Prevention Rule ──► Enforcement Hook
- (fix-detector)    (incident-pipeline)  (rule-enforcement-   (project hooks
-                                          pipeline)           & config)
-```
-
-1. **fix-detector** monitors file edits and analyzes git diffs for fix signals (removed broken code, added error handling, auth fixes, nil handling, concurrency fixes, etc.)
-2. **incident-pipeline** fires when an incident report is written to `docs/incidents/`, prompting Claude to derive a prevention rule
-3. **rule-enforcement-pipeline** fires when a prevention rule (`memory/feedback_*.md`) is written, prompting Claude to place enforcement in project hooks or config
-4. **auto-learning-pipeline** runs at session end and blocks completion if fixes were detected but the pipeline was not finished
-
-Configure via the `autoLearning` section in `massu.config.yaml`:
-
-```yaml
-autoLearning:
-  enabled: true
-  incidentDir: docs/incidents
-  memoryDir: memory
-  fixDetection:
-    enabled: true
-    lookbackDays: 7
-    signals:
-      - removed_broken_code
-      - added_error_handling
-      - auth_fix
-      - nil_handling_fix
-      - concurrency_fix
-      - async_pattern_fix
-  pipeline:
-    requireIncidentReport: true
-    requirePreventionRule: true
-    requireEnforcement: true
-```
 
 ## Shell Hooks (11)
 
-In addition to the 15 MCP lifecycle hooks, Massu AI includes 11 shell utility hooks located in `scripts/hooks/`. These hooks are invoked at specific points to enforce policies, filter output, and automate routine tasks.
+In addition to the 11 MCP lifecycle hooks, Massu AI includes 11 shell utility hooks located in `scripts/hooks/`. These hooks are invoked at specific points to enforce policies, filter output, and automate routine tasks.
 
 | Hook | Trigger | Purpose |
 |------|---------|---------|

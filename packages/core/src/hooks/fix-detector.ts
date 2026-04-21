@@ -15,7 +15,7 @@
 // ============================================================
 
 import { execSync } from 'child_process';
-import { existsSync, appendFileSync, mkdirSync } from 'fs';
+import { existsSync, appendFileSync, mkdirSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
@@ -158,7 +158,7 @@ async function main(): Promise<void> {
     appendFileSync(flagPath, JSON.stringify(signal) + '\n');
 
     // Count total fixes this session
-    const lines = require('fs').readFileSync(flagPath, 'utf-8').split('\n').filter(Boolean);
+    const lines = readFileSync(flagPath, 'utf-8').split('\n').filter(Boolean);
     if (lines.length === 1) {
       // First fix detected — output advisory
       console.log(

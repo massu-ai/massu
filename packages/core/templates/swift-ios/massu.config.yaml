@@ -1,0 +1,37 @@
+# Massu AI Configuration — Swift / iOS template
+# schema_version 2 — https://massu.ai/docs/getting-started/configuration
+
+schema_version: 2
+
+project:
+  name: "{{PROJECT_NAME}}"
+  root: auto
+
+framework:
+  type: swift
+  router: none
+  orm: none
+  ui: none
+  languages:
+    swift:
+      test_framework: xctest
+      source_dirs:
+        - Sources
+
+paths:
+  source: Sources
+  aliases:
+    "@": Sources
+
+toolPrefix: massu
+
+domains: []
+
+rules: []
+
+verification:
+  swift:
+    test: swift test
+    type: swift build
+    build: xcodebuild build
+    lint: swiftlint

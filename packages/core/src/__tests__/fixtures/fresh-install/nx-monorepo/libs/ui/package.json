@@ -1,0 +1,7 @@
+{
+  "name": "@nx-monorepo/ui",
+  "version": "0.0.0",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

@@ -7,6 +7,8 @@ name: massu-docs
 
 > **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
+> **Config lookup (framework-aware)**: This command reads `config.framework.type` and `config.verification.<primary_language>` from `massu.config.yaml` to choose the right verification commands. Hardcoded references below to `packages/core`, `tools.ts`, `vitest`, `VR-TOOL-REG`, and `VR-HOOK-BUILD` are **MCP-project specific** and only apply when `config.framework.type === 'mcp'` (or `languages.typescript.runtime === 'mcp'`). For other projects, substitute: type-check → `config.verification.<primary_language>.type`, tests → `.test`, build → `.build`, lint → `.lint`. See `.claude/reference/vr-verification-reference.md` for the config-driven VR-* catalog.
+
 # Massu Docs: Documentation Sync Protocol
 
 ## Objective
@@ -205,7 +207,7 @@ grep -c "tool\|hook\|config\|install\|usage" packages/core/README.md 2>/dev/null
 ```bash
 # Check if CLAUDE.md file locations match actual
 grep "packages/core/src/" .claude/CLAUDE.md | while read line; do
-  path=$(echo "$line" | grep -oP 'packages/core/src/[a-zA-Z0-9_./-]+')
+  path=$(echo "$line" | sed -n 's/.*\(packages\/core\/src\/[a-zA-Z0-9_.\/-]*\).*/\1/p')
   if [ -n "$path" ]; then
     [ -f "$path" ] && echo "OK: $path" || echo "MISSING: $path"
   fi

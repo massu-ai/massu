@@ -1,13 +1,13 @@
 ---
 name: massu-simplify
-description: Enhanced code simplification with parallel efficiency, reuse, and pattern compliance analysis
+description: "When user says 'simplify', 'review my code', 'clean this up', or has finished implementation and wants quality review before commit"
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 name: massu-simplify
 
 # Massu Simplify: Enhanced Code Quality Analysis
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
+**Shared rules**: Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9 enforced.
 
 ---
 
@@ -30,14 +30,14 @@ Code changes → /massu-simplify → /massu-commit → /massu-push
 
 | Category | Example | Caught By Existing Tools? |
 |----------|---------|--------------------------|
-| Unnecessary async | `async` on functions with no `await` | NO |
-| Redundant type assertions | `as T` when type is already inferred | NO |
-| Code duplication | Inline `parseTier()` when `packages/core/src/` exports it | Partially (pattern-scanner) |
-| Inefficient collections | `Array.find()` in a loop instead of building a Map | NO |
-| Config hardcoding | Literal values instead of `getConfig()` | NO |
-| Missing type exports | Types defined but not exported from barrel | NO |
-| Unnecessary Map/Set | Using Map/Set where a plain object suffices | NO |
-| Dead parameters | Function parameters that are never read | NO |
+| Inefficient queries | `findMany().length` instead of SQL COUNT | NO |
+| Unnecessary state | `useState` for derived values | NO |
+| Code duplication | Inline `formatFileSize()` when `@/lib/formatting/fields` exists | Partially (pattern-scanner) |
+| Over-fetching | `findMany()` without `select:` or `take:` | Partially (IN clause only) |
+| Re-render waste | Missing `useMemo`/`useCallback` for expensive operations | NO |
+| Existing utility ignorance | Rewriting a utility that already exists in shared code | NO |
+| Memory leaks | Missing cleanup in `useEffect` | NO |
+| Derived state anti-pattern | `useEffect` → `setState` for values derivable from props/queries | NO |
 
 ---
 
@@ -63,7 +63,7 @@ Filter to only `.ts`, `.tsx`, `.js`, `.jsx` files. Exclude `node_modules/`, `.ne
 ### Step 2: Fast Gate — Pattern Scanner
 
 ```bash
-bash scripts/massu-pattern-scanner.sh
+./scripts/pattern-scanner.sh
 ```
 
 If violations found: **Fix them ALL before proceeding.** Pattern scanner violations are syntactic anti-patterns that should be resolved before semantic analysis begins.
@@ -76,39 +76,30 @@ Spawn 3 review agents **IN PARALLEL**. Each gets the list of changed files and a
 CHANGED_FILES = [list from Step 1]
 
 efficiency_result = Agent(subagent_type="general-purpose", model="haiku", prompt="
-  You are an EFFICIENCY REVIEWER for the Massu codebase (npm package).
+  You are an EFFICIENCY REVIEWER for the Massu codebase.
 
   Review ONLY these changed files: {CHANGED_FILES}
 
   Check for these specific inefficiency patterns:
 
-  1. UNNECESSARY ASYNC/AWAIT
-     - async functions with no await (should be synchronous)
-     - await on non-Promise values
-     - Unnecessary Promise.resolve() wrapping synchronous values
-     - Sequential awaits that could be Promise.all()
+  1. QUERY INEFFICIENCY
+     - findMany().length or .filter().length instead of SQL COUNT/aggregate
+     - Loading full records when only IDs or counts are needed
+     - Missing take: limit on findMany (unbounded queries)
+     - N+1 patterns: querying in a loop instead of batch IN clause
+     - SELECT * (no select: clause) when only a few columns are needed
 
-  2. REDUNDANT TYPE ASSERTIONS
-     - `as T` when TypeScript already infers the correct type
-     - Double assertions (`as unknown as T`) that indicate a design problem
-     - Non-null assertions (`!`) on values that are already narrowed
-     - Type assertions that could be replaced with type guards
+  2. REACT INEFFICIENCY
+     - useState for values derivable from props or query data
+     - useEffect → setState for derived state (should compute inline or useMemo)
+     - Missing useMemo for expensive computations in render
+     - Missing useCallback for functions passed as props to children
+     - Unnecessary re-renders from object/array literals in JSX props
 
   3. ALGORITHMIC INEFFICIENCY
-     - O(n^2) patterns (nested loops, repeated .find() in .map())
+     - O(n²) patterns (nested loops, repeated .find() in .map())
      - Repeated string concatenation in loops (use array + join)
      - Sorting or filtering the same array multiple times
-     - Using Array.find() in a loop instead of building a Map/Set lookup
-
-  4. INEFFICIENT MAP/SET USAGE
-     - Map<string, T> where a plain Record<string, T> suffices
-     - Creating a Map/Set for single-use lookups
-     - Not using Map when doing repeated key lookups on arrays
-
-  5. GENERAL INEFFICIENCY
-     - Loading full objects when only a subset of fields is needed
-     - Repeated computation that could be cached in a local variable
-     - Unnecessary spread/destructure creating shallow copies for no reason
 
   For each finding, return:
   FILE: [path]
@@ -123,28 +114,28 @@ efficiency_result = Agent(subagent_type="general-purpose", model="haiku", prompt
 ")
 
 reuse_result = Agent(subagent_type="general-purpose", model="haiku", prompt="
-  You are a REUSE REVIEWER for the Massu codebase (npm package).
+  You are a REUSE REVIEWER for the Massu codebase.
 
   Review ONLY these changed files: {CHANGED_FILES}
 
   Search the codebase for existing utilities that the changed code should use instead of inline implementations. Check for:
 
   1. KNOWN UTILITIES (check if changed code duplicates these)
-     - getConfig() → for config-driven values (never hardcode)
-     - parseTier() → for tier string parsing
-     - formatDuration() → for time/duration formatting
-     - validateSchema() → for schema validation
+     - Search the project for existing utility functions (formatters, validators, sanitizers)
+     - Check shared/common directories for reusable helpers
+     - Look for canonical imports in existing code (e.g., `import { x } from '@/lib/...'`)
+     - Identify any inline implementations that duplicate existing utilities
+     - Check for deprecated aliases that should use the canonical import
 
   2. COMPONENT DUPLICATION
-     - Search packages/core/src/ for existing modules
-       that do the same thing as newly created modules
-     - Check if a new utility duplicates an existing pattern
+     - Search src/components/shared/ and src/components/ui/ for existing components
+       that do the same thing as newly created components
+     - Check if a new modal/dialog/drawer duplicates an existing pattern
 
   3. PATTERN DUPLICATION
-     - Same data transformation pattern written in multiple new files
-     - Same validation logic duplicated
+     - Same data fetching pattern written in multiple new files
+     - Same form validation logic duplicated
      - Same error handling pattern repeated
-     - Same config access pattern inlined instead of using getConfig()
 
   For each finding, return:
   FILE: [path]
@@ -159,45 +150,41 @@ reuse_result = Agent(subagent_type="general-purpose", model="haiku", prompt="
 ")
 
 pattern_result = Agent(subagent_type="general-purpose", model="haiku", prompt="
-  You are a PATTERN COMPLIANCE REVIEWER for the Massu codebase (npm package).
+  You are a PATTERN COMPLIANCE REVIEWER for the Massu codebase.
 
   Review ONLY these changed files: {CHANGED_FILES}
 
-  Check for SEMANTIC pattern violations that the pattern-scanner (grep-based) cannot catch:
+  Check for SEMANTIC pattern violations that the pattern-scanner.sh (grep-based) cannot catch:
 
-  1. ESM IMPORT COMPLIANCE
-     - Using require() instead of ESM import (except in config files)
-     - Missing file extensions in relative imports where required
-     - Default exports where named exports should be used
-     - Circular import chains between modules
+  1. REACT QUERY v5 VIOLATIONS
+     - Using onSuccess/onError/onSettled in useQuery options (removed in v5)
+     - Not destructuring data from useQuery result
+     - Using queryData?.find() in save handlers instead of checking record.id
 
-  2. CONFIG-DRIVEN PATTERN VIOLATIONS
-     - Hardcoded values that should come from getConfig()
-     - Magic numbers/strings without named constants
-     - Environment-specific logic not gated by config
-     - Missing fallback defaults for config lookups
+  2. DATABASE PATTERN VIOLATIONS
+     - Using raw SQL or ORM calls instead of project-standard query helpers
+     - Accessing tables through wrong aliases or deprecated accessors
+     - Missing type coercion wrappers on return values (e.g., BigInt → Number())
+     - Using eager-loading patterns the ORM ignores (check project conventions)
+     - Missing null-coercion helpers for UPDATE forms with clearable fields
 
-  3. TYPESCRIPT STRICT MODE VIOLATIONS
-     - Implicit any types (missing type annotations on public APIs)
-     - Using any when a proper type exists
-     - Missing return type annotations on exported functions
-     - Non-exhaustive switch/case on union types (missing default or case)
+  3. UI PATTERN VIOLATIONS
+     - Select.Item with value='' (must use '__none__' or semantic value)
+     - Missing loading/error/empty states in data-fetching components
+     - Missing Suspense boundary for pages using use(params) or useSearchParams
+     - Using onClick instead of onPointerDown for stylus-compatible interactions
+     - Null-unsafe .replace()/.toLowerCase()/.charAt() on nullable strings
 
-  4. TYPE EXPORT PATTERN VIOLATIONS
-     - Types defined in a module but not exported from barrel index
-     - Re-exporting types without using `export type` (isolatedModules)
-     - Internal types leaked through public API surface
-     - Missing JSDoc on exported types/interfaces
+  4. SECURITY PATTERN VIOLATIONS
+     - orderBy accepting z.string() instead of z.enum() with known columns
+     - Using process.env.API_KEY before getCredentials() (CR-5 precedence)
+     - publicProcedure on mutations (must be protectedProcedure)
+     - Missing CRON_SECRET guard (if (!cronSecret) check before comparison)
 
-  5. SECURITY PATTERN VIOLATIONS
-     - Unsanitized user input passed to dangerous operations
-     - Missing input validation on public-facing functions
-     - Secrets or credentials hardcoded in source
-
-  6. ARCHITECTURAL VIOLATIONS
-     - Cross-package imports bypassing barrel exports
-     - Tight coupling between modules that should be independent
-     - Side effects in module-level scope (top-level await, global mutations)
+  5. ARCHITECTURAL VIOLATIONS
+     - Scoped queries without going through link table first
+     - Full table loads for aggregate calculations (use SQL aggregates)
+     - Client components importing server-only modules (@/lib/db)
 
   For each finding, return:
   FILE: [path]
@@ -212,6 +199,40 @@ pattern_result = Agent(subagent_type="general-purpose", model="haiku", prompt="
 ")
 ```
 
+### Step 3.5: Cross-Review Exchange (Debate Round)
+
+**Skip condition**: If ALL three agents returned 0 findings, skip to Step 4.
+
+If total findings > 0, spawn a single cross-reviewer agent:
+
+```
+Agent(subagent_type="general-purpose", model="haiku", prompt="
+  You are a cross-reviewer for a code quality analysis. Three independent reviewers have analyzed the same codebase changes. Your job is to find interactions between their findings that no single reviewer could catch alone.
+
+  ## Reviewer Findings
+  EFFICIENCY: {efficiency_result}
+  REUSE: {reuse_result}
+  PATTERN: {pattern_result}
+
+  ## Your Analysis (3 dimensions)
+
+  1. CONFLICTING RECOMMENDATIONS: Do any two reviewers suggest contradictory fixes? (e.g., one says extract a helper, another says inline the code)
+  2. COMPOUNDING ISSUES: Do findings from different reviewers combine to reveal a bigger problem? (e.g., a reuse violation + a pattern violation in the same file = architectural gap)
+  3. MISSED INTERACTIONS: Does fixing one reviewer's finding create a new issue for another? (e.g., extracting a function for reuse changes the pattern compliance)
+
+  For each finding, report:
+    CROSS_FINDING: [type: CONFLICT|COMPOUND|INTERACTION]
+    FILES: [affected files]
+    REVIEWERS: [which reviewers' findings interact]
+    RECOMMENDATION: [what to do]
+
+  If no cross-cutting issues found: return CROSS_FINDINGS: 0
+  Otherwise: return CROSS_FINDINGS: [count]
+")
+```
+
+Add any CROSS_FINDINGS to the fix queue in Step 4, sorted above individual findings.
+
 ### Step 4: Collect and Apply
 
 1. Parse all 3 agent results
@@ -225,7 +246,7 @@ pattern_result = Agent(subagent_type="general-purpose", model="haiku", prompt="
 ### Step 5: Re-verify
 
 ```bash
-bash scripts/massu-pattern-scanner.sh
+./scripts/pattern-scanner.sh
 ```
 
 Confirm no new violations were introduced by the fixes.
@@ -243,6 +264,7 @@ Confirm no new violations were introduced by the fixes.
 | Efficiency | N | N | 0 |
 | Reuse | N | N | 0 |
 | Pattern Compliance | N | N | 0 |
+| Cross-Review | N | N | 0 |
 | Pattern Scanner | N | N | 0 |
 | **Total** | **N** | **N** | **0** |
 
@@ -275,7 +297,15 @@ SIMPLIFY_GATE: FAIL — N issues require manual resolution
 | `/massu-simplify` | After code changes, before commit | Efficiency + reuse + semantic patterns |
 | `/massu-verify` | During /massu-loop audit phase | Full VR-* verification with plan coverage |
 | `/massu-commit` | Before committing | Fast blocking gates (types, build, scanner) |
-| `/massu-push` | Before pushing | Full tests + regression |
-| `massu-pattern-scanner.sh` | Auto-runs in /massu-commit | Syntactic anti-pattern grep |
+| `/massu-push` | Before pushing | Full tests + regression + schema sync |
+| `pattern-scanner.sh` | Auto-runs in /massu-commit | Syntactic anti-pattern grep |
 
-**Key distinction**: `/massu-simplify` catches SEMANTIC issues (inefficient algorithms, missed reuse opportunities, architectural anti-patterns) while `massu-pattern-scanner.sh` catches SYNTACTIC issues (forbidden imports, known bad patterns, deprecated APIs).
+**Key distinction**: `/massu-simplify` catches SEMANTIC issues (inefficient algorithms, missed reuse opportunities, architectural anti-patterns) while `pattern-scanner.sh` catches SYNTACTIC issues (forbidden imports, known bad column names, deprecated APIs).
+
+## Gotchas
+
+- **Run AFTER implementation, not during** — simplification reviews completed work. Running mid-implementation creates confusion about what's "done"
+- **Parallel subagents may conflict** — when multiple review agents run simultaneously, they may propose conflicting changes. The main thread resolves conflicts
+- **Don't simplify what you haven't read** — every file being simplified must be read first to understand context. Blind refactoring breaks things
+- **Pattern scanner runs automatically** — PostToolUse hooks will flag violations. Fix them, don't suppress them
+- **Reuse over rewrite** — prefer importing existing utilities over writing new implementations

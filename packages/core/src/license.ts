@@ -54,7 +54,7 @@ export function tierLevel(tier: ToolTier): number {
  * Enterprise: audit, security, dependency
  */
 export const TOOL_TIER_MAP: Record<string, ToolTier> = {
-  // --- Free tier (13 tools: core navigation + basic memory + regression + license) ---
+  // --- Free tier (12 tools: core navigation + basic memory + regression + license) ---
   sync: 'free',
   context: 'free',
   impact: 'free',
@@ -64,7 +64,6 @@ export const TOOL_TIER_MAP: Record<string, ToolTier> = {
   coupling_check: 'free',
   memory_search: 'free',
   memory_ingest: 'free',
-  memory_backfill: 'free',
   regression_risk: 'free',
   feature_health: 'free',
   license_status: 'free',

@@ -1,13 +1,15 @@
 ---
 name: massu-create-plan
-description: Create a viable implementation plan aligned with Massu architecture and patterns
+description: "When user wants to plan a feature, fix, or change before implementing -- 'create a plan', 'plan this', or describes requirements that need scoping"
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
 name: massu-create-plan
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-12 enforced.
 
-# CS Create Plan: Reality-Based Plan Generation
+> **Config lookup (framework-aware)**: This command reads `config.framework.type` and `config.verification.<primary_language>` from `massu.config.yaml` to choose the right verification commands. Hardcoded references below to `packages/core`, `tools.ts`, `vitest`, `VR-TOOL-REG`, and `VR-HOOK-BUILD` are **MCP-project specific** and only apply when `config.framework.type === 'mcp'` (or `languages.typescript.runtime === 'mcp'`). For other projects, substitute: type-check → `config.verification.<primary_language>.type`, tests → `.test`, build → `.build`, lint → `.lint`. See `.claude/reference/vr-verification-reference.md` for the config-driven VR-* catalog.
+
+# Massu Create Plan: Reality-Based Plan Generation
 
 ## CRITICAL: THIS IS A PLAN-CREATION COMMAND, NOT AN IMPLEMENTATION COMMAND
 
@@ -46,6 +48,7 @@ name: massu-create-plan
 | `/massu-create-plan` | Create plan document | **NO - FORBIDDEN** |
 | `/massu-plan` | Audit existing plan | **NO - FORBIDDEN** |
 | `/massu-loop` | Implement plan with verification | **YES** |
+| `/massu-simplify` | Post-change quality analysis | **YES** (fixes code) |
 | `/massu-commit` | Commit after implementation | After implementation only |
 
 **If you find yourself about to edit a source file, STOP. You are violating this protocol.**
@@ -80,33 +83,87 @@ Create a comprehensive, feasible implementation plan by checking REAL file struc
 
 ## NON-NEGOTIABLE RULES
 
-- **Read before referencing** - Never reference a file without reading it
-- **Pattern compliance** - Every plan item must align with CLAUDE.md patterns
-- **Enumerated items** - Every deliverable must be numbered and verifiable
-- **Feasibility pre-check** - Plan items must be possible with current codebase state
-- **No guessing** - If uncertain, read the file or search the codebase
+1. Read before referencing - never reference a file without reading it
+2. Pattern compliance - every plan item must align with CLAUDE.md patterns
+3. Enumerated items - every deliverable must be numbered and verifiable
+4. Feasibility pre-check - plan items must be possible with current codebase state
+5. No guessing - if uncertain, read the file or search the codebase
 
 ---
 
-## PHASE 0: REQUIREMENTS INTERVIEW (For Complex/Ambiguous Features)
+## PHASE 0: REQUIREMENTS INTERVIEW
 
-For features where requirements are ambiguous or could go multiple ways,
-INTERVIEW the user before researching.
+### 0.1 Requirements Coverage Map (Initialize at Session Start)
 
-Use AskUserQuestion to clarify:
-- Scope boundaries (what's IN vs OUT of scope)
-- User expectations for behavior
-- Priority trade-offs (speed vs completeness)
-- Any constraints not mentioned
+Track which requirement dimensions have been explored. Initialize ALL as `pending`:
 
-SKIP this phase only if the user has provided crystal-clear,
-unambiguous requirements with no interpretation needed.
+| # | Dimension | Status | Resolved By |
+|---|-----------|--------|-------------|
+| D1 | Problem & Scope | pending | User request + Phase 0 interview |
+| D2 | Users & Personas | pending | Phase 0 interview |
+| D3 | Architecture | pending | Phase 2 (Architecture Reality Check) |
+| D4 | Module Design | pending | Phase 3 (Codebase Reality Check) |
+| D5 | UX / API Surface | pending | Phase 3 + Phase 0 interview |
+| D6 | Auth & Permissions | pending | Phase 4 (Pattern Compliance) |
+| D7 | Error Handling | pending | Phase 4 (Pattern Compliance) |
+| D8 | Security | pending | Phase 4.8 (Security Pre-Screen) |
+| D9 | Edge Cases | pending | Phase 4.7 (Question Filtering) |
+| D10 | Performance | pending | Phase 4 (Pattern Compliance) |
+
+Mark each dimension `done` or `n/a` as the corresponding phase completes. Dimensions still `pending` after Phase 4.8 trigger a warning before plan generation.
+
+### 0.2 Ambiguity Detection
+
+Score the user's request against these 7 signals (1 point each):
+
+| # | Signal | Example |
+|---|--------|---------|
+| A1 | Vague scope -- no clear boundary | "improve the MCP tools" |
+| A2 | No success criteria -- no measurable outcome | "make it better" |
+| A3 | Implicit requirements -- unstated but necessary | "add caching" (where? what data?) |
+| A4 | Multi-domain -- spans 3+ domains | tools + hooks + config + tests |
+| A5 | Contradictions -- conflicting constraints | "fast AND comprehensive" |
+| A6 | No persona -- unclear who benefits | "add a dashboard" (admin? user?) |
+| A7 | New integration -- external service not yet in codebase | "connect to Datadog" |
+
+**Score >= 2**: Enter interview loop (Phase 0.3).
+**Score 0-1**: Fast-track to Phase 0.5/1. Mark D1 as `done` from user request. Mark D2 as `done` if persona is obvious from context, otherwise `n/a`.
+
+### 0.3 Interview Loop (When Triggered)
+
+Ask one question at a time via AskUserQuestion. For each question:
+
+1. **Show compact coverage status** before asking (inline: `Coverage: D1:done D2:pending D3:pending ...`)
+2. **Provide 2-4 curated options** -- never open-ended "what do you want?"
+3. **Push back on contradictions** -- if the user picks conflicting options, flag it: "Option A conflicts with your earlier choice of X. Which takes priority?"
+4. **Push back on over-engineering** -- if scope expands beyond what's needed, flag it: "That adds [X] complexity. The simpler path is [Y]. Proceed with full scope or simplified?"
+5. **Self-terminate** when all user-dependent dimensions (D1, D2, D5) are covered
+6. **Escape hatch** -- if the user says "skip", "enough", or "just do it", stop immediately and mark remaining user dimensions as `n/a`
+
+After the loop, mark D1, D2, D5 as `done` (or `n/a` if skipped). D3-D4, D6-D10 are resolved by later phases automatically.
+
+### 0.4 Verbal Instruction Capture (MANDATORY after interview)
+
+**After the interview loop completes (or is skipped), review the ENTIRE conversation for ANY user statements about:**
+- Placement or location ("put it in the tools module", "alongside the memory tools")
+- Module or route ("this goes in the config section", "on the dashboard page")
+- Naming ("call it X", "the tool should be named Y")
+- Architecture ("use a separate module", "make it a hook")
+- Component choices ("use a Card layout", "DataTable with filters")
+
+**Each such statement MUST become an explicit numbered plan item (P-XXX)** with:
+- Exact module/file where it applies
+- Exact file path for the implementation
+- Insertion point within the file
+- The user's exact words quoted as the specification
+
+**Why**: Verbal instructions given during conversation are frequently lost during plan generation. If the user said "put the new tool in the memory module", that MUST appear as a plan item referencing the exact file, not a generic "add tool" item.
 
 ---
 
 ## PHASE 0.5: TEMPLATE SELECTION
 
-Based on the user's request, check if a common pattern template applies. Templates are STARTING POINTS — subsequent phases still verify feasibility and adjust details.
+Based on the user's request, check if a common pattern template applies. Templates are STARTING POINTS -- subsequent phases still verify feasibility and adjust details.
 
 ### Template Detection
 
@@ -128,20 +185,20 @@ If the request is for a new dashboard page:
 ## Pre-filled Plan Structure (Dashboard Page)
 
 ### Phase 1: Database
-- P1-001: Migration — Create table with RLS, policies, indexes, triggers
-- P1-002: Type sync — Add type aliases to `website/src/lib/supabase/types.ts`
+- P1-001: Migration -- Create table with RLS, policies, indexes, triggers
+- P1-002: Type sync -- Add type aliases to `website/src/lib/supabase/types.ts`
 
 ### Phase 2: Data Layer
-- P2-001: Data access functions — `website/src/lib/supabase/[FILL].ts`
-- P2-002: Server actions — `website/src/app/dashboard/[FILL]/actions.ts`
+- P2-001: Data access functions -- `website/src/lib/supabase/[FILL].ts`
+- P2-002: Server actions -- `website/src/app/dashboard/[FILL]/actions.ts`
 
 ### Phase 3: UI
-- P3-001: Page component — `website/src/app/dashboard/[FILL]/page.tsx`
-- P3-002: Client components — `website/src/app/dashboard/[FILL]/[FILL]-client.tsx`
-- P3-003: Loading state — `website/src/app/dashboard/[FILL]/loading.tsx`
+- P3-001: Page component -- `website/src/app/dashboard/[FILL]/page.tsx`
+- P3-002: Client components -- `website/src/app/dashboard/[FILL]/[FILL]-client.tsx`
+- P3-003: Loading state -- `website/src/app/dashboard/[FILL]/loading.tsx`
 
 ### Phase 4: Navigation & Docs
-- P4-001: Update dashboard nav — `website/src/components/dashboard/DashboardNav.tsx`
+- P4-001: Update dashboard nav -- `website/src/components/dashboard/DashboardNav.tsx`
 - P4-002: Update docs if needed
 ```
 
@@ -153,14 +210,14 @@ If the request is for a new API endpoint:
 ## Pre-filled Plan Structure (API Endpoint)
 
 ### Phase 1: Route
-- P1-001: Route file — `website/src/app/api/[FILL]/route.ts`
-- P1-002: Auth middleware — `createServerSupabaseClient` or `authenticateApiKey`
-- P1-003: Input validation — Zod schema for request body/params
+- P1-001: Route file -- `website/src/app/api/[FILL]/route.ts`
+- P1-002: Auth middleware -- `createServerSupabaseClient` or `authenticateApiKey`
+- P1-003: Input validation -- Zod schema for request body/params
 
 ### Phase 2: Logic
 - P2-001: Business logic implementation
-- P2-002: Rate limiting — `rateLimit()` integration
-- P2-003: Error handling — Consistent error response format
+- P2-002: Rate limiting -- `rateLimit()` integration
+- P2-003: Error handling -- Consistent error response format
 
 ### Phase 3: Tests & Docs
 - P3-001: API tests
@@ -175,20 +232,20 @@ If the request is for a new MCP tool:
 ## Pre-filled Plan Structure (MCP Tool Module)
 
 ### Phase 1: Module
-- P1-001: Tool module — `packages/core/src/[FILL].ts`
-  - `get[FILL]ToolDefinitions()` — Returns tool definitions
-  - `is[FILL]Tool(name)` — Returns boolean for tool name matching
-  - `handle[FILL]ToolCall(name, args, memDb)` — Handles tool execution
+- P1-001: Tool module -- `packages/core/src/[FILL].ts`
+  - `get[FILL]ToolDefinitions()` -- Returns tool definitions
+  - `is[FILL]Tool(name)` -- Returns boolean for tool name matching
+  - `handle[FILL]ToolCall(name, args, memDb)` -- Handles tool execution
 
 ### Phase 2: Registration
-- P2-001: Wire into tools.ts — Import + definitions + handler routing
+- P2-001: Wire into tools.ts -- Import + definitions + handler routing
 
 ### Phase 3: Tests
-- P3-001: Test file — `packages/core/src/__tests__/[FILL].test.ts`
+- P3-001: Test file -- `packages/core/src/__tests__/[FILL].test.ts`
   - Test definitions, matching, handler
 
 ### Phase 4: Config (if needed)
-- P4-001: Config interface — Add to `config.ts` + `massu.config.yaml`
+- P4-001: Config interface -- Add to `config.ts` + `massu.config.yaml`
 ```
 
 ### TEMPLATE D: New Edge Function
@@ -199,17 +256,17 @@ If the request is for a Supabase edge function:
 ## Pre-filled Plan Structure (Edge Function)
 
 ### Phase 1: Function
-- P1-001: Function file — `website/supabase/functions/[FILL]/index.ts`
-- P1-002: CORS setup — Standard CORS headers for the function
-- P1-003: Auth — Verify JWT or API key
+- P1-001: Function file -- `website/supabase/functions/[FILL]/index.ts`
+- P1-002: CORS setup -- Standard CORS headers for the function
+- P1-003: Auth -- Verify JWT or API key
 
 ### Phase 2: Logic
-- P2-001: Input validation — Parse and validate request body
-- P2-002: Business logic — Core function implementation
-- P2-003: Error handling — Structured error responses
+- P2-001: Input validation -- Parse and validate request body
+- P2-002: Business logic -- Core function implementation
+- P2-003: Error handling -- Structured error responses
 
 ### Phase 3: Config
-- P3-001: Cron config (if scheduled) — Add to `supabase/config.toml`
+- P3-001: Cron config (if scheduled) -- Add to `supabase/config.toml`
 ```
 
 ### TEMPLATE E: Feature Tier Addition
@@ -220,22 +277,22 @@ If the request is for adding features to a pricing tier:
 ## Pre-filled Plan Structure (Feature Tier Addition)
 
 ### Phase 1: Database
-- P1-001: Migration — New tables/columns for tier features
-- P1-002: Type sync — Update type aliases
+- P1-001: Migration -- New tables/columns for tier features
+- P1-002: Type sync -- Update type aliases
 
 ### Phase 2: Backend
-- P2-001: Data layer — Access functions with tier checks
-- P2-002: Server actions — CRUD with tier-based permissions
+- P2-001: Data layer -- Access functions with tier checks
+- P2-002: Server actions -- CRUD with tier-based permissions
 
 ### Phase 3: UI
-- P3-001: Feature pages — Dashboard pages for new features
-- P3-002: Navigation update — Add to tier-appropriate nav
+- P3-001: Feature pages -- Dashboard pages for new features
+- P3-002: Navigation update -- Add to tier-appropriate nav
 
 ### Phase 4: Marketing & Docs
-- P4-001: Pricing update — `website/src/data/pricing.ts`
-- P4-002: Feature comparison — `FeatureComparison.tsx`
-- P4-003: FAQ update — `PricingFAQ.tsx`
-- P4-004: Documentation — Feature docs pages
+- P4-001: Pricing update -- `website/src/data/pricing.ts`
+- P4-002: Feature comparison -- `FeatureComparison.tsx`
+- P4-003: FAQ update -- `PricingFAQ.tsx`
+- P4-004: Documentation -- Feature docs pages
 ```
 
 ### If No Template Matches
@@ -495,6 +552,25 @@ grep -rn '[old_value]' massu.config.yaml
 - [ ] Example in massu.config.yaml
 ```
 
+### 4.2 Similar Feature Analysis
+
+Read the most similar module and its tests. Document: input validation approach, tool registration pattern, error handling, config access, test structure.
+
+---
+
+## PHASE 4.5: BACKEND-FRONTEND COUPLING CHECK
+
+**MANDATORY**: If the plan includes backend/tool changes, it MUST include corresponding integration or test changes.
+
+| Backend Change | Required Corresponding Change |
+|----------------|-------------------------------|
+| New tool definitions | Wire into tools.ts + test coverage |
+| New config fields | Config interface update + YAML example |
+| Changed type structure | All consumers updated |
+| New exports | Import added where needed |
+
+Before finalizing: for EVERY new tool, type, or procedure added, verify there is a corresponding registration and test item. If NO, ADD IT NOW.
+
 ---
 
 ## PHASE 4.7: QUESTION FILTERING (Before Writing Plan)
@@ -520,6 +596,32 @@ Questions that require the user:
 
 **If all questions are self-answerable, skip the user prompt entirely and proceed to plan generation.**
 
+Update coverage map: mark D9 (Edge Cases) as `done`.
+
+---
+
+## PHASE 4.8: SECURITY PRE-SCREEN (Shift-Left Gate)
+
+Score the plan against these 6 security dimensions:
+
+| # | Dimension | Check |
+|---|-----------|-------|
+| S1 | Input validation | All external inputs have Zod/validation |
+| S2 | Auth boundaries | Protected operations require auth |
+| S3 | Data exposure | No sensitive data in logs/responses |
+| S4 | Secret handling | No hardcoded secrets (CR-5) |
+| S5 | Injection risk | No raw string interpolation in queries |
+| S6 | Error leakage | Error messages don't expose internals |
+
+**Score**: Each dimension = PASS / WARN / BLOCK.
+**Gate**: 0 BLOCKS = proceed. Any BLOCK = resolve before Phase 5.
+
+### Skip Condition
+
+Pure read-only cosmetic changes with NO data access changes may skip this phase. Document: `Phase 4.8 SKIPPED: [reason -- cosmetic-only, no data flow changes]`.
+
+Update coverage map: mark D6, D7, D8, D10 as `done`.
+
 ---
 
 ## PHASE 5: PLAN GENERATION
@@ -539,6 +641,21 @@ Questions that require the user:
 - File structure verified: YES
 - Patterns reviewed: YES
 - Similar features analyzed: YES
+
+## Requirements Coverage
+| Dimension | Status | Resolution |
+|-----------|--------|------------|
+| D1 Problem & Scope | done | User request + interview |
+| D2 Users & Personas | done | [how resolved] |
+| D3 Architecture | done | Phase 2 architecture check |
+| D4 Module Design | done | Phase 3 codebase check |
+| D5 UX / API Surface | done | [how resolved] |
+| D6 Auth & Permissions | done | Phase 4 pattern compliance |
+| D7 Error Handling | done | Phase 4 pattern compliance |
+| D8 Security | done | Phase 4.8 pre-screen |
+| D9 Edge Cases | done | Phase 4.7 question filtering |
+| D10 Performance | done | Phase 4 pattern compliance |
+**Coverage Gate**: X/10 dimensions resolved (deferred: Y)
 
 ---
 
@@ -638,6 +755,8 @@ Questions that require the user:
 | Tests | P2-XXX | P2-001, P2-002 |
 | Config & Docs | P3-XXX | P3-001, P3-002 |
 
+**Every item MUST have a unique ID for tracking.**
+
 ---
 
 ## PHASE 6: FEASIBILITY VALIDATION
@@ -681,6 +800,17 @@ Questions that require the user:
 | **Pattern reference** | Which existing module to follow |
 | **Verification command** | Specific grep/ls that proves the item was implemented |
 
+Specificity by type: MODULE (path + exports + pattern), TOOL_WIRE (tools.ts changes: import + definition + handler), TEST (file path + covers + assertions), CONFIG (interface changes + YAML example), HOOK (file path + stdin/stdout format + esbuild compat).
+
+If ANY item lacks specificity: research the target format, write the exact implementation, then update the plan.
+
+### 6.3 If Feasibility Fails
+
+1. Identify blockers
+2. Add prerequisites
+3. Revise plan
+4. Re-validate
+
 ---
 
 ## OUTPUT FORMAT
@@ -695,7 +825,7 @@ Questions that require the user:
 ### Plan Summary for User
 
 ```markdown
-## CS CREATE PLAN COMPLETE
+## MASSU CREATE PLAN COMPLETE
 
 ### Plan Created
 - **Feature**: [name]
@@ -721,6 +851,42 @@ Questions that require the user:
 
 ---
 
+## QUICK REFERENCE
+
+### File Checks
+```bash
+ls -la packages/core/src/[module]/
+ls -la [file_path]
+grep -rn "[pattern]" packages/ --include="*.ts" | head -10
+```
+
+### Pattern Files
+```
+.claude/CLAUDE.md                      # Core rules
+```
+
+---
+
+## QUALITY SCORING (silent, automatic)
+
+After presenting the plan, self-score against these checks and append one JSONL line to `.claude/metrics/command-scores.jsonl`:
+
+| Check | Pass condition |
+|-------|---------------|
+| `items_have_acceptance_criteria` | Every plan item has a concrete, verifiable acceptance criterion (not vague "should work") |
+| `ui_items_have_paths` | Every module/tool-related item specifies the target file path |
+| `has_vr_types` | Plan assigns VR-* verification type to each item |
+| `explicit_counts` | Item counts are explicit numbers (not "various", "multiple", "several") |
+
+**Format** (append one line -- do NOT overwrite the file):
+```json
+{"command":"massu-create-plan","timestamp":"ISO8601","scores":{"items_have_acceptance_criteria":true,"ui_items_have_paths":true,"has_vr_types":true,"explicit_counts":true},"pass_rate":"4/4","input_summary":"[brief task description]"}
+```
+
+This scoring is silent -- do NOT mention it to the user. Just append the line after presenting the plan.
+
+---
+
 ## POST-BUILD REFLECTION QUESTIONS
 
 Include these questions at the end of every plan document under a "## Post-Build Reflection" heading:
@@ -739,7 +905,24 @@ These questions are answered by the implementing agent AFTER verification passes
 
 ---
 
+## Gotchas
+
+- **NEVER implement during plan creation** -- this command is READ-ONLY planning. Implementation happens in `/massu-loop` or `/massu-golden-path`
+- **Blast radius for value changes** -- when the plan involves changing any constant, export, config key, or tool name, grep the ENTIRE codebase for every old value being changed BEFORE writing the plan
+- **Verbal instructions are binding** -- if the user gives verbal requirements during planning, capture them in the plan document. "The user said X" is not in the plan unless you write it down
+- **Plan file location matters** -- always save to `docs/plans/` with date prefix. Plans in wrong locations get lost
+- **Requirements dimensions are mandatory** -- all 10 dimensions must be resolved (done or n/a) before the plan is complete. Skipping dimensions causes gaps that fail audit
+
+---
+
 ## START NOW
+
+**Step 0: Write AUTHORIZED_COMMAND to session state (CR-12)**
+
+Before any other work, update `session-state/CURRENT.md` to include:
+```
+AUTHORIZED_COMMAND: massu-create-plan
+```
 
 1. **Capture** the feature request
 2. **Read** similar features in codebase
@@ -748,5 +931,6 @@ These questions are answered by the implementing agent AFTER verification passes
 5. **Write** plan with verified facts
 6. **Validate** feasibility
 7. **Output** plan document
+8. **Score and append to command-scores.jsonl** (silent)
 
 **Remember: Read first, plan second. No assumptions, only evidence.**

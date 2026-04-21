@@ -21,7 +21,8 @@ var DomainConfigSchema = z.object({
 });
 var PatternRuleConfigSchema = z.object({
   pattern: z.string().default("**"),
-  rules: z.array(z.string()).default([])
+  rules: z.array(z.string()).default([]),
+  language: z.string().optional()
 });
 var CostModelSchema = z.object({
   input_per_million: z.number(),
@@ -131,6 +132,44 @@ var RegressionConfigSchema = z.object({
     warning: z.number().default(50)
   }).optional()
 }).optional();
+var AutoLearningConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  incidentDir: z.string().default("docs/incidents"),
+  memoryDir: z.string().default("memory"),
+  memoryIndexFile: z.string().default("MEMORY.md"),
+  enforcementHooksDir: z.string().default("scripts/hooks"),
+  fixDetection: z.object({
+    enabled: z.boolean().default(true),
+    lookbackDays: z.number().default(7),
+    signals: z.array(z.string()).default([
+      "removed_broken_code",
+      "added_error_handling",
+      "method_name_correction",
+      "auth_fix",
+      "nil_handling_fix",
+      "concurrency_fix",
+      "async_pattern_fix",
+      "added_missing_import"
+    ])
+  }).default({}),
+  failureClassification: z.object({
+    enabled: z.boolean().default(true),
+    thresholds: z.object({
+      known: z.number().default(5),
+      similar: z.number().default(3)
+    }).default({}),
+    scoring: z.object({
+      diffPatternWeight: z.number().default(3),
+      filePatternWeight: z.number().default(2),
+      promptKeywordWeight: z.number().default(2)
+    }).default({})
+  }).default({}),
+  pipeline: z.object({
+    requireIncidentReport: z.boolean().default(true),
+    requirePreventionRule: z.boolean().default(true),
+    requireEnforcement: z.boolean().default(true)
+  }).default({})
+}).optional();
 var CloudConfigSchema = z.object({
   enabled: z.boolean().default(false),
   apiKey: z.string().optional(),
@@ -187,6 +226,7 @@ var PythonConfigSchema = z.object({
 var PathsConfigSchema = z.object({
   source: z.string().default("src"),
   aliases: z.record(z.string(), z.string()).default({ "@": "src" }),
+  monorepo_roots: z.array(z.string()).optional(),
   routers: z.string().optional(),
   routerRoot: z.string().optional(),
   pages: z.string().optional(),
@@ -195,17 +235,59 @@ var PathsConfigSchema = z.object({
   components: z.string().optional(),
   hooks: z.string().optional()
 });
+var LanguageFrameworkEntrySchema = z.object({
+  framework: z.string().optional(),
+  test_framework: z.string().optional(),
+  test: z.string().optional(),
+  runtime: z.string().optional(),
+  orm: z.string().optional(),
+  router: z.string().optional(),
+  ui: z.string().optional()
+}).passthrough();
+var FrameworkConfigSchema = z.object({
+  type: z.string().default("typescript"),
+  primary: z.string().optional(),
+  router: z.string().default("none"),
+  orm: z.string().default("none"),
+  ui: z.string().default("none"),
+  languages: z.record(z.string(), LanguageFrameworkEntrySchema).optional()
+}).passthrough();
+var VerificationEntrySchema = z.object({
+  type: z.string().optional(),
+  test: z.string().optional(),
+  syntax: z.string().optional(),
+  lint: z.string().optional(),
+  build: z.string().optional()
+}).passthrough();
+var VerificationConfigSchema = z.record(z.string(), VerificationEntrySchema).optional();
+var CanonicalPathsSchema = z.record(z.string(), z.string()).optional();
+var VerificationTypesSchema = z.record(z.string(), z.string()).optional();
+var DetectionRuleEntrySchema = z.object({
+  signals: z.array(z.string()).default([]),
+  priority: z.number().optional()
+}).passthrough();
+var DetectionConfigSchema = z.object({
+  rules: z.record(
+    z.string(),
+    // language
+    z.record(z.string(), DetectionRuleEntrySchema)
+    // framework -> rule entry
+  ).optional(),
+  signal_weights: z.record(z.string(), z.number()).optional(),
+  disable_builtin: z.boolean().optional()
+}).passthrough().optional();
 var RawConfigSchema = z.object({
+  schema_version: z.union([z.literal(1), z.literal(2)]).default(1),
   project: z.object({
     name: z.string().default("my-project"),
     root: z.string().default("auto")
   }).default({ name: "my-project", root: "auto" }),
-  framework: z.object({
-    type: z.string().default("typescript"),
-    router: z.string().default("none"),
-    orm: z.string().default("none"),
-    ui: z.string().default("none")
-  }).default({ type: "typescript", router: "none", orm: "none", ui: "none" }),
+  framework: FrameworkConfigSchema.default({
+    type: "typescript",
+    router: "none",
+    orm: "none",
+    ui: "none"
+  }),
   paths: PathsConfigSchema.default({ source: "src", aliases: { "@": "src" } }),
   toolPrefix: z.string().default("massu"),
   dbAccessPattern: z.string().optional(),
@@ -220,7 +302,13 @@ var RawConfigSchema = z.object({
   regression: RegressionConfigSchema,
   cloud: CloudConfigSchema,
   conventions: ConventionsConfigSchema,
-  python: PythonConfigSchema
+  autoLearning: AutoLearningConfigSchema,
+  python: PythonConfigSchema,
+  // P2-004 / P2-005 / P2-006 / P2-008: v2 extensions (all optional)
+  verification: VerificationConfigSchema,
+  canonical_paths: CanonicalPathsSchema,
+  verification_types: VerificationTypesSchema,
+  detection: DetectionConfigSchema
 }).passthrough();
 var _config = null;
 var _projectRoot = null;
@@ -264,14 +352,47 @@ function getConfig() {
     const content = readFileSync(configPath, "utf-8");
     rawYaml = parseYaml(content) ?? {};
   }
-  const parsed = RawConfigSchema.parse(rawYaml);
+  const result = RawConfigSchema.safeParse(rawYaml);
+  if (!result.success) {
+    const issues = result.error.issues.map((i) => {
+      const path = i.path.length > 0 ? i.path.join(".") : "(root)";
+      const received = "received" in i && i.received !== void 0 ? ` (received ${JSON.stringify(i.received)})` : "";
+      return `  - ${path}: ${i.message}${received}`;
+    }).join("\n");
+    throw new Error(
+      `Invalid massu.config.yaml at ${configPath}:
+${issues}
+Hint: run \`massu config refresh\` to regenerate a valid config or fix the listed fields manually.`
+    );
+  }
+  const parsed = result.data;
   const projectRoot = parsed.project.root === "auto" || !parsed.project.root ? root : resolve(root, parsed.project.root);
+  const fw = parsed.framework;
+  let router = fw.router;
+  let orm = fw.orm;
+  let ui = fw.ui;
+  if (fw.type === "multi" && fw.primary && fw.languages) {
+    const primaryEntry = fw.languages[fw.primary];
+    if (primaryEntry) {
+      if (router === "none" && primaryEntry.router) router = primaryEntry.router;
+      if (orm === "none" && primaryEntry.orm) orm = primaryEntry.orm;
+      if (ui === "none" && primaryEntry.ui) ui = primaryEntry.ui;
+    }
+  }
   _config = {
+    schema_version: parsed.schema_version,
     project: {
       name: parsed.project.name,
       root: projectRoot
     },
-    framework: parsed.framework,
+    framework: {
+      type: fw.type,
+      router,
+      orm,
+      ui,
+      primary: fw.primary,
+      languages: fw.languages
+    },
     paths: parsed.paths,
     toolPrefix: parsed.toolPrefix,
     dbAccessPattern: parsed.dbAccessPattern,
@@ -286,7 +407,12 @@ function getConfig() {
     regression: parsed.regression,
     cloud: parsed.cloud,
     conventions: parsed.conventions,
-    python: parsed.python
+    autoLearning: parsed.autoLearning,
+    python: parsed.python,
+    verification: parsed.verification,
+    canonical_paths: parsed.canonical_paths,
+    verification_types: parsed.verification_types,
+    detection: parsed.detection
   };
   if (!_config.cloud?.apiKey && process.env.MASSU_API_KEY) {
     _config.cloud = {
@@ -820,6 +946,25 @@ function initMemorySchema(db) {
       last_validated TEXT NOT NULL,
       features TEXT DEFAULT '[]'
     );
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS failure_classes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL,
+      diff_patterns TEXT NOT NULL DEFAULT '[]',
+      file_patterns TEXT NOT NULL DEFAULT '[]',
+      prompt_keywords TEXT NOT NULL DEFAULT '[]',
+      incidents TEXT NOT NULL DEFAULT '[]',
+      rules TEXT NOT NULL DEFAULT '[]',
+      scanner_checks TEXT NOT NULL DEFAULT '[]',
+      known_message TEXT NOT NULL DEFAULT '',
+      needs_review INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_fc_name ON failure_classes(name);
+    CREATE INDEX IF NOT EXISTS idx_fc_needs_review ON failure_classes(needs_review);
   `);
 }
 function enqueueSyncPayload(db, payload) {

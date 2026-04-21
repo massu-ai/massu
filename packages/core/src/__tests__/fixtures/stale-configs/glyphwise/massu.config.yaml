@@ -1,0 +1,15 @@
+project:
+  name: glyphwise
+  root: auto
+framework:
+  type: typescript
+  router: trpc
+  orm: prisma
+  ui: nextjs
+paths:
+  source: src
+  aliases:
+    "@": src
+toolPrefix: massu
+domains: []
+rules: []

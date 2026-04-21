@@ -1,0 +1,80 @@
+# Massu AI Configuration — Multi-runtime template (Python + TypeScript + Rust + Swift)
+# schema_version 2 — https://massu.ai/docs/getting-started/configuration
+
+schema_version: 2
+
+project:
+  name: "{{PROJECT_NAME}}"
+  root: auto
+
+framework:
+  type: multi
+  primary: python
+  router: fastapi-router
+  orm: sqlalchemy
+  ui: nextjs
+  languages:
+    python:
+      framework: fastapi
+      test_framework: pytest
+      orm: sqlalchemy
+      source_dirs:
+        - apps/api
+    typescript:
+      framework: next
+      test_framework: vitest
+      ui: nextjs
+      source_dirs:
+        - apps/web
+    rust:
+      test_framework: cargo
+      source_dirs:
+        - apps/gateway
+    swift:
+      test_framework: xctest
+      source_dirs:
+        - apps/ios
+
+paths:
+  source: apps
+  aliases:
+    "@": apps
+
+toolPrefix: massu
+
+domains: []
+
+rules: []
+
+verification:
+  python:
+    test: cd apps/api && python3 -m pytest -q
+    type: cd apps/api && python3 -m mypy .
+    syntax: cd apps/api && python3 -m py_compile
+    lint: cd apps/api && python3 -m ruff check .
+  typescript:
+    test: cd apps/web && npm test
+    type: cd apps/web && npx tsc --noEmit
+    build: cd apps/web && npm run build
+    lint: cd apps/web && npx eslint .
+  rust:
+    test: cd apps/gateway && cargo test
+    type: cd apps/gateway && cargo check
+    build: cd apps/gateway && cargo build
+    lint: cd apps/gateway && cargo clippy -- -D warnings
+  swift:
+    test: cd apps/ios && swift test
+    type: cd apps/ios && swift build
+    build: cd apps/ios && xcodebuild build
+    lint: cd apps/ios && swiftlint
+
+python:
+  root: apps/api
+  exclude_dirs:
+    - __pycache__
+    - .venv
+    - venv
+    - .mypy_cache
+    - .pytest_cache
+  framework: fastapi
+  orm: sqlalchemy

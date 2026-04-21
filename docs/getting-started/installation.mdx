@@ -6,7 +6,7 @@ order: 1
 
 # Installation
 
-Massu AI installs with one command. It automatically detects your framework, creates your configuration, registers the MCP server, installs all 15 lifecycle hooks, and deploys 43 slash commands.
+Massu AI installs with one command. It automatically detects your framework, creates your configuration, registers the MCP server, installs all 11 lifecycle hooks, and deploys 59 slash commands.
 
 ## Prerequisites
 
@@ -39,8 +39,8 @@ Massu AI - Project Setup
   Detected: TypeScript, Next.js, Prisma, tRPC
   Created massu.config.yaml
   Registered MCP server in .mcp.json
-  Installed 15 hooks in .claude/settings.local.json
-  Installed 43 slash commands in .claude/commands/
+  Installed 11 hooks in .claude/settings.local.json
+  Installed 59 slash commands in .claude/commands/
   Databases will auto-create on first session
 
 Massu AI is ready. Start a Claude Code session to begin.
@@ -51,8 +51,8 @@ Here's what `massu init` does automatically:
 1. **Framework Detection** -- Scans your `package.json` for TypeScript, Next.js, SvelteKit, Nuxt, Prisma, Drizzle, tRPC, GraphQL, Express, and more
 2. **Config Generation** -- Creates `massu.config.yaml` with detected framework settings
 3. **MCP Registration** -- Creates or merges `.mcp.json` to register the Massu MCP server
-4. **Hook Installation** -- Configures all 15 lifecycle hooks in `.claude/settings.local.json`
-5. **Slash Command Installation** -- Deploys 43 workflow commands into `.claude/commands/`
+4. **Hook Installation** -- Configures all 11 lifecycle hooks in `.claude/settings.local.json`
+5. **Slash Command Installation** -- Deploys 59 workflow commands into `.claude/commands/`
 
 ## Step 3: Start Using Massu AI
 
@@ -67,7 +67,7 @@ On the first session, you'll see:
 ```
 === MASSU AI: Active ===
 Session memory, code intelligence, and governance are now active.
-15 hooks monitoring this session. 43 slash commands available.
+11 hooks monitoring this session. 59 slash commands available.
 Type "massu_sync" to index your codebase.
 === END MASSU ===
 ```
@@ -94,9 +94,9 @@ Massu AI Health Check
 
   ✓ Configuration      massu.config.yaml found and valid
   ✓ MCP Server         Registered in .mcp.json
-  ✓ Hooks Config       15 hooks configured
-  ✓ Hook Files         15/15 compiled hooks present
-  ✓ Slash Commands     31/43 commands installed
+  ✓ Hooks Config       11 hooks configured
+  ✓ Hook Files         11/11 compiled hooks present
+  ✓ Slash Commands     59/59 commands installed
   ✓ Native Modules     better-sqlite3 loads correctly
   ✓ Node.js            v20.11.0 (>= 18 required)
   ✓ Git Repository     Detected (branch: main)
@@ -106,7 +106,7 @@ Status: HEALTHY (8/8 checks passed)
 
 ## What Gets Installed
 
-### The 15 Lifecycle Hooks
+### The 11 Lifecycle Hooks
 
 | Hook | Event | Purpose |
 |------|-------|---------|
@@ -121,10 +121,6 @@ Status: HEALTHY (8/8 checks passed)
 | `cost-tracker` | PostToolUse | Estimates and tracks token costs per tool call |
 | `quality-event` | PostToolUse | Detects test failures, type errors, and build failures |
 | `intent-suggester` | UserPromptSubmit | Suggests relevant slash commands based on your prompt |
-| `fix-detector` | PostToolUse | Detects bug fixes via git diff heuristics |
-| `auto-learning-pipeline` | Stop | Enforces fix→incident→rule→enforcement pipeline completion |
-| `incident-pipeline` | PostToolUse | Triggers rule derivation when incident reports are written |
-| `rule-enforcement-pipeline` | PostToolUse | Triggers enforcement placement when prevention rules are written |
 
 ### Files Created
 
@@ -134,7 +130,7 @@ your-project/
   .mcp.json                      # MCP server registration (auto-generated)
   .claude/
     settings.local.json          # Hook configuration (auto-generated)
-    commands/                    # 43 slash commands (auto-generated)
+    commands/                    # 59 slash commands (auto-generated)
       massu-plan.md
       massu-loop.md
       massu-commit.md
@@ -160,7 +156,7 @@ npx massu install-hooks
 npx massu install-commands
 ```
 
-Re-deploys all 43 slash commands into `.claude/commands/` without running the full init process. Useful after updating `@massu/core` to get the latest command definitions.
+Re-deploys all 59 slash commands into `.claude/commands/` without running the full init process. Useful after updating `@massu/core` to get the latest command definitions.
 
 ### Validate your configuration
 

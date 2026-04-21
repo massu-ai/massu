@@ -11,8 +11,11 @@
 import { getMemoryDb, getSessionSummaries, getRecentObservations, getFailedAttempts, getCrossTaskProgress, autoDetectTaskId, linkSessionToTask, createSession } from '../memory-db.ts';
 import { getConfig, getResolvedPaths } from '../config.ts';
 import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
+import { parse as parseYaml } from 'yaml';
 import type Database from 'better-sqlite3';
+import { runDetection } from '../detect/index.ts';
+import { computeFingerprint } from '../detect/drift.ts';
 
 interface HookInput {
   session_id: string;
@@ -52,7 +55,7 @@ async function main(): Promise<void> {
         process.stdout.write(
           '=== MASSU AI: Active ===\n' +
           'Session memory, code intelligence, and governance are now active.\n' +
-          `15 hooks monitoring this session. Type "${getConfig().toolPrefix ?? 'massu'}_sync" to index your codebase.\n` +
+          `11 hooks monitoring this session. Type "${getConfig().toolPrefix ?? 'massu'}_sync" to index your codebase.\n` +
           '=== END MASSU ===\n\n'
         );
       }
@@ -62,6 +65,12 @@ async function main(): Promise<void> {
 
       if (context.trim()) {
         process.stdout.write(context);
+      }
+
+      // P5-001: drift banner (runs after memory context, independent of it).
+      const driftBanner = await buildDriftBanner();
+      if (driftBanner) {
+        process.stdout.write(driftBanner);
       }
     } finally {
       db.close();
@@ -242,6 +251,38 @@ function readStdin(): Promise<string> {
     // Timeout after 3s
     setTimeout(() => resolve(data), 3000);
   });
+}
+
+/**
+ * P5-001: compare the fingerprint stored in massu.config.yaml (detection.fingerprint,
+ * stamped by init/refresh/upgrade) against a freshly-computed fingerprint. If they
+ * disagree, return a plain-text banner. Returns '' on any error or when the
+ * config has no fingerprint (back-compat with v1 configs).
+ */
+async function buildDriftBanner(): Promise<string> {
+  try {
+    const configPath = resolve(process.cwd(), 'massu.config.yaml');
+    if (!existsSync(configPath)) return '';
+    const content = readFileSync(configPath, 'utf-8');
+    const parsed = parseYaml(content) as Record<string, unknown> | null;
+    if (!parsed || typeof parsed !== 'object') return '';
+    const det = parsed.detection as Record<string, unknown> | undefined;
+    const storedFp = typeof det?.fingerprint === 'string' ? (det.fingerprint as string) : null;
+    if (!storedFp) return '';
+    const detection = await runDetection(process.cwd());
+    const currentFp = computeFingerprint(detection);
+    if (currentFp === storedFp) return '';
+    return (
+      '=== Massu Config Drift ===\n' +
+      'Detected stack has changed since last config refresh.\n' +
+      `Fingerprint:  ${storedFp.slice(0, 16)}  ->  ${currentFp.slice(0, 16)}\n` +
+      'Run: npx massu config refresh\n' +
+      '=== END ===\n'
+    );
+  } catch (_e) {
+    // Never block session start on drift-check failure.
+    return '';
+  }
 }
 
 function safeParseJson(json: string): Record<string, string> | null {

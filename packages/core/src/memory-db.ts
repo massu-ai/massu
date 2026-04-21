@@ -1509,11 +1509,6 @@ export interface FailureClassMatch {
 /**
  * Score all failure classes against provided match text, file path, and prompt context.
  * Returns the best match with its score.
- *
- * Scoring:
- *   +diffPatternWeight (default 3) per diff_pattern match
- *   +filePatternWeight (default 2) per file_pattern match
- *   +promptKeywordWeight (default 2) per prompt_keyword match
  */
 export function scoreFailureClasses(
   db: Database.Database,

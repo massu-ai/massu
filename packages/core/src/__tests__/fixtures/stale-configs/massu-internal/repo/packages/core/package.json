@@ -1,0 +1,5 @@
+{
+  "name": "@massu/core",
+  "dependencies": { "yaml": "^2.0.0" },
+  "devDependencies": { "typescript": "^5.0.0", "vitest": "^1.0.0" }
+}

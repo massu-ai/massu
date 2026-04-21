@@ -33,7 +33,7 @@ This tool is always available regardless of tier. See [License and Tiers](/docs/
 | `massu_knowledge_gaps` | Pro | Identify knowledge coverage gaps | (none) |
 | `massu_knowledge_effectiveness` | Pro | Measure knowledge utilization and effectiveness | (none) |
 
-## Memory Tools (7)
+## Memory Tools (6)
 
 | Tool | Tier | Description | Required Params |
 |------|------|-------------|----------------|
@@ -43,7 +43,6 @@ This tool is always available regardless of tier. See [License and Tiers](/docs/
 | `massu_memory_sessions` | Pro | List recent sessions with summaries | (none) |
 | `massu_memory_failures` | Pro | Get all failed attempts (DO NOT RETRY) | (none) |
 | `massu_memory_ingest` | Free | Manually add an observation | `type`: string, `title`: string |
-| `massu_memory_backfill` | Free | Scan memory/*.md files and ingest into database | (none) |
 
 ## Code Intelligence Tools (7)
 
@@ -235,6 +234,41 @@ All Python tools require a Pro license and only appear in Claude Code when `pyth
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `file` | string | yes | Python file path relative to project root |
+
+---
+
+## MCP Bridge Tools (4)
+
+| Tool | Tier | Description | Required Params |
+|------|------|-------------|----------------|
+| `massu_mcp_servers` | Pro | List all MCP servers configured in .mcp.json | (none) |
+| `massu_mcp_tools` | Pro | Discover available tools on a connected MCP server | `server`: string |
+| `massu_mcp_call` | Pro | Invoke a tool on an external MCP server | `server`: string, `tool`: string |
+| `massu_mcp_status` | Pro | Check connection health and latency of all configured servers | (none) |
+
+### Parameters
+
+#### `massu_mcp_servers`
+
+No parameters required. Lists all servers from `.mcp.json`.
+
+#### `massu_mcp_tools`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `server` | string | yes | Name of the MCP server to query |
+
+#### `massu_mcp_call`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `server` | string | yes | Name of the MCP server |
+| `tool` | string | yes | Name of the tool to invoke |
+| `arguments` | object | no | Arguments to pass to the tool |
+
+#### `massu_mcp_status`
+
+No parameters required. Returns health and latency for all configured servers.
 
 ---
 

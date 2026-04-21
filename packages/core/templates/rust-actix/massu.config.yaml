@@ -1,0 +1,38 @@
+# Massu AI Configuration — Rust / Actix-Web template
+# schema_version 2 — https://massu.ai/docs/getting-started/configuration
+
+schema_version: 2
+
+project:
+  name: "{{PROJECT_NAME}}"
+  root: auto
+
+framework:
+  type: rust
+  router: none
+  orm: none
+  ui: none
+  languages:
+    rust:
+      framework: actix-web
+      test_framework: cargo
+      source_dirs:
+        - src
+
+paths:
+  source: src
+  aliases:
+    "@": src
+
+toolPrefix: massu
+
+domains: []
+
+rules: []
+
+verification:
+  rust:
+    test: cargo test
+    type: cargo check
+    build: cargo build
+    lint: cargo clippy -- -D warnings

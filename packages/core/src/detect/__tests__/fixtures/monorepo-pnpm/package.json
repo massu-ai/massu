@@ -1,0 +1,7 @@
+{
+  "name": "monorepo-pnpm-fixture",
+  "private": true,
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

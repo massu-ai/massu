@@ -1,0 +1,7 @@
+{
+  "name": "@pnpm-ws/ui",
+  "version": "0.0.0",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

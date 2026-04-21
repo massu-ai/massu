@@ -1,0 +1,5 @@
+{
+  "name": "eko-ultra-automations",
+  "dependencies": { "express": "^4.18.0" },
+  "devDependencies": { "typescript": "^5.0.0", "vitest": "^1.0.0" }
+}

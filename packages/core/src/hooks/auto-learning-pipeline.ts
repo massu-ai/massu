@@ -17,7 +17,7 @@
 // ============================================================
 
 import { execSync } from 'child_process';
-import { existsSync, readFileSync, unlinkSync, readdirSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync, readdirSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
@@ -172,7 +172,7 @@ function cleanup(flagPath: string): void {
       for (const file of readdirSync(dir)) {
         const fullPath = join(dir, file);
         try {
-          const stat = require('fs').statSync(fullPath);
+          const stat = statSync(fullPath);
           if (now - stat.mtimeMs > 86400000) {
             unlinkSync(fullPath);
           }

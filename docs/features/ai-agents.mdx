@@ -1,0 +1,95 @@
+---
+title: "AI Agents"
+description: "11 specialized sub-agents for focused code review, security analysis, architecture audits, migration generation, and quality scoring"
+order: 17
+---
+
+# AI Agents
+
+Massu AI includes 11 specialized sub-agents that bring domain expertise to specific review dimensions. Unlike general-purpose AI review, each agent is tuned for a single concern — security, architecture, UX, patterns, or schema integrity — producing deeper, more actionable feedback.
+
+## Why Specialized Agents Matter
+
+A general code review catches surface issues. A specialized security reviewer thinks like an attacker. A specialized architecture reviewer thinks about coupling, cohesion, and scalability. By decomposing review into focused passes, each agent goes deeper than a single general review ever could.
+
+Massu's agents run in parallel during commands like `/massu-review` (which invokes 7 agents simultaneously) and `/massu-loop` (which uses the plan auditor and pattern reviewer at checkpoints).
+
+## Available Agents
+
+### Security Reviewer
+
+Adversarial security-focused review that hunts for vulnerabilities. Checks OWASP categories, authentication flows, input validation, secrets exposure, SQL injection, XSS, CSRF, and authorization bypass.
+
+**Used by:** `/massu-review`, `/massu-push`
+
+### Architecture Reviewer
+
+Reviews code for architectural issues: coupling between modules, cohesion within modules, scalability patterns, dependency direction violations, and design principle compliance.
+
+**Used by:** `/massu-review`, `/massu-refactor`
+
+### UX Reviewer
+
+Evaluates user experience quality: WCAG accessibility, keyboard navigation, error messaging, loading states, empty states, and interaction patterns.
+
+**Used by:** `/massu-review`, `/massu-loop-playwright`
+
+### Plan Auditor
+
+Verifies implementation plans for completeness. Checks every deliverable against proof, identifies coverage gaps, missing verification steps, unclear acceptance criteria, and unaddressed edge cases.
+
+**Used by:** `/massu-plan`, `/massu-plan-audit`, `/massu-golden-path`
+
+### Blast Radius Analyzer
+
+When changing constants, exports, config keys, or tool names, this agent greps the entire codebase for all references and categorizes each as CHANGE (must update), KEEP (with reason), or INVESTIGATE (needs human decision). Zero INVESTIGATE items allowed before implementation starts.
+
+**Used by:** `/massu-loop`, `/massu-refactor`
+
+### Pattern Reviewer
+
+Automated pre-commit review that checks pattern compliance: ESM import style, config access via `getConfig()`, tool registration in `tools.ts`, hook stdin/stdout format, database access patterns, and `memDb` lifecycle management.
+
+**Used by:** `/massu-commit`, `/massu-push`
+
+### Schema Sync Verifier
+
+Compares database schemas across all environments (development, staging, production) and reports mismatches in tables, columns, types, constraints, indexes, and RLS policies.
+
+**Used by:** `/massu-push`, `/massu-release`
+
+### Migration Writer
+
+Generates SQL migrations following project patterns: proper ordering relative to existing migrations, RLS policies on new tables, rollback scripts, idempotent operations, and correct column types.
+
+**Used by:** `/massu-new-feature`, `/massu-loop`
+
+### Output Scorer
+
+Scores implementation quality across 5 dimensions — correctness, completeness, pattern compliance, security, and maintainability — and returns a structured scorecard with specific improvement suggestions.
+
+**Used by:** `/massu-loop`, `/massu-golden-path`
+
+### Help Sync
+
+Compares documentation against actual codebase features. Reports undocumented features, stale documentation that references removed code, missing examples, and broken links.
+
+**Used by:** `/massu-docs`, `/massu-review`
+
+### Competitive Scorer
+
+When multiple implementation approaches exist, this agent scores each across multiple quality dimensions to identify the strongest option with data-driven reasoning.
+
+**Used by:** `/massu-golden-path` (competitive mode)
+
+## How Agents Are Invoked
+
+Agents are invoked automatically by workflow commands. You don't call them directly — they're wired into the governance pipeline:
+
+- **`/massu-review`** spawns 7 agents in parallel (security, architecture, UX, patterns, performance, accessibility, AI-specific)
+- **`/massu-plan`** uses the plan auditor to verify coverage
+- **`/massu-commit`** runs the pattern reviewer before allowing commits
+- **`/massu-loop`** uses blast radius analysis and output scoring at checkpoints
+- **`/massu-push`** runs schema sync verification before push
+
+All agents are included free in the open-source version.

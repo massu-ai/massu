@@ -199,3 +199,45 @@ The memory system and the knowledge system serve different purposes and should b
 | **Best for** | "Did we try this before?" | "What is the rule for X?" |
 
 Use the memory system to answer questions about history. Use the knowledge system to answer questions about standards and rules. See [Knowledge System](/docs/features/knowledge) for details.
+
+## Memory Auto-Ingest
+
+Starting in v0.6.0, Massu AI automatically parses and indexes `memory/*.md` files into the observations database. This means your session memory files — corrections, user preferences, project context, and reference pointers — are automatically searchable via MCP tools like `massu_memory_search`.
+
+### How It Works
+
+1. **Write memory files** in your project's `memory/` directory using YAML frontmatter:
+
+```markdown
+---
+name: user-prefers-terse-output
+description: User wants concise responses without trailing summaries
+type: feedback
+---
+
+Skip trailing summaries after tool calls. User can read the diff.
+
+**Why:** User explicitly asked to stop summarizing.
+**How to apply:** All responses in this project.
+```
+
+2. **Auto-ingest runs** on session start and after memory-related tool calls
+3. **Deduplication** ensures each memory file is ingested once (by title prefix)
+4. **Type mapping** converts memory types to observation categories:
+   - `user` and `feedback` → decision observations
+   - `project` → feature observations
+   - `reference` → discovery observations
+
+### Searching Ingested Memories
+
+Once ingested, memory files are searchable alongside session observations:
+
+```
+massu_memory_search { "query": "user preferences" }
+```
+
+This returns results from both session-captured observations and file-based memories, ranked by relevance.
+
+### Why This Matters
+
+Previously, memory files were only loaded into context at session start via hooks. Now they're fully indexed in the database, making them searchable, queryable by date range, and available for cross-session learning. The AI doesn't just see your memories — it can search them, correlate them with session data, and surface relevant context automatically.

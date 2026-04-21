@@ -10,7 +10,7 @@ Massu AI provides five CLI commands for project setup and maintenance. All comma
 
 ## massu init
 
-Full project setup in one command. Detects your framework, generates configuration, registers the MCP server, installs all 15 lifecycle hooks, and deploys 43 slash commands.
+Full project setup in one command. Detects your framework, generates configuration, registers the MCP server, installs all 11 lifecycle hooks, and deploys 59 slash commands.
 
 ### Usage
 
@@ -23,8 +23,8 @@ npx massu init
 1. **Framework Detection** — Scans `package.json` for TypeScript, Next.js, SvelteKit, Nuxt, Prisma, Drizzle, tRPC, GraphQL, Express, and more
 2. **Config Generation** — Creates `massu.config.yaml` with detected framework settings
 3. **MCP Registration** — Creates or merges `.mcp.json` to register the Massu MCP server
-4. **Hook Installation** — Configures all 15 lifecycle hooks in `.claude/settings.local.json`
-5. **Slash Command Installation** — Deploys 43 workflow commands into `.claude/commands/`
+4. **Hook Installation** — Configures all 11 lifecycle hooks in `.claude/settings.local.json`
+5. **Slash Command Installation** — Deploys 59 workflow commands into `.claude/commands/`
 
 ### Output
 
@@ -35,8 +35,8 @@ Massu AI - Project Setup
   Detected: TypeScript, Next.js, Prisma, tRPC
   Created massu.config.yaml
   Registered MCP server in .mcp.json
-  Installed 15 hooks in .claude/settings.local.json
-  Installed 43 slash commands in .claude/commands/
+  Installed 11 hooks in .claude/settings.local.json
+  Installed 59 slash commands in .claude/commands/
   Databases will auto-create on first session
 
 Massu AI is ready. Start a Claude Code session to begin.
@@ -49,7 +49,7 @@ Massu AI is ready. Start a Claude Code session to begin.
 | `massu.config.yaml` | Project configuration |
 | `.mcp.json` | MCP server registration |
 | `.claude/settings.local.json` | Hook configuration |
-| `.claude/commands/*.md` | 43 slash command definitions |
+| `.claude/commands/*.md` | 59 slash command definitions |
 
 ---
 
@@ -70,8 +70,8 @@ npx massu doctor
 | Configuration | `massu.config.yaml` exists and parses correctly |
 | MCP Server | `.mcp.json` has massu entry |
 | Hooks Config | `.claude/settings.local.json` has hooks configured |
-| Hook Files | All 15 compiled hook files exist |
-| Slash Commands | `.claude/commands/` has 43 command files |
+| Hook Files | All 11 compiled hook files exist |
+| Slash Commands | `.claude/commands/` has 59 command files |
 | Native Modules | `better-sqlite3` loads correctly |
 | Node.js | Version >= 18 |
 | Git Repository | Git repo detected with branch info |
@@ -84,9 +84,9 @@ Massu AI Health Check
 
   ✓ Configuration      massu.config.yaml found and valid
   ✓ MCP Server         Registered in .mcp.json
-  ✓ Hooks Config       15 hooks configured
-  ✓ Hook Files         15/15 compiled hooks present
-  ✓ Slash Commands     31/43 commands installed
+  ✓ Hooks Config       11 hooks configured
+  ✓ Hook Files         11/11 compiled hooks present
+  ✓ Slash Commands     59/59 commands installed
   ✓ Native Modules     better-sqlite3 loads correctly
   ✓ Node.js            v20.11.0 (>= 18 required)
   ✓ Git Repository     Detected (branch: main)
@@ -105,7 +105,7 @@ Status: HEALTHY (8/8 checks passed)
 
 ## massu install-hooks
 
-Install or update all 15 lifecycle hooks without running the full init process.
+Install or update all 11 Claude Code hooks without running the full init process.
 
 ### Usage
 
@@ -125,7 +125,7 @@ npx massu install-hooks
 Massu AI - Hook Installation
 ============================
 
-  Installed 15 hooks in .claude/settings.local.json
+  Installed 11 hooks in .claude/settings.local.json
 
 Hooks will activate on your next Claude Code session.
 ```
@@ -134,7 +134,7 @@ Hooks will activate on your next Claude Code session.
 
 ## massu install-commands
 
-Install or update all 43 slash commands without running the full init process.
+Install or update all 59 slash commands without running the full init process.
 
 ### Usage
 
@@ -154,7 +154,7 @@ npx massu install-commands
 Massu AI - Command Installation
 ================================
 
-  Installed 43 slash commands in .claude/commands/
+  Installed 59 slash commands in .claude/commands/
 
 Commands will be available in your next Claude Code session.
 ```

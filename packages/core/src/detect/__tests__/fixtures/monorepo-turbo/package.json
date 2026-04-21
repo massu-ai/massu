@@ -1,0 +1,11 @@
+{
+  "name": "monorepo-turbo-fixture",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "devDependencies": {
+    "turbo": "^1.11.0",
+    "typescript": "^5.0.0"
+  }
+}

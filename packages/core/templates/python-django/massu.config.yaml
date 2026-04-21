@@ -1,0 +1,51 @@
+# Massu AI Configuration — Python / Django template
+# schema_version 2 — https://massu.ai/docs/getting-started/configuration
+
+schema_version: 2
+
+project:
+  name: "{{PROJECT_NAME}}"
+  root: auto
+
+framework:
+  type: python
+  router: none
+  orm: django-orm
+  ui: none
+  languages:
+    python:
+      framework: django
+      test_framework: pytest
+      orm: django-orm
+      source_dirs:
+        - src
+
+paths:
+  source: src
+  aliases:
+    "@": src
+
+toolPrefix: massu
+
+domains: []
+
+rules: []
+
+verification:
+  python:
+    test: cd src && python3 -m pytest -q
+    type: cd src && python3 -m mypy .
+    syntax: cd src && python3 -m py_compile
+    lint: cd src && python3 -m ruff check .
+
+python:
+  root: src
+  exclude_dirs:
+    - __pycache__
+    - .venv
+    - venv
+    - .mypy_cache
+    - .pytest_cache
+    - migrations
+  framework: django
+  orm: django-orm

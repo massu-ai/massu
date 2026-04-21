@@ -1,13 +1,17 @@
 ---
 name: massu-plan
-description: Continuous Verification Audit Loop with ZERO-GAP STANDARD
+description: "When user wants to audit an existing plan for gaps -- 'audit this plan', 'review the plan', or references a plan file that needs verification"
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Task(*)
 ---
 name: massu-plan
 
-> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
+# Massu Plan: Continuous Verification Audit Loop (ZERO-GAP STANDARD)
 
-# CS Plan: Continuous Verification Audit Loop (ZERO-GAP STANDARD)
+**Shared rules**: Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-12 enforced.
+
+> **Config lookup (framework-aware)**: This command reads `config.framework.type` and `config.verification.<primary_language>` from `massu.config.yaml` to choose the right verification commands. Hardcoded references below to `packages/core`, `tools.ts`, `vitest`, `VR-TOOL-REG`, and `VR-HOOK-BUILD` are **MCP-project specific** and only apply when `config.framework.type === 'mcp'` (or `languages.typescript.runtime === 'mcp'`). For other projects, substitute: type-check → `config.verification.<primary_language>.type`, tests → `.test`, build → `.build`, lint → `.lint`. See `.claude/reference/vr-verification-reference.md` for the config-driven VR-* catalog.
+
+---
 
 ## Workflow Position
 
@@ -20,13 +24,14 @@ name: massu-plan
 
 ---
 
-## CRITICAL: THIS IS A PLAN-AUDIT COMMAND, NOT AN IMPLEMENTATION COMMAND
+## THIS IS A PLAN-AUDIT COMMAND, NOT AN IMPLEMENTATION COMMAND
 
 **THIS COMMAND AUDITS AND IMPROVES PLAN DOCUMENTS. IT DOES NOT IMPLEMENT CODE.**
 
-### FORBIDDEN Actions (Zero Tolerance)
+### FORBIDDEN Actions
 - Writing code to source files (Edit/Write to packages/)
 - Creating modules, tools, or hooks
+- Making database changes
 - Implementing any plan items
 
 ### ALLOWED Actions
@@ -37,19 +42,21 @@ name: massu-plan
 - **STOP AND WAIT** for explicit user approval
 
 ### AFTER AUDIT COMPLETE: MANDATORY WAIT
-
-**After the audit loop completes with zero gaps, you MUST:**
 1. **Present the plan** to the user
 2. **STOP completely** - Do not start implementation
-3. **WAIT** for explicit user instruction to implement (e.g., "run /massu-loop")
+3. **WAIT** for explicit user instruction (e.g., "run /massu-loop")
 
-**This command AUDITS plans. It does NOT implement them. Implementation requires /massu-loop.**
+| Command | Purpose | Edits Source Code? |
+|---------|---------|-------------------|
+| `/massu-create-plan` | Create plan document | **NO** |
+| `/massu-plan` | Audit/improve plan document | **NO** |
+| `/massu-loop` | Implement plan with verification | **YES** |
 
 ---
 
 ## START NOW
 
-**Step 0: Write AUTHORIZED_COMMAND to session state (CR-35)**
+**Step 0: Write AUTHORIZED_COMMAND to session state (CR-12)**
 
 Update `session-state/CURRENT.md` to include `AUTHORIZED_COMMAND: massu-plan`.
 
@@ -60,11 +67,27 @@ Write a transition entry to `.massu/workflow-log.md`:
 | [timestamp] | PLAN | AUDIT | /massu-plan | [session-id] |
 ```
 
+**Execute the LOOP CONTROLLER below.**
+
+1. Parse plan path from `$ARGUMENTS`
+2. Start the loop: spawn `general-purpose` subagent (via Task tool) for iteration 1
+3. Parse `GAPS_DISCOVERED` from the subagent result
+4. If gaps > 0: fix what the auditor couldn't, spawn another iteration
+5. If gaps == 0: output final report to user
+6. Continue until zero gaps or max 10 iterations
+7. **Score and append to command-scores.jsonl** (silent)
+
+**The auditor subagent handles**: reading the plan, reading CLAUDE.md, extracting items, running verifications, fixing plan document gaps, returning structured result.
+
+**You (the loop controller) handle**: spawning auditors, parsing results, fixing code-level gaps the auditor identifies but can't fix, and looping.
+
+**Two sources of truth**:
+- **Plan** = What to build
+- **CLAUDE.md** = How to build it correctly
+
 ---
 
 ## MANDATORY LOOP CONTROLLER (EXECUTE THIS - DO NOT SKIP)
-
-**This section is the EXECUTION ENTRY POINT. You MUST follow these steps exactly.**
 
 ### How This Command Works
 
@@ -130,7 +153,7 @@ WHILE true:
        a. Specificity: exact file path, exact changes, verification command
        b. Feasibility: target files exist (or create is planned), patterns are correct
        c. Completeness: all aspects covered (tool reg, tests, config if needed)
-    5. Check pattern compliance matrix against CS patterns
+    5. Check pattern compliance matrix against massu patterns
     6. If adding tools: verify plan includes VR-TOOL-REG steps
     7. If modifying hooks: verify plan includes VR-HOOK-BUILD
     8. If changing config: verify plan includes VR-CONFIG
@@ -171,13 +194,13 @@ END WHILE
 
 | Rule | Meaning |
 |------|---------|
-| **NEVER output a final verdict while gaps discovered > 0** | Only a CLEAN zero-gap-from-start iteration produces the final report |
+| **NEVER output a final verdict while gaps > 0** | Only a zero-gap-from-start iteration produces the final report |
 | **NEVER treat "found and fixed" as zero gaps** | Fixing during a pass still means gaps were discovered |
-| **NEVER ask user "should I continue?"** | The loop is mandatory - just execute it |
-| **NEVER stop after fixing gaps** | Fixing gaps requires a FRESH re-audit to verify the fixes |
+| **NEVER ask user "should I continue?"** | The loop is mandatory |
+| **NEVER stop after fixing gaps** | Requires a FRESH re-audit to verify |
 | **ALWAYS use Task tool for audit passes** | Subagents keep context clean |
 | **ALWAYS parse GAPS_DISCOVERED from result** | This is the loop control variable |
-| **Maximum 10 iterations** | If still failing after 10, report to user with remaining gaps |
+| **Maximum 10 iterations** | If still failing after 10, report to user |
 
 ---
 
@@ -204,16 +227,11 @@ Run a repeatable audit->fix->re-audit loop that verifies the entire plan against
 
 ## PLAN ITEM EXTRACTION (MANDATORY FIRST STEP)
 
-**Before auditing, you MUST extract ALL items from the plan into a trackable list.**
+**Before auditing, extract ALL items from the plan into a trackable list.**
 
-### Extraction Protocol
+### Step 1: Read Plan Document (File, Not Memory)
 
-#### Step 1: Read Plan Document (File, Not Memory)
-```bash
-cat [PLAN_FILE_PATH]
-```
-
-#### Step 2: Extract ALL Deliverables
+### Step 2: Extract ALL Deliverables
 
 ```markdown
 ## PLAN ITEM EXTRACTION
@@ -221,6 +239,7 @@ cat [PLAN_FILE_PATH]
 ### Plan Document
 - **File**: [path]
 - **Title**: [title]
+- **Date Read**: [timestamp]
 
 ### Extracted Items
 
@@ -229,100 +248,86 @@ cat [PLAN_FILE_PATH]
 | P1-001 | MODULE | foo-tools.ts | packages/core/src/ | ls -la [path] |
 | P1-002 | TOOL_WIRE | Wire into tools.ts | packages/core/src/tools.ts | grep [module] tools.ts |
 | P2-001 | TEST | foo-tools.test.ts | packages/core/src/__tests__/ | npm test |
+| P-003 | REMOVAL | Remove pattern | all files | grep -rn "pattern" = 0 |
+
+### Item Types: MODULE (exists), TOOL_WIRE (registered), TEST (passes), CONFIG (parses), HOOK (compiles), REMOVAL (0 matches)
 
 ### Coverage Baseline
 - **Total Items**: [N]
 - **Current Status**: 0/[N] verified (0%)
 ```
 
+### Step 3: Use This List Throughout Audit
+Every audit iteration must reference this list, check each item, update coverage, and report missing items.
+
 ---
 
 ## VR-PLAN-FEASIBILITY: Plan Reality Verification (MANDATORY)
 
-**Before accepting ANY plan, verify the plan is REALISTIC and CAN be implemented.**
+**Before accepting ANY plan, verify it is REALISTIC and CAN be implemented.**
 
-### Feasibility Check Protocol
+### Check 1: File System Reality
+For files plan modifies: `ls -la [file_path]`. For directories plan creates in: `ls -la [directory_path]`.
 
-#### Check 1: File System Reality
-For EACH file modification in the plan, verify the target exists:
-
+### Check 1.5: Config-Code Data Alignment (VR-DATA)
+If ANY feature uses config-stored values, verify VALUES match code expectations:
 ```bash
-# For files plan says to MODIFY:
-ls -la [file_path]
-
-# For directories plan says to CREATE files in:
-ls -la [directory_path]
+# Find what the CODE expects
+grep -rn "getConfig\(\)\." packages/core/src/ | grep -oE 'getConfig\(\)\.\w+' | sort -u
 ```
+Compare config keys to code expectations. Mismatches = FAIL. Add plan items to fix alignment BEFORE implementation.
 
-#### Check 2: Dependency Reality
-For EACH new import/dependency in the plan:
+### Check 2: Dependency Reality
+For each new import: `npm list [package]` or `ls -la packages/core/src/[import-path].ts`.
 
-```bash
-# Check if dependency is installed
-npm list [package-name] 2>/dev/null || echo "NOT INSTALLED"
+### Check 3: Pattern Reality
+For each pattern referenced: `grep -n "[pattern_name]" .claude/CLAUDE.md`.
 
-# Check if internal import path exists
-ls -la packages/core/src/[import-path].ts
-```
-
-#### Check 3: Pattern Reality
-For EACH pattern the plan references:
-
-```bash
-# Verify pattern is documented in CLAUDE.md
-grep -n "[pattern_name]" .claude/CLAUDE.md
-```
-
-#### Check 4: Tool Registration Completeness
+### Check 4: Tool Registration Completeness
 If plan adds MCP tools:
-
 ```bash
 # Verify plan includes ALL 3 registration steps
 grep "getToolDefinitions\|isXTool\|handleToolCall" [plan_file]
 ```
 
-### Feasibility Gate
+### Feasibility Gate Decision
 
-```markdown
-### VR-PLAN-FEASIBILITY GATE
+| Check | Status |
+|-------|--------|
+| File System | PASS/FAIL |
+| Config-Code Alignment | PASS/FAIL/N/A |
+| Dependencies | PASS/FAIL |
+| Patterns | PASS/FAIL |
+| Tool Registration | PASS/FAIL |
 
-| Check | Items | Passed | Failed | Status |
-|-------|-------|--------|--------|--------|
-| File System | N | N | 0 | PASS |
-| Dependencies | N | N | 0 | PASS |
-| Patterns | N | N | 0 | PASS |
-| Tool Registration | N | N | 0 | PASS |
-
-**FEASIBILITY GATE: PASS / FAIL**
-```
+**If ANY check fails: BLOCK plan until resolved. Do NOT proceed.**
 
 ---
 
-## VR-PLAN-SPECIFICITY: Implementation Specificity Check (MANDATORY)
+## VR-PLAN-SPECIFICITY: Implementation Direction Verification (MANDATORY)
 
-**Every plan item MUST have implementation details specific enough to execute WITHOUT guessing.**
+Every plan item MUST have implementation details specific enough to execute WITHOUT guessing.
 
-| Requirement | Check |
-|-------------|-------|
-| **Exact file path** | Not "add a module" but `packages/core/src/foo.ts` |
-| **Exact changes** | Not "export functions" but `getFooToolDefinitions, isFooTool, handleFooToolCall` |
-| **Pattern reference** | Which existing module to follow as template |
-| **Verification command** | Specific grep/ls that proves the item was implemented |
+| Item Type | Minimum Specificity |
+|-----------|---------------------|
+| **MODULE_CREATE** | File path + exported functions + pattern reference |
+| **MODULE_MODIFY** | File path + exact changes + insertion point |
+| **TOOL_WIRE** | tools.ts changes (import + definition + handler) |
+| **TEST** | Test file path + what it covers + expected assertions |
+| **CONFIG** | config.ts interface changes + YAML example |
+| **HOOK** | Hook file path + stdin/stdout format + esbuild compatibility |
 
-**Specificity by item type:**
+ANY item with vague implementation directions = FAIL. Fix the plan BEFORE implementation.
 
-| Type | Must Include |
-|------|-------------|
-| MODULE_CREATE | File path + exported functions + pattern reference |
-| MODULE_MODIFY | File path + exact changes + insertion point |
-| TOOL_WIRE | tools.ts changes (import + definition + handler) |
-| TEST | Test file path + what it covers + expected assertions |
-| CONFIG | config.ts interface changes + YAML example |
-| HOOK | Hook file path + stdin/stdout format + esbuild compatibility |
+How to fix: Research target format, write exact content, specify insertion point, verify format against existing patterns, update plan.
 
 ---
 
-## PATTERN COMPLIANCE MATRIX (Massu-Specific)
+## MANDATORY PATTERN ALIGNMENT GATE (PRE-IMPLEMENTATION)
+
+The PLAN DOCUMENT itself must explicitly address ALL relevant patterns from CLAUDE.md.
+
+### Pattern Compliance Matrix (Massu-Specific)
 
 The auditor MUST verify plan items against these patterns:
 
@@ -336,11 +341,136 @@ The auditor MUST verify plan items against these patterns:
 | Test location | __tests__/ directory | Correct path |
 | No process.exit() | Library code only | Not in plan modules |
 
+### Steps
+1. **Extract mandatory patterns** from CLAUDE.md
+2. **Build alignment matrix**: Cross-reference plan against ALL extracted patterns
+
+   ```markdown
+   | Pattern ID | Pattern Requirement | Plan Addresses | Location in Plan | Status |
+   |------------|---------------------|----------------|------------------|--------|
+   | MCP-001 | 3-function tool pattern | YES/NO | Section X.X | ALIGNED/GAP |
+   | CFG-001 | getConfig() usage | YES/NO | Section X.X | ALIGNED/GAP |
+   ```
+
+3. **Plan completeness check** - every plan MUST include:
+   - Scope & Objectives
+   - Files to Modify / Files to Create (explicit paths)
+   - Module/Tool Registration (or N/A)
+   - Error Handling approach
+   - Testing Approach
+   - Rollback Plan
+   - Success Criteria
+4. **Gap identification**: Document all missing info with recommendations
+
+### Gate
+ALL relevant patterns must be addressed. If FAIL: plan CANNOT proceed until gaps fixed.
+
+### New Pattern Protocol
+If plan requires functionality with no existing pattern:
+1. Document why existing patterns don't work
+2. Define pattern with WRONG/CORRECT examples
+3. Get explicit user approval
+4. Save to CLAUDE.md BEFORE implementation
+5. Reference in plan
+
 ---
 
-## B-MCP: Tool Registration Verification
+## Inputs You Must Read First (In Order)
 
-For EVERY tool in the plan:
+1. **The Plan**: Read line-by-line, extract EVERY requirement into `REQUIREMENTS_CHECKLIST`
+2. **CLAUDE.md**: Read fully, extract EVERY rule/pattern into `PATTERNS_CHECKLIST`
+
+**Do NOT scan the repo to "discover" patterns. CLAUDE.md defines what patterns ARE correct.**
+
+---
+
+## PRIME DIRECTIVE: NO ASSUMPTIONS
+
+**NEVER assume module interfaces or config structure. ALWAYS verify against real code.**
+
+### Mandatory Structure Verification
+
+```bash
+# Verify module exports match plan expectations
+grep -n "export" packages/core/src/[MODULE].ts
+
+# Verify config interface matches plan
+grep -A 20 "interface.*Config" packages/core/src/config.ts
+```
+
+---
+
+## Operating Mode: Two-Pass Audit
+
+### PASS A: Inventory & Mapping (NO FIXES YET)
+
+#### A1. Requirements -> Implementation Matrix
+
+```markdown
+| Req ID | Requirement | Status | Evidence (file paths) | Notes |
+|--------|-------------|--------|----------------------|-------|
+| R-001 | [text] | Implemented/Partial/Missing/Unclear | [paths] | [notes] |
+```
+
+Status: **Implemented** (full evidence), **Partial** (some evidence), **Missing** (none found), **Unclear** (HARD STOP - ask for clarification).
+
+#### A2. Patterns & Constraints Matrix
+
+Primary verification:
+```bash
+bash scripts/massu-pattern-scanner.sh
+# Exit 0 = ALL patterns pass
+```
+
+Additional targeted VR-NEGATIVE checks for rules not covered by scanner:
+```bash
+grep -rn "[violation pattern]" [directories] | wc -l
+# Expected: 0
+```
+
+#### A3. User-Flow Coverage Map
+
+```markdown
+| Flow ID | Flow Name | Entry Point | Steps | API Calls | Expected Outcome | Status |
+|---------|-----------|-------------|-------|-----------|------------------|--------|
+| UF-001 | [name] | [module] | [list] | [list] | [outcome] | MAPPED |
+```
+
+---
+
+### PASS B: Verification & Breakage Hunting
+
+#### B1. Module / File Structure
+
+```bash
+# Module inventory
+find packages/core/src -name "*.ts" -not -path "*__tests__*" -not -path "*node_modules*" | sort
+
+# Tool definition files
+find packages/core/src -name "*-tools.ts" | sort
+
+# Hook files
+find packages/core/src/hooks -name "*.ts" 2>/dev/null | sort
+```
+
+Verify: all planned modules exist, all tool files follow naming convention, hooks are in correct directory.
+
+#### B2. Tool Registration & Wiring
+
+```bash
+# Tool definitions in each module
+grep -rn "getToolDefinitions\|getDefs" packages/core/src/ | grep -v node_modules | grep -v __tests__
+
+# Handler registrations
+grep -rn "handleToolCall\|handleCall" packages/core/src/ | grep -v node_modules | grep -v __tests__
+
+# Wiring in tools.ts
+grep -rn "import\|getDefs\|isTool\|handleCall" packages/core/src/tools.ts
+```
+
+Verify: all tools have definitions + handlers + wiring in tools.ts. A tool that exists but is not registered is INVISIBLE to users.
+
+#### B2.5 Tool Registration Matrix
 
 ```markdown
 ### Tool Registration Matrix
@@ -350,11 +480,22 @@ For EVERY tool in the plan:
 | [name] | [file:line] | [file:line] | [file:line] | YES/NO | [test] | PASS/FAIL |
 ```
 
-**A tool that exists but is not registered is INVISIBLE to users.**
+#### B3. Data Layer Integrity
 
----
+```bash
+cd packages/core && npx tsc --noEmit
+# Compare module interfaces to usage
+grep -A 10 "export interface\|export type" packages/core/src/[MODULE].ts
+```
 
-## B-HOOK: Hook Compilation Verification
+#### B4. Hook Compilation
+
+```bash
+cd packages/core && npm run build:hooks
+# MUST exit 0
+```
+
+#### B4.5 Hook Compilation Matrix
 
 If plan includes hooks:
 
@@ -366,9 +507,7 @@ If plan includes hooks:
 | [name] | [path] | [format] | [format] | YES/NO | PASS/FAIL |
 ```
 
----
-
-## B-CONFIG: Config Validation
+#### B5. Config Validation
 
 If plan includes config changes:
 
@@ -380,22 +519,159 @@ If plan includes config changes:
 | [section] | YES/NO | YES/NO | [value] | PASS/FAIL |
 ```
 
+#### B6. Regression Risk
+
+```bash
+git log --oneline -20
+git diff HEAD~5 --stat
+```
+
+Review for side effects, incomplete refactors, duplicated logic, silent failures.
+
+#### B7. Consistency & Reusability
+
+Reuse existing modules per CLAUDE.md. Do NOT create one-off modules when reusable ones exist.
+
+#### B8. Import/Export Integrity
+
+```bash
+cd packages/core && npx tsc --noEmit 2>&1 | grep -i "cannot find module\|not found"
+```
+
+#### B9. Environment & Configuration
+
+```bash
+grep -rn "process.env\." packages/core/src/ | grep -v node_modules | grep -oE 'process\.env\.\w+' | sort -u
+ls -la tsconfig.json package.json massu.config.yaml 2>/dev/null
+```
+
+#### B10. Test Coverage
+
+```bash
+# Test files
+find packages/core/src/__tests__ -name "*.test.ts" | sort
+
+# Run tests
+npm test
+```
+
+Verify: all new modules have corresponding test files, all tests pass.
+
+#### B11. Third-Party Integration
+
+```bash
+grep -rn "fetch(\|axios\." packages/core/src/ | grep -v node_modules | grep -v __tests__ | head -20
+grep -rn "https://\|http://" packages/core/src/ | grep -v node_modules | grep -v ".env\|localhost" | head -10
+```
+
+### Blast Radius Verification
+
+When plan changes ANY constant/path/value:
+```bash
+# For EACH changed value:
+grep -rn '"[OLD_VALUE]"' packages/core/src/ --include="*.ts" | grep -v node_modules
+# ALL matches must be accounted for in blast radius analysis
+```
+
+Produce matrix: Old Value | Total Refs | Changed | Kept (with reason) | Uncategorized | Status. Zero uncategorized = PASS.
+
 ---
 
-## FIX PROTOCOL
+## Fix Protocol (When Gaps Found)
 
-### Fix Queue (by severity)
+Sort by severity: **P0** (broken tools, data loss, security) > **P1** (incorrect behavior, missing requirements) > **P2** (consistency, minor gaps).
 
-| Priority | Definition |
-|----------|------------|
-| **P0** | Missing deliverables, impossible items, security issues |
-| **P1** | Vague/unverifiable items, missing verification commands |
-| **P2** | Minor specificity gaps, formatting issues |
-
-### For Each Fix
+For each fix:
 1. Edit the plan document directly
 2. Add missing detail or correct errors
 3. Mark the fix with a comment: `<!-- Fixed in audit iteration N -->`
+
+### Technical Debt
+If fixes introduce debt: add to Technical Debt Register with concrete removal plan, document in session-state/CURRENT.md.
+
+---
+
+## Audit Loop (Repeat Until ZERO Gaps)
+
+```
+ITERATION N:
+  1. Run PASS A (Inventory & Mapping)
+  2. Run PASS B (Verification & Breakage Hunting)
+  3. Produce Report
+  4. IF gaps: Build Fix Queue (P0->P1->P2), apply fixes, verify, return to Step 1
+  5. IF zero gaps: Verify completion criteria, produce final report, STOP
+```
+
+### Stop Conditions (ALL must be true)
+
+**Plan Coverage**: 100% items verified with VR-* proof.
+**Requirements**: 100% Implemented with evidence.
+**Pattern Compliance**: massu-pattern-scanner exits 0, all VR-NEGATIVE checks pass.
+**Build & Types**: `npm run build` exit 0, `cd packages/core && npx tsc --noEmit` 0 errors, `npm test` passes.
+**Blast Radius** (if applicable): Zero uncategorized references.
+**Technical Debt**: Empty OR fully planned with cleanup steps.
+
+---
+
+## Report Format (Every Loop Iteration)
+
+### A. Executive Summary
+```markdown
+## MASSU PLAN AUDIT - Iteration [N]
+**Date**: [YYYY-MM-DD] | **Plan**: [path] | **Stop Condition**: NOT MET / MET
+
+| P0 | P1 | P2 | Total |
+|----|----|----|-------|
+| X  | X  | X  | X     |
+
+### Key Findings
+- [Finding 1]
+- [Finding 2]
+```
+
+### B. Requirements Coverage
+Req ID | Requirement | Status | Evidence (file paths) | Notes
+
+### C. Pattern Compliance
+Rule | Status | Violations | Fix Plan/Proof
+
+### D. Tool Registration Verification
+Tool | Definition | Handler | Wired | Test | Status
+
+### E. Technical Debt Register
+ID | Item | Impact | Remediation | Target
+
+### F. Fix Queue + Completed Fixes
+Completed: fix, files changed, verification. Remaining: priority, fix, blocker.
+
+---
+
+## Completion Criteria
+
+```markdown
+## COMPLETION DECLARATION
+
+### Plan Coverage: 100% Verified
+- Total plan items: [N], Verified: [N] (100%)
+- Evidence: Plan Item Extraction table with VR-* proof
+
+### Requirements: 100% Implemented
+- Evidence: VR-GREP and VR-FILE proof for each
+
+### Patterns: 0 Violations
+- Pattern scanner: exit 0
+- VR-NEGATIVE proof for massu-specific patterns
+
+### Tool Registration: All tools registered and wired
+
+### Build & Types: VR-BUILD + VR-TYPE pass
+
+### Technical Debt: Register empty or planned
+
+**AUDIT COMPLETE - DUAL VERIFICATION PASSED:**
+- Code Quality Gate: PASS
+- Plan Coverage Gate: PASS
+```
 
 ---
 
@@ -418,7 +694,7 @@ Checklist: completion table at TOP, all tasks have status, completed tasks have 
 
 ---
 
-## CONTEXT MANAGEMENT
+## Context Management
 
 Use Task tool with subagents for exploration. Update session-state/CURRENT.md after major phases. If compacted mid-protocol, read CURRENT.md and resume. Never mix unrelated tasks during a protocol.
 
@@ -430,27 +706,20 @@ After EACH iteration, update `session-state/CURRENT.md` with: audit iteration, s
 
 ---
 
-## COMPLETION REPORT
+## QUALITY SCORING (silent, automatic)
 
-```markdown
-## CS PLAN AUDIT COMPLETE
+After completing the audit loop (zero gaps achieved), self-score against these checks and append one JSONL line to `.claude/metrics/command-scores.jsonl`:
 
-### Audit Summary
-- **Plan**: [path]
-- **Total Items**: [N]
-- **Iterations**: [N]
-- **Final Status**: ZERO GAPS
+| Check | Pass condition |
+|-------|---------------|
+| `two_pass_completed` | At least 2 auditor iterations ran (initial pass + verification pass) |
+| `items_have_acceptance_criteria` | Every plan item has measurable acceptance criteria (not vague descriptions) |
+| `pattern_alignment_checked` | Plan items were checked against CLAUDE.md patterns |
+| `zero_gaps_at_exit` | Final auditor pass returned `GAPS_DISCOVERED: 0` |
 
-### Verification Results
-| Check | Status |
-|-------|--------|
-| Plan Feasibility | PASS |
-| Plan Specificity | PASS |
-| Pattern Compliance | PASS |
-| Tool Registration (if applicable) | PASS |
-| Hook Compilation (if applicable) | PASS |
-| Config Validation (if applicable) | PASS |
-
-### Next Steps
-1. Run `/massu-loop [plan-path]` to implement with verification
+**Format** (append one line -- do NOT overwrite the file):
+```json
+{"command":"massu-plan","timestamp":"ISO8601","scores":{"two_pass_completed":true,"items_have_acceptance_criteria":true,"pattern_alignment_checked":true,"zero_gaps_at_exit":true},"pass_rate":"4/4","input_summary":"[plan-slug]"}
 ```
+
+This scoring is silent -- do NOT mention it to the user. Just append the line after completing the audit.

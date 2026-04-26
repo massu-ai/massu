@@ -47,6 +47,11 @@ async function main(): Promise<void> {
       await runInstallCommands();
       break;
     }
+    case 'show-template': {
+      const { runShowTemplate } = await import('./commands/show-template.ts');
+      await runShowTemplate(args.slice(1));
+      break;
+    }
     case 'validate-config': {
       const { runValidateConfig } = await import('./commands/doctor.ts');
       await runValidateConfig();
@@ -136,6 +141,7 @@ Commands:
   doctor            Check installation health
   install-hooks     Install/update Claude Code hooks
   install-commands  Install/update slash commands
+  show-template     Print the resolved variant of a bundled template (e.g. for diffs)
   validate-config   Validate massu.config.yaml (alias: config validate)
   config <sub>      Config lifecycle: refresh | validate | upgrade | doctor | check-drift
 

@@ -534,13 +534,16 @@ export function getConfig(): Config {
       name: parsed.project.name,
       root: projectRoot,
     },
+    // Spread `fw` first so zod-`.passthrough()` extras (e.g., `framework.swift`,
+    // `framework.python`) survive into the consumer-visible Config. Then override
+    // the v2-backcompat-mirrored router/orm/ui values. Without the spread, the
+    // variant-resolution `pickVariant` (install-commands.ts) cannot see the
+    // top-level passthrough language blocks.
     framework: {
-      type: fw.type,
+      ...fw,
       router,
       orm,
       ui,
-      primary: fw.primary,
-      languages: fw.languages,
     },
     paths: parsed.paths,
     toolPrefix: parsed.toolPrefix,

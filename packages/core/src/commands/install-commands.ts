@@ -33,6 +33,7 @@ import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { getConfig } from '../config.ts';
 import type { Config } from '../config.ts';
+import { renderTemplate, MissingVariableError, TemplateParseError } from './template-engine.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -183,12 +184,22 @@ const PASSTHROUGH_LANG_KEYS = [
 /**
  * Choose the variant suffix for a base template name.
  *
- * Priority order (per plan §"Variant resolution algorithm"):
- *   1. `framework.primary` (or `framework.type` if primary undefined)
+ * Two-axis priority (Plan #2 P2-001 extends Plan #1's lang-only axis):
+ *   For each language `L` in priority order (primary, languages.*, passthrough.*):
+ *     a. If a sub-framework `F` is declared for L, probe `<base>.<L>-<F>.md`.
+ *     b. Probe `<base>.<L>.md` (lang-only fallback).
+ *   Then probe the unsuffixed `<base>.md`.
+ *
+ * Priority order for the language list (Plan #1):
+ *   1. `framework.primary` (or `framework.type` if primary undefined). With the
+ *      sub-framework axis, the candidate framework is the matching
+ *      `framework.languages[primary].framework` if present, else `framework.router`
+ *      / `framework.orm` / `framework.ui` heuristics, else just lang-only.
  *   2. Each declared `framework.languages.<lang>` entry with a non-empty `framework`,
- *      in YAML declaration order.
+ *      in YAML declaration order. Sub-framework = `entry.framework`.
  *   3. Passthrough fallback: well-known top-level `framework.<lang>` blocks with a
  *      non-empty `framework` field, in fixed order, excluding entries already covered.
+ *      Sub-framework = top-level block's `framework` field.
  *   4. The unsuffixed default ("").
  *
  * The function NEVER throws. It returns a discriminated union so the caller can
@@ -199,12 +210,37 @@ export function pickVariant(
   sourceDir: string,
   framework: Config['framework'],
 ): PickVariantResult {
-  const candidates: string[] = [];
+  // Build (lang, subFramework) candidate pairs in priority order. Sub-framework
+  // can be undefined — in that case only the lang-only axis is probed for that
+  // language.
+  type Candidate = { lang: string; subFramework?: string };
+  const candidates: Candidate[] = [];
+  const seenLangs = new Set<string>();
+
+  function pushCandidate(lang: string, sub: string | undefined): void {
+    if (seenLangs.has(lang)) return;
+    seenLangs.add(lang);
+    candidates.push({ lang, subFramework: sub && sub.length > 0 ? sub : undefined });
+  }
 
   // 1. framework.primary (or fall back to framework.type)
   const primary = framework.primary ?? framework.type;
   if (primary && primary !== 'multi') {
-    candidates.push(primary);
+    // Best-effort sub-framework detection for the primary lang:
+    //   - If `framework.languages[primary]` has a `framework`, use that.
+    //   - Else, fall back to top-level passthrough `framework[primary].framework`.
+    let primarySub: string | undefined;
+    if (framework.languages && framework.languages[primary]?.framework) {
+      primarySub = framework.languages[primary].framework;
+    } else {
+      const passthrough = framework as unknown as Record<string, unknown>;
+      const block = passthrough[primary];
+      if (block && typeof block === 'object') {
+        const fw = (block as { framework?: unknown }).framework;
+        if (typeof fw === 'string' && fw.length > 0) primarySub = fw;
+      }
+    }
+    pushCandidate(primary, primarySub);
   }
 
   // 2. framework.languages declaration order
@@ -212,34 +248,35 @@ export function pickVariant(
     for (const lang of Object.keys(framework.languages)) {
       const entry = framework.languages[lang];
       if (entry && typeof entry.framework === 'string' && entry.framework.length > 0) {
-        if (!candidates.includes(lang)) {
-          candidates.push(lang);
-        }
+        pushCandidate(lang, entry.framework);
       }
     }
   }
 
   // 3. Passthrough fallback — `framework.<lang>` (top-level passthrough block).
-  //    Zod's `.passthrough()` preserves these at runtime even though they are not
-  //    typed members of `Config['framework']`. Reading via a Record-shaped widening
-  //    avoids `any`/`@ts-ignore`.
   const passthrough = framework as unknown as Record<string, unknown>;
   for (const lang of PASSTHROUGH_LANG_KEYS) {
-    if (candidates.includes(lang)) continue;
+    if (seenLangs.has(lang)) continue;
     const block = passthrough[lang];
     if (block && typeof block === 'object') {
       const fw = (block as { framework?: unknown }).framework;
       if (typeof fw === 'string' && fw.length > 0) {
-        candidates.push(lang);
+        pushCandidate(lang, fw);
       }
     }
   }
 
-  // 4. Probe disk
+  // 4. Probe disk — for each (lang, sub) pair, try lang-sub first, then lang-only.
   for (const cand of candidates) {
-    const path = resolve(sourceDir, `${baseName}.${cand}.md`);
-    if (existsSync(path)) {
-      return { kind: 'hit', suffix: `.${cand}` };
+    if (cand.subFramework) {
+      const subPath = resolve(sourceDir, `${baseName}.${cand.lang}-${cand.subFramework}.md`);
+      if (existsSync(subPath)) {
+        return { kind: 'hit', suffix: `.${cand.lang}-${cand.subFramework}` };
+      }
+    }
+    const langPath = resolve(sourceDir, `${baseName}.${cand.lang}.md`);
+    if (existsSync(langPath)) {
+      return { kind: 'hit', suffix: `.${cand.lang}` };
     }
   }
   // Unsuffixed default
@@ -296,6 +333,7 @@ export function syncDirectory(
   manifest: Manifest,
   manifestKeyPrefix: string,
   topLevel: boolean = true,
+  templateVars: Record<string, unknown> = {},
 ): SyncStats {
   const stats: SyncStats = { installed: 0, updated: 0, skipped: 0, kept: 0 };
 
@@ -322,6 +360,7 @@ export function syncDirectory(
         manifest,
         subPrefix,
         false,
+        templateVars,
       );
       stats.installed += subStats.installed;
       stats.updated += subStats.updated;
@@ -360,7 +399,25 @@ export function syncDirectory(
     // Target filename is always the BASE name (variant suffix is internal to the package).
     const targetFilename = topLevel ? `${baseName}.md` : entry;
     const targetPath = resolve(targetDir, targetFilename);
-    const sourceContent = readFileSync(resolvedSourcePath, 'utf-8');
+    const rawContent = readFileSync(resolvedSourcePath, 'utf-8');
+
+    // Plan #2 P1-003: render any `{{var}}` substitutions BEFORE hashing so
+    // the manifest entry hash matches the byte-stream that lands on disk.
+    // Engine errors (missing var, malformed token) fail this single file but
+    // never abort the whole install — see spec §"Error semantics".
+    let sourceContent: string;
+    try {
+      sourceContent = renderTemplate(rawContent, templateVars);
+    } catch (err) {
+      if (err instanceof MissingVariableError || err instanceof TemplateParseError) {
+        process.stderr.write(
+          `massu: skipping ${resolvedSourcePath}: ${err.message}\n`,
+        );
+        stats.skipped++;
+        continue;
+      }
+      throw err;
+    }
     const sourceHash = hashContent(sourceContent);
 
     const manifestKey = manifestKeyPrefix === ''
@@ -428,6 +485,20 @@ export interface InstallCommandsResult {
   commandsDir: string;
 }
 
+/**
+ * Build the variable scope passed to the templating engine.
+ * See spec §"Variable scope passed to the engine" for the contract.
+ */
+export function buildTemplateVars(): Record<string, unknown> {
+  const config = getConfig();
+  return {
+    framework: config.framework,
+    paths: config.paths,
+    detected: config.detected ?? {},
+    config,
+  };
+}
+
 export function installCommands(projectRoot: string): InstallCommandsResult {
   const claudeDirName = getConfig().conventions?.claudeDirName ?? '.claude';
   const claudeDir = resolve(projectRoot, claudeDirName);
@@ -445,8 +516,9 @@ export function installCommands(projectRoot: string): InstallCommandsResult {
   }
 
   const framework = getConfig().framework;
+  const templateVars = buildTemplateVars();
   const stats = runWithManifest(claudeDir, (manifest) =>
-    syncDirectory(sourceDir, targetDir, framework, manifest, 'commands', true),
+    syncDirectory(sourceDir, targetDir, framework, manifest, 'commands', true, templateVars),
   );
   return { ...stats, commandsDir: targetDir };
 }
@@ -475,6 +547,7 @@ export function installAll(projectRoot: string): InstallAllResult {
   let totalKept = 0;
 
   const framework = getConfig().framework;
+  const templateVars = buildTemplateVars();
 
   runWithManifest(claudeDir, (manifest) => {
     for (const assetType of ASSET_TYPES) {
@@ -489,6 +562,7 @@ export function installAll(projectRoot: string): InstallAllResult {
         manifest,
         assetType.targetSubdir,
         true,
+        templateVars,
       );
 
       assets[assetType.name] = stats;

@@ -54,6 +54,10 @@ import {
   type UserVerificationEntry,
 } from './vr-command-map.ts';
 import { inferDomains } from './domain-inferrer.ts';
+import {
+  introspect,
+  type DetectedConventions,
+} from './codebase-introspector.ts';
 
 export type {
   PackageManifest,
@@ -97,6 +101,18 @@ export interface DetectionResult {
   verificationCommands: Partial<Record<SupportedLanguage, VRCommandSet>>;
   /** Non-fatal warnings collected across all detectors. */
   warnings: DetectionWarning[];
+  /** Plan #2 P3-001: per-language conventions sampled from existing source. */
+  detected?: DetectedConventions;
+}
+
+/** Plan #2 P3-002: opt-out of the codebase introspector. */
+export interface RunDetectionOptions {
+  /**
+   * When true, skip the codebase introspector pass. Used by the session-start
+   * hook (P4-006) to keep its 5-second budget intact — the drift banner only
+   * needs the fingerprint, not introspection detail.
+   */
+  skipIntrospect?: boolean;
 }
 
 function dominantDir(
@@ -122,7 +138,8 @@ function dominantDir(
  */
 export async function runDetection(
   projectRoot: string,
-  overrides?: DetectionConfigOverrides
+  overrides?: DetectionConfigOverrides,
+  options?: RunDetectionOptions,
 ): Promise<DetectionResult> {
   // 1. packages
   const pkg = detectPackageManifests(projectRoot);
@@ -170,7 +187,7 @@ export async function runDetection(
     verificationCommands[lang] = getVRCommands(lang, fw, dir, userOverride);
   }
 
-  return {
+  const result: DetectionResult = {
     projectRoot,
     manifests: pkg.manifests,
     frameworks,
@@ -180,4 +197,13 @@ export async function runDetection(
     verificationCommands,
     warnings: pkg.warnings,
   };
+
+  // P3-002: codebase introspector pass. Skipped when the caller opts out
+  // (the session-start hook at hooks/session-start.ts:272 passes
+  // `{ skipIntrospect: true }` to keep its 5s budget intact — see P4-006).
+  if (!options?.skipIntrospect) {
+    result.detected = introspect(result, projectRoot);
+  }
+
+  return result;
 }

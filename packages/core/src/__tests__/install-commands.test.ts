@@ -502,3 +502,419 @@ describe('manifest — MANIFEST-01..08', () => {
     }
   });
 });
+
+// ============================================================
+// TEMPLATING — Plan #2 P1-004
+// Integration: rendered output replaces {{...}} with substituted values;
+// no leftover placeholders; engine errors fail per-file, not the whole run.
+// ============================================================
+
+describe('templating integration (Plan #2 P1-004)', () => {
+  it('substitutes config values into a templated source file', () => {
+    const sourceDir = mkTmp('tpl-source');
+    const targetDir = mkTmp('tpl-target');
+
+    const templatedBody =
+      '# Scaffold\n' +
+      'Path: {{paths.source}}\n' +
+      'Auth: {{detected.python.auth_dep | default("get_current_user")}}\n';
+    writeFileSync(join(sourceDir, 'massu-scaffold.md'), templatedBody, 'utf-8');
+
+    const manifest = emptyManifest();
+    const stats = syncDirectory(
+      sourceDir,
+      targetDir,
+      emptyFramework(),
+      manifest,
+      'commands',
+      true,
+      {
+        paths: { source: 'apps/api/src' },
+        detected: { python: { auth_dep: 'require_tier_or_guardian' } },
+      },
+    );
+
+    expect(stats.installed).toBe(1);
+    const installedContent = readFileSync(join(targetDir, 'massu-scaffold.md'), 'utf-8');
+    expect(installedContent).toContain('Path: apps/api/src');
+    expect(installedContent).toContain('Auth: require_tier_or_guardian');
+    expect(installedContent).not.toContain('{{');
+    expect(installedContent).not.toContain('}}');
+  });
+
+  it('falls through to default when detected block is empty', () => {
+    const sourceDir = mkTmp('tpl-default-source');
+    const targetDir = mkTmp('tpl-default-target');
+
+    const templatedBody =
+      'auth = {{detected.python.auth_dep | default("get_current_user")}}\n';
+    writeFileSync(join(sourceDir, 'massu-scaffold.md'), templatedBody, 'utf-8');
+
+    const manifest = emptyManifest();
+    const stats = syncDirectory(
+      sourceDir,
+      targetDir,
+      emptyFramework(),
+      manifest,
+      'commands',
+      true,
+      { detected: {} },
+    );
+
+    expect(stats.installed).toBe(1);
+    const installed = readFileSync(join(targetDir, 'massu-scaffold.md'), 'utf-8');
+    expect(installed.trim()).toBe('auth = get_current_user');
+  });
+
+  it('skips a single template on missing-var error and continues with others (VR-NO-LEFTOVER-PLACEHOLDERS)', () => {
+    const sourceDir = mkTmp('tpl-error-source');
+    const targetDir = mkTmp('tpl-error-target');
+
+    // First file: requires a missing var with NO default → engine throws
+    writeFileSync(join(sourceDir, 'broken.md'), '{{required.but.missing}}\n', 'utf-8');
+    // Second file: clean, should still install
+    writeFileSync(join(sourceDir, 'clean.md'), 'plain content\n', 'utf-8');
+
+    const manifest = emptyManifest();
+    const stats = syncDirectory(
+      sourceDir,
+      targetDir,
+      emptyFramework(),
+      manifest,
+      'commands',
+      true,
+      {},
+    );
+
+    // The broken file is skipped; the clean one installs.
+    expect(stats.installed).toBe(1);
+    expect(stats.skipped).toBe(1);
+    expect(existsSync(join(targetDir, 'broken.md'))).toBe(false);
+    expect(existsSync(join(targetDir, 'clean.md'))).toBe(true);
+
+    // Manifest only records the file that actually landed.
+    expect(Object.keys(manifest.entries)).toEqual(['commands/clean.md']);
+  });
+
+  it('no `{{` placeholders remain in installed files (VR-NO-LEFTOVER-PLACEHOLDERS)', () => {
+    const sourceDir = mkTmp('tpl-noleak-source');
+    const targetDir = mkTmp('tpl-noleak-target');
+
+    writeFileSync(
+      join(sourceDir, 'a.md'),
+      '{{a}} {{b.c}} {{d | default("D")}}\n',
+      'utf-8',
+    );
+    writeFileSync(join(sourceDir, 'b.md'), 'plain\n', 'utf-8');
+
+    const manifest = emptyManifest();
+    syncDirectory(sourceDir, targetDir, emptyFramework(), manifest, 'commands', true, {
+      a: 'A',
+      b: { c: 'C' },
+    });
+
+    for (const file of readdirSync(targetDir)) {
+      const content = readFileSync(join(targetDir, file), 'utf-8');
+      expect(content).not.toContain('{{');
+      expect(content).not.toContain('}}');
+    }
+  });
+
+  it('records the rendered hash in the manifest (not the raw template hash)', () => {
+    const sourceDir = mkTmp('tpl-hash-source');
+    const targetDir = mkTmp('tpl-hash-target');
+
+    const raw = 'value: {{x}}\n';
+    writeFileSync(join(sourceDir, 'a.md'), raw, 'utf-8');
+
+    const manifest = emptyManifest();
+    syncDirectory(sourceDir, targetDir, emptyFramework(), manifest, 'commands', true, {
+      x: 'rendered-value',
+    });
+
+    const installedContent = readFileSync(join(targetDir, 'a.md'), 'utf-8');
+    const expectedHash = hashContent(installedContent);
+    expect(manifest.entries['commands/a.md']).toBe(expectedHash);
+    expect(manifest.entries['commands/a.md']).not.toBe(hashContent(raw));
+  });
+});
+
+// ============================================================
+// P2-003: Two-axis variant resolution — Plan #2
+// Exercises the (lang, sub-framework) probe order shipped in
+// pickVariant for Phase 2.
+// ============================================================
+
+describe('two-axis variant resolution — Plan #2 P2-003', () => {
+  // ----------------------------------------------------------------
+  // P2-003-01: python+fastapi → .python-fastapi variant if file exists
+  // ----------------------------------------------------------------
+  it('P2-003-01: python+fastapi hits .python-fastapi when the file exists', () => {
+    const sourceDir = mkTmp('p2-01');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.md'), '# default');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.python.md'), '# python');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.python-fastapi.md'), '# python-fastapi');
+
+    const fw = emptyFramework({
+      type: 'multi',
+      primary: 'typescript',
+      languages: { python: { framework: 'fastapi' } },
+    });
+    const result = pickVariant('massu-scaffold-router', sourceDir, fw);
+    expect(result).toEqual({ kind: 'hit', suffix: '.python-fastapi' });
+  });
+
+  // ----------------------------------------------------------------
+  // P2-003-02: python+fastapi without .python-fastapi falls back to .python
+  // ----------------------------------------------------------------
+  it('P2-003-02: python+fastapi falls back to .python when .python-fastapi absent', () => {
+    const sourceDir = mkTmp('p2-02');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.md'), '# default');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.python.md'), '# python');
+    // .python-fastapi intentionally absent
+
+    const fw = emptyFramework({
+      type: 'multi',
+      primary: 'typescript',
+      languages: { python: { framework: 'fastapi' } },
+    });
+    const result = pickVariant('massu-scaffold-router', sourceDir, fw);
+    expect(result).toEqual({ kind: 'hit', suffix: '.python' });
+  });
+
+  // ----------------------------------------------------------------
+  // P2-003-03: python+django hits .python-django
+  // ----------------------------------------------------------------
+  it('P2-003-03: python+django hits .python-django when the file exists', () => {
+    const sourceDir = mkTmp('p2-03');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.md'), '# default');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.python.md'), '# python');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.python-django.md'), '# python-django');
+
+    const fw = emptyFramework({
+      type: 'multi',
+      primary: 'typescript',
+      languages: { python: { framework: 'django' } },
+    });
+    const result = pickVariant('massu-scaffold-router', sourceDir, fw);
+    expect(result).toEqual({ kind: 'hit', suffix: '.python-django' });
+  });
+
+  // ----------------------------------------------------------------
+  // P2-003-04: python+flask (no .python-flask file) falls back to .python
+  // ----------------------------------------------------------------
+  it('P2-003-04: python+flask falls back to .python when no .python-flask file exists', () => {
+    const sourceDir = mkTmp('p2-04');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.md'), '# default');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.python.md'), '# python');
+    // .python-flask intentionally absent
+
+    const fw = emptyFramework({
+      type: 'multi',
+      primary: 'typescript',
+      languages: { python: { framework: 'flask' } },
+    });
+    const result = pickVariant('massu-scaffold-router', sourceDir, fw);
+    expect(result).toEqual({ kind: 'hit', suffix: '.python' });
+  });
+
+  // ----------------------------------------------------------------
+  // P2-003-05: python declared in languages with no sub-framework — not pushed
+  // as a candidate (framework key absent / empty), falls to unsuffixed default
+  // ----------------------------------------------------------------
+  it('P2-003-05: python with no framework key in languages entry falls to unsuffixed default', () => {
+    const sourceDir = mkTmp('p2-05');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.md'), '# default');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.python.md'), '# python');
+
+    // framework.languages.python has NO framework field → pushCandidate is never
+    // called for python (the implementation requires entry.framework to be a
+    // non-empty string). Primary is typescript, no .typescript.md → falls to ''.
+    const fw = emptyFramework({
+      type: 'multi',
+      primary: 'typescript',
+      languages: {
+        python: {} as { framework: string },
+      },
+    });
+    const result = pickVariant('massu-scaffold-router', sourceDir, fw);
+    // No candidate for python → typescript probe misses → default ('') HIT
+    expect(result).toEqual({ kind: 'hit', suffix: '' });
+  });
+
+  // ----------------------------------------------------------------
+  // P2-003-06: swift+swiftui has no .swift-swiftui file → falls back to .swift
+  // ----------------------------------------------------------------
+  it('P2-003-06: swift+swiftui falls back to .swift when no .swift-swiftui file exists', () => {
+    const sourceDir = mkTmp('p2-06');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-page.md'), '# default');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-page.swift.md'), '# swift');
+    // .swift-swiftui intentionally absent
+
+    const fw = {
+      type: 'multi',
+      primary: 'typescript',
+      router: 'none',
+      orm: 'none',
+      ui: 'none',
+      swift: { framework: 'swiftui' },
+    } as unknown as Config['framework'];
+    const result = pickVariant('massu-scaffold-page', sourceDir, fw);
+    expect(result).toEqual({ kind: 'hit', suffix: '.swift' });
+  });
+
+  // ----------------------------------------------------------------
+  // P2-003-07: typescript+nextjs falls back to .typescript when no .typescript-nextjs
+  // ----------------------------------------------------------------
+  it('P2-003-07: typescript+nextjs falls back to .typescript when no .typescript-nextjs exists', () => {
+    const sourceDir = mkTmp('p2-07');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.md'), '# default');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.typescript.md'), '# typescript');
+    // .typescript-nextjs intentionally absent
+
+    const fw = emptyFramework({
+      type: 'typescript',
+      primary: 'typescript',
+      languages: { typescript: { framework: 'nextjs' } },
+    });
+    const result = pickVariant('massu-scaffold-router', sourceDir, fw);
+    expect(result).toEqual({ kind: 'hit', suffix: '.typescript' });
+  });
+
+  // ----------------------------------------------------------------
+  // P2-003-08: rust+axum with no rust files at all → kind: 'miss'
+  // ----------------------------------------------------------------
+  it('P2-003-08: rust+axum with no rust files returns miss', () => {
+    const sourceDir = mkTmp('p2-08');
+    // Only a generic default — no .rust or .rust-axum variants
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.md'), '# default');
+
+    const fw = emptyFramework({
+      type: 'multi',
+      primary: 'typescript',
+      languages: { rust: { framework: 'axum' } },
+    });
+    // pickVariant probes .typescript (hit='' unsuffixed default exists)
+    // Actually: no .typescript.md → falls through to unsuffixed → hit suffix=''
+    // The miss case only fires when NO file (including default) exists.
+    // Re-test: no default either
+    const emptySource = mkTmp('p2-08-empty');
+    writeFileSync(resolve(emptySource, 'massu-scaffold-router.rust-axum.md'), '# rust-axum');
+    // Only rust-axum exists; primary is typescript → .typescript miss, .rust-axum exists
+    const fw2 = emptyFramework({
+      type: 'multi',
+      primary: 'typescript',
+      languages: { rust: { framework: 'axum' } },
+    });
+    const result2 = pickVariant('massu-scaffold-router', emptySource, fw2);
+    // rust is NOT primary but it is declared in languages — probe order:
+    //   .typescript-<sub> (no) → .typescript (no) → .rust-axum (YES) → hit
+    expect(result2).toEqual({ kind: 'hit', suffix: '.rust-axum' });
+
+    // True miss: no matching files at all
+    const noFiles = mkTmp('p2-08-nomatch');
+    writeFileSync(resolve(noFiles, 'massu-scaffold-router.python.md'), '# python');
+    const fwRustOnly = emptyFramework({
+      type: 'multi',
+      primary: 'typescript',
+      languages: { rust: { framework: 'axum' } },
+    });
+    const missResult = pickVariant('massu-scaffold-router', noFiles, fwRustOnly);
+    // .typescript (no), .typescript-<sub> (no), .rust-axum (no), .rust (no), default (no) → miss
+    expect(missResult).toEqual({ kind: 'miss' });
+  });
+
+  // ----------------------------------------------------------------
+  // P2-003-09: multi-lang primary=python+fastapi wins over secondary swift
+  // ----------------------------------------------------------------
+  it('P2-003-09: multi-lang primary=python+fastapi takes precedence over swift', () => {
+    const sourceDir = mkTmp('p2-09');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.md'), '# default');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.python-fastapi.md'), '# python-fastapi');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.swift.md'), '# swift');
+
+    const fw = emptyFramework({
+      type: 'multi',
+      primary: 'python',
+      languages: {
+        python: { framework: 'fastapi' },
+        swift: { framework: 'swiftui' },
+      },
+    });
+    const result = pickVariant('massu-scaffold-router', sourceDir, fw);
+    // primary=python → probe .python-fastapi first → HIT
+    expect(result).toEqual({ kind: 'hit', suffix: '.python-fastapi' });
+  });
+
+  // ----------------------------------------------------------------
+  // P2-003-10: sub-framework via top-level passthrough framework.python.framework
+  // ----------------------------------------------------------------
+  it('P2-003-10: sub-framework from top-level passthrough block is respected', () => {
+    const sourceDir = mkTmp('p2-10');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.md'), '# default');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.python-fastapi.md'), '# python-fastapi (passthrough)');
+
+    // top-level passthrough: no framework.languages, but framework.python.framework exists
+    const fw = {
+      type: 'multi',
+      primary: 'typescript',
+      router: 'none',
+      orm: 'none',
+      ui: 'none',
+      python: { framework: 'fastapi' },
+    } as unknown as Config['framework'];
+    const result = pickVariant('massu-scaffold-router', sourceDir, fw);
+    // .typescript (no) → passthrough python.framework=fastapi → .python-fastapi HIT
+    expect(result).toEqual({ kind: 'hit', suffix: '.python-fastapi' });
+  });
+
+  // ----------------------------------------------------------------
+  // P2-003-11: sub-framework via framework.languages.python.framework (not passthrough)
+  // ----------------------------------------------------------------
+  it('P2-003-11: sub-framework from framework.languages wins over passthrough', () => {
+    const sourceDir = mkTmp('p2-11');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.md'), '# default');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.python-django.md'), '# python-django (languages)');
+    writeFileSync(resolve(sourceDir, 'massu-scaffold-router.python-fastapi.md'), '# python-fastapi (passthrough)');
+
+    // languages.python.framework = 'django'; passthrough python.framework = 'fastapi'
+    const fw = {
+      type: 'multi',
+      primary: 'typescript',
+      router: 'none',
+      orm: 'none',
+      ui: 'none',
+      languages: { python: { framework: 'django' } },
+      python: { framework: 'fastapi' },  // passthrough — should NOT win
+    } as unknown as Config['framework'];
+    const result = pickVariant('massu-scaffold-router', sourceDir, fw);
+    // .typescript (no) → languages.python.framework=django → .python-django HIT
+    // (passthrough is only consulted for langs NOT already in languages block)
+    expect(result).toEqual({ kind: 'hit', suffix: '.python-django' });
+  });
+
+  // ----------------------------------------------------------------
+  // P2-003-12: framework.type=multi without primary → kind 'fallback'
+  // when no default file exists
+  // ----------------------------------------------------------------
+  it('P2-003-12: multi without primary and no default file → fallback reason multi-without-primary', () => {
+    const sourceDir = mkTmp('p2-12');
+    // No files at all in sourceDir
+
+    const fw = emptyFramework({ type: 'multi', primary: undefined });
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const result = pickVariant('massu-scaffold-router', sourceDir, fw);
+      expect(result.kind).toBe('fallback');
+      if (result.kind === 'fallback') {
+        expect(result.reason).toBe('multi-without-primary');
+      }
+      expect(stderrSpy).toHaveBeenCalled();
+      const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(stderrText).toMatch(/framework\.primary is undefined/);
+    } finally {
+      stderrSpy.mockRestore();
+    }
+  });
+});

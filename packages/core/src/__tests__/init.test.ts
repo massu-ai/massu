@@ -333,6 +333,31 @@ describe('runInit (--ci mode)', () => {
     expect(existsSync(`${configPath}.tmp`)).toBe(false);
   });
 
+  it('(c2) Plan #2 t=0: empty-stack init proceeds with --force in ci mode', async () => {
+    // Plan #2 §"Answer to install-before-stack" — `npx massu init` in an
+    // empty repo writes a minimal config + the _massu-needs-stack.md placeholder.
+    // In --ci mode, --force is required to opt into empty-stack init.
+    const configPath = resolve(fixtureDir, 'massu.config.yaml');
+
+    // skipSideEffects is true here so installAll doesn't try to populate the
+    // empty fixture dir with assets; we only assert config-write semantics.
+    await runInitSync(fixtureDir, {
+      ci: true,
+      force: true,
+      skipSideEffects: true,
+      silent: true,
+    });
+
+    expect(existsSync(configPath)).toBe(true);
+    const parsed = yamlParse(readFileSync(configPath, 'utf-8')) as Record<string, unknown>;
+    expect(parsed.schema_version).toBe(2);
+    const fw = parsed.framework as Record<string, unknown>;
+    // Empty-stack default: framework.type stays at the schema default ('typescript')
+    // because no manifests were detected.
+    expect(typeof fw.type).toBe('string');
+    expect(parsed.detection).toBeDefined();
+  });
+
   it('(d) existing config is preserved in ci mode without --force', async () => {
     const configPath = resolve(fixtureDir, 'massu.config.yaml');
     writeFileSync(configPath, 'schema_version: 1\nproject:\n  name: keep\n', 'utf-8');

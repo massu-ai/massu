@@ -23,7 +23,7 @@
  *   2  unparseable massu.config.yaml
  */
 
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, rmSync } from 'fs';
 import { resolve } from 'path';
 import { parse as parseYaml } from 'yaml';
 import { runDetection } from '../detect/index.ts';
@@ -31,6 +31,8 @@ import { computeFingerprint } from '../detect/drift.ts';
 import type { AnyConfig } from '../detect/migrate.ts';
 import { copyUnknownKeys, preserveNestedSubkeys } from '../detect/passthrough.ts';
 import { buildConfigFromDetection, renderConfigYaml, writeConfigAtomic } from './init.ts';
+import { installAll } from './install-commands.ts';
+import { resetConfig } from '../config.ts';
 
 const PRESERVED_FIELDS = [
   'rules',
@@ -56,6 +58,12 @@ export interface ConfigRefreshOptions {
   dryRun?: boolean;
   cwd?: string;
   silent?: boolean;
+  /**
+   * Plan #2 P4-001: when true, skip the post-refresh `installAll` call so
+   * `.claude/commands/` is NOT re-templated. Used by tests to keep file I/O
+   * hermetic, and by users who want config-only refresh behavior.
+   */
+  skipCommands?: boolean;
 }
 
 export interface ConfigRefreshResult {
@@ -323,5 +331,45 @@ export async function runConfigRefresh(opts: ConfigRefreshOptions = {}): Promise
     return { exitCode: 2, applied: false, dryRun: false, diff, message };
   }
   log('Config refreshed.\n');
+
+  // Plan #2 P4-001: re-template `.claude/commands/` against the freshly
+  // written config so newly-detected stack changes get the right scaffolds.
+  // P4-003 (auto-delete half): if a stack is now declared and the empty-init
+  // placeholder still exists, remove it.
+  if (!opts.skipCommands) {
+    log('Will also re-template command files; pass --skip-commands to opt out.\n');
+    // Reset cached config so installAll reads the freshly-written YAML.
+    resetConfig();
+    try {
+      const installResult = installAll(cwd);
+      const total =
+        installResult.totalInstalled +
+        installResult.totalUpdated +
+        installResult.totalSkipped +
+        installResult.totalKept;
+      log(`Re-templated ${total} command files (${installResult.totalInstalled} new, ${installResult.totalUpdated} updated).\n`);
+
+      // Auto-delete the empty-init placeholder if at least one stack-specific
+      // command was resolved this run (i.e., a non-zero install/update count).
+      const stackResolved =
+        installResult.totalInstalled > 0 || installResult.totalUpdated > 0;
+      if (stackResolved) {
+        const placeholderPath = resolve(installResult.claudeDir, 'commands', '_massu-needs-stack.md');
+        if (existsSync(placeholderPath)) {
+          try {
+            rmSync(placeholderPath, { force: true });
+            log('Removed _massu-needs-stack.md (stack now declared).\n');
+          } catch {
+            // Best-effort: never block refresh on placeholder cleanup.
+          }
+        }
+      }
+    } catch (err) {
+      // Don't fail the whole refresh if re-template breaks; the YAML was already written.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!opts.silent) process.stderr.write(`Warning: re-template failed: ${msg}\n`);
+    }
+  }
+
   return { exitCode: 0, applied: true, dryRun: false, diff };
 }

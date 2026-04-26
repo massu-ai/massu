@@ -301,6 +301,15 @@ const FrameworkConfigSchema = z.object({
 }).passthrough();
 export type FrameworkConfig = z.infer<typeof FrameworkConfigSchema>;
 
+// --- Codebase-aware templates (Plan #2): `detected:` block ---
+// Detector-owned per-language conventions extracted from existing source files
+// (auth dep names, common imports, biometric policies, etc.). Refreshed on
+// every `init`/`config refresh` and consumed by the templating engine when
+// installing slash commands. Free-form via `.passthrough()` so future detector
+// fields don't break parsing of older configs.
+const DetectedConfigSchema = z.object({}).passthrough().optional();
+export type DetectedConfig = z.infer<typeof DetectedConfigSchema>;
+
 // --- P2-004: Verification command map ---
 // Map of language name -> command strings for each verification type.
 // User entries take precedence over any Phase 1 auto-defaults.
@@ -380,6 +389,8 @@ const RawConfigSchema = z.object({
   canonical_paths: CanonicalPathsSchema,
   verification_types: VerificationTypesSchema,
   detection: DetectionConfigSchema,
+  // Plan #2: detector-owned per-language conventions (free-form passthrough)
+  detected: DetectedConfigSchema,
 }).passthrough();
 
 // --- Final Config interface (derived from Zod) ---
@@ -418,6 +429,8 @@ export interface Config {
   canonical_paths?: CanonicalPaths;
   verification_types?: VerificationTypes;
   detection?: DetectionConfig;
+  // Plan #2: detector-owned per-language conventions
+  detected?: DetectedConfig;
 }
 
 let _config: Config | null = null;
@@ -565,6 +578,7 @@ export function getConfig(): Config {
     canonical_paths: parsed.canonical_paths,
     verification_types: parsed.verification_types,
     detection: parsed.detection,
+    detected: parsed.detected,
   };
 
   // Allow environment variable override for API key (security best practice)

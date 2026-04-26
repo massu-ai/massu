@@ -261,6 +261,9 @@ function readStdin(): Promise<string> {
  */
 async function buildDriftBanner(): Promise<string> {
   try {
+    // Plan #2 P4-004: explicit opt-out for users in deliberate mid-migration windows.
+    if (process.env.MASSU_DRIFT_QUIET === '1') return '';
+
     const configPath = resolve(process.cwd(), 'massu.config.yaml');
     if (!existsSync(configPath)) return '';
     const content = readFileSync(configPath, 'utf-8');
@@ -269,7 +272,10 @@ async function buildDriftBanner(): Promise<string> {
     const det = parsed.detection as Record<string, unknown> | undefined;
     const storedFp = typeof det?.fingerprint === 'string' ? (det.fingerprint as string) : null;
     if (!storedFp) return '';
-    const detection = await runDetection(process.cwd());
+    // Plan #2 P4-006: skip the codebase introspector pass — the drift banner
+    // only needs the fingerprint, not the introspected detail. Saves up to 2s
+    // wall-clock from the hook's 5-second budget.
+    const detection = await runDetection(process.cwd(), undefined, { skipIntrospect: true });
     const currentFp = computeFingerprint(detection);
     if (currentFp === storedFp) return '';
     return (
@@ -277,6 +283,9 @@ async function buildDriftBanner(): Promise<string> {
       'Detected stack has changed since last config refresh.\n' +
       `Fingerprint:  ${storedFp.slice(0, 16)}  ->  ${currentFp.slice(0, 16)}\n` +
       'Run: npx massu config refresh\n' +
+      '(this will update massu.config.yaml AND any commands that need\n' +
+      ' re-templating for your new stack)\n' +
+      'Tip: set MASSU_DRIFT_QUIET=1 to suppress this banner during mid-migration.\n' +
       '=== END ===\n'
     );
   } catch (_e) {

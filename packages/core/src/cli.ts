@@ -85,7 +85,10 @@ async function handleConfigSubcommand(configArgs: string[]): Promise<void> {
   switch (sub) {
     case 'refresh': {
       const { runConfigRefresh } = await import('./commands/config-refresh.ts');
-      const result = await runConfigRefresh({ dryRun: flags.has('--dry-run') });
+      const result = await runConfigRefresh({
+        dryRun: flags.has('--dry-run'),
+        skipCommands: flags.has('--skip-commands'),
+      });
       process.exit(result.exitCode);
       return;
     }

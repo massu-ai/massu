@@ -14,12 +14,16 @@ This README covers:
 ## 1. Variant filename convention
 
 ```
-<base>.md                # default — used when no variant matches
-<base>.python.md         # FastAPI / Django / generic Python
-<base>.swift.md          # SwiftUI / iOS / visionOS
-<base>.rust.md           # axum / actix / generic Rust
-<base>.typescript.md     # reserved for future use; currently no variants ship
+<base>.md                        # default — used when no variant matches
+<base>.python.md                 # FastAPI / Django / generic Python (one-axis)
+<base>.python-fastapi.md         # Python + FastAPI (two-axis: lang + sub-framework)
+<base>.python-django.md          # Python + Django (two-axis: lang + sub-framework)
+<base>.swift.md                  # SwiftUI / iOS / visionOS
+<base>.rust.md                   # axum / actix / generic Rust
+<base>.typescript.md             # reserved for future use; currently no variants ship
 ```
+
+The two-axis form (`<base>.<lang>-<framework>.md`) is tried BEFORE the one-axis (`<base>.<lang>.md`) form. It is selected when the consumer's config declares `framework.languages.<lang>.framework = "<sub-framework>"` (e.g. `fastapi` or `django`).
 
 The variant convention applies **only at the top level** of `packages/core/commands/`. Files inside subdirectories (e.g., `_shared-references/`, `massu-loop/references/`) are copied recursively as-is — no variant resolution, no dot-skip filtering. Future authors can use dotted filenames in nested dirs without losing them to the variant filter.
 
@@ -100,11 +104,22 @@ Prints the resolved template content (post-variant-resolution) to stdout. Used i
 
 | Base | Variants |
 |------|----------|
-| `massu-scaffold-router` | `.python.md` (FastAPI) |
+| `massu-scaffold-router` | `.python-fastapi.md` (FastAPI — two-axis), `.python-django.md` (Django — two-axis) |
 | `massu-scaffold-page` | `.swift.md` (SwiftUI), regenerated default with embedded Next.js / FastAPI / SwiftUI / Rust examples |
-| `massu-deploy` | `.python.md` (launchd / systemd / pm2 / docker) |
+| `massu-deploy` | `.python-launchd.md`, `.python-systemd.md`, `.python-docker.md`, `.python-fly.md` (all two-axis) |
 
-All other 57 top-level templates ship as variant-agnostic defaults (one `<base>.md`).
+All other top-level templates ship as variant-agnostic defaults (one `<base>.md`).
+
+### Template variable substitution
+
+As of `@massu/core@1.3.0`, template files may contain `{{variable.path}}` and `{{variable.path | default("fallback")}}` placeholders. These are rendered against the consumer's `massu.config.yaml` (all `framework.*`, `paths.*`, and `config.*` fields) plus the `detected.*` block written by the codebase introspector (e.g. `detected.python.auth_dep`, `detected.swift.api_client_class`).
+
+Rules:
+- Every `{{detected.*}}` reference MUST include a `| default("...")` fallback — introspection may return nothing.
+- Use `\{{` to emit a literal `{{` in the rendered output (e.g. Go/Docker format strings).
+- A render error on a single file causes that file to be skipped (stderr message only); the rest of the install continues.
+
+Pass `--skip-commands` to `massu init` or `massu refresh` to suppress command installation entirely.
 
 ## 6. Adding a new variant
 

@@ -33,7 +33,7 @@ import { homedir } from 'os';
 import { stringify as yamlStringify, parse as yamlParse } from 'yaml';
 import { backfillMemoryFiles } from '../memory-file-ingest.ts';
 import { getConfig, resetConfig } from '../config.ts';
-import { installCommands } from './install-commands.ts';
+import { installAll } from './install-commands.ts';
 import {
   runDetection,
   type DetectionResult,
@@ -75,6 +75,11 @@ export interface InitOptions {
   template?: string;
   /** Skip hook/command/memory install side-effects. Used in tests. */
   skipSideEffects?: boolean;
+  /**
+   * Plan #2 P4-002: when true, skip the asset-install (commands / agents /
+   * patterns / etc). MCP register, hooks, and memory init still run.
+   */
+  skipCommands?: boolean;
   /** Override cwd (tests). */
   cwd?: string;
   /** Suppress console output. */
@@ -507,6 +512,14 @@ export function buildConfigFromDetection(
 
   // P5-002: stamp a stack fingerprint so session-start can detect drift later.
   config.detection = { fingerprint: computeFingerprint(detection) };
+
+  // Plan #2 P3-003: emit detector-owned `detected:` block (per-language
+  // conventions sampled from the codebase). Only present when the introspector
+  // ran (i.e., not skipped by the session-start hook). Detector-owned →
+  // refreshed on every `init`/`config refresh`, NOT in PRESERVED_FIELDS.
+  if (detection.detected && Object.keys(detection.detected).length > 0) {
+    config.detected = detection.detected;
+  }
 
   // Preserve legacy `python` block for v1 consumers (domain-enforcer, etc.).
   // Per Phase 0 P1-009 (b): python legacy config coexists with languages.python.
@@ -998,6 +1011,7 @@ export function parseInitArgs(argv: string[]): ParseInitArgsResult {
     const a = argv[i];
     if (a === '--ci') opts.ci = true;
     else if (a === '--force') opts.force = true;
+    else if (a === '--skip-commands') opts.skipCommands = true;
     else if (a === '--help' || a === '-h') opts.help = true;
     else if (a === '--template') {
       const next = argv[i + 1];
@@ -1025,6 +1039,8 @@ Options:
   --force             Overwrite existing massu.config.yaml without prompting.
   --template <name>   Skip detection and scaffold from a greenfield template.
                       Templates: ${TEMPLATE_NAMES.join(', ')}
+  --skip-commands     Skip the asset install (.claude/commands etc).
+                      MCP register, hooks, and memory init still run.
   --help, -h          Show this help message
 
 Examples:
@@ -1131,7 +1147,7 @@ export async function runInit(argv?: string[], overrides?: InitOptions): Promise
     }
     log(`  Installed template '${opts.template}' → massu.config.yaml`);
     if (!opts.skipSideEffects) {
-      installSideEffects(projectRoot, log);
+      installSideEffects(projectRoot, log, opts.skipCommands);
     }
     return;
   }
@@ -1139,11 +1155,20 @@ export async function runInit(argv?: string[], overrides?: InitOptions): Promise
   // Branch 2: detection-driven path (P3-001, P3-002)
   const detection = await runDetection(projectRoot);
   const languageCount = new Set(detection.manifests.map((m) => m.language)).size;
-  if (detection.manifests.length === 0 && languageCount === 0) {
-    errLog('error: no languages detected in this directory');
-    errLog('       (no package.json, pyproject.toml, Cargo.toml, etc.)');
-    errLog('       pass --template <name> to scaffold a new project, or cd into a repo with a manifest');
-    throw new Error('No languages detected');
+  const emptyStack = detection.manifests.length === 0 && languageCount === 0;
+  if (emptyStack) {
+    if (opts.ci && !opts.force) {
+      // Plan #2 §"Answer to install-before-stack": interactive `massu init` in
+      // an empty repo is supported. CI mode keeps the strict guard (no
+      // accidental empty-stack configs in pipelines) — pass --force in CI to
+      // explicitly opt into empty-stack init.
+      errLog('error: no languages detected in this directory');
+      errLog('       (no package.json, pyproject.toml, Cargo.toml, etc.)');
+      errLog('       pass --template <name>, --force, or run interactively for empty-stack init');
+      throw new Error('No languages detected');
+    }
+    log('  No languages detected — proceeding with empty-stack init.');
+    log('  After adding a manifest (package.json, pyproject.toml, ...) run: npx massu config refresh');
   }
 
   // Emit warnings to stderr for ambiguous / malformed detection.
@@ -1186,8 +1211,10 @@ export async function runInit(argv?: string[], overrides?: InitOptions): Promise
     throw new Error(writeRes.error ?? 'atomic write failed');
   }
 
-  // Post-write validation; rollback on failure.
-  const validation = validateWrittenConfig(configPath, projectRoot);
+  // Post-write validation; rollback on failure. Skip filesystem-existence
+  // checks for empty-stack init (no manifests = `paths.source` defaults to
+  // 'src' which legitimately doesn't exist in an empty dir).
+  const validation = validateWrittenConfig(configPath, projectRoot, !emptyStack);
   if (validation !== null) {
     try { rmSync(configPath, { force: true }); } catch { /* ignore */ }
     errLog(`error: generated config failed validation: ${validation}`);
@@ -1198,12 +1225,17 @@ export async function runInit(argv?: string[], overrides?: InitOptions): Promise
   log('  Created massu.config.yaml (schema_version: 2)');
 
   if (!opts.skipSideEffects) {
-    installSideEffects(projectRoot, log);
+    installSideEffects(projectRoot, log, opts.skipCommands, emptyStack);
   }
 }
 
 /** Shared side-effect steps (MCP register + hooks + commands + memory + backfill). */
-function installSideEffects(projectRoot: string, log: (s: string) => void): void {
+function installSideEffects(
+  projectRoot: string,
+  log: (s: string) => void,
+  skipCommands: boolean = false,
+  emptyStack: boolean = false,
+): void {
   // MCP register
   const mcpRegistered = registerMcpServer(projectRoot);
   if (mcpRegistered) {
@@ -1216,17 +1248,68 @@ function installSideEffects(projectRoot: string, log: (s: string) => void): void
   const { count: hooksCount } = installHooks(projectRoot);
   log(`  Installed ${hooksCount} hooks in .claude/settings.local.json`);
 
-  // Commands
-  try {
-    const cmdResult = installCommands(projectRoot);
-    const cmdTotal = cmdResult.installed + cmdResult.updated + cmdResult.skipped;
-    if (cmdResult.installed > 0 || cmdResult.updated > 0) {
-      log(`  Installed ${cmdTotal} slash commands (${cmdResult.installed} new, ${cmdResult.updated} updated)`);
-    } else if (cmdTotal > 0) {
-      log(`  ${cmdTotal} slash commands already up to date`);
+  // Plan #2 P4-002: install all asset types (commands, agents, patterns,
+  // protocols, reference) via installAll — replaces the legacy
+  // installCommands() that only handled commands. Skipped when --skip-commands.
+  // Plan #2 P4-003: when no stack-specific commands resolved (empty-stack init),
+  // write a single `_massu-needs-stack.md` placeholder so consumers know to
+  // run `config refresh` after adding their first manifest.
+  if (!skipCommands) {
+    try {
+      const cmdResult = installAll(projectRoot);
+      const cmdTotal =
+        cmdResult.totalInstalled +
+        cmdResult.totalUpdated +
+        cmdResult.totalSkipped +
+        cmdResult.totalKept;
+      if (cmdResult.totalInstalled > 0 || cmdResult.totalUpdated > 0) {
+        log(`  Installed ${cmdTotal} project assets (${cmdResult.totalInstalled} new, ${cmdResult.totalUpdated} updated)`);
+      } else if (cmdTotal > 0) {
+        log(`  ${cmdTotal} project assets already up to date`);
+      }
+
+      // Empty-stack init detection: when caller signals an empty stack OR
+      // when NO commands resolved at all, drop the placeholder so the user
+      // understands the next step. The explicit `emptyStack` signal handles
+      // the t=0 case (zero manifests detected) where generic-default commands
+      // still install but no stack-specific scaffolds match the consumer.
+      const commandStats = cmdResult.assets.commands;
+      const stackResolved = !emptyStack && commandStats &&
+        (commandStats.installed > 0 || commandStats.updated > 0 || commandStats.kept > 0);
+      if (!stackResolved) {
+        const placeholderPath = resolve(cmdResult.claudeDir, 'commands', '_massu-needs-stack.md');
+        if (!existsSync(placeholderPath)) {
+          const placeholderBody = [
+            '# Massu — stack not yet detected',
+            '',
+            'Your stack hasn\'t been detected yet. Most slash commands ship as language-specific',
+            'variants (e.g., `massu-scaffold-router.python-fastapi.md` for FastAPI projects).',
+            'When detection finds a manifest, the right variants get installed automatically.',
+            '',
+            'After you add your first manifest (`package.json`, `pyproject.toml`, `Cargo.toml`,',
+            'etc.) run:',
+            '',
+            '```bash',
+            'npx massu config refresh',
+            '```',
+            '',
+            'This file will be auto-removed on the first refresh that resolves at least one',
+            'stack-specific command.',
+            '',
+            '— Massu',
+          ].join('\n');
+          try {
+            mkdirSync(resolve(cmdResult.claudeDir, 'commands'), { recursive: true });
+            writeFileSync(placeholderPath, placeholderBody, 'utf-8');
+            log('  Wrote _massu-needs-stack.md placeholder (no stack detected yet)');
+          } catch {
+            // Best-effort.
+          }
+        }
+      }
+    } catch {
+      // Best-effort — don't fail init if assets can't be resolved.
     }
-  } catch {
-    // Best-effort — don't fail init if assets can't be resolved.
   }
 
   // Memory dir

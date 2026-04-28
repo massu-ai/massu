@@ -364,6 +364,24 @@ const WatchConfigSchema = z.object({
 }).passthrough().optional();
 export type WatchConfig = z.infer<typeof WatchConfigSchema>;
 
+// --- LSP Config (Plan 3b — Phase 4: LSP integration) ---
+// Top-level optional `lsp:` block configuring optional LSP enrichment of AST
+// adapter results. Per VR-LSP-AUTODETECT-OFF-BY-DEFAULT (audit-iter-1 fix G4):
+// `autoDetect.viaPortScan` defaults to false — port-scanning is opt-in only.
+// Empty-servers + enabled is a valid runtime state (see auto-detect.ts);
+// schema does not reject it.
+export const LSPConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  servers: z.array(z.object({
+    language: z.string(),
+    command: z.string(),
+  })).default([]),
+  autoDetect: z.object({
+    viaPortScan: z.boolean().default(false),
+  }).optional(),
+}).passthrough();
+export type LSPConfig = z.infer<typeof LSPConfigSchema>;
+
 // --- Top-level Raw Config Schema ---
 // This validates the raw YAML output, coercing types and providing defaults.
 // P2-001: schema_version tracks the config shape version. Defaults to 1 so
@@ -406,6 +424,8 @@ const RawConfigSchema = z.object({
   detected: DetectedConfigSchema,
   // Plan 3a: file-watcher daemon tunables
   watch: WatchConfigSchema,
+  // Plan 3b Phase 4: optional LSP enrichment of AST adapter results.
+  lsp: LSPConfigSchema.optional(),
 }).passthrough();
 
 // --- Final Config interface (derived from Zod) ---
@@ -448,6 +468,8 @@ export interface Config {
   detected?: DetectedConfig;
   // Plan 3a: file-watcher daemon tunables
   watch?: WatchConfig;
+  // Plan 3b Phase 4: optional LSP enrichment block (default disabled).
+  lsp?: LSPConfig;
 }
 
 let _config: Config | null = null;
@@ -597,6 +619,7 @@ export function getConfig(): Config {
     detection: parsed.detection,
     detected: parsed.detected,
     watch: parsed.watch,
+    lsp: parsed.lsp,
   };
 
   // Allow environment variable override for API key (security best practice)

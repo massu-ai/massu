@@ -124,34 +124,41 @@ interface ManifestEntry {
 
 /**
  * Hardcoded grammar manifest. Source-code-resident; tampering requires a
- * release. Pinned URLs use `unpkg.com/tree-sitter-<lang>-wasm@<version>` per
- * Phase 0 §1.
+ * release.
  *
- * `sha256` placeholders are filled at Phase 9 release-prep via:
- *   curl -fL <url> | shasum -a 256
- * The CODE PATH for verification is exercised in `tree-sitter-loader.test.ts`
- * by injecting test manifest entries.
+ * Source: `tree-sitter-wasms` npm package (https://npm.im/tree-sitter-wasms)
+ * — pre-built WASM binaries for Tree-sitter language parsers. NOT added as
+ * a dependency (per plan §Phase 0 ban on bundling); fetched from unpkg at
+ * first use. The individual `tree-sitter-<lang>` packages on npm do NOT
+ * ship `.wasm` files, only C source + native .node prebuilds — confirmed
+ * by inspecting unpkg `?meta` listings during Phase 9 release-prep.
+ *
+ * SHA-256 hashes computed 2026-04-28 via:
+ *   curl -fsSL <url> | shasum -a 256
+ *
+ * The verification code path is exercised in `tree-sitter-loader.test.ts`
+ * by injecting test manifest entries that intentionally mismatch.
  */
 export const GRAMMAR_MANIFEST: Partial<Record<TreeSitterLanguage, ManifestEntry>> = {
   python: {
-    url: 'https://unpkg.com/tree-sitter-python@0.21.0/tree-sitter-python.wasm',
-    sha256: 'PLACEHOLDER_PYTHON_SHA256_FILL_AT_RELEASE',
-    version: '0.21.0',
+    url: 'https://unpkg.com/tree-sitter-wasms@0.1.13/out/tree-sitter-python.wasm',
+    sha256: '9056d0fb0c337810d019fae350e8167786119da98f0f282aceae7ab89ee8253b',
+    version: '0.1.13',
   },
   typescript: {
-    url: 'https://unpkg.com/tree-sitter-typescript@0.21.0/tree-sitter-typescript.wasm',
-    sha256: 'PLACEHOLDER_TYPESCRIPT_SHA256_FILL_AT_RELEASE',
-    version: '0.21.0',
+    url: 'https://unpkg.com/tree-sitter-wasms@0.1.13/out/tree-sitter-typescript.wasm',
+    sha256: '8515404dceed38e1ed86aa34b09fcf3379fff1b4ff9dd3967bcd6d1eb5ac3d8f',
+    version: '0.1.13',
   },
   javascript: {
-    url: 'https://unpkg.com/tree-sitter-javascript@0.21.0/tree-sitter-javascript.wasm',
-    sha256: 'PLACEHOLDER_JAVASCRIPT_SHA256_FILL_AT_RELEASE',
-    version: '0.21.0',
+    url: 'https://unpkg.com/tree-sitter-wasms@0.1.13/out/tree-sitter-javascript.wasm',
+    sha256: '63812b9e275d26851264734868d27a1656bd44a2ef6eb3e85e6b03728c595ab5',
+    version: '0.1.13',
   },
   swift: {
-    url: 'https://unpkg.com/tree-sitter-swift@0.5.0/tree-sitter-swift.wasm',
-    sha256: 'PLACEHOLDER_SWIFT_SHA256_FILL_AT_RELEASE',
-    version: '0.5.0',
+    url: 'https://unpkg.com/tree-sitter-wasms@0.1.13/out/tree-sitter-swift.wasm',
+    sha256: '41c4fdb2249a3aa6d87eed0d383081ff09725c2248b4977043a43825980ffcc7',
+    version: '0.1.13',
   },
 };
 

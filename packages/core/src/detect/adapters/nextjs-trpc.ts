@@ -18,6 +18,7 @@ import { Parser } from 'web-tree-sitter';
 import type { CodebaseAdapter, AdapterResult, DetectionSignals, Provenance, SourceFile } from './types.ts';
 import { runQuery, InvalidQueryError } from './query-helpers.ts';
 import { loadGrammar } from './tree-sitter-loader.ts';
+import { isParsableSource, MAX_AST_FILE_BYTES } from './parse-guard.ts';
 
 // ============================================================
 // Queries
@@ -92,6 +93,13 @@ export const nextjsTrpcAdapter: CodebaseAdapter = {
 
     try {
       for (const file of files) {
+        const skip = isParsableSource(file.content, file.size);
+        if (skip) {
+          process.stderr.write(
+            `[massu/ast] WARN: nextjs-trpc skipping ${file.path}: ${skip.reason} (${skip.detail}). Cap=${MAX_AST_FILE_BYTES}. (Phase 3.5 mitigation)\n`,
+          );
+          continue;
+        }
         try {
           for (const hit of runQuery(parser, file.content, ROUTER_BUILDER_QUERY, 'trpc-router-builder', file.path)) {
             // Either capture group `builder_id` (direct call) or

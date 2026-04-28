@@ -57,6 +57,33 @@ import {
 const MAX_RESPONSE_BODY_BYTES = 5 * 1024 * 1024;
 /** Default per-request timeout (ms). LSP unresponsive → degrade to AST-only. */
 const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
+/**
+ * Maximum cumulative bytes the parser will buffer waiting for a header to
+ * arrive. A malicious LSP that drips characters forever without ever
+ * producing `\r\n\r\n` would otherwise grow the inbound buffer unbounded.
+ * 1MB is far more than any legitimate header. (Phase 3.5 finding #2)
+ */
+const MAX_HEADER_BUFFER_BYTES = 1 * 1024 * 1024;
+
+/**
+ * Strip prototype-pollution keys from any object before it crosses the
+ * trust boundary. Zod's `.passthrough()` accepts arbitrary keys including
+ * `__proto__` and `constructor.prototype`; we sanitise here so consumers
+ * never observe a polluted object. (Phase 3.5 finding #2 — prototype
+ * pollution.)
+ */
+function sanitizePolluted(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return value.map(sanitizePolluted);
+  }
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(value as Record<string, unknown>)) {
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+    out[k] = sanitizePolluted((value as Record<string, unknown>)[k]);
+  }
+  return out;
+}
 
 // ============================================================
 // Transport contract — pluggable for tests
@@ -96,7 +123,17 @@ function createStdioTransport(child: ChildProcess): LSPTransport {
     while (buffer.length > 0) {
       // Parse `Content-Length: N\r\n\r\n<body>` framing.
       const headerEnd = buffer.indexOf('\r\n\r\n');
-      if (headerEnd === -1) return;
+      if (headerEnd === -1) {
+        // No complete header yet. Cap buffer growth so a malicious LSP
+        // that drips bytes without `\r\n\r\n` cannot exhaust memory.
+        if (buffer.length > MAX_HEADER_BUFFER_BYTES) {
+          process.stderr.write(
+            `[massu/lsp] WARN: header buffer exceeded ${MAX_HEADER_BUFFER_BYTES} bytes without framing — dropping. (Phase 3.5 mitigation)\n`,
+          );
+          buffer = Buffer.alloc(0);
+        }
+        return;
+      }
       const headerText = buffer.subarray(0, headerEnd).toString('utf-8');
       const match = /Content-Length:\s*(\d+)/i.exec(headerText);
       if (!match) {
@@ -257,6 +294,13 @@ export class LSPClient {
       if (a.includes('..')) {
         throw new Error(`LSPClient.fromCommand: refused argv element containing "..": ${a}`);
       }
+      // Phase 3.5 finding #4 — null-byte injection. Node's spawn refuses
+      // strings containing NUL on most platforms, but we add an explicit
+      // check so the failure is descriptive and can never be silently
+      // mishandled by a kernel-level argv split.
+      if (a.includes('\0')) {
+        throw new Error(`LSPClient.fromCommand: refused argv element containing NUL byte`);
+      }
     }
     if (!spec.allowRelativePath && !isAbsolute(exe)) {
       throw new Error(
@@ -269,6 +313,16 @@ export class LSPClient {
       stdio: ['pipe', 'pipe', 'pipe'],
       // Explicitly NO `shell: true` — argv array form is the security
       // contract.
+      shell: false,
+      // Phase 3.5 finding #4: drop the parent's environment so the
+      // spawned LSP cannot leak ambient secrets via env. Carry only PATH
+      // (LSP servers commonly expect it for resolving sub-tools) and
+      // HOME (some servers use it for cache directories).
+      env: {
+        PATH: process.env.PATH ?? '',
+        HOME: process.env.HOME ?? '',
+        LANG: process.env.LANG ?? 'C.UTF-8',
+      },
     });
     return new LSPClient(createStdioTransport(child), options);
   }
@@ -289,7 +343,7 @@ export class LSPClient {
     };
     const raw = await this.sendRequest('initialize', params);
     if (raw === null) return null;
-    const parsed = InitializeResponseSchema.safeParse(raw);
+    const parsed = InitializeResponseSchema.safeParse(sanitizePolluted(raw));
     if (!parsed.success) {
       process.stderr.write(
         `[massu/lsp] WARN: initialize response failed Zod validation: ${parsed.error.message}\n`
@@ -318,7 +372,7 @@ export class LSPClient {
       textDocument: { uri },
     });
     if (raw === null) return null;
-    const parsed = DocumentSymbolResponseSchema.safeParse(raw);
+    const parsed = DocumentSymbolResponseSchema.safeParse(sanitizePolluted(raw));
     if (!parsed.success) {
       process.stderr.write(
         `[massu/lsp] WARN: textDocument/documentSymbol response failed Zod validation — falling back to AST-only for this file. (${parsed.error.message})\n`
@@ -339,7 +393,7 @@ export class LSPClient {
     }
     const raw = await this.sendRequest('workspace/symbol', { query });
     if (raw === null) return null;
-    const parsed = WorkspaceSymbolResponseSchema.safeParse(raw);
+    const parsed = WorkspaceSymbolResponseSchema.safeParse(sanitizePolluted(raw));
     if (!parsed.success) {
       process.stderr.write(
         `[massu/lsp] WARN: workspace/symbol response failed Zod validation. (${parsed.error.message})\n`
@@ -359,7 +413,7 @@ export class LSPClient {
       position,
     });
     if (raw === null) return null;
-    const parsed = DefinitionResponseSchema.safeParse(raw);
+    const parsed = DefinitionResponseSchema.safeParse(sanitizePolluted(raw));
     if (!parsed.success) {
       process.stderr.write(
         `[massu/lsp] WARN: textDocument/definition response failed Zod validation. (${parsed.error.message})\n`

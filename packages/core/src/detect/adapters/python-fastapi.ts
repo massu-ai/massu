@@ -26,6 +26,7 @@ import { Parser } from 'web-tree-sitter';
 import type { CodebaseAdapter, AdapterResult, DetectionSignals, Provenance, SourceFile } from './types.ts';
 import { runQuery, InvalidQueryError } from './query-helpers.ts';
 import { loadGrammar } from './tree-sitter-loader.ts';
+import { isParsableSource, MAX_AST_FILE_BYTES } from './parse-guard.ts';
 
 // ============================================================
 // Tree-sitter S-expression queries
@@ -115,6 +116,16 @@ export const pythonFastApiAdapter: CodebaseAdapter = {
 
     try {
       for (const file of files) {
+        // Phase 3.5 fix: defense-in-depth size + depth gate at adapter
+        // tier (the runner also gates, but adapters may be invoked
+        // directly from tests/CLI).
+        const skip = isParsableSource(file.content, file.size);
+        if (skip) {
+          process.stderr.write(
+            `[massu/ast] WARN: python-fastapi skipping ${file.path}: ${skip.reason} (${skip.detail}). Cap=${MAX_AST_FILE_BYTES}. (Phase 3.5 mitigation)\n`,
+          );
+          continue;
+        }
         try {
           // Auth dep
           for (const hit of runQuery(parser, file.content, AUTH_DEP_QUERY, 'fastapi-auth-dep', file.path)) {

@@ -23,7 +23,15 @@
  */
 
 import { createHash } from 'crypto';
-import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'fs';
+import {
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  renameSync,
+  unlinkSync,
+  lstatSync,
+  chmodSync,
+} from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { Language, Parser } from 'web-tree-sitter';
@@ -65,6 +73,42 @@ export class GrammarUnavailableError extends Error {
     this.name = 'GrammarUnavailableError';
     this.language = language;
     this.cause = cause;
+  }
+}
+
+/**
+ * Thrown when the cache path resolves to a symlink (or any non-regular
+ * file). Pre-creating a symlink at the expected cache path is a known
+ * vector for redirecting reads/writes elsewhere on the filesystem.
+ * (Phase 3.5 finding #3 — symlink attack on cache dir.)
+ */
+export class GrammarCacheSymlinkError extends Error {
+  public readonly cachePath: string;
+  constructor(cachePath: string) {
+    super(
+      `[tree-sitter-loader] Refusing to load grammar — cache path "${cachePath}" is a symlink ` +
+        `or non-regular file. (Phase 3.5 finding #3 — symlink attack vector.)`,
+    );
+    this.name = 'GrammarCacheSymlinkError';
+    this.cachePath = cachePath;
+  }
+}
+
+/**
+ * Thrown when a manifest URL is not HTTPS. The manifest is hardcoded in
+ * source, but defense in depth: any future edit that introduces an http://
+ * URL is rejected at load time, not at code review.
+ * (Phase 3.5 finding #3 — MITM on download.)
+ */
+export class GrammarUrlNotHttpsError extends Error {
+  public readonly url: string;
+  constructor(url: string) {
+    super(
+      `[tree-sitter-loader] Refusing to download grammar from non-HTTPS URL: ${url}. ` +
+        `Only https:// URLs are accepted. (Phase 3.5 finding #3.)`,
+    );
+    this.name = 'GrammarUrlNotHttpsError';
+    this.url = url;
   }
 }
 
@@ -191,8 +235,19 @@ export async function loadGrammar(
 
   const cachePath = getCachedPath(language, manifest.sha256);
 
-  // 2/3: disk cache check
-  if (existsSync(cachePath)) {
+  // 2/3: disk cache check. Use lstatSync (NOT statSync) so a symlink at
+  // the cache path is detected and rejected — never followed.
+  // (Phase 3.5 finding #3 — symlink attack on cache dir.)
+  let cacheLstat;
+  try {
+    cacheLstat = lstatSync(cachePath);
+  } catch {
+    cacheLstat = null;
+  }
+  if (cacheLstat) {
+    if (cacheLstat.isSymbolicLink() || !cacheLstat.isFile()) {
+      throw new GrammarCacheSymlinkError(cachePath);
+    }
     let bytes: Uint8Array;
     try {
       bytes = readFileSync(cachePath);
@@ -213,7 +268,11 @@ export async function loadGrammar(
     }
   }
 
-  // 4/5: download
+  // 4/5: download. Defense in depth: refuse non-HTTPS URLs.
+  if (!/^https:\/\//i.test(manifest.url)) {
+    throw new GrammarUrlNotHttpsError(manifest.url);
+  }
+
   const fetchImpl = options.fetchImpl ?? (globalThis.fetch as LoaderOptions['fetchImpl']);
   if (!fetchImpl) {
     throw new GrammarUnavailableError(
@@ -239,12 +298,18 @@ export async function loadGrammar(
   }
 
   // Atomic cache write. Always create the dir first.
+  // Mode 0o700 on the dir + 0o600 on files — owner-only access prevents
+  // local information disclosure of cached grammars.
+  // (Phase 3.5 finding #3 — file-mode hardening.)
   try {
-    mkdirSync(dirname(cachePath), { recursive: true });
+    mkdirSync(dirname(cachePath), { recursive: true, mode: 0o700 });
+    try { chmodSync(dirname(cachePath), 0o700); } catch { /* best effort */ }
     const tmpPath = `${cachePath}.tmp.${process.pid}`;
-    writeFileSync(tmpPath, body);
+    writeFileSync(tmpPath, body, { mode: 0o600 });
+    try { chmodSync(tmpPath, 0o600); } catch { /* best effort */ }
     try {
       renameSync(tmpPath, cachePath);
+      try { chmodSync(cachePath, 0o600); } catch { /* best effort */ }
     } catch (e) {
       // Try to clean up the tmp file on rename failure
       try {

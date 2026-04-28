@@ -28,6 +28,7 @@ import type {
   Provenance,
   SourceFile,
 } from './types.ts';
+import { isParsableSource, MAX_AST_FILE_BYTES } from './parse-guard.ts';
 
 export interface RunAdaptersOptions {
   /**
@@ -105,6 +106,23 @@ export async function runAdapters(
       });
       continue;
     }
+
+    // Phase 3.5 fix: size + depth + control-byte gate. Drop adversarial
+    // inputs BEFORE the adapter sees them — adapters trust this layer.
+    // Files dropped here are logged once per drop so operators see the
+    // signal; the adapter then runs against the surviving subset.
+    const safeFiles: SourceFile[] = [];
+    for (const f of files) {
+      const skip = isParsableSource(f.content, f.size);
+      if (skip) {
+        process.stderr.write(
+          `[massu/ast] WARN: skipping ${f.path} for adapter ${adapter.id}: ${skip.reason} (${skip.detail}). Cap=${MAX_AST_FILE_BYTES} bytes. (Phase 3.5 mitigation)\n`,
+        );
+        continue;
+      }
+      safeFiles.push(f);
+    }
+    files = safeFiles;
 
     let result;
     try {

@@ -75,12 +75,23 @@ describe('WASM load — manifest immutability (F-007)', () => {
     }
   });
 
-  it('manifest hashes are PLACEHOLDER values (Phase 9 release-prep populates them) — documented gap', () => {
-    // This test enshrines the documented INFO finding F-007: until Phase 9,
-    // every download path will fail SHA verification. That's safe — placeholders
-    // are MORE conservative than empty strings (no payload can match).
-    for (const entry of Object.values(GRAMMAR_MANIFEST)) {
-      expect(entry?.sha256).toMatch(/^PLACEHOLDER_/);
+  it('manifest hashes are populated 64-char hex (Phase 9 release-prep, 2026-04-28) — F-007 closed', () => {
+    // F-007 was an INFO finding flagging that the manifest shipped with
+    // PLACEHOLDER_ values at audit time, so the loader was fail-safe but
+    // never functional. Phase 9 release-prep populated real SHA-256 hashes
+    // for the 4 first-party grammars by curl'ing each pinned unpkg URL
+    // (tree-sitter-wasms@0.1.13/out/) through `shasum -a 256`. This test
+    // now asserts the inverse: every manifest entry has a 64-char
+    // lowercase hex hash and NO placeholder sentinel survives.
+    const hex64 = /^[0-9a-f]{64}$/;
+    for (const [language, entry] of Object.entries(GRAMMAR_MANIFEST)) {
+      expect(entry?.sha256, `manifest[${language}].sha256 must be 64-char hex`).toMatch(hex64);
+      expect(entry?.sha256, `manifest[${language}].sha256 must not be PLACEHOLDER_`).not.toMatch(/^PLACEHOLDER_/);
+      // SHA-256 of empty string would mean curl piped nothing through
+      // shasum (e.g. 404 silently returned). Reject explicitly.
+      expect(entry?.sha256, `manifest[${language}].sha256 must not be SHA-256 of empty string`).not.toBe(
+        'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      );
     }
   });
 });

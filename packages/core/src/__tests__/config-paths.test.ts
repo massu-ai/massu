@@ -29,11 +29,23 @@ const SRC_DIR = resolve(__dirname, '..');
 /** Recursively collect all .ts files under a directory, excluding __tests__/ and hooks/. */
 function collectTsFiles(dir: string): string[] {
   const results: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    // A sibling test (e.g., config-detected.test.ts) may be mkdir/rmdir-ing
+    // a `test-*-tmp` fixture directory under SRC_DIR concurrently. If readdir
+    // races the deletion we get ENOENT — treat as empty rather than failing.
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return results;
+    throw err;
+  }
+  for (const entry of entries) {
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
-      // Skip test directories and hooks (hooks are compiled scripts, not library code)
+      // Skip test directories, node_modules, and ephemeral test fixture dirs
+      // (named `test-*-tmp`) created and torn down by sibling tests at runtime.
       if (entry.name === '__tests__' || entry.name === 'node_modules') continue;
+      if (/^test-.*-tmp$/.test(entry.name)) continue;
       results.push(...collectTsFiles(fullPath));
     } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) {
       results.push(fullPath);

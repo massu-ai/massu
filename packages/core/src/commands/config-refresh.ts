@@ -33,6 +33,7 @@ import { copyUnknownKeys, preserveNestedSubkeys } from '../detect/passthrough.ts
 import { buildConfigFromDetection, renderConfigYaml, writeConfigAtomic } from './init.ts';
 import { installAll } from './install-commands.ts';
 import { resetConfig } from '../config.ts';
+import { withInstallLock } from '../lib/installLock.ts';
 
 const PRESERVED_FIELDS = [
   'rules',
@@ -64,6 +65,14 @@ export interface ConfigRefreshOptions {
    * hermetic, and by users who want config-only refresh behavior.
    */
   skipCommands?: boolean;
+  /**
+   * Plan 3a Phase 6: when true, bypass BOTH the non-TTY bail and the
+   * `@clack/prompts` confirm gate. The watcher daemon and `--yes` CLI flag
+   * use this to auto-apply detected changes. Combined with
+   * `skipCommands: true`, it lets the watcher delegate `installAll` to its
+   * own outer call (single install, single lock acquire — see iter-3 G3-A9).
+   */
+  autoYes?: boolean;
 }
 
 export interface ConfigRefreshResult {
@@ -301,26 +310,34 @@ export async function runConfigRefresh(opts: ConfigRefreshOptions = {}): Promise
     return { exitCode: 0, applied: false, dryRun: false, diff };
   }
 
-  // Interactive prompt; fall back to dry-run semantics when not a TTY.
-  if (!process.stdin.isTTY) {
-    log('Config diff (non-interactive; pass --dry-run to suppress this note or run interactively to apply):\n');
-    log(renderDiff(diff));
-    return {
-      exitCode: 0,
-      applied: false,
-      dryRun: false,
-      diff,
-      message: 'non-interactive shell; no changes written',
-    };
-  }
+  // Plan 3a Phase 6: when autoYes=true, skip BOTH the non-TTY bail and the
+  // confirm gate so the watcher (daemon stdin is detached) and the
+  // `--yes`/-y CLI flag actually apply changes.
+  if (!opts.autoYes) {
+    // Interactive prompt; fall back to dry-run semantics when not a TTY.
+    if (!process.stdin.isTTY) {
+      log('Config diff (non-interactive; pass --dry-run to suppress this note or run interactively to apply):\n');
+      log(renderDiff(diff));
+      return {
+        exitCode: 0,
+        applied: false,
+        dryRun: false,
+        diff,
+        message: 'non-interactive shell; no changes written',
+      };
+    }
 
-  log('Config diff:\n');
-  log(renderDiff(diff));
-  const { confirm } = await import('@clack/prompts');
-  const apply = await confirm({ message: 'Apply these changes to massu.config.yaml?' });
-  if (apply !== true) {
-    log('Aborted; no changes written.\n');
-    return { exitCode: 0, applied: false, dryRun: false, diff, message: 'aborted by user' };
+    log('Config diff:\n');
+    log(renderDiff(diff));
+    const { confirm } = await import('@clack/prompts');
+    const apply = await confirm({ message: 'Apply these changes to massu.config.yaml?' });
+    if (apply !== true) {
+      log('Aborted; no changes written.\n');
+      return { exitCode: 0, applied: false, dryRun: false, diff, message: 'aborted by user' };
+    }
+  } else {
+    log('Config diff (auto-applying via --yes / watcher):\n');
+    log(renderDiff(diff));
   }
 
   const yamlContent = renderConfigYaml(merged);
@@ -341,7 +358,7 @@ export async function runConfigRefresh(opts: ConfigRefreshOptions = {}): Promise
     // Reset cached config so installAll reads the freshly-written YAML.
     resetConfig();
     try {
-      const installResult = installAll(cwd);
+      const installResult = withInstallLock(cwd, () => installAll(cwd));
       const total =
         installResult.totalInstalled +
         installResult.totalUpdated +
@@ -366,6 +383,9 @@ export async function runConfigRefresh(opts: ConfigRefreshOptions = {}): Promise
       }
     } catch (err) {
       // Don't fail the whole refresh if re-template breaks; the YAML was already written.
+      // InstallLockBusyError.message already follows plan §243 format —
+      // `installAll already running (PID=X) — try again in <N>s` — so we
+      // surface it verbatim rather than re-wrapping.
       const msg = err instanceof Error ? err.message : String(err);
       if (!opts.silent) process.stderr.write(`Warning: re-template failed: ${msg}\n`);
     }

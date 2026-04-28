@@ -351,6 +351,19 @@ const DetectionConfigSchema = z.object({
 }).passthrough().optional();
 export type DetectionConfig = z.infer<typeof DetectionConfigSchema>;
 
+// --- Watch Config (Plan 3a — `massu watch` daemon) ---
+// Tunable knobs for the file-watcher daemon. All optional with sensible
+// defaults; users override only when their repo has unusual quiescence
+// patterns (e.g. monorepos with continuous codegen, NFS-mounted volumes).
+const WatchConfigSchema = z.object({
+  debounce_ms: z.number().int().positive().default(3000),
+  storm_threshold: z.number().int().positive().default(50),
+  deep_storm_threshold: z.number().int().positive().default(500),
+  hard_timeout_ms: z.number().int().positive().default(300_000),
+  scope: z.enum(['paths', 'full']).default('paths'),
+}).passthrough().optional();
+export type WatchConfig = z.infer<typeof WatchConfigSchema>;
+
 // --- Top-level Raw Config Schema ---
 // This validates the raw YAML output, coercing types and providing defaults.
 // P2-001: schema_version tracks the config shape version. Defaults to 1 so
@@ -391,6 +404,8 @@ const RawConfigSchema = z.object({
   detection: DetectionConfigSchema,
   // Plan #2: detector-owned per-language conventions (free-form passthrough)
   detected: DetectedConfigSchema,
+  // Plan 3a: file-watcher daemon tunables
+  watch: WatchConfigSchema,
 }).passthrough();
 
 // --- Final Config interface (derived from Zod) ---
@@ -431,6 +446,8 @@ export interface Config {
   detection?: DetectionConfig;
   // Plan #2: detector-owned per-language conventions
   detected?: DetectedConfig;
+  // Plan 3a: file-watcher daemon tunables
+  watch?: WatchConfig;
 }
 
 let _config: Config | null = null;
@@ -579,6 +596,7 @@ export function getConfig(): Config {
     verification_types: parsed.verification_types,
     detection: parsed.detection,
     detected: parsed.detected,
+    watch: parsed.watch,
   };
 
   // Allow environment variable override for API key (security best practice)

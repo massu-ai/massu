@@ -1,9 +1,10 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
-import { describe, it, expect, afterEach } from 'vitest';
-import { writeFileSync, unlinkSync, existsSync } from 'fs';
+import { describe, it, expect, afterEach, afterAll } from 'vitest';
+import { writeFileSync, unlinkSync, existsSync, mkdtempSync, rmSync } from 'fs';
 import { resolve } from 'path';
+import { tmpdir } from 'os';
 import {
   parseTranscript,
   extractUserMessages,
@@ -18,8 +19,15 @@ import {
 } from '../transcript-parser.ts';
 
 // P7-002: Transcript Parser Tests
-
-const TEST_JSONL = resolve(__dirname, '../test-transcript.jsonl');
+// Iter-7 fix: previous code wrote to a fixed path
+// `<src>/test-transcript.jsonl`. `observability.test.ts` uses the SAME path,
+// so under vitest's `pool: 'forks'` (iter-6 default) the two test files
+// race on a shared disk file — both forks `writeFileSync` and `unlinkSync`
+// the same inode, occasionally producing 0-entry parses against an empty
+// file (verified flake under iter-7 stress: ~1-in-12 full-suite runs).
+// Use a per-fork tmpdir so each fork owns its own JSONL.
+const TMP_DIR = mkdtempSync(resolve(tmpdir(), 'massu-transcript-parser-'));
+const TEST_JSONL = resolve(TMP_DIR, 'transcript.jsonl');
 
 function writeTestTranscript(entries: Record<string, unknown>[]): void {
   const content = entries.map(e => JSON.stringify(e)).join('\n');
@@ -32,6 +40,9 @@ function cleanup(): void {
 
 describe('Transcript Parser', () => {
   afterEach(cleanup);
+  afterAll(() => {
+    try { rmSync(TMP_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
 
   describe('parseTranscript', () => {
     it('parses JSONL entries', async () => {

@@ -20,9 +20,13 @@
  */
 
 import {
+  closeSync,
   existsSync,
+  fsyncSync,
+  openSync,
   readFileSync,
-  writeFileSync,
+  rmSync,
+  writeSync,
   mkdirSync,
   readdirSync,
   statSync,
@@ -127,17 +131,55 @@ export function loadManifest(claudeDir: string): Manifest {
   }
 }
 
-/** Write the manifest atomically: tempfile + renameSync. */
+/**
+ * Iter-7 fix: atomic file write — tmp + fsync + rename.
+ *
+ * Plan 3a §3 Risk #4 ("Watcher writes to .claude/ while editor has it open:
+ * editors can lose changes. Mitigation: write to .massu-tmp then atomic rename")
+ * AND the watcher spec doc §3 Shutdown Semantics claim ("every file op the
+ * refresh issues is already atomic-rename-safe... installAll writes <path>.tmp
+ * then renameSync") both demand this. Previously installAll's per-file writes
+ * (lines 463/467) and saveManifest were direct `writeFileSync` calls — a
+ * SIGINT/power-loss between truncate and complete-write left a partial file.
+ * Now both go through this helper so the watcher's iter-6 "we don't await
+ * fireRefresh because atomic-rename covers everything" decision is sound.
+ *
+ * Writes via openSync + writeSync + fsyncSync + closeSync + renameSync so the
+ * data hits the platter before the rename. On any error, removes the tmp file.
+ * Tmp filename includes process.pid to avoid clashes with concurrent installs
+ * from sibling processes (e.g. a manual `npx massu config refresh` racing the
+ * watcher daemon — the install-lock should prevent this, but the file-level
+ * tmp name disambiguates if it ever happens).
+ */
+function atomicWriteFile(targetPath: string, content: string, mode = 0o644): void {
+  const tmpPath = `${targetPath}.${process.pid}.tmp`;
+  try {
+    const fd = openSync(tmpPath, 'w', mode);
+    try {
+      const buf = Buffer.from(content, 'utf-8');
+      writeSync(fd, buf, 0, buf.length, 0);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(tmpPath, targetPath);
+  } catch (err) {
+    if (existsSync(tmpPath)) {
+      try { rmSync(tmpPath, { force: true }); } catch { /* ignore */ }
+    }
+    throw err;
+  }
+}
+
+/** Write the manifest atomically: tempfile + fsync + renameSync. */
 export function saveManifest(claudeDir: string, manifest: Manifest): void {
   const dir = resolve(claudeDir, '.massu');
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
   const finalPath = resolve(dir, 'install-manifest.json');
-  const tempPath = finalPath + '.tmp';
   manifest.generatedAt = new Date().toISOString();
-  writeFileSync(tempPath, JSON.stringify(manifest, null, 2), 'utf-8');
-  renameSync(tempPath, finalPath);
+  atomicWriteFile(finalPath, JSON.stringify(manifest, null, 2));
 }
 
 function emptyManifest(): Manifest {
@@ -460,11 +502,11 @@ export function syncDirectory(
       }
 
       // existingHash === lastInstalledHash and sourceHash differs → safe upgrade.
-      writeFileSync(targetPath, sourceContent, 'utf-8');
+      atomicWriteFile(targetPath, sourceContent);
       manifest.entries[manifestKey] = sourceHash;
       stats.updated++;
     } else {
-      writeFileSync(targetPath, sourceContent, 'utf-8');
+      atomicWriteFile(targetPath, sourceContent);
       manifest.entries[manifestKey] = sourceHash;
       stats.installed++;
     }

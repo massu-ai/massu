@@ -16,6 +16,7 @@ import { parse as parseYaml } from 'yaml';
 import type Database from 'better-sqlite3';
 import { runDetection } from '../detect/index.ts';
 import { computeFingerprint } from '../detect/drift.ts';
+import { isPidAlive } from '../lib/pidLiveness.ts';
 
 interface HookInput {
   session_id: string;
@@ -68,9 +69,14 @@ async function main(): Promise<void> {
       }
 
       // P5-001: drift banner (runs after memory context, independent of it).
+      // Plan 3a Phase 6: when a live watcher daemon exists, the drift banner
+      // is suppressed in favor of a compact watcher banner.
       const driftBanner = await buildDriftBanner();
       if (driftBanner) {
         process.stdout.write(driftBanner);
+      } else {
+        const watcherBanner = buildWatcherBanner();
+        if (watcherBanner) process.stdout.write(watcherBanner);
       }
     } finally {
       db.close();
@@ -262,7 +268,13 @@ function readStdin(): Promise<string> {
 async function buildDriftBanner(): Promise<string> {
   try {
     // Plan #2 P4-004: explicit opt-out for users in deliberate mid-migration windows.
+    // Stays at the top so MASSU_DRIFT_QUIET=1 remains the strongest signal
+    // (iter-1 G8: env-var override beats watcher-state suppression).
     if (process.env.MASSU_DRIFT_QUIET === '1') return '';
+
+    // Plan 3a Phase 6: if a live watcher daemon refreshed within the last 24h,
+    // suppress this banner — the watcher already keeps the config current.
+    if (watcherIsLiveAndFresh()) return '';
 
     const configPath = resolve(process.cwd(), 'massu.config.yaml');
     if (!existsSync(configPath)) return '';
@@ -315,8 +327,11 @@ function loadCorrectionsPreventionRules(): string[] {
     const cwd = process.cwd();
     const config = getConfig();
     const claudeDirName = config.conventions?.claudeDirName ?? '.claude';
-    // Convert cwd to Claude's directory format: /Users/x/project -> -Users-x-project
-    const projectDirName = cwd.replace(/\//g, '-').replace(/^-/, '');
+    // Convert cwd to Claude's directory format: /Users/x/project -> -Users-x-project.
+    // Match both forward slashes (POSIX) and backslashes (Windows) so the lookup
+    // works cross-platform — without this, Windows users silently miss prevention
+    // rules because their projectDirName never resolves.
+    const projectDirName = cwd.replace(/[/\\]/g, '-').replace(/^-/, '');
     const correctionsPath = join(homeDir, claudeDirName, 'projects', projectDirName, 'memory', 'corrections.md');
 
     if (!existsSync(correctionsPath)) return [];
@@ -348,6 +363,73 @@ function loadCorrectionsPreventionRules(): string[] {
     // Graceful degradation: never block session start
     return [];
   }
+}
+
+// ============================================================
+// Plan 3a Phase 6: watcher-aware banner support
+// ============================================================
+
+interface WatchStateShape {
+  schema_version?: number;
+  daemonPid?: number | null;
+  lastRefreshAt?: string | null;
+  startedAt?: string | null;
+}
+
+function readWatchStateRaw(cwd: string): WatchStateShape | null {
+  try {
+    const path = resolve(cwd, '.massu', 'watch-state.json');
+    if (!existsSync(path)) return null;
+    const obj = JSON.parse(readFileSync(path, 'utf-8'));
+    if (!obj || typeof obj !== 'object') return null;
+    return obj as WatchStateShape;
+  } catch {
+    return null;
+  }
+}
+
+function watcherIsLiveAndFresh(): boolean {
+  // MASSU_DRIFT_QUIET takes precedence (caller already short-circuited).
+  // Fresh = last refresh within 24h AND daemonPid is alive.
+  const state = readWatchStateRaw(process.cwd());
+  if (!state) return false;
+  if (typeof state.daemonPid !== 'number' || state.daemonPid <= 0) return false;
+  if (!isPidAlive(state.daemonPid)) return false;
+  if (typeof state.lastRefreshAt !== 'string') return false;
+  const last = Date.parse(state.lastRefreshAt);
+  if (!Number.isFinite(last)) return false;
+  const ageMs = Date.now() - last;
+  return ageMs >= 0 && ageMs < 24 * 60 * 60 * 1000;
+}
+
+function buildWatcherBanner(): string {
+  // P4-004 ordering: MASSU_DRIFT_QUIET wins everywhere.
+  if (process.env.MASSU_DRIFT_QUIET === '1') return '';
+  const state = readWatchStateRaw(process.cwd());
+  if (!state) return '';
+  if (typeof state.daemonPid !== 'number' || state.daemonPid <= 0) return '';
+  if (!isPidAlive(state.daemonPid)) return '';
+  if (typeof state.lastRefreshAt !== 'string') return '';
+  const last = Date.parse(state.lastRefreshAt);
+  if (!Number.isFinite(last)) return '';
+  const ageMs = Date.now() - last;
+  if (ageMs < 0 || ageMs >= 24 * 60 * 60 * 1000) return '';
+
+  const ageStr = formatAge(ageMs);
+  return (
+    '=== Massu Watcher ===\n' +
+    `[massu] watcher running, last refresh: ${ageStr} ago (pid ${state.daemonPid})\n` +
+    '=== END ===\n'
+  );
+}
+
+function formatAge(ms: number): string {
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hr = Math.round(min / 60);
+  return `${hr}h`;
 }
 
 main();

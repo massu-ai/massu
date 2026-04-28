@@ -26,7 +26,7 @@
  *   installHooks, buildHooksConfig, resolveHooksDir, initMemoryDir, runInit.
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, chmodSync } from 'fs';
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, writeFileSync, writeSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, chmodSync } from 'fs';
 import { resolve, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
@@ -589,7 +589,31 @@ export function writeConfigAtomic(
   }
 
   try {
-    writeFileSync(tmpPath, content, { encoding: 'utf-8', mode: 0o644 });
+    // Iter-8 fix: ensure the parent directory exists. POSIX `rename(2)`
+    // requires the target's parent to exist; otherwise the rename fails
+    // with ENOENT and we leak the tmp. The watcher's auto-refresh path
+    // never hits this (the configPath is always inside an existing repo
+    // with massu.config.yaml already there), but `runInit` on a fresh
+    // path under a non-existent parent would fall over before this line.
+    mkdirSync(dirname(configPath), { recursive: true });
+
+    // Iter-7 fix: write tmp via openSync + writeSync + fsyncSync + closeSync
+    // so the data hits the platter BEFORE renameSync. This matches
+    // `writeStateAtomic` (watch/state.ts) and the spec doc claim that the
+    // 3a watcher's atomic-rename guarantees universally cover all writes
+    // touched during a refresh cycle. Without fsync, on certain filesystems
+    // (xfs, ext4 `data=writeback`) the rename can land before data, leaving
+    // a zero-byte config on power-loss / SIGKILL between writeFileSync and
+    // renameSync — a gap the watcher daemon makes more reachable since
+    // refresh writes happen unattended every quiescence window.
+    const fd = openSync(tmpPath, 'w', 0o644);
+    try {
+      const buf = Buffer.from(content, 'utf-8');
+      writeSync(fd, buf, 0, buf.length, 0);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
 
     // Validate YAML parses.
     const parsed = yamlParse(content);

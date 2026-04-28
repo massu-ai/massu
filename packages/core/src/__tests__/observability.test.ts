@@ -1,10 +1,11 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import Database from 'better-sqlite3';
 import { resolve } from 'path';
-import { unlinkSync, existsSync, writeFileSync } from 'fs';
+import { unlinkSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import {
   createSession,
   addConversationTurn,
@@ -398,12 +399,22 @@ describe('Observability', () => {
   });
 
   describe('parseTranscriptFrom', () => {
-    const MOCK_TRANSCRIPT_PATH = resolve(__dirname, '../test-transcript.jsonl');
+    // Iter-7 fix: previously this used a fixed source-tree path
+    // `<src>/test-transcript.jsonl` that ALSO collides with
+    // `transcript-parser.test.ts`. Under vitest's `pool: 'forks'` the two
+    // test files run in separate processes but write/unlink the same disk
+    // inode — verified flake. Use a per-fork tmpdir.
+    const MOCK_DIR = mkdtempSync(resolve(tmpdir(), 'massu-observability-transcript-'));
+    const MOCK_TRANSCRIPT_PATH = resolve(MOCK_DIR, 'transcript.jsonl');
 
     afterEach(() => {
       if (existsSync(MOCK_TRANSCRIPT_PATH)) {
         unlinkSync(MOCK_TRANSCRIPT_PATH);
       }
+    });
+
+    afterAll(() => {
+      try { rmSync(MOCK_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
     });
 
     it('parses from a specific line', async () => {

@@ -52,6 +52,18 @@ async function main(): Promise<void> {
       await runShowTemplate(args.slice(1));
       break;
     }
+    case 'watch': {
+      const { runWatch } = await import('./commands/watch.ts');
+      const result = await runWatch(args.slice(1));
+      process.exit(result.exitCode);
+      return;
+    }
+    case 'refresh-log': {
+      const { runRefreshLog } = await import('./commands/refresh-log.ts');
+      const result = await runRefreshLog(args.slice(1));
+      process.exit(result.exitCode);
+      return;
+    }
     case 'validate-config': {
       const { runValidateConfig } = await import('./commands/doctor.ts');
       await runValidateConfig();
@@ -88,6 +100,7 @@ async function handleConfigSubcommand(configArgs: string[]): Promise<void> {
       const result = await runConfigRefresh({
         dryRun: flags.has('--dry-run'),
         skipCommands: flags.has('--skip-commands'),
+        autoYes: flags.has('--yes') || flags.has('-y'),
       });
       process.exit(result.exitCode);
       return;
@@ -145,6 +158,8 @@ Commands:
   install-hooks     Install/update Claude Code hooks
   install-commands  Install/update slash commands
   show-template     Print the resolved variant of a bundled template (e.g. for diffs)
+  watch             Run the file-watcher daemon (auto-refresh on stack changes)
+  refresh-log [N]   Show the last N watcher auto-refresh events
   validate-config   Validate massu.config.yaml (alias: config validate)
   config <sub>      Config lifecycle: refresh | validate | upgrade | doctor | check-drift
 
@@ -167,7 +182,9 @@ massu config <subcommand>
 
 Subcommands:
   refresh       Re-run detection and apply changes to massu.config.yaml.
-                  --dry-run    Print diff and exit without writing.
+                  --dry-run        Print diff and exit without writing.
+                  --skip-commands  Don't re-template .claude/commands/.
+                  --yes, -y        Auto-apply without prompting (CI / scripts).
   validate      Validate massu.config.yaml (alias of \`massu validate-config\`).
   upgrade       Migrate a v1 config to schema_version=2.
                   --rollback   Restore from .bak file.

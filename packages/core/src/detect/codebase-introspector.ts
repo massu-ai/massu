@@ -116,9 +116,14 @@ function introspectPython(
   if (!sourceDir) return null;
 
   // Sample router-shaped files first (FastAPI / Flask), then views.py (Django),
-  // then any .py file as a last resort.
-  const routerFiles = sampleFiles(sourceDir, /\.py$/, name =>
-    /(routers?|api|endpoints?)/.test(name),
+  // then any .py file as a last resort. Match on PATH, not just filename:
+  // FastAPI projects typically name routers by resource (`options.py`, `tax.py`)
+  // and place them under a `routers/` directory, so basename-only matching
+  // misses them. Also accept files where the basename itself is router-shaped
+  // (e.g., `endpoints.py`, `api.py`).
+  const routerFiles = sampleFiles(sourceDir, /\.py$/, (absPath, name) =>
+    /\/(routers?|api|endpoints?|views)\//.test(absPath) ||
+    /^(routers?|api|endpoints?)\.py$/.test(name),
   );
   const viewFiles = sampleFiles(sourceDir, /^views\.py$/);
   const fallbackFiles = routerFiles.length === 0 && viewFiles.length === 0
@@ -221,9 +226,11 @@ function introspectSwift(
   const sourceDir = resolveSourceDir(detection, 'swift', projectRoot);
   if (!sourceDir) return null;
 
-  // Prefer View files first, then any .swift.
-  const viewFiles = sampleFiles(sourceDir, /\.swift$/, name =>
-    /View\.swift$/.test(name),
+  // Prefer View files first, then any .swift. Path-aware: also match files
+  // under a `Views/` directory, since SwiftUI projects often name files by
+  // feature (e.g., `OrdersList.swift` inside `Features/Orders/Views/`).
+  const viewFiles = sampleFiles(sourceDir, /\.swift$/, (absPath, name) =>
+    /View\.swift$/.test(name) || /\/Views\//.test(absPath),
   );
   const fallbackFiles = viewFiles.length === 0
     ? sampleFiles(sourceDir, /\.swift$/)
@@ -292,9 +299,12 @@ function introspectTypeScript(
     ?? resolveSourceDir(detection, 'javascript', projectRoot);
   if (!sourceDir) return null;
 
-  // Look for tRPC router files first.
-  const routerFiles = sampleFiles(sourceDir, /\.tsx?$/, name =>
-    /(router|trpc)/i.test(name),
+  // Look for tRPC router files first. Match on PATH or filename: tRPC
+  // projects typically place routers under `server/api/routers/<name>.ts`
+  // where filenames are resource-named (e.g., `accounts.ts`).
+  const routerFiles = sampleFiles(sourceDir, /\.tsx?$/, (absPath, name) =>
+    /(router|trpc)/i.test(name) ||
+    /\/(routers|trpc|server\/api)\//.test(absPath),
   );
   const candidates = routerFiles.slice(0, MAX_SAMPLES_PER_ADAPTER);
 
@@ -373,13 +383,15 @@ function resolveSourceDir(
 
 /**
  * Walk `dir` and return up to MAX_SAMPLES_PER_ADAPTER files matching `nameRegex`,
- * filtered further by `nameFilter`. Skips dot-dirs, node_modules, .venv, etc.
- * Bounded depth.
+ * filtered further by `pathFilter` (called with absolute path AND basename, so
+ * filters can match either the filename (e.g., `views.py`) or a path
+ * component (e.g., a `routers/` parent directory). Skips dot-dirs,
+ * node_modules, .venv, etc. Bounded depth.
  */
 function sampleFiles(
   dir: string,
   nameRegex: RegExp,
-  nameFilter?: (name: string) => boolean,
+  pathFilter?: (absPath: string, basename: string) => boolean,
 ): string[] {
   const out: string[] = [];
   const stack: { path: string; depth: number }[] = [{ path: dir, depth: 0 }];
@@ -416,7 +428,7 @@ function sampleFiles(
       }
 
       if (!nameRegex.test(entry)) continue;
-      if (nameFilter && !nameFilter(entry)) continue;
+      if (pathFilter && !pathFilter(child, entry)) continue;
       if (st.size > MAX_FILE_BYTES) continue;
       out.push(child);
       if (out.length >= MAX_SAMPLES_PER_ADAPTER * 4) break;

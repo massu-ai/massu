@@ -1,0 +1,276 @@
+// Copyright (c) 2026 Massu. All rights reserved.
+// Licensed under BSL 1.1 - see LICENSE file for details.
+
+/**
+ * Plan 3b — Phase 1: Tree-sitter WASM grammar loader (Strategy A).
+ *
+ * Strategy A — locked at Phase 0 (`docs/internal/2026-04-26-ast-lsp-spec.md`
+ * §1, §8): grammars are NOT bundled in the npm tarball. The loader downloads
+ * each requested grammar at first use from a pinned URL, verifies SHA-256
+ * against a hardcoded manifest, caches under `~/.massu/wasm-cache/`.
+ *
+ * Security model (Phase 3.5 #3):
+ *   - SHA-256 manifest hardcoded HERE — never network-fetched.
+ *   - Mismatch → throw `GrammarSHAMismatchError`. NO silent fallback.
+ *   - Atomic cache write: `<lang>-<sha>.wasm.tmp.<pid>` → rename → final.
+ *   - Offline + no-cache → throw `GrammarUnavailableError` so the runner can
+ *     translate to a regex-fallback path with a stderr note.
+ *
+ * Phase 1 ships the CODE PATH; the actual SHA-256 values for each grammar
+ * URL are placeholders pending Phase 9 release-prep (`curl <url> | shasum
+ * -a 256`). The placeholder string is intentionally non-empty so the
+ * verification logic exercises the comparison branch in tests.
+ */
+
+import { createHash } from 'crypto';
+import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'fs';
+import { homedir } from 'os';
+import { dirname, join } from 'path';
+import { Language, Parser } from 'web-tree-sitter';
+import type { TreeSitterLanguage } from './types.ts';
+
+// ============================================================
+// Typed errors
+// ============================================================
+
+/** Thrown when downloaded WASM SHA-256 doesn't match the hardcoded manifest. */
+export class GrammarSHAMismatchError extends Error {
+  public readonly language: TreeSitterLanguage;
+  public readonly expected: string;
+  public readonly actual: string;
+  constructor(language: TreeSitterLanguage, expected: string, actual: string) {
+    super(
+      `[tree-sitter-loader] SHA-256 mismatch for grammar "${language}". ` +
+        `Expected ${expected}, got ${actual}. ` +
+        `REFUSING to load — see Phase 3.5 audit attack vector #3.`,
+    );
+    this.name = 'GrammarSHAMismatchError';
+    this.language = language;
+    this.expected = expected;
+    this.actual = actual;
+  }
+}
+
+/** Thrown when a grammar can't be obtained: download failed AND cache empty. */
+export class GrammarUnavailableError extends Error {
+  public readonly language: TreeSitterLanguage;
+  public readonly cause?: unknown;
+  constructor(language: TreeSitterLanguage, cause?: unknown) {
+    const causeMsg =
+      cause instanceof Error ? cause.message : cause ? String(cause) : 'no cached grammar and download failed';
+    super(
+      `[tree-sitter-loader] Grammar for "${language}" is unavailable: ${causeMsg}. ` +
+        `Falling back to regex introspection for files in ${language}.`,
+    );
+    this.name = 'GrammarUnavailableError';
+    this.language = language;
+    this.cause = cause;
+  }
+}
+
+// ============================================================
+// Pinned manifest
+// ============================================================
+
+interface ManifestEntry {
+  url: string;
+  sha256: string;
+  version: string;
+}
+
+/**
+ * Hardcoded grammar manifest. Source-code-resident; tampering requires a
+ * release. Pinned URLs use `unpkg.com/tree-sitter-<lang>-wasm@<version>` per
+ * Phase 0 §1.
+ *
+ * `sha256` placeholders are filled at Phase 9 release-prep via:
+ *   curl -fL <url> | shasum -a 256
+ * The CODE PATH for verification is exercised in `tree-sitter-loader.test.ts`
+ * by injecting test manifest entries.
+ */
+export const GRAMMAR_MANIFEST: Partial<Record<TreeSitterLanguage, ManifestEntry>> = {
+  python: {
+    url: 'https://unpkg.com/tree-sitter-python@0.21.0/tree-sitter-python.wasm',
+    sha256: 'PLACEHOLDER_PYTHON_SHA256_FILL_AT_RELEASE',
+    version: '0.21.0',
+  },
+  typescript: {
+    url: 'https://unpkg.com/tree-sitter-typescript@0.21.0/tree-sitter-typescript.wasm',
+    sha256: 'PLACEHOLDER_TYPESCRIPT_SHA256_FILL_AT_RELEASE',
+    version: '0.21.0',
+  },
+  javascript: {
+    url: 'https://unpkg.com/tree-sitter-javascript@0.21.0/tree-sitter-javascript.wasm',
+    sha256: 'PLACEHOLDER_JAVASCRIPT_SHA256_FILL_AT_RELEASE',
+    version: '0.21.0',
+  },
+  swift: {
+    url: 'https://unpkg.com/tree-sitter-swift@0.5.0/tree-sitter-swift.wasm',
+    sha256: 'PLACEHOLDER_SWIFT_SHA256_FILL_AT_RELEASE',
+    version: '0.5.0',
+  },
+};
+
+// ============================================================
+// Cache + Parser init
+// ============================================================
+
+function getCacheDir(): string {
+  return process.env.MASSU_WASM_CACHE_DIR ?? join(homedir(), '.massu', 'wasm-cache');
+}
+
+function getCachedPath(language: TreeSitterLanguage, sha: string): string {
+  return join(getCacheDir(), `${language}-${sha}.wasm`);
+}
+
+function sha256(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+let parserInitPromise: Promise<void> | null = null;
+
+/**
+ * `Parser.init()` is async and must be called once before any `new Parser()`.
+ * This function is idempotent — repeated calls return the same promise.
+ *
+ * Test harnesses can mock this by stubbing `Parser.init`.
+ */
+export async function ensureParserInitialized(): Promise<void> {
+  if (parserInitPromise) return parserInitPromise;
+  parserInitPromise = Parser.init();
+  return parserInitPromise;
+}
+
+// ============================================================
+// Loader (the main entry point)
+// ============================================================
+
+interface LoaderOptions {
+  /**
+   * Test-injection: override the manifest entry for a language. Production
+   * callers leave this undefined; tests use it to exercise SHA-mismatch and
+   * download-failure paths.
+   */
+  manifestOverride?: Partial<Record<TreeSitterLanguage, ManifestEntry>>;
+  /**
+   * Test-injection: override the fetch implementation. Defaults to global
+   * `fetch`. Tests pass a mock that returns a fixed body or throws.
+   */
+  fetchImpl?: (url: string) => Promise<{ ok: boolean; arrayBuffer: () => Promise<ArrayBuffer>; status?: number }>;
+}
+
+const loadedGrammars = new Map<TreeSitterLanguage, Language>();
+
+/**
+ * Lazy-load a Tree-sitter grammar. Only fetches/caches the grammar for
+ * `language`; other languages are unaffected.
+ *
+ * Order:
+ *   1. In-memory cache hit → return.
+ *   2. Disk cache hit + SHA verify pass → load from disk.
+ *   3. Disk cache hit + SHA mismatch → throw GrammarSHAMismatchError.
+ *   4. Cache miss → fetch from pinned URL → SHA verify → atomic write → load.
+ *   5. Fetch fails AND no cache → throw GrammarUnavailableError.
+ */
+export async function loadGrammar(
+  language: TreeSitterLanguage,
+  options: LoaderOptions = {},
+): Promise<Language> {
+  await ensureParserInitialized();
+
+  const cached = loadedGrammars.get(language);
+  if (cached) return cached;
+
+  const manifest = options.manifestOverride?.[language] ?? GRAMMAR_MANIFEST[language];
+  if (!manifest) {
+    throw new GrammarUnavailableError(
+      language,
+      new Error(`No manifest entry for language "${language}". v1 supports: ${Object.keys(GRAMMAR_MANIFEST).join(', ')}.`),
+    );
+  }
+
+  const cachePath = getCachedPath(language, manifest.sha256);
+
+  // 2/3: disk cache check
+  if (existsSync(cachePath)) {
+    let bytes: Uint8Array;
+    try {
+      bytes = readFileSync(cachePath);
+    } catch (e) {
+      // Treat read failure as cache miss; fall through to download.
+      bytes = new Uint8Array(0);
+    }
+    if (bytes.byteLength > 0) {
+      const actualSha = sha256(bytes);
+      if (actualSha !== manifest.sha256) {
+        // Refuse to load. Don't silently re-download — that would mask
+        // tampering of the on-disk cache.
+        throw new GrammarSHAMismatchError(language, manifest.sha256, actualSha);
+      }
+      const lang = await Language.load(bytes);
+      loadedGrammars.set(language, lang);
+      return lang;
+    }
+  }
+
+  // 4/5: download
+  const fetchImpl = options.fetchImpl ?? (globalThis.fetch as LoaderOptions['fetchImpl']);
+  if (!fetchImpl) {
+    throw new GrammarUnavailableError(
+      language,
+      new Error('No fetch implementation available (Node < 18?)'),
+    );
+  }
+
+  let body: Uint8Array;
+  try {
+    const res = await fetchImpl(manifest.url);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status ?? 'unknown'} from ${manifest.url}`);
+    }
+    body = new Uint8Array(await res.arrayBuffer());
+  } catch (e) {
+    throw new GrammarUnavailableError(language, e);
+  }
+
+  const downloadedSha = sha256(body);
+  if (downloadedSha !== manifest.sha256) {
+    throw new GrammarSHAMismatchError(language, manifest.sha256, downloadedSha);
+  }
+
+  // Atomic cache write. Always create the dir first.
+  try {
+    mkdirSync(dirname(cachePath), { recursive: true });
+    const tmpPath = `${cachePath}.tmp.${process.pid}`;
+    writeFileSync(tmpPath, body);
+    try {
+      renameSync(tmpPath, cachePath);
+    } catch (e) {
+      // Try to clean up the tmp file on rename failure
+      try {
+        unlinkSync(tmpPath);
+      } catch {
+        /* ignore */
+      }
+      throw e;
+    }
+  } catch (e) {
+    // Cache write failure is non-fatal — we still have `body` in memory and
+    // can load directly. Log to stderr per VR-USER-ERROR-MESSAGES style.
+    console.error(
+      `[tree-sitter-loader] cache write failed for ${language}: ${e instanceof Error ? e.message : String(e)} — loading directly from memory.`,
+    );
+  }
+
+  const lang = await Language.load(body);
+  loadedGrammars.set(language, lang);
+  return lang;
+}
+
+/**
+ * Test-only: clear in-memory loaded grammar cache. Disk cache persists.
+ * Production code never needs this; the in-memory map lives for the process.
+ */
+export function __resetLoadedGrammars(): void {
+  loadedGrammars.clear();
+}

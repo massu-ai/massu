@@ -18,6 +18,7 @@ import { Parser } from 'web-tree-sitter';
 import type { CodebaseAdapter, AdapterResult, DetectionSignals, Provenance, SourceFile } from './types.ts';
 import { runQuery, InvalidQueryError } from './query-helpers.ts';
 import { loadGrammar } from './tree-sitter-loader.ts';
+import { isParsableSource, MAX_AST_FILE_BYTES } from './parse-guard.ts';
 
 // ============================================================
 // Queries
@@ -97,6 +98,13 @@ export const swiftSwiftUiAdapter: CodebaseAdapter = {
 
     try {
       for (const file of files) {
+        const skip = isParsableSource(file.content, file.size);
+        if (skip) {
+          process.stderr.write(
+            `[massu/ast] WARN: swift-swiftui skipping ${file.path}: ${skip.reason} (${skip.detail}). Cap=${MAX_AST_FILE_BYTES}. (Phase 3.5 mitigation)\n`,
+          );
+          continue;
+        }
         try {
           // API class names: filter via JS regex on the captured identifier
           for (const hit of runQuery(parser, file.content, API_CLASS_QUERY, 'swift-api-class', file.path)) {

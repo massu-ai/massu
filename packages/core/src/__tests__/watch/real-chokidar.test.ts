@@ -65,7 +65,7 @@ describe('watch/daemon real-chokidar end-to-end', () => {
 
   it('observes a real fs write and fires onQuiescent (no noWatcher)', async () => {
     let fired = 0;
-    const handle = startDaemon(dir, {
+    const handle = await startDaemon(dir, {
       onQuiescent: () => {
         fired++;
         return Promise.resolve();
@@ -89,7 +89,7 @@ describe('watch/daemon real-chokidar end-to-end', () => {
   }, 8_000);
 
   it('stop() cleanly closes the real chokidar watcher', async () => {
-    const handle = startDaemon(dir, {
+    const handle = await startDaemon(dir, {
       onQuiescent: () => Promise.resolve(),
     });
     await new Promise<void>((r) => setTimeout(r, 200));

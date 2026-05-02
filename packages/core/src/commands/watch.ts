@@ -266,7 +266,7 @@ async function runForeground(root: string): Promise<WatchResult> {
   let stopped = false;
   let handle;
   try {
-    handle = startDaemon(root, {
+    handle = await startDaemon(root, {
       onQuiescent: () => runOnQuiescent(root),
     });
   } catch (err) {

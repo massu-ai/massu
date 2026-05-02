@@ -361,6 +361,14 @@ const WatchConfigSchema = z.object({
   deep_storm_threshold: z.number().int().positive().default(500),
   hard_timeout_ms: z.number().int().positive().default(300_000),
   scope: z.enum(['paths', 'full']).default('paths'),
+  // Plan 3a hotfix 2026-05-02: refuse to start if the watch surface
+  // exceeds this many files. Prevents the misconfig pattern where
+  // `paths.source_dirs` includes `.` or otherwise expands to a 60K+
+  // file tree, producing 30-100% steady CPU. Override via
+  // `paths_full_root_opt_in: true` for users on small repos who genuinely
+  // need root-level watching.
+  max_watched_files: z.number().int().positive().default(10_000),
+  paths_full_root_opt_in: z.boolean().default(false),
 }).passthrough().optional();
 export type WatchConfig = z.infer<typeof WatchConfigSchema>;
 

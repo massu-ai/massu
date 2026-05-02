@@ -2,7 +2,20 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import { describe, it, expect } from 'vitest';
-import { deriveWatchGlobs, ALWAYS_WATCH_FILES, FALLBACK_SOURCE_GLOBS, DEFAULT_EXCLUSIONS } from '../../watch/paths.ts';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import {
+  deriveWatchGlobs,
+  ALWAYS_WATCH_FILES,
+  FALLBACK_SOURCE_GLOBS,
+  DEFAULT_EXCLUSIONS,
+  ROOT_WATCH_SENTINELS,
+  isRootWatchSentinel,
+  countWatchSurface,
+  enforceWatchSurfaceCap,
+  WatchSurfaceTooLargeError,
+} from '../../watch/paths.ts';
 import type { Config } from '../../config.ts';
 
 function makeConfig(over: Partial<Config> = {}): Config {
@@ -125,5 +138,129 @@ describe('watch/paths', () => {
     const out = deriveWatchGlobs(cfg);
     expect(out.watch).not.toContain('**');
     expect(out.watch).toContain('src/**');
+  });
+});
+
+describe('watch/paths Plan 3a hotfix 2026-05-02 (root-sentinel + cap)', () => {
+  it('isRootWatchSentinel detects ".", "**", "./", "./**", "*"', () => {
+    for (const s of ROOT_WATCH_SENTINELS) expect(isRootWatchSentinel(s)).toBe(true);
+    expect(isRootWatchSentinel('apps')).toBe(false);
+    expect(isRootWatchSentinel('apps/**')).toBe(false);
+    expect(isRootWatchSentinel('packages/core')).toBe(false);
+  });
+
+  it('"." in framework.languages.*.source_dirs promotes scope to full + sets rootWatchDetected', () => {
+    // The exact misconfig pattern that produced 30-100% steady CPU on Hedge.
+    const cfg = makeConfig({
+      framework: {
+        type: 'multi', primary: 'typescript', router: 'none', orm: 'none', ui: 'none',
+        languages: {
+          typescript: { source_dirs: ['apps', 'packages', '.', 'scripts'] } as unknown as Config['framework']['languages'][string],
+        },
+      } as Config['framework'],
+    });
+    const out = deriveWatchGlobs(cfg);
+    expect(out.rootWatchDetected).toBe(true);
+    expect(out.effectiveScope).toBe('full');
+    expect(out.watch).toContain('**');
+    expect(out.watch).toContain('apps/**');
+    expect(out.watch).toContain('packages/**');
+    expect(out.watch).toContain('scripts/**');
+  });
+
+  it('"." in paths.source also promotes to full', () => {
+    const cfg = makeConfig({ paths: { source: '.', aliases: {} } } as Partial<Config>);
+    const out = deriveWatchGlobs(cfg);
+    expect(out.rootWatchDetected).toBe(true);
+    expect(out.effectiveScope).toBe('full');
+  });
+
+  it('explicit scope=full keeps effectiveScope=full and rootWatchDetected=false (no source_dirs scan)', () => {
+    const cfg = makeConfig({
+      watch: { scope: 'full', debounce_ms: 3000, storm_threshold: 50, deep_storm_threshold: 500, hard_timeout_ms: 300_000 },
+    } as unknown as Partial<Config>);
+    const out = deriveWatchGlobs(cfg);
+    expect(out.effectiveScope).toBe('full');
+    expect(out.rootWatchDetected).toBe(false);
+  });
+
+  it('DEFAULT_EXCLUSIONS includes high-churn dirs added in 2026-05-02 hotfix', () => {
+    expect(DEFAULT_EXCLUSIONS).toContain('**/.next/**');
+    expect(DEFAULT_EXCLUSIONS).toContain('**/coverage/**');
+    expect(DEFAULT_EXCLUSIONS).toContain('**/logs/**');
+    expect(DEFAULT_EXCLUSIONS).toContain('**/*.log');
+    expect(DEFAULT_EXCLUSIONS).toContain('**/data/**');
+  });
+
+  it('countWatchSurface returns exact count when under cap', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'massu-paths-cap-'));
+    try {
+      mkdirSync(join(dir, 'src'));
+      for (let i = 0; i < 5; i++) writeFileSync(join(dir, 'src', `f${i}.ts`), '');
+      const count = await countWatchSurface(['src/**'], [], dir, 100);
+      expect(count).toBe(5);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('countWatchSurface returns Infinity (early-exit) when surface > cap', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'massu-paths-cap-'));
+    try {
+      mkdirSync(join(dir, 'src'));
+      for (let i = 0; i < 50; i++) writeFileSync(join(dir, 'src', `f${i}.ts`), '');
+      const count = await countWatchSurface(['src/**'], [], dir, 10);
+      expect(count).toBe(Infinity);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('countWatchSurface respects ignore globs', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'massu-paths-cap-'));
+    try {
+      mkdirSync(join(dir, 'src'));
+      mkdirSync(join(dir, 'node_modules'));
+      for (let i = 0; i < 5; i++) writeFileSync(join(dir, 'src', `f${i}.ts`), '');
+      for (let i = 0; i < 100; i++) writeFileSync(join(dir, 'node_modules', `f${i}.js`), '');
+      const count = await countWatchSurface(['**'], DEFAULT_EXCLUSIONS, dir, 100);
+      expect(count).toBe(5); // node_modules excluded
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('enforceWatchSurfaceCap throws WatchSurfaceTooLargeError when over cap and not opted-in', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'massu-paths-cap-'));
+    try {
+      mkdirSync(join(dir, 'src'));
+      for (let i = 0; i < 50; i++) writeFileSync(join(dir, 'src', `f${i}.ts`), '');
+      const globs = deriveWatchGlobs(makeConfig({ paths: { source: 'src', aliases: {} } } as Partial<Config>));
+      await expect(enforceWatchSurfaceCap(globs, dir, 10, false)).rejects.toBeInstanceOf(WatchSurfaceTooLargeError);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('enforceWatchSurfaceCap allows over-cap when opted-in', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'massu-paths-cap-'));
+    try {
+      mkdirSync(join(dir, 'src'));
+      for (let i = 0; i < 50; i++) writeFileSync(join(dir, 'src', `f${i}.ts`), '');
+      const globs = deriveWatchGlobs(makeConfig({ paths: { source: 'src', aliases: {} } } as Partial<Config>));
+      await expect(enforceWatchSurfaceCap(globs, dir, 10, true)).resolves.toBe(Infinity);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('WatchSurfaceTooLargeError message includes count, cap, and remediation', () => {
+    const err = new WatchSurfaceTooLargeError(62598, 10000);
+    expect(err.message).toContain('62598');
+    expect(err.message).toContain('10000');
+    expect(err.message).toContain('source_dirs');
+    expect(err.message).toContain('paths_full_root_opt_in');
+    expect(err.fileCount).toBe(62598);
+    expect(err.cap).toBe(10000);
   });
 });

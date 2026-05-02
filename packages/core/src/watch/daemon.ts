@@ -14,7 +14,7 @@
 import * as chokidar from 'chokidar';
 import { resetConfig, getConfig } from '../config.ts';
 import { gitMidOperation, lockfileMidWrite } from './lockfile-detector.ts';
-import { deriveWatchGlobs } from './paths.ts';
+import { deriveWatchGlobs, enforceWatchSurfaceCap, WatchSurfaceTooLargeError } from './paths.ts';
 import { updateState } from './state.ts';
 
 export const STORM_WINDOW_MS = 1_000;
@@ -93,7 +93,7 @@ function readDaemonConfig(projectRoot: string): DaemonConfig {
  * In production: chokidar drives `pushEvent` via the file-watcher.
  * In tests: pass `noWatcher: true` and call `pushEvent` directly.
  */
-export function startDaemon(projectRoot: string, hooks: DaemonHooks): DaemonHandle {
+export async function startDaemon(projectRoot: string, hooks: DaemonHooks): Promise<DaemonHandle> {
   const now = hooks.now ?? Date.now;
   const writeStderr = hooks.writeStderr ?? ((s: string) => { process.stderr.write(s); });
 
@@ -317,6 +317,30 @@ export function startDaemon(projectRoot: string, hooks: DaemonHooks): DaemonHand
     if (globs.usedFallback) {
       writeStderr(`[massu] watching default globs (paths.*_source unset): ${globs.watch.join(', ')}\n`);
     }
+    if (globs.rootWatchDetected) {
+      writeStderr(
+        `[massu] root sentinel ('.', '**', etc.) detected in source_dirs — ` +
+        `effective scope is now 'full'. Surface cap still applies (set ` +
+        `watch.paths_full_root_opt_in: true to override).\n`
+      );
+    }
+
+    // Plan 3a hotfix 2026-05-02: preflight surface cap. Refuses to start
+    // (throws WatchSurfaceTooLargeError) if the configured globs would
+    // monitor more files than `watch.max_watched_files` AND the user has
+    // not set `watch.paths_full_root_opt_in: true`. Prevents the misconfig
+    // pattern that produced 30-100% sustained CPU on Hedge.
+    const cap = cfgYaml.watch?.max_watched_files ?? 10_000;
+    const optedIn = cfgYaml.watch?.paths_full_root_opt_in ?? false;
+    const t0 = now();
+    const surfaceCount = await enforceWatchSurfaceCap(globs, cfg.projectRoot, cap, optedIn);
+    const surfaceMs = now() - t0;
+    const countLabel = surfaceCount === Infinity ? `>${cap}` : String(surfaceCount);
+    writeStderr(
+      `[massu] watch surface: ${countLabel} files (cap ${cap}, ` +
+      `opted-in: ${optedIn}, scan ${surfaceMs}ms, scope: ${globs.effectiveScope})\n`
+    );
+
     watcher = chokidar.watch(globs.watch, {
       cwd: cfg.projectRoot,
       ignored: globs.ignore,

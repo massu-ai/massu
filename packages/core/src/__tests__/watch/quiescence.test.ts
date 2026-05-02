@@ -68,7 +68,7 @@ describe('watch/daemon quiescence', () => {
     vi.useFakeTimers();
     const clock = makeFakeClock();
     const onQuiescent = vi.fn().mockResolvedValue(undefined);
-    const handle = startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
+    const handle = await startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
 
     for (let i = 0; i < 30; i++) {
       handle.pushEvent(`src/file${i}.ts`);
@@ -93,7 +93,7 @@ describe('watch/daemon quiescence', () => {
     vi.useFakeTimers();
     const clock = makeFakeClock();
     const onQuiescent = vi.fn().mockResolvedValue(undefined);
-    const handle = startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
+    const handle = await startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
 
     // 60 events in 500ms.
     for (let i = 0; i < 60; i++) {
@@ -119,7 +119,7 @@ describe('watch/daemon quiescence', () => {
     vi.useFakeTimers();
     const clock = makeFakeClock();
     const onQuiescent = vi.fn().mockResolvedValue(undefined);
-    const handle = startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
+    const handle = await startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
 
     mkdirSync(resolve(dir, '.git'), { recursive: true });
     writeFileSync(resolve(dir, '.git', 'MERGE_HEAD'), 'abc\n', 'utf-8');
@@ -145,7 +145,7 @@ describe('watch/daemon quiescence', () => {
     vi.useFakeTimers();
     const clock = makeFakeClock();
     const onQuiescent = vi.fn().mockResolvedValue(undefined);
-    const handle = startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
+    const handle = await startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
 
     mkdirSync(resolve(dir, '.git'), { recursive: true });
     writeFileSync(resolve(dir, '.git', 'MERGE_HEAD'), 'abc\n', 'utf-8');
@@ -173,7 +173,7 @@ describe('watch/daemon quiescence', () => {
     vi.useFakeTimers();
     const clock = makeFakeClock();
     const onQuiescent = vi.fn().mockResolvedValue(undefined);
-    const handle = startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
+    const handle = await startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
 
     handle.pushEvent('src/bar.ts');
     expect(onQuiescent).not.toHaveBeenCalled();
@@ -193,7 +193,7 @@ describe('watch/daemon quiescence', () => {
     vi.useFakeTimers();
     const clock = makeFakeClock();
     const onQuiescent = vi.fn().mockResolvedValue(undefined);
-    const handle = startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
+    const handle = await startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
 
     // 60 events in 500ms → storm → 30s cooldown.
     for (let i = 0; i < 60; i++) {
@@ -226,7 +226,7 @@ describe('watch/daemon quiescence', () => {
   it('forceReconciliation() runs onQuiescent (sleep/wake recovery)', async () => {
     const clock = makeFakeClock();
     const onQuiescent = vi.fn().mockResolvedValue(undefined);
-    const handle = startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
+    const handle = await startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
 
     await handle.forceReconciliation();
     expect(onQuiescent).toHaveBeenCalledTimes(1);
@@ -248,7 +248,7 @@ describe('watch/daemon quiescence', () => {
     vi.useFakeTimers();
     const clock = makeFakeClock();
     const onQuiescent = vi.fn().mockResolvedValue(undefined);
-    const handle = startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
+    const handle = await startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
 
     // Fire 1 event every 1s for 12 seconds — never enters storm (rate < 50/s)
     // and the 3s debounce is constantly re-armed. Without a hard-timeout
@@ -271,7 +271,7 @@ describe('watch/daemon quiescence', () => {
     vi.useFakeTimers();
     const clock = makeFakeClock();
     const onQuiescent = vi.fn().mockResolvedValue(undefined);
-    const handle = startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
+    const handle = await startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
 
     // Burst of 60 in 500ms -> storm -> 30s cooldown.
     for (let i = 0; i < 60; i++) {
@@ -311,7 +311,7 @@ describe('watch/daemon quiescence', () => {
     vi.useFakeTimers();
     const clock = makeFakeClock();
     const onQuiescent = vi.fn().mockResolvedValue(undefined);
-    const handle = startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
+    const handle = await startDaemon(dir, { onQuiescent, now: clock.now, noWatcher: true });
 
     // First tick at t=10s (clock unchanged) -> normal, no reconciliation.
     await vi.advanceTimersByTimeAsync(10_000);
@@ -339,7 +339,7 @@ describe('watch/daemon quiescence', () => {
       return new Promise<void>((res) => { resolveFirst = res; });
     });
     const writes: string[] = [];
-    const handle = startDaemon(dir, {
+    const handle = await startDaemon(dir, {
       onQuiescent,
       now: clock.now,
       noWatcher: true,
@@ -377,7 +377,7 @@ describe('watch/daemon quiescence', () => {
       return Promise.resolve();
     });
     const writes: string[] = [];
-    const handle = startDaemon(dir, {
+    const handle = await startDaemon(dir, {
       onQuiescent,
       now: clock.now,
       noWatcher: true,
@@ -421,7 +421,7 @@ describe('watch/daemon quiescence', () => {
       });
     });
     const writes: string[] = [];
-    const handle = startDaemon(dir, {
+    const handle = await startDaemon(dir, {
       onQuiescent,
       now: clock.now,
       noWatcher: true,
@@ -464,7 +464,7 @@ describe('watch/daemon quiescence', () => {
       if (callCount === 1) return Promise.reject(new Error('transient'));
       return Promise.resolve();
     });
-    const handle = startDaemon(dir, {
+    const handle = await startDaemon(dir, {
       onQuiescent,
       now: clock.now,
       noWatcher: true,

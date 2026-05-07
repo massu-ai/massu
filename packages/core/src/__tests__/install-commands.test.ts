@@ -3,8 +3,7 @@
 
 /**
  * Phase 1 (variant resolution) + Phase 2 (manifest / local-edit protection)
- * tests for `install-commands.ts`. See plan
- * `/Users/ekoultra/hedge/docs/plans/2026-04-26-massu-stack-aware-command-templates.md`.
+ * tests for `install-commands.ts` (stack-aware command templates).
  *
  * Test naming: VARIANT-01..10 cover `pickVariant` and `syncDirectory` variant
  * resolution. MANIFEST-01..08 cover the 3-hash compare + first-install
@@ -143,7 +142,7 @@ describe('pickVariant — VARIANT-01..10', () => {
     writeFileSync(resolve(sourceDir, 'massu-foo.python.md'), '# python');
     writeFileSync(resolve(sourceDir, 'massu-foo.swift.md'), '# swift');
 
-    // Hedge-shaped: python declared BEFORE swift in the languages block.
+    // Multi-runtime-shaped: python declared BEFORE swift in the languages block.
     const fw = emptyFramework({
       type: 'multi',
       primary: 'typescript',
@@ -245,7 +244,7 @@ describe('pickVariant — VARIANT-01..10', () => {
     // Only a `.swift.md` shipped — no `.typescript.md`, no default for this base.
     writeFileSync(resolve(sourceDir, 'massu-scaffold-page.swift.md'), '# swift');
 
-    // Hedge-shaped: typescript primary; languages contains [typescript]; NO swift in languages.
+    // Multi-runtime-shaped: typescript primary; languages contains [typescript]; NO swift in languages.
     // Top-level passthrough `framework.swift = { framework: 'swiftui' }`.
     const fw = {
       type: 'multi',

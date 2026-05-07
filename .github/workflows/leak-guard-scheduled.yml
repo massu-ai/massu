@@ -1,0 +1,65 @@
+name: Leak Guard (Scheduled Retroactive Audit)
+
+# Layer 6 of the public-repo leak-defense architecture.
+#
+# Runs the full-tree leak scan on a weekly cron in addition to the
+# per-push retro scan. Catches drift in scenarios where the per-push
+# CI was disabled / branch protection was relaxed for a hotfix and
+# never re-enabled, OR where the per-push scan was somehow bypassed.
+#
+# Failure here is a serious signal: it means a leak persisted past the
+# per-commit, per-push, and per-push-CI gates and was only caught by
+# the time-based safety net. Treat it as an incident — open a tracking
+# issue, identify how the per-push gate failed, and document in
+# docs/incidents/ (in massu-internal) for the retro.
+
+on:
+  schedule:
+    # Weekly Sunday 06:00 UTC. Picks an off-hours slot to minimize
+    # contention with normal weekday CI.
+    - cron: '0 6 * * 0'
+  # Manual trigger for ad-hoc audits (e.g., post-incident verification).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leak-guard-scheduled
+  cancel-in-progress: false
+
+jobs:
+  scheduled-audit:
+    name: Weekly retroactive leak-guard audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify guard script exists
+        run: |
+          if [ ! -x scripts/massu-public-leak-guard.sh ]; then
+            echo "::error::scripts/massu-public-leak-guard.sh missing or not executable"
+            exit 2
+          fi
+
+      - name: Run leak guard in tree mode against full HEAD
+        env:
+          MASSU_LEAK_GUARD_MODE: tree
+        run: |
+          set -euo pipefail
+          if ! bash scripts/massu-public-leak-guard.sh; then
+            echo ""
+            echo "::error::SCHEDULED AUDIT DETECTED A LEAK PAST ALL OTHER GATES"
+            echo ""
+            echo "This is a structural failure of the leak-defense layering."
+            echo "Steps:"
+            echo "  1. Open an incident doc in massu-internal at"
+            echo "     docs/incidents/$(date +%Y-%m-%d)-public-leak-detected-by-scheduled-audit.md"
+            echo "  2. Identify how the per-push gate (.github/workflows/leak-guard.yml"
+            echo "     or .github/workflows/leak-guard-retro.yml) failed to catch this."
+            echo "  3. Add a regression test to prevent the gap from re-opening."
+            echo "  4. Fix the leak per the violation list above (rewrite or move-to-internal)."
+            exit 1
+          fi
+          echo "::notice::Scheduled audit PASS — no leaks detected"

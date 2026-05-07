@@ -7,11 +7,12 @@
  * Exercises `migrateV1ToV2` against five snapshot fixtures that mirror the
  * real-world failure modes we've seen in the wild:
  *
- *   - hedge-prefix/               TS-flavored v1 config with a Python+FastAPI repo
- *   - glyphwise/                  TS v1 on Python+Swift (severe stale)
- *   - eko-ultra-automations/      Hand-customized v1 with invalid router value
- *   - nuroflo/                    Multi-runtime (Python + TS+Next) in v1
- *   - massu-internal/             Self-host (baseline / mild adjustment)
+ *   - python-fastapi-prefix/         TS-flavored v1 config with a Python+FastAPI repo
+ *   - incident-2026-04-19-12key-loss/  12-top-level-key shape (regression pin)
+ *   - glyphwise/                       TS v1 on Python+Swift (severe stale)
+ *   - eko-ultra-automations/           Hand-customized v1 with invalid router value
+ *   - nuroflo/                         Multi-runtime (Python + TS+Next) in v1
+ *   - massu-internal/                  Self-host (baseline / mild adjustment)
  *
  * Each snapshot lives at:
  *   packages/core/src/__tests__/fixtures/stale-configs/<name>/
@@ -43,8 +44,8 @@ async function loadFixture(
 }
 
 describe('P7-003: migrateV1ToV2 on known stale configs', () => {
-  it('hedge-prefix: TS-flavored v1 → v2 python/fastapi, preserves user domains + rules', async () => {
-    const { v1, v2 } = await loadFixture('hedge-prefix');
+  it('python-fastapi-prefix: TS-flavored v1 → v2 python/fastapi, preserves user domains + rules', async () => {
+    const { v1, v2 } = await loadFixture('python-fastapi-prefix');
     expect(v2.schema_version).toBe(2);
     const fw = v2.framework as Record<string, unknown>;
     expect(fw.type).toBe('python');
@@ -56,7 +57,7 @@ describe('P7-003: migrateV1ToV2 on known stale configs', () => {
     expect(v2.rules).toEqual(v1.rules);
     expect(v2.domains).toEqual(v1.domains);
     // toolPrefix preserved
-    expect(v2.toolPrefix).toBe('hedge');
+    expect(v2.toolPrefix).toBe('trading');
     // Verification block populated from detection
     const ver = v2.verification as Record<string, Record<string, string>>;
     expect(ver.python.test).toContain('pytest');
@@ -119,7 +120,7 @@ describe('P7-003: migrateV1ToV2 on known stale configs', () => {
   });
 
   it('migration is idempotent: v2 → migrate → equivalent v2', async () => {
-    const { v2, repoRoot } = await loadFixture('hedge-prefix');
+    const { v2, repoRoot } = await loadFixture('python-fastapi-prefix');
     const detection = await runDetection(repoRoot);
     const v2Again = migrateV1ToV2(v2, detection);
     expect(v2Again.schema_version).toBe(2);
@@ -183,9 +184,9 @@ describe('migrateV1ToV2: top-level passthrough (P2-001)', () => {
   });
 });
 
-describe('migrateV1ToV2: hedge-incident-20260419 regression (P2-003)', () => {
-  it('12-top-level-key hedge shape survives migration with zero top-level loss', async () => {
-    const { v1, v2 } = await loadFixture('hedge-incident-20260419');
+describe('migrateV1ToV2: incident-2026-04-19 regression (P2-003)', () => {
+  it('12-top-level-key trading-monorepo shape survives migration with zero top-level loss', async () => {
+    const { v1, v2 } = await loadFixture('incident-2026-04-19-12key-loss');
     // Every top-level key from v1 must appear in v2. (schema_version + detection are additions.)
     for (const key of Object.keys(v1)) {
       expect(v2, `missing top-level key: ${key}`).toHaveProperty(key);
@@ -206,8 +207,8 @@ describe('migrateV1ToV2: hedge-incident-20260419 regression (P2-003)', () => {
     expect(paths.plans).toBe('docs/plans');
     const project = v2.project as Record<string, unknown>;
     expect(project.description).toBe('World-class enterprise-grade auto-trading platform');
-    // toolPrefix preserved as 'hedge'.
-    expect(v2.toolPrefix).toBe('hedge');
+    // toolPrefix preserved as 'trading'.
+    expect(v2.toolPrefix).toBe('trading');
   });
 });
 
@@ -251,18 +252,18 @@ describe('migrateV1ToV2: nested passthrough (P2-005..P2-008)', () => {
   it('P2-007: preserves project.description and other custom subkeys', () => {
     const v1: AnyConfig = {
       project: {
-        name: 'hedge',
+        name: 'trading-monorepo',
         root: '/some/root',
         description: 'Trading platform',
-        author: 'team-hedge',
+        author: 'trading-team',
       },
     };
     const v2 = migrateV1ToV2(v1, emptyDetection());
     const project = v2.project as Record<string, unknown>;
-    expect(project.name).toBe('hedge');
+    expect(project.name).toBe('trading-monorepo');
     expect(project.root).toBe('/some/root');
     expect(project.description).toBe('Trading platform');
-    expect(project.author).toBe('team-hedge');
+    expect(project.author).toBe('trading-team');
   });
 
   it('P2-008: preserves unknown python.* subkeys when python is present', () => {

@@ -49,7 +49,7 @@ export const DEFAULT_EXCLUSIONS = [
   '**/.mypy_cache/**',
   // Plan 3a hotfix 2026-05-02: high-churn directories that are never
   // legitimate stack-detection inputs and produced sustained 30-100% CPU
-  // when watched on Hedge (62K files / 42 GB tree).
+  // when watched on a large monorepo (62K files / 42 GB tree).
   '**/.next/**',
   '**/coverage/**',
   '**/logs/**',
@@ -57,7 +57,7 @@ export const DEFAULT_EXCLUSIONS = [
   // Runtime data dirs. Convention across Python/JS/Rust ecosystems is
   // that `data/` holds runtime artifacts (caches, snapshots, model
   // checkpoints, downloaded fixtures) that change frequently but are
-  // never stack-detection inputs. Hedge had 135K files in
+  // never stack-detection inputs. A large monorepo had 135K files in
   // apps/ai-service/data alone, dwarfing legitimate source. If a
   // project genuinely uses `data/` for source content, opt into
   // `watch.scope: 'full'` and `watch.paths_full_root_opt_in: true`.

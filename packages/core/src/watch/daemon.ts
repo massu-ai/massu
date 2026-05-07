@@ -329,7 +329,7 @@ export async function startDaemon(projectRoot: string, hooks: DaemonHooks): Prom
     // (throws WatchSurfaceTooLargeError) if the configured globs would
     // monitor more files than `watch.max_watched_files` AND the user has
     // not set `watch.paths_full_root_opt_in: true`. Prevents the misconfig
-    // pattern that produced 30-100% sustained CPU on Hedge.
+    // pattern that produced 30-100% sustained CPU on a large monorepo.
     const cap = cfgYaml.watch?.max_watched_files ?? 10_000;
     const optedIn = cfgYaml.watch?.paths_full_root_opt_in ?? false;
     const t0 = now();

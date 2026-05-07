@@ -1,0 +1,7 @@
+{
+  "name": "@massu/adapter-phoenix",
+  "version": "0.0.0-prework",
+  "description": "Massu adapter for Phoenix (Elixir) — placeholder, Phase 5 fills implementation",
+  "private": true,
+  "type": "module"
+}

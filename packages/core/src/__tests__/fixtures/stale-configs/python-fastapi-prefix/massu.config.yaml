@@ -1,5 +1,5 @@
 project:
-  name: hedge
+  name: trading-monorepo
   root: auto
 framework:
   type: typescript
@@ -10,7 +10,7 @@ paths:
   source: src
   aliases:
     "@": src
-toolPrefix: hedge
+toolPrefix: trading
 domains:
   - name: Trading
     routers: [trading]

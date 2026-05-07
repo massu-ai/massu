@@ -130,15 +130,15 @@ describe('config upgrade CLI', () => {
   });
 
   // P2-004: integration smoke — exec upgrade against a temp copy of the
-  // hedge-incident fixture; assert no key loss at any depth.
-  it('hedge-incident-20260419 fixture: zero key loss end-to-end through CLI', async () => {
+  // 12-key-loss incident fixture; assert no key loss at any depth.
+  it('incident-2026-04-19-12key-loss fixture: zero key loss end-to-end through CLI', async () => {
     const fixtureRoot = resolve(
       __dirname,
       'fixtures',
       'stale-configs',
-      'hedge-incident-20260419'
+      'incident-2026-04-19-12key-loss'
     );
-    const dir = mkdtempSync(resolve(tmpdir(), 'massu-upgrade-hedge-incident-'));
+    const dir = mkdtempSync(resolve(tmpdir(), 'massu-upgrade-12key-incident-'));
     created.push(dir);
     // Copy fixture repo (for detection) + config into tmp dir.
     cpSync(resolve(fixtureRoot, 'repo'), dir, { recursive: true });
@@ -163,13 +163,13 @@ describe('config upgrade CLI', () => {
     for (const k of beforeKeys) {
       expect(afterKeys.has(k), `top-level key "${k}" was dropped by upgrade`).toBe(true);
     }
-    // Assert nested preservation on the three hedge-shaped blocks.
+    // Assert nested preservation on the three trading-shaped blocks.
     expect((after.project as Record<string, unknown>).description).toBe(
       (before.project as Record<string, unknown>).description
     );
     expect(after.services).toEqual(before.services);
     expect(after.north_stars).toEqual(before.north_stars);
     expect(after.workflow).toEqual(before.workflow);
-    expect(after.toolPrefix).toBe('hedge');
+    expect(after.toolPrefix).toBe('trading');
   });
 });

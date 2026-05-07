@@ -1,0 +1,107 @@
+name: Leak Guard (Source-of-Truth Discipline)
+
+# Layer 5 of the public-repo leak-defense architecture.
+#
+# Enforces the workflow rule that EVERY commit on `main` of the public
+# massu repo must originate from sync-public.sh (which copies from the
+# internal repo) or carry an explicit `[direct-edit-allow: <reason>]`
+# trailer in the commit message.
+#
+# Rationale: the 2026-05-07 retro showed that direct edits to the
+# public repo silently bypass internal-first design. Even after the
+# leak-guard's path/content scans, a developer working straight on
+# public can introduce drift that the internal repo never sees, and
+# can leak content that internal would have caught (e.g., references
+# to internal-only files that internal would reject because those
+# files don't even exist there).
+#
+# When this workflow fails:
+#   1. If the commit is legitimate sync output: it should already be
+#      titled `sync: Update from massu-internal (<hash>)`. If yours
+#      isn't, you ran git commit by hand instead of via sync-public.sh.
+#      Move your changes to internal and re-run the sync.
+#   2. If the commit is an emergency direct-edit (e.g., revert): add
+#      a `[direct-edit-allow: <one-sentence justification>]` line to
+#      the commit message body. The line is auditable and the workflow
+#      surfaces it in the run log.
+#   3. NEVER add the GitHub UI option to bypass required checks. The
+#      whole point of this gate is that direct-edits are auditable.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leak-guard-source-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-of-truth:
+    name: Source-of-Truth Discipline
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for commit-range scan)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine commit range
+        id: range
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.event.after }}"
+            if [ "$base" = "0000000000000000000000000000000000000000" ]; then
+              base=$(git merge-base "$head" origin/main 2>/dev/null || git rev-list --max-parents=0 "$head")
+            fi
+          fi
+          echo "base=$base" >> $GITHUB_OUTPUT
+          echo "head=$head" >> $GITHUB_OUTPUT
+
+      - name: Verify each commit is sync-generated or carries direct-edit-allow trailer
+        env:
+          BASE: ${{ steps.range.outputs.base }}
+          HEAD: ${{ steps.range.outputs.head }}
+        run: |
+          set -euo pipefail
+          violations=0
+          for sha in $(git rev-list --reverse "${BASE}..${HEAD}"); do
+            msg=$(git show --no-patch --format='%B' "$sha")
+            subject=$(echo "$msg" | head -1)
+
+            # Allow path 1: sync-public.sh-generated commits.
+            if echo "$subject" | grep -qE '^sync: Update from massu-internal \([0-9a-f]+\)'; then
+              echo "::notice::commit $sha — sync-generated (PASS)"
+              continue
+            fi
+
+            # Allow path 2: explicit `[direct-edit-allow: <reason>]` trailer
+            # somewhere in the message body. Reason must be non-empty.
+            if echo "$msg" | grep -qE '^\[direct-edit-allow: .+\]$|\[direct-edit-allow: .+\]'; then
+              reason=$(echo "$msg" | grep -oE '\[direct-edit-allow: [^]]+\]' | head -1)
+              echo "::warning::commit $sha — DIRECT EDIT permitted: $reason"
+              continue
+            fi
+
+            # Otherwise: reject.
+            violations=$((violations + 1))
+            echo "::error file=,title=Source-of-truth violation in commit $sha::Subject: $subject"
+            echo "  Subject did not match 'sync: Update from massu-internal (<hash>)'"
+            echo "  AND no [direct-edit-allow: <reason>] trailer in the message."
+            echo "  Move this work to massu-internal and re-run sync-public.sh,"
+            echo "  OR add a [direct-edit-allow: <reason>] line to the commit message."
+          done
+
+          if [ "$violations" -gt 0 ]; then
+            echo "::error::Source-of-truth gate rejected $violations commit(s)"
+            exit 1
+          fi
+          echo "::notice::Source-of-truth gate PASS"

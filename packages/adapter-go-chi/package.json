@@ -1,0 +1,7 @@
+{
+  "name": "@massu/adapter-go-chi",
+  "version": "0.0.0-prework",
+  "description": "Massu adapter for Go Chi — placeholder, Phase 5 fills implementation",
+  "private": true,
+  "type": "module"
+}

@@ -1,0 +1,7 @@
+{
+  "name": "@massu/adapter-spring",
+  "version": "0.0.0-prework",
+  "description": "Massu adapter for Spring (Java) — placeholder, Phase 5 fills implementation",
+  "private": true,
+  "type": "module"
+}

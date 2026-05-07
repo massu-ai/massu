@@ -3,13 +3,13 @@
   "version": "0.1.0",
   "description": "AI Engineering Governance Platform - Session memory, feature registry, code intelligence, and rule enforcement for AI coding assistants",
   "workspaces": [
-    "packages/core"
+    "packages/core",
+    "packages/adapter-*"
   ],
   "scripts": {
     "build": "npm run build --workspace=packages/core",
     "test": "npm test --workspace=packages/core",
-    "start": "npm start --workspace=packages/core",
-    "postinstall": "bash scripts/install-hooks.sh"
+    "start": "npm start --workspace=packages/core"
   },
   "author": "Massu Contributors",
   "license": "SEE LICENSE IN LICENSE",

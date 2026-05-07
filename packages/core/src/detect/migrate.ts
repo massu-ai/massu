@@ -192,7 +192,7 @@ export function migrateV1ToV2(
     framework.languages = languageEntries;
   }
   // P1-004: preserve any v1Framework subkey the explicit rebuild didn't emit
-  // (e.g., hedge's `framework.{python, rust, swift, typescript}` language sub-blocks).
+  // (e.g., a multi-runtime monorepo's `framework.{python, rust, swift, typescript}` language sub-blocks).
   preserveNestedSubkeys(v1Framework, framework);
 
   // Paths: preserve user-set fields; fill `source` from detection if user had 'src' default.
@@ -234,13 +234,13 @@ export function migrateV1ToV2(
     if (typeof v1Paths[k] === 'string') paths[k] = v1Paths[k];
   }
   // P1-005: preserve any v1Paths subkey the explicit rebuild didn't emit
-  // (e.g., hedge's 19 custom `paths.*` entries like adr, plans, monorepo_root).
+  // (e.g., a downstream consumer's 19 custom `paths.*` entries like adr, plans, monorepo_root).
   preserveNestedSubkeys(v1Paths, paths);
 
   const verification = buildVerificationBlock(detection, v1Verification);
 
   // P1-006: build project block with nested passthrough so custom subkeys
-  // (e.g., hedge's `project.description`) survive the migration.
+  // (e.g., a downstream consumer's `project.description`) survive the migration.
   const project: Record<string, unknown> = {
     name: typeof v1Project.name === 'string' ? v1Project.name : 'my-project',
     root: typeof v1Project.root === 'string' ? v1Project.root : 'auto',
@@ -265,7 +265,7 @@ export function migrateV1ToV2(
 
   // P1-001: preserve any v1 top-level key not already handled by the explicit
   // migrator. This is the generalization of PRESERVED_FIELDS — custom sections
-  // like `services`, `workflow`, `north_stars` (hedge) now pass through.
+  // like `services`, `workflow`, `north_stars` now pass through.
   //
   // `detection` is intentionally NOT in handledTopLevel: when a v2 config is
   // fed back in (idempotence check at migrate.ts:16), the existing `detection`

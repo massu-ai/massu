@@ -28,12 +28,12 @@ describe('swift-swiftui adapter: matches() signal logic', () => {
   });
 
   it('matches when *.xcodeproj directory exists', () => {
-    const signals = emptySignals({ presentDirs: new Set(['Hedge.xcodeproj']) });
+    const signals = emptySignals({ presentDirs: new Set(['MyApp.xcodeproj']) });
     expect(swiftSwiftUiAdapter.matches(signals)).toBe(true);
   });
 
   it('matches when *.xcworkspace directory exists', () => {
-    const signals = emptySignals({ presentDirs: new Set(['Hedge.xcworkspace']) });
+    const signals = emptySignals({ presentDirs: new Set(['MyApp.xcworkspace']) });
     expect(swiftSwiftUiAdapter.matches(signals)).toBe(true);
   });
 
@@ -67,7 +67,7 @@ describe('swift-swiftui adapter: introspect() degradation', () => {
       path: '/tmp/x/Sources/App/Views/OrdersView.swift',
       content: `import SwiftUI
 struct OrdersView: View {
-    let api = HedgeAPI()
+    let api = MyAppAPI()
     var body: some View { NavigationStack { Text("x") } }
 }`,
       language: 'swift' as const,

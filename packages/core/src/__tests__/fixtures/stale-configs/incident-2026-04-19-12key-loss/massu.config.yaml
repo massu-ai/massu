@@ -1,7 +1,7 @@
-# Hedge-shaped fixture reproducing the 2026-04-19 incident shape.
+# Anonymized regression fixture reproducing the 2026-04-19 incident shape.
 # 12 top-level keys — exercises full passthrough at both top + nested levels.
 project:
-  name: hedge
+  name: trading-monorepo
   root: auto
   description: "World-class enterprise-grade auto-trading platform"
 
@@ -33,18 +33,18 @@ paths:
   aliases:
     "@": apps/web/src
 
-toolPrefix: hedge
+toolPrefix: trading
 
 canonical_paths:
   feature_config: apps/ai-service/data/feature_config.json
   event_log_db: apps/ai-service/data/event_log.db
 
 services:
-  hedge_ai:
-    label: com.ekoultra.hedge-ai
+  ai_service:
+    label: com.example.trading-ai
     port: 8000
   guardian:
-    label: com.ekoultra.guardian
+    label: com.example.guardian
 
 domains:
   - name: Trading

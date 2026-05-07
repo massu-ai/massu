@@ -144,7 +144,7 @@ describe('P7-001: detection fixture suite', () => {
     });
   });
 
-  describe('multi-runtime fixture (Hedge-like)', () => {
+  describe('multi-runtime fixture (TS+Python+Swift+Rust)', () => {
     it('detects 4 languages across apps/*', async () => {
       const r = await runDetection(fixtureDir('multi-runtime'));
       const langs = Array.from(new Set(r.manifests.map((m) => m.language))).sort();

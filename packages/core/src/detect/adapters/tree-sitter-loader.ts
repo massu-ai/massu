@@ -4,8 +4,7 @@
 /**
  * Plan 3b — Phase 1: Tree-sitter WASM grammar loader (Strategy A).
  *
- * Strategy A — locked at Phase 0 (`docs/internal/2026-04-26-ast-lsp-spec.md`
- * §1, §8): grammars are NOT bundled in the npm tarball. The loader downloads
+ * Strategy A: grammars are NOT bundled in the npm tarball. The loader downloads
  * each requested grammar at first use from a pinned URL, verifies SHA-256
  * against a hardcoded manifest, caches under `~/.massu/wasm-cache/`.
  *

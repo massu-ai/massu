@@ -141,10 +141,9 @@ describe('P7-002: init integration across 11 fixtures', () => {
 });
 
 // P2-003: targeted regression block for the multi-runtime monorepo shape that
-// surfaced the 2026-04-20 bug (docs/incidents/2026-04-20-massu-core-monorepo-
-// paths-source.md). The assertions below pin the exact values the permanent
-// fix must produce, so any future regression that reverts paths.source back
-// to 'src' (or drops monorepo_roots) fails loudly.
+// surfaced the 2026-04-20 paths.source rollback bug. The assertions below pin
+// the exact values the permanent fix must produce, so any future regression
+// that reverts paths.source back to 'src' (or drops monorepo_roots) fails loudly.
 describe('multi-runtime monorepo (P2-003 regression pin)', () => {
   it('produces paths.source=apps and paths.monorepo_roots=[apps]', async () => {
     const dir = stageFixture('multi-runtime');

@@ -150,7 +150,7 @@ describe('watch/paths Plan 3a hotfix 2026-05-02 (root-sentinel + cap)', () => {
   });
 
   it('"." in framework.languages.*.source_dirs promotes scope to full + sets rootWatchDetected', () => {
-    // The exact misconfig pattern that produced 30-100% steady CPU on Hedge.
+    // The exact misconfig pattern that produced 30-100% steady CPU on a large monorepo.
     const cfg = makeConfig({
       framework: {
         type: 'multi', primary: 'typescript', router: 'none', orm: 'none', ui: 'none',

@@ -250,6 +250,7 @@ var FrameworkConfigSchema = z.object({
   ui: z.string().default("none"),
   languages: z.record(z.string(), LanguageFrameworkEntrySchema).optional()
 }).passthrough();
+var DetectedConfigSchema = z.object({}).passthrough().optional();
 var VerificationEntrySchema = z.object({
   type: z.string().optional(),
   test: z.string().optional(),
@@ -274,6 +275,39 @@ var DetectionConfigSchema = z.object({
   signal_weights: z.record(z.string(), z.number()).optional(),
   disable_builtin: z.boolean().optional()
 }).passthrough().optional();
+var WatchConfigSchema = z.object({
+  debounce_ms: z.number().int().positive().default(3e3),
+  storm_threshold: z.number().int().positive().default(50),
+  deep_storm_threshold: z.number().int().positive().default(500),
+  hard_timeout_ms: z.number().int().positive().default(3e5),
+  scope: z.enum(["paths", "full"]).default("paths"),
+  // Plan 3a hotfix 2026-05-02: refuse to start if the watch surface
+  // exceeds this many files. Prevents the misconfig pattern where
+  // `paths.source_dirs` includes `.` or otherwise expands to a 60K+
+  // file tree, producing 30-100% steady CPU. Override via
+  // `paths_full_root_opt_in: true` for users on small repos who genuinely
+  // need root-level watching.
+  max_watched_files: z.number().int().positive().default(1e4),
+  paths_full_root_opt_in: z.boolean().default(false)
+}).passthrough().optional();
+var LSPConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  servers: z.array(z.object({
+    language: z.string(),
+    command: z.string(),
+    // F-014 (closed 2026-05-06): explicit opt-in to spawn SUID/SGID
+    // binaries. Default false — argv[0] with the SUID bit is rejected
+    // unless this is true. Decision is auditable in the YAML.
+    allow_setuid: z.boolean().default(false),
+    // F-015 (closed 2026-05-06): per-server RSS budget (MB). Watchdog
+    // SIGKILLs the server after sustained breach. Default 1024 MB.
+    // Set to 0 to disable the watchdog for this server.
+    max_rss_mb: z.number().int().nonnegative().default(1024)
+  })).default([]),
+  autoDetect: z.object({
+    viaPortScan: z.boolean().default(false)
+  }).optional()
+}).passthrough();
 var RawConfigSchema = z.object({
   schema_version: z.union([z.literal(1), z.literal(2)]).default(1),
   project: z.object({
@@ -306,7 +340,13 @@ var RawConfigSchema = z.object({
   verification: VerificationConfigSchema,
   canonical_paths: CanonicalPathsSchema,
   verification_types: VerificationTypesSchema,
-  detection: DetectionConfigSchema
+  detection: DetectionConfigSchema,
+  // Plan #2: detector-owned per-language conventions (free-form passthrough)
+  detected: DetectedConfigSchema,
+  // Plan 3a: file-watcher daemon tunables
+  watch: WatchConfigSchema,
+  // Plan 3b Phase 4: optional LSP enrichment of AST adapter results.
+  lsp: LSPConfigSchema.optional()
 }).passthrough();
 var _config = null;
 var _projectRoot = null;
@@ -383,13 +423,16 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
       name: parsed.project.name,
       root: projectRoot
     },
+    // Spread `fw` first so zod-`.passthrough()` extras (e.g., `framework.swift`,
+    // `framework.python`) survive into the consumer-visible Config. Then override
+    // the v2-backcompat-mirrored router/orm/ui values. Without the spread, the
+    // variant-resolution `pickVariant` (install-commands.ts) cannot see the
+    // top-level passthrough language blocks.
     framework: {
-      type: fw.type,
+      ...fw,
       router,
       orm,
-      ui,
-      primary: fw.primary,
-      languages: fw.languages
+      ui
     },
     paths: parsed.paths,
     toolPrefix: parsed.toolPrefix,
@@ -410,7 +453,10 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     verification: parsed.verification,
     canonical_paths: parsed.canonical_paths,
     verification_types: parsed.verification_types,
-    detection: parsed.detection
+    detection: parsed.detection,
+    detected: parsed.detected,
+    watch: parsed.watch,
+    lsp: parsed.lsp
   };
   if (!_config.cloud?.apiKey && process.env.MASSU_API_KEY) {
     _config.cloud = {

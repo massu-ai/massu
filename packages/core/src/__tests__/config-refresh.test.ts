@@ -182,7 +182,7 @@ describe('mergeRefresh', () => {
         docs: 'docs',
       },
       project: {
-        name: 'hedge',
+        name: 'trading-monorepo',
         root: '/custom/path',
         description: 'Trading platform',
       },
@@ -190,7 +190,7 @@ describe('mergeRefresh', () => {
     const refreshed = {
       framework: { type: 'python', router: 'fastapi' },
       paths: { source: 'app' },
-      project: { name: 'hedge', root: 'auto' },
+      project: { name: 'trading-monorepo', root: 'auto' },
     };
     const merged = mergeRefresh(existing, refreshed);
     const fw = merged.framework as Record<string, unknown>;
@@ -203,17 +203,17 @@ describe('mergeRefresh', () => {
   });
 
   // P2-011: toolPrefix preserved even though detector hardcodes 'massu'.
-  it('P2-011: preserves custom toolPrefix (hedge scenario)', () => {
-    const existing = { toolPrefix: 'hedge' };
+  it('P2-011: preserves custom toolPrefix (downstream-consumer scenario)', () => {
+    const existing = { toolPrefix: 'trading' };
     const refreshed = { toolPrefix: 'massu', framework: { type: 'python' } };
     const merged = mergeRefresh(existing, refreshed);
-    expect(merged.toolPrefix).toBe('hedge');
+    expect(merged.toolPrefix).toBe('trading');
   });
 
   // P2-012: user-set project.root survives detector default 'auto'.
   it('P2-012: preserves user-set project.root against detector default', () => {
-    const existing = { project: { name: 'hedge', root: '/custom/path' } };
-    const refreshed = { project: { name: 'hedge', root: 'auto' } };
+    const existing = { project: { name: 'trading-monorepo', root: '/custom/path' } };
+    const refreshed = { project: { name: 'trading-monorepo', root: 'auto' } };
     const merged = mergeRefresh(existing, refreshed);
     const project = merged.project as Record<string, unknown>;
     expect(project.root).toBe('/custom/path');
@@ -221,8 +221,8 @@ describe('mergeRefresh', () => {
 
   // P2-014 (P5-002 discovery): verification custom language sections survive
   // wholesale, AND user command overrides win over detector defaults for
-  // shared languages. Hedge's `gateway`, `ios`, `runtime`, `web` blocks must
-  // appear untouched; hedge's `python.lint` must not be reset to detector default.
+  // shared languages. A multi-runtime monorepo's `gateway`, `ios`, `runtime`, `web` blocks must
+  // appear untouched; the user's `python.lint` must not be reset to detector default.
   it('P2-014: verification preserves user custom lang blocks + user overrides on shared langs', () => {
     const existing = {
       verification: {

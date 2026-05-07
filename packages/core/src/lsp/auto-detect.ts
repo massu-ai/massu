@@ -77,7 +77,12 @@ export async function findRunningLSPs(
  * passing it to `LSPClient.fromCommand`. The factory rejects relative paths
  * and `..`-containing argv elements.
  */
-function splitCommand(server: { language: string; command: string }): LSPServerSpec {
+function splitCommand(server: {
+  language: string;
+  command: string;
+  allow_setuid?: boolean;
+  max_rss_mb?: number;
+}): LSPServerSpec {
   const cmd = (server.command ?? '').trim();
   // Whitespace split — not a full shell parser. Quoted args with spaces are
   // not supported at v1; users with such commands should run a wrapper script.
@@ -85,5 +90,9 @@ function splitCommand(server: { language: string; command: string }): LSPServerS
   return {
     language: server.language,
     argv,
+    // F-014 / F-015 (closed 2026-05-06): pass through the security knobs
+    // from config so the spawn surface enforces them.
+    allowSetuid: server.allow_setuid ?? false,
+    maxRssMb: server.max_rss_mb ?? undefined,
   };
 }

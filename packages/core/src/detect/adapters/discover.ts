@@ -55,6 +55,7 @@ import {
   type AdapterOriginInput,
 } from '../../security/adapter-origin.js';
 import type { Envelope, AdapterEntry } from '../../security/manifest-schema.js';
+import { checkFingerprintDrift, FINGERPRINT_PATH } from '../../security/local-fingerprint.js';
 
 /**
  * Minimal shape of a node_modules package.json that we care about for
@@ -96,6 +97,12 @@ export interface DiscoverOptions {
    * empty array if no local adapters configured.
    */
   configLocalPaths: ReadonlyArray<string>;
+  /**
+   * Override the on-disk fingerprint sentinel path for testing
+   * (gap-32 postinstall-poisoning check). Production callsite uses
+   * the default `~/.massu/adapters-local-fingerprint.json`.
+   */
+  fingerprintSentinelPath?: string;
 }
 
 export interface DiscoveryResult {
@@ -285,7 +292,26 @@ export function discoverAdapters(opts: DiscoverOptions): DiscoveryResult {
 
   // 3. LOCAL-EXPLICIT — read configLocalPaths. Each entry is already POSIX-
   // normalized + path-validated by AdapterLocalPathSchema (config.ts).
-  // Discovery just resolves to absolute path + confirms the file exists.
+  //
+  // Plan 3c gap-32 postinstall-poisoning defense: BEFORE classifying any
+  // local adapter, check the fingerprint sentinel. If the current
+  // adapters.local content's fingerprint does NOT match the last
+  // operator-acknowledged sentinel, REFUSE to load any local adapter and
+  // surface the drift in warnings. The operator must run
+  // `massu adapters resync-local-fingerprint` (or add-local/remove-local)
+  // to re-acknowledge before discovery accepts local adapters again.
+  const fingerprintCheck = opts.configLocalPaths.length === 0
+    ? { kind: 'match' as const }
+    : checkFingerprintDrift(opts.configLocalPaths, opts.fingerprintSentinelPath ?? FINGERPRINT_PATH);
+  if (fingerprintCheck.kind !== 'match') {
+    if (opts.configLocalPaths.length > 0) {
+      warnings.push(
+        `refusing all LOCAL-EXPLICIT adapters: ${fingerprintCheck.reason}`,
+      );
+    }
+    // Skip the LOCAL-EXPLICIT loop entirely.
+    return { adapters, warnings };
+  }
   const localSet = new Set(opts.configLocalPaths);
   for (const localPath of opts.configLocalPaths) {
     if (seenIds.has(localPath)) continue;

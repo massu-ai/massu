@@ -20,7 +20,18 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { discoverAdapters } from '../detect/adapters/discover.js';
+import { writeFingerprintSentinel } from '../security/local-fingerprint.js';
 import type { Envelope } from '../security/manifest-schema.js';
+
+/**
+ * Test seam: gap-32 fingerprint check intercepts LOCAL-EXPLICIT discovery
+ * unless the sentinel matches the configured paths. Tests that pass non-
+ * empty configLocalPaths must also seed a matching sentinel file via
+ * `seedSentinel(localPaths, fingerprintPath)`.
+ */
+function seedSentinel(localPaths: string[], fingerprintPath: string): void {
+  writeFingerprintSentinel(localPaths, 'cli', fingerprintPath);
+}
 
 let projectRoot: string;
 
@@ -237,17 +248,20 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
   });
 });
 
-describe('discoverAdapters — LOCAL-EXPLICIT', () => {
-  it('emits descriptor for existing local file', () => {
+describe('discoverAdapters — LOCAL-EXPLICIT (gap-32 fingerprint sentinel)', () => {
+  it('emits descriptor for existing local file when sentinel matches', () => {
     const localPath = 'adapters/my-custom.js';
     const absPath = resolve(projectRoot, localPath);
     mkdirSync(resolve(projectRoot, 'adapters'), { recursive: true });
     writeFileSync(absPath, 'module.exports = {};', 'utf-8');
+    const fingerprintPath = join(projectRoot, '.massu-fp.json');
+    seedSentinel([localPath], fingerprintPath);
     const result = discoverAdapters({
       projectRoot,
       coreBundledIds: new Set(),
       manifestEnvelope: undefined,
       configLocalPaths: [localPath],
+      fingerprintSentinelPath: fingerprintPath,
     });
     expect(result.adapters).toHaveLength(1);
     expect(result.adapters[0]).toMatchObject({
@@ -256,20 +270,76 @@ describe('discoverAdapters — LOCAL-EXPLICIT', () => {
     });
   });
 
-  it('warns + skips local file that does not exist', () => {
+  it('warns + skips local file that does not exist (sentinel matches)', () => {
+    const fingerprintPath = join(projectRoot, '.massu-fp.json');
+    seedSentinel(['adapters/missing.js'], fingerprintPath);
     const result = discoverAdapters({
       projectRoot,
       coreBundledIds: new Set(),
       manifestEnvelope: undefined,
       configLocalPaths: ['adapters/missing.js'],
+      fingerprintSentinelPath: fingerprintPath,
     });
     expect(result.adapters).toHaveLength(0);
     expect(result.warnings.some((w) => w.includes('not found'))).toBe(true);
   });
+
+  it('refuses ALL local adapters when no sentinel exists (postinstall-poisoning defense, gap-32)', () => {
+    const localPath = 'adapters/suspicious.js';
+    const absPath = resolve(projectRoot, localPath);
+    mkdirSync(resolve(projectRoot, 'adapters'), { recursive: true });
+    writeFileSync(absPath, 'module.exports = {};', 'utf-8');
+    const fingerprintPath = join(projectRoot, '.massu-fp.json'); // does NOT exist
+    const result = discoverAdapters({
+      projectRoot,
+      coreBundledIds: new Set(),
+      manifestEnvelope: undefined,
+      configLocalPaths: [localPath],
+      fingerprintSentinelPath: fingerprintPath,
+    });
+    expect(result.adapters).toHaveLength(0);
+    expect(result.warnings.some((w) => w.includes('refusing all LOCAL-EXPLICIT'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('resync-local-fingerprint'))).toBe(true);
+  });
+
+  it('refuses ALL local adapters when sentinel mismatches current paths', () => {
+    const goodPath = 'adapters/good.js';
+    const newPath = 'adapters/added-by-attacker.js';
+    const fingerprintPath = join(projectRoot, '.massu-fp.json');
+    // Sentinel records [goodPath] as acknowledged; configLocalPaths
+    // includes a NEW entry not in the sentinel — drift detected, refuse.
+    seedSentinel([goodPath], fingerprintPath);
+    mkdirSync(resolve(projectRoot, 'adapters'), { recursive: true });
+    writeFileSync(resolve(projectRoot, goodPath), '', 'utf-8');
+    writeFileSync(resolve(projectRoot, newPath), '', 'utf-8');
+    const result = discoverAdapters({
+      projectRoot,
+      coreBundledIds: new Set(),
+      manifestEnvelope: undefined,
+      configLocalPaths: [goodPath, newPath],
+      fingerprintSentinelPath: fingerprintPath,
+    });
+    expect(result.adapters).toHaveLength(0);
+    expect(result.warnings.some((w) => w.includes('drift') || w.includes('refusing all LOCAL-EXPLICIT'))).toBe(true);
+  });
+
+  it('empty configLocalPaths skips fingerprint check entirely (no sentinel needed)', () => {
+    // No fingerprint file, no warnings, no adapters — but the absence
+    // of a sentinel does NOT produce a warning when there are no local
+    // paths to verify in the first place.
+    const result = discoverAdapters({
+      projectRoot,
+      coreBundledIds: new Set(),
+      manifestEnvelope: undefined,
+      configLocalPaths: [],
+    });
+    expect(result.adapters).toHaveLength(0);
+    expect(result.warnings.some((w) => w.includes('refusing all LOCAL-EXPLICIT'))).toBe(false);
+  });
 });
 
 describe('discoverAdapters — combined sources + dedup', () => {
-  it('emits all three classes when present', () => {
+  it('emits all three classes when present (with seeded sentinel for LOCAL-EXPLICIT)', () => {
     makeNodeModulesPackage('@massu/adapter-rails', {
       name: '@massu/adapter-rails',
       version: '0.1.0',
@@ -277,11 +347,14 @@ describe('discoverAdapters — combined sources + dedup', () => {
     });
     mkdirSync(resolve(projectRoot, 'adapters'), { recursive: true });
     writeFileSync(resolve(projectRoot, 'adapters/local.js'), '', 'utf-8');
+    const fingerprintPath = join(projectRoot, '.massu-fp.json');
+    seedSentinel(['adapters/local.js'], fingerprintPath);
     const result = discoverAdapters({
       projectRoot,
       coreBundledIds: new Set(['python-fastapi']),
       manifestEnvelope: manifestWithEntries([{ package: '@massu/adapter-rails', version: '0.1.0' }]),
       configLocalPaths: ['adapters/local.js'],
+      fingerprintSentinelPath: fingerprintPath,
     });
     expect(result.adapters).toHaveLength(3);
     const origins = result.adapters.map((a) => a.origin).sort();

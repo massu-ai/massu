@@ -20,7 +20,7 @@
  * until release-prep fills real hashes.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, symlinkSync, lstatSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
@@ -302,5 +302,100 @@ describe('WASM load — unknown language → GrammarUnavailableError, no crash',
       err = e;
     }
     expect(err).toBeInstanceOf(GrammarUnavailableError);
+  });
+});
+
+// ============================================================
+// F-011 — LRU cache eviction (closed 2026-05-06 hotfix)
+// ============================================================
+
+describe('WASM cache LRU eviction (F-011)', () => {
+  let cacheDir: string;
+  let mod: typeof import('../../detect/adapters/tree-sitter-loader.ts');
+
+  beforeEach(async () => {
+    cacheDir = mkdtempSync(join(tmpdir(), 'massu-wasm-cache-lru-'));
+    process.env.MASSU_WASM_CACHE_DIR = cacheDir;
+    mod = await import('../../detect/adapters/tree-sitter-loader.ts');
+  });
+
+  afterEach(() => {
+    rmSync(cacheDir, { recursive: true, force: true });
+    delete process.env.MASSU_WASM_CACHE_DIR;
+    delete process.env.MASSU_WASM_CACHE_RETAIN;
+  });
+
+  function writeFakeWasm(name: string, bytes: number = 100): string {
+    const path = join(cacheDir, name);
+    writeFileSync(path, Buffer.alloc(bytes, 0xab), { mode: 0o600 });
+    return path;
+  }
+
+  it('evicts entries beyond retain count, keeping newest by mtime', () => {
+    const paths = [
+      writeFakeWasm('python-aaa.wasm'),
+      writeFakeWasm('typescript-bbb.wasm'),
+      writeFakeWasm('javascript-ccc.wasm'),
+      writeFakeWasm('swift-ddd.wasm'),
+      writeFakeWasm('rust-eee.wasm'),
+    ];
+    const fs = require('fs');
+    paths.forEach((p, i) => {
+      const t = new Date(2026, 0, i + 1);
+      fs.utimesSync(p, t, t);
+    });
+
+    mod._evictCacheForTest(3);
+
+    expect(fs.existsSync(paths[0])).toBe(false);
+    expect(fs.existsSync(paths[1])).toBe(false);
+    expect(fs.existsSync(paths[2])).toBe(true);
+    expect(fs.existsSync(paths[3])).toBe(true);
+    expect(fs.existsSync(paths[4])).toBe(true);
+  });
+
+  it('does NOT evict when entry count is at or below cap', () => {
+    const paths = [writeFakeWasm('python-aaa.wasm'), writeFakeWasm('typescript-bbb.wasm')];
+
+    mod._evictCacheForTest(16);
+
+    const fs = require('fs');
+    expect(fs.existsSync(paths[0])).toBe(true);
+    expect(fs.existsSync(paths[1])).toBe(true);
+  });
+
+  it('refuses to delete symlinks in cache dir (F-008 defense carried forward)', () => {
+    const real = writeFakeWasm('python-aaa.wasm');
+    const linkPath = join(cacheDir, 'malicious-link.wasm');
+    const target = join(cacheDir, '..', 'should-not-be-touched.txt');
+    writeFileSync(target, 'sentinel');
+    symlinkSync(target, linkPath);
+
+    const origErr = console.error;
+    const errMsgs: string[] = [];
+    console.error = (msg: string) => { errMsgs.push(String(msg)); };
+    try {
+      mod._evictCacheForTest(0);
+    } finally {
+      console.error = origErr;
+    }
+
+    const fs = require('fs');
+    expect(fs.existsSync(real)).toBe(false);
+    expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
+    expect(fs.existsSync(target)).toBe(true);
+    expect(errMsgs.some((m) => m.includes('F-008'))).toBe(true);
+  });
+
+  it('ignores non-.wasm files (e.g., temp files mid-write)', () => {
+    const wasmFile = writeFakeWasm('python-aaa.wasm');
+    const tmpFile = join(cacheDir, 'python-aaa.wasm.tmp.12345');
+    writeFileSync(tmpFile, Buffer.alloc(100, 0xcc));
+
+    mod._evictCacheForTest(0);
+
+    const fs = require('fs');
+    expect(fs.existsSync(wasmFile)).toBe(false);
+    expect(fs.existsSync(tmpFile)).toBe(true);
   });
 });

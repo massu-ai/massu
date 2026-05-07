@@ -33,6 +33,13 @@ import { discoverAdapters } from '../detect/adapters/discover.js';
 import { CORE_BUNDLED_IDS } from '../detect/adapters/index.js';
 import { writeFingerprintSentinel } from '../security/local-fingerprint.js';
 import { atomicWrite } from '../security/atomic-write.js';
+import {
+  sha256OfDir,
+  readInstalledManifest,
+  writeInstalledManifestEntry,
+  removeInstalledManifestEntry,
+  type InstallEntry,
+} from '../security/install-tracking.js';
 import type { AdapterDescriptor } from '../security/adapter-origin.js';
 import type { Envelope } from '../security/manifest-schema.js';
 
@@ -61,8 +68,9 @@ export async function handleAdaptersSubcommand(args: string[]): Promise<Adapters
     case 'resync-local-fingerprint':
       return runAdaptersResyncLocalFingerprint(rest);
     case 'install':
+      return runAdaptersInstall(rest);
     case 'resign':
-      return notYetImplemented(sub, 'gap-37 install-time sha256 tracking (next Phase 5 commit)');
+      return runAdaptersResign(rest);
     case '--help':
     case '-h':
     case undefined:
@@ -452,6 +460,236 @@ function mutateLocalArray(
   }
 
   process.stderr.write(`${command}: success — adapters.local now has ${next.length} entry(ies).\n`);
+  return { exitCode: 0 };
+}
+
+/**
+ * `npx massu adapters install <package>` (Plan 3c gap-37).
+ *
+ * Operator workflow:
+ *   $ npm install @massu/adapter-rails
+ *   $ npx massu adapters install @massu/adapter-rails
+ *
+ * The npm install step is the operator's responsibility; this command
+ * registers the freshly-installed package in the install-tracking
+ * sidecar so the loader's load-time integrity check (verifyInstalledIntegrity
+ * in discover.ts) accepts it on next startup. Concretely:
+ *
+ * 1. Look up <package> in the cached registry manifest. Refuse if not
+ *    found OR unpublished.
+ * 2. Locate the package in node_modules at the project root.
+ * 3. Compute sha256OfDir of the package directory (content-addressed,
+ *    stable across machines).
+ * 4. Compare to the manifest entry's sha256. Refuse on mismatch
+ *    (tampering OR wrong-version-installed condition).
+ * 5. Write the install entry to ~/.massu/adapter-manifest-installed.json.
+ *
+ * Exit codes:
+ *   0 = registered; 1 = bad usage / package not in manifest / not installed;
+ *   2 = sha mismatch (tampering or wrong version); 3 = sidecar write failed
+ */
+export async function runAdaptersInstall(args: string[]): Promise<AdaptersResult> {
+  const packageName = args[0];
+  if (!packageName) {
+    process.stderr.write('Usage: massu adapters install <package-name>\n');
+    return { exitCode: 1 };
+  }
+
+  let projectRoot: string;
+  try {
+    projectRoot = getProjectRoot();
+  } catch (err) {
+    process.stderr.write(`install: cannot resolve project root: ${err instanceof Error ? err.message : String(err)}\n`);
+    return { exitCode: 1 };
+  }
+
+  // Locate the package in node_modules. Handles scoped names like
+  // @massu/adapter-rails by joining at the path level.
+  const packageDir = resolve(projectRoot, 'node_modules', ...packageName.split('/'));
+  if (!existsSync(packageDir)) {
+    process.stderr.write(
+      `install: ${packageName} is not installed in node_modules. Run \`npm install ${packageName}\` first.\n`,
+    );
+    return { exitCode: 1 };
+  }
+
+  // Read the package's own version + verify the package looks like an adapter.
+  const pkgJsonPath = resolve(packageDir, 'package.json');
+  if (!existsSync(pkgJsonPath)) {
+    process.stderr.write(`install: ${packageName} has no package.json at ${pkgJsonPath}\n`);
+    return { exitCode: 1 };
+  }
+  let pkgJson: { name?: unknown; version?: unknown; 'massu-adapter'?: unknown };
+  try {
+    pkgJson = JSON.parse(readFileSync(pkgJsonPath, 'utf-8'));
+  } catch (err) {
+    process.stderr.write(`install: ${packageName} has malformed package.json: ${err instanceof Error ? err.message : String(err)}\n`);
+    return { exitCode: 1 };
+  }
+  if (pkgJson.name !== packageName || typeof pkgJson.version !== 'string') {
+    process.stderr.write(`install: ${packageName}'s package.json name/version mismatch.\n`);
+    return { exitCode: 1 };
+  }
+  const installedVersion = pkgJson.version;
+
+  // Look up in cached registry manifest.
+  const manifestResult = await getManifest();
+  if (manifestResult.kind !== 'ok') {
+    process.stderr.write(
+      `install: registry manifest unavailable. Run \`massu adapters refresh\` first. Reasons: ${manifestResult.reasons.join('; ')}\n`,
+    );
+    return { exitCode: 1 };
+  }
+  const manifestEntry = manifestResult.envelope.manifest.adapters.find((e) => e.package === packageName);
+  if (!manifestEntry) {
+    process.stderr.write(
+      `install: refusing — ${packageName} is not in the signed registry manifest. ` +
+      `Submit a PR per AUTHORING-ADAPTERS.md before installing.\n`,
+    );
+    return { exitCode: 1 };
+  }
+  if (manifestEntry.unpublished === true) {
+    process.stderr.write(
+      `install: refusing — ${packageName} is marked unpublished in the manifest. ` +
+      `Run \`npm uninstall ${packageName}\` to remove it.\n`,
+    );
+    return { exitCode: 1 };
+  }
+  if (manifestEntry.version !== installedVersion) {
+    process.stderr.write(
+      `install: WARNING — installed version ${installedVersion} differs from manifest entry ${manifestEntry.version}. ` +
+      `The sha256 check below uses the manifest's hash; if the installed package was tampered to look like a different ` +
+      `version, the check will catch it.\n`,
+    );
+  }
+
+  // Compute sha256OfDir + compare.
+  let computedSha: string;
+  try {
+    computedSha = sha256OfDir(packageDir);
+  } catch (err) {
+    process.stderr.write(`install: sha256OfDir failed: ${err instanceof Error ? err.message : String(err)}\n`);
+    return { exitCode: 2 };
+  }
+
+  // Note: per gap-37 spec, the manifest entry's sha256 is the
+  // CONTENT-ADDRESSED hash of the published package (same algorithm
+  // sha256OfDir computes here). For the registry's currently empty
+  // manifest, no entries exist yet; once Phase 9 ships the 5
+  // first-party adapters, their manifest entries' sha256 will be
+  // computed via the same sha256OfDir at publish time.
+  if (computedSha !== manifestEntry.sha256) {
+    process.stderr.write(
+      `install: refusing — ${packageName} content sha256 (${computedSha.slice(0, 16)}...) ` +
+      `does not match manifest entry sha256 (${manifestEntry.sha256.slice(0, 16)}...). ` +
+      `This indicates either (a) tampering of the installed files, or (b) a different version installed than the manifest pins.\n`,
+    );
+    return { exitCode: 2 };
+  }
+
+  // Write to install-tracking sidecar.
+  const entry: InstallEntry = {
+    version: installedVersion,
+    installed_sha256: computedSha,
+    manifest_sha256: manifestEntry.sha256,
+    ts: new Date().toISOString(),
+  };
+  const writeResult = writeInstalledManifestEntry(packageName, entry);
+  if (!writeResult.written) {
+    process.stderr.write(`install: sidecar write failed: ${writeResult.error}\n`);
+    return { exitCode: 3 };
+  }
+
+  process.stderr.write(`install: registered ${packageName}@${installedVersion} (sha ${computedSha.slice(0, 16)}...)\n`);
+  return { exitCode: 0 };
+}
+
+/**
+ * `npx massu adapters resign` (Plan 3c gap-37 + gap-54).
+ *
+ * Re-fetches the registry manifest under the currently-bundled @massu/core
+ * pubkey + walks every entry in the install-tracking sidecar:
+ *   - If still in the new manifest with matching sha256 → refresh `ts`
+ *   - If sha256 mismatches OR no longer in manifest → REMOVE from sidecar
+ *     + emit operator-actionable warning (recover via npm uninstall +
+ *     npm install + massu adapters install)
+ *
+ * Used after a key rotation event when the cached manifest's
+ * bundled_pubkey_fingerprint != current pubkey: the operator reinstalls
+ * the affected packages, then runs `resign` to re-link them to the new
+ * manifest's signatures.
+ */
+export async function runAdaptersResign(_args: string[]): Promise<AdaptersResult> {
+  const refreshed = await getManifest({ force: true });
+  if (refreshed.kind !== 'ok') {
+    process.stderr.write(
+      `resign: refresh failed. Cannot reconcile install-tracking sidecar without a verified manifest. ` +
+      `Reasons: ${refreshed.reasons.join('; ')}\n`,
+    );
+    return { exitCode: 1 };
+  }
+
+  const installed = readInstalledManifest();
+  const manifestByName = new Map(refreshed.envelope.manifest.adapters.map((e) => [e.package, e]));
+  let kept = 0;
+  let removed = 0;
+  const warnings: string[] = [];
+
+  let projectRoot: string;
+  try {
+    projectRoot = getProjectRoot();
+  } catch (err) {
+    process.stderr.write(`resign: cannot resolve project root: ${err instanceof Error ? err.message : String(err)}\n`);
+    return { exitCode: 1 };
+  }
+
+  for (const [name, entry] of Object.entries(installed)) {
+    const newEntry = manifestByName.get(name);
+    if (!newEntry) {
+      removed++;
+      warnings.push(`${name}@${entry.version}: no longer in manifest after resign — REMOVED from sidecar`);
+      removeInstalledManifestEntry(name);
+      continue;
+    }
+    const packageDir = resolve(projectRoot, 'node_modules', ...name.split('/'));
+    if (!existsSync(packageDir)) {
+      removed++;
+      warnings.push(`${name}@${entry.version}: not present in node_modules — REMOVED from sidecar`);
+      removeInstalledManifestEntry(name);
+      continue;
+    }
+    let computedSha: string;
+    try {
+      computedSha = sha256OfDir(packageDir);
+    } catch (err) {
+      removed++;
+      warnings.push(`${name}: sha256OfDir failed: ${err instanceof Error ? err.message : String(err)} — REMOVED from sidecar`);
+      removeInstalledManifestEntry(name);
+      continue;
+    }
+    if (computedSha !== newEntry.sha256) {
+      removed++;
+      warnings.push(
+        `${name}: post-resign sha mismatch (manifest ${newEntry.sha256.slice(0, 16)}... vs ` +
+        `installed ${computedSha.slice(0, 16)}...) — REMOVED from sidecar. Recover via ` +
+        `\`npm uninstall ${name} && npm install ${name} && massu adapters install ${name}\``,
+      );
+      removeInstalledManifestEntry(name);
+      continue;
+    }
+    // Refresh ts so the operator sees the resign happened.
+    writeInstalledManifestEntry(name, {
+      ...entry,
+      manifest_sha256: newEntry.sha256,
+      ts: new Date().toISOString(),
+    });
+    kept++;
+  }
+
+  for (const w of warnings) {
+    process.stderr.write(`resign: ${w}\n`);
+  }
+  process.stderr.write(`resign: kept ${kept} entries; removed ${removed} entries.\n`);
   return { exitCode: 0 };
 }
 

@@ -86,22 +86,14 @@ describe('handleAdaptersSubcommand routing', () => {
   });
 });
 
-describe('handleAdaptersSubcommand stubs (in-flight Phase 5 follow-ups)', () => {
-  // add-local / remove-local / resync-local-fingerprint are now IMPLEMENTED
-  // in this commit (gap-32 closed). Their full behavior is tested in
-  // dedicated describe blocks below + in __tests__/local-fingerprint.test.ts.
-  // What's still stubbed: install + resign (gap-37 install-time sha256).
-
-  for (const sub of ['install', 'resign']) {
-    it(`${sub} returns 64 with gap-37 message`, async () => {
-      const result = await handleAdaptersSubcommand([sub, 'arg-if-needed']);
-      expect(result.exitCode).toBe(64);
-      const stderr = stderrCalls.join('');
-      expect(stderr).toContain(`massu adapters ${sub}`);
-      expect(stderr).toContain('gap-37');
-    });
-  }
-});
+// Phase 5 v1 stubs (add-local/remove-local/resync-local-fingerprint, install,
+// resign) are now ALL IMPLEMENTED. Their behavior is tested in
+// dedicated unit suites:
+//   - local-fingerprint.test.ts  (gap-32)
+//   - install-tracking.test.ts   (gap-37)
+//   - integration tests for the full add-local/install flows would require
+//     a real config file + node_modules setup; those are Phase 8 dogfood
+//     concerns rather than unit tests.
 
 describe('runAdaptersSearch', () => {
   it('exits 1 with usage message when no query', async () => {

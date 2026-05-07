@@ -25,12 +25,14 @@
 import { createHash } from 'crypto';
 import {
   mkdirSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
   renameSync,
   unlinkSync,
   lstatSync,
   chmodSync,
+  utimesSync,
 } from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
@@ -174,6 +176,118 @@ function getCachedPath(language: TreeSitterLanguage, sha: string): string {
   return join(getCacheDir(), `${language}-${sha}.wasm`);
 }
 
+// ============================================================
+// LRU cache eviction (Phase 3.5 audit F-011 — closed 2026-05-06)
+// ============================================================
+//
+// F-011 was deferred at v1 ("at ~3MB per grammar, full cache footprint is
+// <100MB — not an attack vector"). The 2026-05-06 audit-leak retrospective
+// elevated it: now that the cache path + naming convention are publicly
+// known (the security audit doc was visible for 9 days), opportunistic
+// disk-fill attacks become slightly less hypothetical, AND the cost of
+// retrofitting LRU once Plan 3c expands the supported grammar set is
+// strictly higher than doing it now while only 4 grammars exist.
+//
+// Eviction rule: keep the N most-recently-USED entries (mtime, updated by
+// the cache-hit path on every read). Default cap = 16 — leaves headroom
+// for Plan 3c's 31-grammar expansion plus dev-time version churn, while
+// bounding total cache to ~50MB at 3MB/grammar.
+
+const DEFAULT_CACHE_RETAIN_COUNT = 16;
+
+function getCacheRetainCount(): number {
+  const env = process.env.MASSU_WASM_CACHE_RETAIN;
+  if (env) {
+    const n = Number(env);
+    if (Number.isFinite(n) && n >= 1 && n <= 1024) return Math.floor(n);
+  }
+  return DEFAULT_CACHE_RETAIN_COUNT;
+}
+
+/**
+ * Touch a cache file's mtime to mark "most recently used." Called on every
+ * cache-hit. Best-effort: any failure is silently swallowed — touching is
+ * an optimization signal for eviction, not load-bearing.
+ *
+ * Uses utimes via writeFileSync round-trip would be expensive; instead we
+ * use the same filesystem touch trick as `touch -a`: open + close. On
+ * macOS/Linux Node, `chmodSync` to the same mode does NOT update mtime,
+ * so we do a no-op write of empty content via a tmp marker file. Cheaper
+ * approach: just rely on atime if filesystem records it. Most modern
+ * filesystems are mounted with `relatime` so atime updates only when
+ * older than mtime — which means after our first eviction-relevant
+ * read, atime IS the right signal.
+ *
+ * Decision: use mtime via `utimesSync` — explicit and portable.
+ */
+function touchCacheFile(path: string): void {
+  try {
+    const now = new Date();
+    utimesSync(path, now, now);
+  } catch {
+    // best-effort
+  }
+}
+
+/**
+ * Evict cache entries beyond the retain count, keeping the N most recently
+ * used (by mtime). Called after every successful cache write. Best-effort:
+ * eviction failure never blocks a load.
+ *
+ * Rejects symlinks and non-regular files via lstat — the same defense as
+ * the cache-hit path (F-008 fix). A symlink in the cache dir is logged
+ * as a security warning but not deleted (don't act on attacker-controlled
+ * paths automatically).
+ */
+function evictBeyondRetainCount(retain: number = getCacheRetainCount()): void {
+  const dir = getCacheDir();
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return; // Dir doesn't exist yet; nothing to evict.
+  }
+
+  const candidates: { path: string; mtimeMs: number }[] = [];
+  for (const name of entries) {
+    if (!name.endsWith('.wasm')) continue; // Don't touch non-grammar files.
+    const path = join(dir, name);
+    let stat;
+    try {
+      stat = lstatSync(path);
+    } catch {
+      continue;
+    }
+    if (stat.isSymbolicLink() || !stat.isFile()) {
+      // Skip — never automatically delete what could be an attacker-placed
+      // symlink. Surface via stderr; user's cache dir is suspect.
+      console.error(
+        `[tree-sitter-loader] cache eviction skipped non-regular file: ${path} ` +
+          `(possible symlink attack — see Phase 3.5 finding F-008).`,
+      );
+      continue;
+    }
+    candidates.push({ path, mtimeMs: stat.mtimeMs });
+  }
+
+  if (candidates.length <= retain) return;
+
+  // Sort newest-first; everything beyond `retain` is evictable.
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  for (const victim of candidates.slice(retain)) {
+    try {
+      unlinkSync(victim.path);
+    } catch {
+      // best-effort
+    }
+  }
+}
+
+/** Test-injection hook: lets tests force eviction without writing a new grammar. */
+export function _evictCacheForTest(retain?: number): void {
+  evictBeyondRetainCount(retain);
+}
+
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
@@ -271,6 +385,9 @@ export async function loadGrammar(
       }
       const lang = await Language.load(bytes);
       loadedGrammars.set(language, lang);
+      // F-011 LRU: mark this entry as most-recently-used so it survives
+      // future evictions.
+      touchCacheFile(cachePath);
       return lang;
     }
   }
@@ -326,6 +443,9 @@ export async function loadGrammar(
       }
       throw e;
     }
+    // F-011 LRU: prune cache to retain count after every successful write.
+    // Best-effort — eviction failure never blocks a load.
+    evictBeyondRetainCount();
   } catch (e) {
     // Cache write failure is non-fatal — we still have `body` in memory and
     // can load directly. Log to stderr per VR-USER-ERROR-MESSAGES style.

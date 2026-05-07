@@ -46,9 +46,9 @@
  * module's API makes that impossible by exposing only the high-level
  * write/check primitives, not the raw sha256 step.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, lstatSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { resolve, isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { atomicWrite } from './atomic-write.js';
@@ -56,14 +56,52 @@ import { atomicWrite } from './atomic-write.js';
 export const FINGERPRINT_PATH = resolve(homedir(), '.massu', 'adapters-local-fingerprint.json');
 
 /**
- * Canonical fingerprint: lowercase sha256 hex of JSON.stringify of the
- * SORTED array. Sorting makes the fingerprint stable regardless of yaml
- * key order. The array is the exact AdapterLocalPathSchema-validated +
- * POSIX-normalized content from getConfig().adapters?.local.
+ * Canonical fingerprint: sha256 hex of `[path, sha256(content)]` tuples for
+ * each adapters.local entry, sorted by path. CR-9 audit C3 fix: hashing path
+ * STRINGS only (the prior shape) let a postinstall script swap the FILE at
+ * an already-acknowledged path with full bypass — fingerprint matched even
+ * though the file content changed. This implementation hashes BOTH the path
+ * AND the current file content, so swapping the file (even with a same-
+ * length payload) triggers drift on the very next discovery + the loader
+ * refuses until the operator runs `massu adapters resync-local-fingerprint`.
+ *
+ * Path inputs MUST be the AdapterLocalPathSchema-validated + POSIX-normalized
+ * content from getConfig().adapters?.local. `projectRoot` is the absolute
+ * path to the project so we can resolve relative entries to disk reads.
+ *
+ * Missing files: the fingerprint includes a sentinel string `<missing>` for
+ * any adapters.local entry that does not resolve to a regular file at
+ * fingerprint time. This means an absent file is part of the fingerprint
+ * — adding the file later is a drift event the operator must explicitly
+ * acknowledge. Symbolic links are detected via lstatSync + treated as
+ * `<symlink>` (also a sentinel; the link target is NEVER followed for
+ * hashing — a malicious symlink to /etc/shadow does not exfiltrate that
+ * file's content into the fingerprint).
  */
-export function computeLocalFingerprint(localPaths: ReadonlyArray<string>): string {
-  const sorted = [...localPaths].sort();
-  const canonical = JSON.stringify(sorted);
+export function computeLocalFingerprint(
+  localPaths: ReadonlyArray<string>,
+  projectRoot: string,
+): string {
+  const tuples: Array<{ path: string; contentTag: string }> = [];
+  for (const p of localPaths) {
+    const abs = isAbsolute(p) ? p : resolve(projectRoot, p);
+    let contentTag: string;
+    try {
+      const lst = lstatSync(abs);
+      if (lst.isSymbolicLink()) {
+        contentTag = '<symlink>';
+      } else if (!lst.isFile()) {
+        contentTag = '<not-a-file>';
+      } else {
+        contentTag = createHash('sha256').update(readFileSync(abs)).digest('hex');
+      }
+    } catch {
+      contentTag = '<missing>';
+    }
+    tuples.push({ path: p, contentTag });
+  }
+  tuples.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const canonical = JSON.stringify(tuples);
   return createHash('sha256').update(canonical).digest('hex');
 }
 
@@ -108,10 +146,11 @@ export type FingerprintWriteResult = { written: true } | { written: false; error
 export function writeFingerprintSentinel(
   localPaths: ReadonlyArray<string>,
   source: FingerprintSentinel['source'],
+  projectRoot: string,
   path: string = FINGERPRINT_PATH,
 ): FingerprintWriteResult {
   const sentinel: FingerprintSentinel = {
-    fingerprint: computeLocalFingerprint(localPaths),
+    fingerprint: computeLocalFingerprint(localPaths, projectRoot),
     source,
     ts: new Date().toISOString(),
   };
@@ -149,6 +188,7 @@ export type FingerprintCheckResult =
  */
 export function checkFingerprintDrift(
   localPaths: ReadonlyArray<string>,
+  projectRoot: string,
   path: string = FINGERPRINT_PATH,
 ): FingerprintCheckResult {
   const sentinel = readFingerprintSentinel(path);
@@ -161,7 +201,7 @@ export function checkFingerprintDrift(
         `to acknowledge them once.`,
     };
   }
-  const currentFingerprint = computeLocalFingerprint(localPaths);
+  const currentFingerprint = computeLocalFingerprint(localPaths, projectRoot);
   if (currentFingerprint === sentinel.fingerprint) {
     return { kind: 'match', sentinel };
   }

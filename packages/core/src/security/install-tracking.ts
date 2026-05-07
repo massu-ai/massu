@@ -32,7 +32,7 @@
  * directory hashing in @massu/core. Future modules that need to hash
  * directories MUST consume sha256OfDir from here, not re-implement.
  */
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, lstatSync, existsSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
@@ -81,21 +81,33 @@ export function sha256OfDir(dir: string, opts: Sha256OfDirOpts = {}): string {
     }
     for (const entry of entries.sort()) {
       const absPath = join(currentDir, entry);
-      let st;
+      let lst;
       try {
-        st = statSync(absPath);
+        // CR-9 audit H1 fix: lstatSync (not statSync) so symlinks are
+        // detected + skipped without following. Following symlinks would
+        // expose a read-anywhere primitive (a malicious dist/x.js -> /etc/shadow
+        // would have the target's content captured into the hash) AND would
+        // cause readFileSync to block on named-pipe targets.
+        lst = lstatSync(absPath);
       } catch {
         continue;
       }
-      if (st.isDirectory()) {
+      if (lst.isSymbolicLink()) {
+        // Skip symlinks entirely — they're not part of the package's
+        // content-addressable hash. A package author who legitimately wants
+        // to ship a symlink (rare) must replace it with a real file at
+        // publish time.
+        continue;
+      }
+      if (lst.isDirectory()) {
         if (EXCLUDED_DIR_NAMES.has(entry)) continue;
         walk(absPath);
         continue;
       }
-      if (!st.isFile()) continue;
-      if (st.size > maxFileBytes) {
+      if (!lst.isFile()) continue;
+      if (lst.size > maxFileBytes) {
         throw new Error(
-          `sha256OfDir: file ${absPath} exceeds maxFileBytes (${st.size} > ${maxFileBytes}); ` +
+          `sha256OfDir: file ${absPath} exceeds maxFileBytes (${lst.size} > ${maxFileBytes}); ` +
           `adapter packages should not ship files this large.`,
         );
       }

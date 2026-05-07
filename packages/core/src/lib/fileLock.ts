@@ -105,17 +105,27 @@ export function readLockHolderPid(lockPath: string): number | null {
   }
 }
 
+/**
+ * CR-9 audit L3 fix: REQUIRES SharedArrayBuffer + Atomics for the sync
+ * wait. The prior fallback (a tight `while (Date.now() < end)` spinloop)
+ * burned 100% CPU on environments without Atomics — typically sandboxed
+ * serverless runtimes — making contended manifest refreshes a DoS
+ * surface against the host. With this throw, callers running on
+ * Atomics-less environments fail loudly + early instead of silently
+ * spinning.
+ */
 export function busyWaitSync(ms: number): void {
-  const end = Date.now() + ms;
-  if (typeof SharedArrayBuffer !== 'undefined' && typeof Atomics !== 'undefined') {
-    const sab = new SharedArrayBuffer(4);
-    const view = new Int32Array(sab);
-    Atomics.wait(view, 0, 0, ms);
-    return;
+  if (typeof SharedArrayBuffer === 'undefined' || typeof Atomics === 'undefined') {
+    throw new Error(
+      `withFileLockSync requires SharedArrayBuffer + Atomics for its retry-loop wait. ` +
+      `This Node runtime does not provide them — refusing to fall back to a CPU spinloop. ` +
+      `If you hit this in a sandboxed serverless env, the fix is to perform the ` +
+      `lock-protected operation in a host runtime that supports Atomics.`,
+    );
   }
-  while (Date.now() < end) {
-    // Spin — modern Node always has Atomics; this is a fallback for sandboxed envs.
-  }
+  const sab = new SharedArrayBuffer(4);
+  const view = new Int32Array(sab);
+  Atomics.wait(view, 0, 0, ms);
 }
 
 /**

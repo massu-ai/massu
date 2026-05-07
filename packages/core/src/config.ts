@@ -377,10 +377,17 @@ export type WatchConfig = z.infer<typeof WatchConfigSchema>;
 // `enabled` is the kill switch (default false for first 2 minor releases per
 // Plan 3c gap-1 + audit-iteration-1 deliverable). When false, only the 35
 // CORE-BUNDLED adapters in @massu/core itself load; @massu/adapter-* npm
-// packages and adapters.local entries are ignored. `allow_unsigned` relaxes
-// REGISTRY-VERIFIED signature checking only — it does NOT affect CORE-BUNDLED
-// (always trusted) or LOCAL-EXPLICIT (always requires fingerprint regardless).
+// packages and adapters.local entries are ignored.
 // `local` is the explicit per-path opt-in for project-local TS/JS adapters.
+//
+// Note: `allow_unsigned` was REMOVED 2026-05-07 (CR-9 audit C2 fix). The
+// field had been parsed by the schema but never consulted at any callsite,
+// creating a tripwire — a future contributor wiring it would silently
+// disable signature verification. Per Rule 0 / drift-prevention, dead
+// fields are removed, not documented. No v1 use case exists for unsigned
+// adapter loading; if a future v2 adds one, it ships with documented
+// callsite enforcement and a different field name to avoid the tripwire
+// pattern.
 //
 // Path validation (gap-58): adapters.local entries are normalized to POSIX form
 // for cross-platform fingerprint stability. Absolute paths and `..` traversal
@@ -401,7 +408,6 @@ export const AdapterLocalPathSchema = z.string()
 
 const AdaptersConfigSchema = z.object({
   enabled: z.boolean().default(false),
-  allow_unsigned: z.boolean().default(false),
   local: z.array(AdapterLocalPathSchema).default([]),
 }).passthrough().optional();
 export type AdaptersConfig = z.infer<typeof AdaptersConfigSchema>;

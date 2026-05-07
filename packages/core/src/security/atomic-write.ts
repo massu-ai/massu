@@ -113,15 +113,18 @@ export function atomicWrite(
       closeSync(fd);
     }
 
-    renameSync(tmpPath, path);
-
     if (opts.mode !== undefined) {
-      // openSync's mode is masked by umask; explicit chmod after rename is
-      // the only way to guarantee 0o600. The chmod is best-effort wrapped
-      // because some filesystems (network mounts) may reject chmod even
-      // when the write succeeded — surface the error if it happens.
-      chmodSync(path, opts.mode);
+      // CR-9 audit M1 fix: chmod the TMP file BEFORE rename so the final
+      // file appears with the correct mode atomically. Without this, the
+      // prior post-rename chmod left a microsecond TOCTOU window where the
+      // file existed at the final path with umask-default mode (e.g.
+      // 0o644) — an attacker process polling the cache file could read
+      // the contents before chmod fires. With chmod-before-rename, the
+      // rename atomically delivers a file already at mode 0o600.
+      chmodSync(tmpPath, opts.mode);
     }
+
+    renameSync(tmpPath, path);
 
     return { written: true };
   } catch (err) {
@@ -142,14 +145,20 @@ export function atomicWrite(
  * is shared across users via NFS / symlink / chmod widening — security-
  * relevant cache files MUST NOT be readable by other accounts on shared
  * systems.
+ *
+ * CR-9 audit L4 fix: returns `null` (unknown) on stat error instead of
+ * `false` (definitely-not-writable). Caller treats unknown as "warn"
+ * since a stat error could itself indicate adversarial filesystem state
+ * (mounted by another user, ownership flip, etc.). Returning false
+ * silently in that path was a defense-bypass.
  */
-export function isGroupOrWorldWritable(path: string): boolean {
+export function isGroupOrWorldWritable(path: string): boolean | null {
   if (!existsSync(path)) return false;
   try {
     const mode = statSync(path).mode;
     // 0o020 = group-write, 0o002 = other-write
     return (mode & 0o022) !== 0;
   } catch {
-    return false;
+    return null;
   }
 }

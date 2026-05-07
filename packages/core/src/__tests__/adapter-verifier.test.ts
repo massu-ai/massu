@@ -105,6 +105,11 @@ describe('verifyManifest — happy path', () => {
   });
 
   it('preserves adapter entry deprecated + unpublished fields (gap-57)', () => {
+    // CR-9 audit M3 fix: per-entry signing_key_id MUST equal envelope
+    // signing_key_id. Fixture pre-builds the keypair so we can stamp the
+    // matching key id on the entry before signing.
+    const keyPair = nacl.sign.keyPair();
+    const keyId = createHash('sha256').update(keyPair.publicKey).digest('hex');
     const manifestWithDeprecated = {
       manifest_schema_version: 1,
       issued_at: '2026-05-07T00:00:00Z',
@@ -113,12 +118,12 @@ describe('verifyManifest — happy path', () => {
           package: '@massu/adapter-old-rails',
           version: '0.1.0',
           sha256: 'a'.repeat(64),
-          signing_key_id: REGISTRY_PUBKEY_FINGERPRINT_HEX,
+          signing_key_id: keyId,
           deprecated: { since: '2026-05-01', replacement: '@massu/adapter-rails', reason: 'fork' },
         },
       ],
     };
-    const fx = buildSignedEnvelope(manifestWithDeprecated);
+    const fx = buildSignedEnvelope(manifestWithDeprecated, keyPair);
     const result = verifyManifest({ envelope: fx.envelope, publicKey: fx.keyPair.publicKey });
     expect(result.ok).toBe(true);
     if (result.ok) {

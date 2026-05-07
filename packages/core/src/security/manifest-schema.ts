@@ -32,8 +32,21 @@ export const KNOWN_MAX_SCHEMA_VERSION = 1 as const;
 /** sha256 hex string. 64 lowercase hex chars. */
 const Sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/, 'sha256 hex must be 64 lowercase hex chars');
 
-/** Standard base64 (RFC 4648) — alphabet [A-Za-z0-9+/], optional `=` padding, no newlines. */
-const Base64Schema = z.string().regex(/^[A-Za-z0-9+/]*={0,2}$/, 'must be standard base64 (no newlines, A-Za-z0-9+/=)').min(1);
+/**
+ * Standard base64 (RFC 4648) — alphabet [A-Za-z0-9+/], length must be a
+ * multiple of 4 (with up to two `=` padding chars), no newlines.
+ * CR-9 audit L1 fix: the prior `^[A-Za-z0-9+/]*={0,2}$` regex permitted a
+ * lone `=` (decodes to zero bytes) which downstream code would parse as
+ * a valid empty input. The strict RFC 4648 form below rejects malformed
+ * base64 at the schema layer instead of relying on a downstream length
+ * check.
+ */
+const Base64Schema = z.string()
+  .regex(
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})$/,
+    'must be standard base64 (RFC 4648; length divisible by 4 with optional == or = padding)',
+  )
+  .min(1);
 
 /**
  * Single adapter entry in the manifest. Plan 3c gap-31 + gap-57:

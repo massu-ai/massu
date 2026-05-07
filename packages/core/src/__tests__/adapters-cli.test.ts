@@ -87,16 +87,10 @@ describe('handleAdaptersSubcommand routing', () => {
 });
 
 describe('handleAdaptersSubcommand stubs (in-flight Phase 5 follow-ups)', () => {
-  for (const sub of ['add-local', 'remove-local', 'resync-local-fingerprint']) {
-    it(`${sub} returns 64 with gap-32 message`, async () => {
-      const result = await handleAdaptersSubcommand([sub, 'arg-if-needed']);
-      expect(result.exitCode).toBe(64);
-      const stderr = stderrCalls.join('');
-      expect(stderr).toContain(`massu adapters ${sub}`);
-      expect(stderr).toContain('not yet implemented');
-      expect(stderr).toContain('gap-32');
-    });
-  }
+  // add-local / remove-local / resync-local-fingerprint are now IMPLEMENTED
+  // in this commit (gap-32 closed). Their full behavior is tested in
+  // dedicated describe blocks below + in __tests__/local-fingerprint.test.ts.
+  // What's still stubbed: install + resign (gap-37 install-time sha256).
 
   for (const sub of ['install', 'resign']) {
     it(`${sub} returns 64 with gap-37 message`, async () => {

@@ -24,12 +24,15 @@
  * is honest "not yet implemented in this @massu/core release" UX, not a
  * silent stub.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { getConfig, getProjectRoot } from '../config.js';
+import { parseDocument } from 'yaml';
+import { getConfig, getProjectRoot, resetConfig, AdapterLocalPathSchema } from '../config.js';
 import { getManifest } from '../security/manifest-cache.js';
 import { discoverAdapters } from '../detect/adapters/discover.js';
 import { CORE_BUNDLED_IDS } from '../detect/adapters/index.js';
+import { writeFingerprintSentinel } from '../security/local-fingerprint.js';
+import { atomicWrite } from '../security/atomic-write.js';
 import type { AdapterDescriptor } from '../security/adapter-origin.js';
 import type { Envelope } from '../security/manifest-schema.js';
 
@@ -52,9 +55,11 @@ export async function handleAdaptersSubcommand(args: string[]): Promise<Adapters
     case 'search':
       return runAdaptersSearch(rest);
     case 'add-local':
+      return runAdaptersAddLocal(rest);
     case 'remove-local':
+      return runAdaptersRemoveLocal(rest);
     case 'resync-local-fingerprint':
-      return notYetImplemented(sub, 'gap-32 adapters.local fingerprint mechanism (next Phase 5 commit)');
+      return runAdaptersResyncLocalFingerprint(rest);
     case 'install':
     case 'resign':
       return notYetImplemented(sub, 'gap-37 install-time sha256 tracking (next Phase 5 commit)');
@@ -263,6 +268,190 @@ export async function runAdaptersSearch(args: string[]): Promise<AdaptersResult>
     else if (m.deprecated) status = `deprecated (since ${m.deprecated.since})`;
     process.stdout.write([m.package, m.version, status].join('\t') + '\n');
   }
+  return { exitCode: 0 };
+}
+
+/**
+ * `npx massu adapters add-local <path>` (Plan 3c gap-32 + gap-58).
+ *
+ * Validates <path> through AdapterLocalPathSchema (rejects absolute,
+ * rejects parent-traversal, normalizes to POSIX). Reads massu.config.yaml,
+ * appends the normalized path to adapters.local, writes the file back
+ * preserving comments via yaml.parseDocument, and updates the
+ * fingerprint sentinel with source="cli".
+ *
+ * Exit codes:
+ *   0 = added; 1 = bad usage / invalid path; 2 = config / fs error
+ */
+export async function runAdaptersAddLocal(args: string[]): Promise<AdaptersResult> {
+  const userPath = args[0];
+  if (!userPath) {
+    process.stderr.write('Usage: massu adapters add-local <path>\n');
+    return { exitCode: 1 };
+  }
+  const validated = AdapterLocalPathSchema.safeParse(userPath);
+  if (!validated.success) {
+    const issues = validated.error.issues.map((i) => i.message).join('; ');
+    process.stderr.write(`add-local refused: ${issues}\n`);
+    return { exitCode: 1 };
+  }
+  const normalizedPath = validated.data;
+
+  return mutateLocalArray((current) => {
+    if (current.includes(normalizedPath)) {
+      process.stderr.write(`adapters.local already contains '${normalizedPath}'; nothing to do.\n`);
+      return null; // signal no-op
+    }
+    return [...current, normalizedPath];
+  }, 'add-local');
+}
+
+/**
+ * `npx massu adapters remove-local <path>` — remove from adapters.local
+ * + update fingerprint sentinel.
+ */
+export async function runAdaptersRemoveLocal(args: string[]): Promise<AdaptersResult> {
+  const userPath = args[0];
+  if (!userPath) {
+    process.stderr.write('Usage: massu adapters remove-local <path>\n');
+    return { exitCode: 1 };
+  }
+  // Run the user input through the same normalization so 'adapters\foo.js'
+  // input matches a stored 'adapters/foo.js' entry.
+  const validated = AdapterLocalPathSchema.safeParse(userPath);
+  if (!validated.success) {
+    process.stderr.write(`remove-local: path is malformed; nothing matches.\n`);
+    return { exitCode: 1 };
+  }
+  const normalizedPath = validated.data;
+
+  return mutateLocalArray((current) => {
+    if (!current.includes(normalizedPath)) {
+      process.stderr.write(`adapters.local does not contain '${normalizedPath}'; nothing to do.\n`);
+      return null;
+    }
+    return current.filter((p) => p !== normalizedPath);
+  }, 'remove-local');
+}
+
+/**
+ * `npx massu adapters resync-local-fingerprint` — operator escape hatch
+ * to acknowledge an out-of-band edit to adapters.local. Recomputes the
+ * fingerprint over whatever the current config says + writes the
+ * sentinel with source='cli-resync'. Use after manually editing
+ * massu.config.yaml.
+ *
+ * Does NOT touch the yaml — only the sentinel. The intent is "I edited
+ * the yaml directly + I trust the result; please stop refusing my local
+ * adapters."
+ */
+export async function runAdaptersResyncLocalFingerprint(_args: string[]): Promise<AdaptersResult> {
+  resetConfig();
+  let cfg;
+  try {
+    cfg = getConfig();
+  } catch (err) {
+    process.stderr.write(`resync-local-fingerprint: config invalid: ${err instanceof Error ? err.message : String(err)}\n`);
+    return { exitCode: 2 };
+  }
+  const localPaths = cfg.adapters?.local ?? [];
+  const result = writeFingerprintSentinel(localPaths, 'cli-resync');
+  if (!result.written) {
+    process.stderr.write(`resync-local-fingerprint: sentinel write failed: ${result.error}\n`);
+    return { exitCode: 2 };
+  }
+  process.stderr.write(
+    `Sentinel updated: ${localPaths.length} local adapter(s) acknowledged.\n`,
+  );
+  return { exitCode: 0 };
+}
+
+/**
+ * Shared yaml-mutation logic for add-local / remove-local. The mutator
+ * callback receives the current adapters.local array and returns either
+ * the new array OR null to signal "no-op" (e.g. trying to add a duplicate
+ * or remove a non-existent entry).
+ */
+function mutateLocalArray(
+  mutator: (current: string[]) => string[] | null,
+  command: 'add-local' | 'remove-local',
+): AdaptersResult {
+  let projectRoot: string;
+  try {
+    projectRoot = getProjectRoot();
+  } catch (err) {
+    process.stderr.write(
+      `${command}: cannot resolve project root: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    return { exitCode: 2 };
+  }
+  const yamlPath = resolve(projectRoot, 'massu.config.yaml');
+  if (!existsSync(yamlPath)) {
+    process.stderr.write(
+      `${command}: massu.config.yaml not found at ${yamlPath}. Run \`massu init\` first.\n`,
+    );
+    return { exitCode: 2 };
+  }
+  let yamlText: string;
+  try {
+    yamlText = readFileSync(yamlPath, 'utf-8');
+  } catch (err) {
+    process.stderr.write(`${command}: failed to read ${yamlPath}: ${err instanceof Error ? err.message : String(err)}\n`);
+    return { exitCode: 2 };
+  }
+  const doc = parseDocument(yamlText);
+
+  // Read current adapters.local. yaml-Document's toJS on a node returns the
+  // plain JS value; we use this to feed the mutator.
+  const currentNode = doc.getIn(['adapters', 'local']) as { toJSON?: () => unknown } | unknown[] | undefined;
+  let current: string[] = [];
+  if (Array.isArray(currentNode)) {
+    current = currentNode.filter((x): x is string => typeof x === 'string');
+  } else if (currentNode && typeof currentNode === 'object' && 'toJSON' in currentNode && typeof currentNode.toJSON === 'function') {
+    const jsArr = currentNode.toJSON() as unknown;
+    if (Array.isArray(jsArr)) {
+      current = jsArr.filter((x): x is string => typeof x === 'string');
+    }
+  }
+
+  const next = mutator(current);
+  if (next === null) {
+    // Mutator decided no-op; sentinel stays in sync because nothing changed.
+    return { exitCode: 0 };
+  }
+
+  // Write back the mutated array. doc.setIn auto-creates intermediate nodes
+  // (adapters: {} → adapters: { local: [...] }) when they don't exist.
+  doc.setIn(['adapters', 'local'], next);
+  const newYaml = doc.toString();
+  const writeResult = atomicWrite(yamlPath, newYaml);
+  if (!writeResult.written) {
+    process.stderr.write(`${command}: yaml write failed: ${writeResult.error}\n`);
+    return { exitCode: 2 };
+  }
+
+  // Re-parse via getConfig() to validate the mutated yaml against the full
+  // schema (catches malformations the partial parsing might have missed).
+  resetConfig();
+  try {
+    getConfig();
+  } catch (err) {
+    process.stderr.write(`${command}: yaml mutation produced invalid config: ${err instanceof Error ? err.message : String(err)}\n`);
+    return { exitCode: 2 };
+  }
+
+  // Update fingerprint sentinel — source='cli' marks this as an
+  // operator-acknowledged change so the loader's gap-32 check passes.
+  const fpResult = writeFingerprintSentinel(next, 'cli');
+  if (!fpResult.written) {
+    process.stderr.write(
+      `${command}: yaml updated but sentinel write failed: ${fpResult.error}. ` +
+      `Run \`massu adapters resync-local-fingerprint\` to retry.\n`,
+    );
+    return { exitCode: 2 };
+  }
+
+  process.stderr.write(`${command}: success — adapters.local now has ${next.length} entry(ies).\n`);
   return { exitCode: 0 };
 }
 

@@ -387,7 +387,7 @@ export type WatchConfig = z.infer<typeof WatchConfigSchema>;
 // are rejected at schema validation (attack-surface defense — a malicious
 // postinstall could add "/etc/passwd" or "../../../home/user/.ssh/" entries
 // that bypass the project tree).
-const AdapterLocalPathSchema = z.string()
+export const AdapterLocalPathSchema = z.string()
   .refine((s) => !/^([A-Za-z]:[\\/]|[\\/])/.test(s), {
     message: 'absolute paths are rejected; adapters.local entries must be relative to the massu.config.yaml directory',
   })

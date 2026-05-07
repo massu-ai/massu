@@ -5,7 +5,7 @@
  * `massu init` — One-command, detection-driven project setup.
  *
  * Phase 3 rewrite (2026-04-19): replaces the JS/TS template copier (old
- * detectFramework/generateConfig path, root cause of example-project-style stale configs)
+ * detectFramework/generateConfig path, root cause of multi-runtime stale-config drift)
  * with a flow that runs the Phase 1 detection engine (`runDetection`) and
  * generates a v2 schema_version=2 `massu.config.yaml` that reflects the
  * actual repo layout (languages, source_dirs, verification commands, domains).

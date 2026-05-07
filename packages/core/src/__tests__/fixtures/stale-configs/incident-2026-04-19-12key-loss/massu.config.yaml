@@ -1,0 +1,77 @@
+# Anonymized regression fixture reproducing the 2026-04-19 incident shape.
+# 12 top-level keys — exercises full passthrough at both top + nested levels.
+project:
+  name: trading-monorepo
+  root: auto
+  description: "World-class enterprise-grade auto-trading platform"
+
+framework:
+  type: multi
+  primary: python
+  python:
+    runtime: python3.11
+    framework: fastapi
+    test_framework: pytest
+  typescript:
+    framework: nextjs
+  swift:
+    framework: swiftui
+  rust:
+    framework: actix-web
+
+paths:
+  monorepo_root: apps
+  python_source: apps/ai-service
+  web_source: apps/web/src
+  ios_source: apps/ios
+  gateway_source: apps/gateway
+  data_runtime: data
+  docs: docs
+  plans: docs/plans
+  incidents: docs/incidents
+  adr: docs/adr
+  aliases:
+    "@": apps/web/src
+
+toolPrefix: trading
+
+canonical_paths:
+  feature_config: apps/ai-service/data/feature_config.json
+  event_log_db: apps/ai-service/data/event_log.db
+
+services:
+  ai_service:
+    label: com.example.trading-ai
+    port: 8000
+  guardian:
+    label: com.example.guardian
+
+domains:
+  - name: Trading
+    routers: [trading]
+    pages: []
+    tables: []
+
+rules:
+  - pattern: src/**/*.ts
+    rules:
+      - Use ESM imports, not CommonJS
+
+verification:
+  python:
+    test: "pytest"
+    type: "mypy"
+
+verification_types:
+  - name: VR-IBKR-CONTRACT
+    description: "IBKR contract integrity"
+
+north_stars:
+  - "Citadel/Jane-Street-grade quality"
+  - "Profit maximization"
+
+workflow:
+  phases:
+    - plan
+    - implement
+    - verify

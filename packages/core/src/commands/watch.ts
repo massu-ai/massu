@@ -72,7 +72,7 @@ function parseFlags(args: string[]): ParsedFlags {
 }
 
 function findClaudeBg(): string | null {
-  // Prefer the well-known example-project-author install path; fall back to PATH.
+  // Prefer the conventional ~/.claude/bin install path; fall back to PATH.
   const home = process.env.HOME ?? '';
   const fixed = home ? resolve(home, '.claude', 'bin', 'claude-bg') : null;
   if (fixed && existsSync(fixed)) return fixed;

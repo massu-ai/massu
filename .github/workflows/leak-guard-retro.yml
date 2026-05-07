@@ -1,0 +1,80 @@
+name: Leak Guard (Retro / Full-Tree)
+
+# Layer 4 of the public-repo leak-defense architecture.
+#
+# Companion to .github/workflows/leak-guard.yml (which scans NEW commits
+# in a push range only, per its `git rev-list --reverse "${BASE}..${HEAD}"`
+# loop). That layer cannot detect a leak that was committed BEFORE the
+# guard existed — and we discovered on 2026-05-07 that several pre-guard
+# commits had grandfathered references to docs/internal/, /Users/operator/,
+# and customer-name fixtures that the per-commit gate silently permitted.
+#
+# This workflow closes that gap by running the SAME guard script in
+# `tree` mode — scanning every tracked file's full content on every push
+# / PR, not just the diff. Identical patterns, identical script: the
+# only difference is scope. The guard's content scan compares against
+# CONTENT_PATTERNS so any newly-introduced leak pattern is caught at
+# this level even if a hand-rolled commit slipped past the pre-commit
+# hook + per-push diff scan.
+#
+# When this workflow fails:
+#   1. Read the violation list. Each line names a file + the pattern.
+#   2. EITHER rewrite the offending line (replace the leaked path/marker
+#      with abstract phrasing), OR add a `# leak-guard-allow: <reason>`
+#      trailer to that line if it's a deliberate, audited reference
+#      (e.g. the leak-guard's own self-description).
+#   3. NEVER add the file to CONTENT_SCAN_SELF_REFERENCE_FILES unless
+#      the file's literal job is to enumerate the patterns. That list
+#      is for guard infrastructure, not an escape hatch.
+#   4. Bypassing this CI requires admin override of branch protection.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leak-guard-retro-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  leak-guard-retro:
+    name: Public Repo Leak Guard (full-tree)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify guard script exists and is executable
+        run: |
+          if [ ! -x scripts/massu-public-leak-guard.sh ]; then
+            echo "::error::scripts/massu-public-leak-guard.sh missing or not executable"
+            exit 2
+          fi
+
+      - name: Run leak guard in tree mode (full-tree historical scan)
+        env:
+          MASSU_LEAK_GUARD_MODE: tree
+        run: |
+          set -euo pipefail
+          if ! bash scripts/massu-public-leak-guard.sh; then
+            echo ""
+            echo "::error::Leak guard (tree mode) detected historical leaks"
+            echo ""
+            echo "Remediation:"
+            echo "  - Rewrite the offending lines to remove the leaked"
+            echo "    path/marker. Replace with abstract phrasing or remove"
+            echo "    the cross-reference entirely."
+            echo "  - For deliberate, audited references, add a"
+            echo "    '# leak-guard-allow: <reason>' trailer on the same"
+            echo "    line. Use sparingly — every allow is documented."
+            echo "  - Companion workflow leak-guard.yml catches NEW commits;"
+            echo "    this workflow catches HISTORICAL tree state. Both"
+            echo "    layers must pass for a push to be accepted."
+            exit 1
+          fi
+          echo "::notice::Leak guard (tree mode) PASS — no historical leaks detected"

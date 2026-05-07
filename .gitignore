@@ -5,7 +5,13 @@ dist/
 *.db-wal
 .env
 .env.*
-*.pem
+# Massu registry signing keys (Plan 3c Phase D infra — private half NEVER committed)
+# Replaces former blanket `*.pem` so packages/core/security/registry-pubkey.pem (Phase 5) can ship.
+*-private.pem
+*-priv.pem
+*.private.pem
+registry-private*
+signing-key*
 *.key
 .DS_Store
 coverage/

@@ -18,8 +18,6 @@ import {
  *   - Error cases (missing var, malformed token, malformed default)
  *   - Adversarial security tests TPL-SEC-01..07
  *   - Static guard: source contains no `eval`/`Function`/`vm`/`exec`/`spawn`
- *
- * Spec: docs/internal/2026-04-26-codebase-aware-templates-spec.md
  */
 
 describe('Template Engine: happy path', () => {

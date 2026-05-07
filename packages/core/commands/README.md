@@ -127,11 +127,8 @@ Pass `--skip-commands` to `massu init` or `massu refresh` to suppress command in
 2. The default `<base>.md` should remain generic (or be regenerated if it was previously stack-specific — see `massu-scaffold-page.md` for the pattern of an embedded multi-stack default).
 3. Add a row to the table in section 5.
 4. Add a test case to `packages/core/src/__tests__/install-commands.test.ts` that exercises the new variant against a fixture config.
-5. Update `docs/internal/2026-04-26-template-variant-audit.md` (the audit doc) with the new label.
 
 ## 7. Reference
 
-- Plan: `/Users/operator/example-project/docs/plans/2026-04-26-massu-stack-aware-command-templates.md`
-- Audit: `docs/internal/2026-04-26-template-variant-audit.md`
 - Implementation: `packages/core/src/commands/install-commands.ts`
 - Tests: `packages/core/src/__tests__/install-commands.test.ts` and `show-template.test.ts`

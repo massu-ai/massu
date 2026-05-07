@@ -1,0 +1,3 @@
+[project]
+name = "trading-api"
+dependencies = ["fastapi", "sqlalchemy", "pytest"]

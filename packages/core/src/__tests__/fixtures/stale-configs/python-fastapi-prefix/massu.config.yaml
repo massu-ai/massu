@@ -1,0 +1,23 @@
+project:
+  name: trading-monorepo
+  root: auto
+framework:
+  type: typescript
+  router: trpc
+  orm: prisma
+  ui: nextjs
+paths:
+  source: src
+  aliases:
+    "@": src
+toolPrefix: trading
+domains:
+  - name: Trading
+    routers: [trading]
+    pages: []
+    tables: []
+    allowedImportsFrom: []
+rules:
+  - pattern: src/**/*.ts
+    rules:
+      - Use ESM imports, not CommonJS

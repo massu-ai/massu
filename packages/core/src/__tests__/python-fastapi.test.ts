@@ -8,7 +8,7 @@
  *   - matches() signal logic (pyproject.toml fastapi dep, routers/ dir)
  *   - introspect() with empty file list → 'none' confidence
  *   - introspect() with grammar unavailable → 'none' (graceful degradation)
- *   - example-project `require_tier_or_guardian` fixture (per plan acceptance line 242)
+ *   - Custom auth-dep `require_tier_or_guardian` fixture (per plan acceptance line 242)
  *
  * NOTE: The adapter loads a real Tree-sitter Python grammar at runtime via
  * `loadGrammar('python')`. In CI without network access (or without a pre-
@@ -17,7 +17,7 @@
  *   - The matches() / signal path (pure JS, no grammar needed)
  *   - The graceful-degradation path (grammar throws → 'none')
  *
- * The example-project auth-symbol acceptance test relies on the regex-fallback tier,
+ * The custom-auth-symbol acceptance test relies on the regex-fallback tier,
  * which uses the same fixture and produces `auth_dep: 'require_tier_or_guardian'`
  * via the Plan #2 regex (verified in `codebase-introspector.test.ts`).
  * Once Phase 4's grammar-priming wiring lands, this test will be promoted to
@@ -116,7 +116,7 @@ describe('python-fastapi adapter: introspect() degradation', () => {
   });
 });
 
-describe('python-fastapi adapter: example-project fixture (acceptance line 242)', () => {
+describe('python-fastapi adapter: custom-auth-dep fixture (acceptance line 242)', () => {
   const tmpDirs: string[] = [];
 
   function mkTmp(): string {
@@ -134,7 +134,7 @@ describe('python-fastapi adapter: example-project fixture (acceptance line 242)'
 
   it('extracts require_tier_or_guardian as the exact symbol (regex-fallback tier — AST tier wires in Phase 4)', () => {
     const root = mkTmp();
-    const routersDir = join(root, 'apps', 'ai-service', 'example_svc_service', 'routers');
+    const routersDir = join(root, 'apps', 'ai-service', 'ai_service_app', 'routers');
     mkdirSync(routersDir, { recursive: true });
     writeFileSync(
       join(routersDir, 'options.py'),
@@ -154,7 +154,7 @@ async def list_options(user: dict = Depends(require_tier_or_guardian)):
     // for Phase 1. The AST tier produces the same answer once Phase 4 wires
     // grammar priming end-to-end.
     const out = introspect(
-      fixtureDetection(root, 'apps/ai-service/example_svc_service'),
+      fixtureDetection(root, 'apps/ai-service/ai_service_app'),
       root,
     );
     // EXACT symbol — not a substring (per plan line 242)

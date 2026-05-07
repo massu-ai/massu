@@ -4,8 +4,7 @@
 /**
  * Plan 3b — Phase 1: AST Adapter contract types.
  *
- * Lives at `packages/core/src/detect/adapters/types.ts` per the spec doc
- * (`docs/internal/2026-04-26-ast-lsp-spec.md` §2). All types are local —
+ * Lives at `packages/core/src/detect/adapters/types.ts`. All types are local —
  * NONE re-exported from `web-tree-sitter`.
  *
  * Adapter authors import from this module only; the runner (`runner.ts`)

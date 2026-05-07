@@ -4,8 +4,6 @@
 /**
  * Massu codebase-aware templating engine — string substitution only.
  *
- * Spec: docs/internal/2026-04-26-codebase-aware-templates-spec.md
- *
  * Grammar (the entire surface):
  *   {{path.to.var}}                       Look up + render
  *   {{path.to.var | default("fallback")}} Look up; use literal on miss

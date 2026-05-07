@@ -179,7 +179,7 @@ export function mergeRefresh(existing: AnyConfig, refreshed: AnyConfig): AnyConf
   // paths.aliases is a 2-level-nested user block. Detector always writes
   // { '@': <source-dir> }; user-authored alias map must survive. Spread user
   // over detector so user keys win for any overlap AND user-only keys survive.
-  // (P5-002 discovery — example-project's paths.aliases['@'] was being overwritten.)
+  // (P5-002 discovery — a downstream consumer's paths.aliases['@'] was being overwritten.)
   const existingPaths = existing.paths;
   const outPaths = out.paths;
   if (
@@ -203,9 +203,9 @@ export function mergeRefresh(existing: AnyConfig, refreshed: AnyConfig): AnyConf
 
   // verification is the other 2-level-nested detector-owned block. Semantics
   // mirror migrate.ts:132-138 buildVerificationBlock: user's custom language
-  // sections (e.g., example-project's `gateway`, `ios`, `runtime`, `web`) survive
+  // sections (e.g., a multi-runtime monorepo's `gateway`, `ios`, `runtime`, `web`) survive
   // wholesale; user's command overrides on shared languages (e.g., `python`)
-  // win over detector defaults. (P5-002 discovery — example-project was losing 15
+  // win over detector defaults. (P5-002 discovery — a downstream consumer was losing 15
   // verification command entries across 4 custom language sections plus
   // having 4 python commands overwritten with detector defaults.)
   const existingVer = existing.verification;

@@ -73,6 +73,12 @@ async function main(): Promise<void> {
       await handleConfigSubcommand(args.slice(1));
       break;
     }
+    case 'adapters': {
+      const { handleAdaptersSubcommand } = await import('./commands/adapters.ts');
+      const result = await handleAdaptersSubcommand(args.slice(1));
+      process.exit(result.exitCode);
+      return;
+    }
     case '--help':
     case '-h': {
       printHelp();
@@ -162,6 +168,7 @@ Commands:
   refresh-log [N]   Show the last N watcher auto-refresh events
   validate-config   Validate massu.config.yaml (alias: config validate)
   config <sub>      Config lifecycle: refresh | validate | upgrade | doctor | check-drift
+  adapters <sub>    Third-party adapter registry: list | refresh | search | add-local | remove-local | install | resign
 
 Options:
   --help, -h        Show this help message

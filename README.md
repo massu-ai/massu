@@ -1,5 +1,6 @@
 # Massu
 
+[![SafeSkill 50/100](https://img.shields.io/badge/SafeSkill-50%2F100_Use%20with%20Caution-orange)](https://safeskill.dev/scan/massu-ai-massu)
 **AI Engineering Governance Platform**
 
 Session memory, feature registry, code intelligence, and rule enforcement for AI coding assistants.

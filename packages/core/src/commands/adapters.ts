@@ -119,6 +119,7 @@ export async function runAdaptersList(_args: string[]): Promise<AdaptersResult> 
 
   const config = getConfig();
   const localPaths = config.adapters?.local ?? [];
+  const adaptersEnabled = config.adapters?.enabled === true;
 
   // Best-effort: try to load the manifest. If unreachable, discovery still
   // runs but REGISTRY-VERIFIED candidates will be refused with a clear
@@ -144,6 +145,7 @@ export async function runAdaptersList(_args: string[]): Promise<AdaptersResult> 
     coreBundledIds: CORE_BUNDLED_IDS,
     manifestEnvelope,
     configLocalPaths: localPaths,
+    adaptersEnabled,
   });
 
   for (const w of warnings) {
@@ -356,14 +358,16 @@ export async function runAdaptersRemoveLocal(args: string[]): Promise<AdaptersRe
 export async function runAdaptersResyncLocalFingerprint(_args: string[]): Promise<AdaptersResult> {
   resetConfig();
   let cfg;
+  let projectRoot: string;
   try {
+    projectRoot = getProjectRoot();
     cfg = getConfig();
   } catch (err) {
     process.stderr.write(`resync-local-fingerprint: config invalid: ${err instanceof Error ? err.message : String(err)}\n`);
     return { exitCode: 2 };
   }
   const localPaths = cfg.adapters?.local ?? [];
-  const result = writeFingerprintSentinel(localPaths, 'cli-resync');
+  const result = writeFingerprintSentinel(localPaths, 'cli-resync', projectRoot);
   if (!result.written) {
     process.stderr.write(`resync-local-fingerprint: sentinel write failed: ${result.error}\n`);
     return { exitCode: 2 };
@@ -450,7 +454,7 @@ function mutateLocalArray(
 
   // Update fingerprint sentinel — source='cli' marks this as an
   // operator-acknowledged change so the loader's gap-32 check passes.
-  const fpResult = writeFingerprintSentinel(next, 'cli');
+  const fpResult = writeFingerprintSentinel(next, 'cli', projectRoot);
   if (!fpResult.written) {
     process.stderr.write(
       `${command}: yaml updated but sentinel write failed: ${fpResult.error}. ` +
@@ -488,12 +492,49 @@ function mutateLocalArray(
  *   0 = registered; 1 = bad usage / package not in manifest / not installed;
  *   2 = sha mismatch (tampering or wrong version); 3 = sidecar write failed
  */
+/**
+ * CR-9 audit H4 fix: validate package name against npm's strict naming
+ * spec BEFORE using it as path segments OR writing to stderr. Rejects:
+ *   - control characters (would log-inject if echoed to stderr)
+ *   - path traversal segments (.., absolute paths, embedded slashes
+ *     beyond the single scope/name boundary)
+ *   - non-npm-spec characters
+ */
+const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+
+function validatePackageName(name: string): { ok: true; name: string } | { ok: false; reason: string } {
+  if (typeof name !== 'string' || name.length === 0) {
+    return { ok: false, reason: 'package name is empty' };
+  }
+  // Reject control characters explicitly — npm name regex below also
+  // does this implicitly, but a more specific message helps operators.
+  if (/[\x00-\x1f\x7f]/.test(name)) {
+    return { ok: false, reason: 'package name contains control characters' };
+  }
+  if (!NPM_PACKAGE_NAME_RE.test(name)) {
+    return {
+      ok: false,
+      reason:
+        `package name '${name}' does not match npm spec ` +
+        `(^(@scope/)?name$ where each component matches [a-z0-9][a-z0-9._-]*). ` +
+        `Refusing to use as path segment.`,
+    };
+  }
+  return { ok: true, name };
+}
+
 export async function runAdaptersInstall(args: string[]): Promise<AdaptersResult> {
-  const packageName = args[0];
-  if (!packageName) {
+  const packageNameRaw = args[0];
+  if (!packageNameRaw) {
     process.stderr.write('Usage: massu adapters install <package-name>\n');
     return { exitCode: 1 };
   }
+  const validated = validatePackageName(packageNameRaw);
+  if (!validated.ok) {
+    process.stderr.write(`install refused: ${validated.reason}\n`);
+    return { exitCode: 1 };
+  }
+  const packageName = validated.name;
 
   let projectRoot: string;
   try {
@@ -561,6 +602,26 @@ export async function runAdaptersInstall(args: string[]): Promise<AdaptersResult
       `The sha256 check below uses the manifest's hash; if the installed package was tampered to look like a different ` +
       `version, the check will catch it.\n`,
     );
+  }
+
+  // CR-9 audit M5 fix: refuse to install any package whose tree contains
+  // hidden directories (.git, node_modules, .cache, .tmp). These are
+  // npm-strip targets at publish time but a malicious tarball can include
+  // them; sha256OfDir EXCLUDES them from hashing, so a payload smuggled
+  // into one of these dirs would never be hashed (install passes) and
+  // never be load-time-checked (load passes), then could be require()'d
+  // by the legitimate adapter at runtime. Refusing at install time is
+  // the structural fix.
+  const HIDDEN_DIRS_TO_REFUSE = ['.git', 'node_modules', '.cache', '.tmp'] as const;
+  for (const hidden of HIDDEN_DIRS_TO_REFUSE) {
+    if (existsSync(resolve(packageDir, hidden))) {
+      process.stderr.write(
+        `install refused: ${packageName} contains a '${hidden}' subdirectory. ` +
+        `Published npm tarballs should not ship these directories — refusing as a ` +
+        `precaution against payload smuggling.\n`,
+      );
+      return { exitCode: 1 };
+    }
   }
 
   // Compute sha256OfDir + compare.

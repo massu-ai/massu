@@ -297,7 +297,6 @@ var AdapterLocalPathSchema = z.string().refine((s) => !/^([A-Za-z]:[\\/]|[\\/])/
 }).transform((s) => s.split(/[\\/]/).filter((part) => part !== "" && part !== ".").join("/"));
 var AdaptersConfigSchema = z.object({
   enabled: z.boolean().default(false),
-  allow_unsigned: z.boolean().default(false),
   local: z.array(AdapterLocalPathSchema).default([])
 }).passthrough().optional();
 var TelemetryConfigSchema = z.object({

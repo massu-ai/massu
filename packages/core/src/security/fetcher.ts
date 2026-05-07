@@ -22,6 +22,16 @@
  */
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+/**
+ * CR-9 audit H3 fix: hard cap on response body size. Without this, a
+ * compromised CDN (or TLS-MITM) could serve a multi-GB body that exceeds
+ * available heap before the timeout fires. The manifest is on the order
+ * of KB; even with 1000 adapter entries it should fit comfortably under
+ * 1 MB. The 10 MB ceiling here is generous enough to never affect
+ * legitimate manifests AND tight enough to bound damage from a malicious
+ * upstream.
+ */
+const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024;
 
 /**
  * Allowlist of hosts the fetcher will GET from. Exported for unit testing
@@ -42,6 +52,11 @@ export interface FetchUrlOptions {
    * the default ALLOWED_HOSTS is the production contract. Test-only.
    */
   allowedHosts?: readonly string[];
+  /**
+   * Override the response body size cap (test-only). Defaults to 10 MB.
+   * CR-9 audit H3 fix: bounds OOM exposure from a malicious upstream.
+   */
+  maxBodyBytes?: number;
 }
 
 export interface FetchUrlResult {
@@ -69,6 +84,17 @@ export class FetchTimeoutError extends Error {
   }
 }
 
+export class FetchBodySizeError extends Error {
+  constructor(public readonly url: string, public readonly maxBodyBytes: number) {
+    super(
+      `Fetch of ${url} exceeded body size cap of ${maxBodyBytes} bytes. ` +
+      `This indicates either a malicious upstream OR an unexpectedly large ` +
+      `legitimate response. Refusing to load.`,
+    );
+    this.name = 'FetchBodySizeError';
+  }
+}
+
 /**
  * GET an HTTPS URL with allowlist enforcement + timeout. Returns the response
  * body as a string (caller is responsible for JSON.parse + schema validation).
@@ -84,6 +110,7 @@ export class FetchTimeoutError extends Error {
 export async function fetchUrl(url: string, opts: FetchUrlOptions = {}): Promise<FetchUrlResult> {
   const allowedHosts = opts.allowedHosts ?? ALLOWED_HOSTS;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxBodyBytes = opts.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
 
   let parsed: URL;
   try {
@@ -109,8 +136,59 @@ export async function fetchUrl(url: string, opts: FetchUrlOptions = {}): Promise
       signal: controller.signal,
       redirect: 'error', // refuse redirects — would defeat the allowlist
     });
-    const body = await response.text();
-    return { status: response.status, body };
+
+    // CR-9 audit H3 fix: stream the body with a hard byte cap. Without this,
+    // a malicious upstream could OOM the host with a multi-GB response
+    // before the wall-clock timeout fires. content-length header check is
+    // a fast pre-filter; the streaming reader is the actual enforcement.
+    // Headers can be absent in test mocks; treat missing as "no pre-filter".
+    if (response.headers && typeof response.headers.get === 'function') {
+      const contentLengthHeader = response.headers.get('content-length');
+      if (contentLengthHeader !== null && contentLengthHeader !== undefined) {
+        const declared = Number.parseInt(contentLengthHeader, 10);
+        if (Number.isFinite(declared) && declared > maxBodyBytes) {
+          throw new FetchBodySizeError(url, maxBodyBytes);
+        }
+      }
+    }
+
+    const body = response.body;
+    if (body && typeof body.getReader === 'function') {
+      // Streaming path: bound the read by maxBodyBytes. Used in production
+      // (Node 18+ fetch returns a ReadableStream).
+      const reader = body.getReader();
+      const chunks: Uint8Array[] = [];
+      let received = 0;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value) {
+          received += value.byteLength;
+          if (received > maxBodyBytes) {
+            try { await reader.cancel(); } catch { /* best effort */ }
+            throw new FetchBodySizeError(url, maxBodyBytes);
+          }
+          chunks.push(value);
+        }
+      }
+      const merged = new Uint8Array(received);
+      let offset = 0;
+      for (const chunk of chunks) {
+        merged.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return { status: response.status, body: new TextDecoder().decode(merged) };
+    }
+
+    // Fallback when response.body is not a ReadableStream (e.g. test
+    // mocks that only stub `text()`). The size cap is still enforced
+    // post-read because the text length is the byte length for ASCII +
+    // a strict upper bound for UTF-8 content.
+    const text = await response.text();
+    if (text.length > maxBodyBytes) {
+      throw new FetchBodySizeError(url, maxBodyBytes);
+    }
+    return { status: response.status, body: text };
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       throw new FetchTimeoutError(url, timeoutMs);

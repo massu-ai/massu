@@ -72,8 +72,10 @@ describe('AdaptersConfigSchema (gap-21 / VR-CONFIG-SCHEMA-EXTENSION)', () => {
     try {
       const cfg = loadConfigFromDir(dir);
       expect(cfg.adapters?.enabled).toBe(false);
-      expect(cfg.adapters?.allow_unsigned).toBe(false);
       expect(cfg.adapters?.local).toEqual([]);
+      // CR-9 audit C2 fix: allow_unsigned was REMOVED (it was parsed but
+      // never consulted, creating a tripwire for future contributors).
+      expect((cfg.adapters as Record<string, unknown> | undefined)?.allow_unsigned).toBeUndefined();
     } finally {
       cleanup();
     }

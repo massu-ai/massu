@@ -30,7 +30,7 @@ import type { Envelope } from '../security/manifest-schema.js';
  * `seedSentinel(localPaths, fingerprintPath)`.
  */
 function seedSentinel(localPaths: string[], fingerprintPath: string): void {
-  writeFingerprintSentinel(localPaths, 'cli', fingerprintPath);
+  writeFingerprintSentinel(localPaths, 'cli', projectRoot, fingerprintPath);
 }
 
 let projectRoot: string;
@@ -93,6 +93,7 @@ describe('discoverAdapters — CORE-BUNDLED', () => {
       coreBundledIds: new Set(['python-fastapi', 'nextjs-trpc']),
       manifestEnvelope: undefined,
       configLocalPaths: [],
+      adaptersEnabled: true,
     });
     expect(result.adapters).toHaveLength(2);
     expect(result.adapters.every((a) => a.origin === 'core-bundled')).toBe(true);
@@ -105,6 +106,7 @@ describe('discoverAdapters — CORE-BUNDLED', () => {
       coreBundledIds: new Set(),
       manifestEnvelope: undefined,
       configLocalPaths: [],
+      adaptersEnabled: true,
     });
     expect(result.adapters).toHaveLength(0);
     expect(result.warnings).toHaveLength(0);
@@ -124,6 +126,7 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
       manifestEnvelope: manifestWithEntries([{ package: '@massu/adapter-rails', version: '0.1.0' }]),
       skipInstalledIntegrityCheck: true,
       configLocalPaths: [],
+      adaptersEnabled: true,
     });
     expect(result.adapters).toHaveLength(1);
     expect(result.adapters[0]).toMatchObject({
@@ -145,6 +148,7 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
       manifestEnvelope: manifestWithEntries([]),
       skipInstalledIntegrityCheck: true,
       configLocalPaths: [],
+      adaptersEnabled: true,
     });
     expect(result.adapters).toHaveLength(0);
     expect(result.warnings.some((w) => w.includes('@massu/adapter-foo') && w.includes('not in the signed registry manifest'))).toBe(true);
@@ -161,6 +165,7 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
       coreBundledIds: new Set(),
       manifestEnvelope: undefined,
       configLocalPaths: [],
+      adaptersEnabled: true,
     });
     expect(result.adapters).toHaveLength(0);
     expect(result.warnings.some((w) => w.includes('registry manifest unavailable'))).toBe(true);
@@ -184,6 +189,7 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
       ]),
       skipInstalledIntegrityCheck: true,
       configLocalPaths: [],
+      adaptersEnabled: true,
     });
     expect(result.adapters).toHaveLength(1);
     expect(result.warnings.some((w) => w.includes('deprecated'))).toBe(true);
@@ -202,6 +208,7 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
         { package: '@massu/adapter-bad', version: '0.1.0', unpublished: true },
       ]),
       configLocalPaths: [],
+      adaptersEnabled: true,
     });
     expect(result.adapters).toHaveLength(0);
     expect(result.warnings.some((w) => w.includes('unpublished'))).toBe(true);
@@ -219,6 +226,7 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
       manifestEnvelope: manifestWithEntries([{ package: 'community-adapter-foo', version: '1.0.0' }]),
       skipInstalledIntegrityCheck: true,
       configLocalPaths: [],
+      adaptersEnabled: true,
     });
     expect(result.adapters).toHaveLength(1);
     expect(result.adapters[0]?.id).toBe('community-adapter-foo');
@@ -233,6 +241,7 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
       manifestEnvelope: manifestWithEntries([]),
       skipInstalledIntegrityCheck: true,
       configLocalPaths: [],
+      adaptersEnabled: true,
     });
     expect(result.adapters).toHaveLength(0);
     expect(result.warnings).toHaveLength(0); // no warning — these are simply not adapters
@@ -248,6 +257,7 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
       manifestEnvelope: manifestWithEntries([]),
       skipInstalledIntegrityCheck: true,
       configLocalPaths: [],
+      adaptersEnabled: true,
     });
     expect(result.adapters).toHaveLength(0);
     expect(result.warnings.some((w) => w.includes('parse failed'))).toBe(true);
@@ -267,6 +277,7 @@ describe('discoverAdapters — LOCAL-EXPLICIT (gap-32 fingerprint sentinel)', ()
       coreBundledIds: new Set(),
       manifestEnvelope: undefined,
       configLocalPaths: [localPath],
+      adaptersEnabled: true,
       fingerprintSentinelPath: fingerprintPath,
     });
     expect(result.adapters).toHaveLength(1);
@@ -284,6 +295,7 @@ describe('discoverAdapters — LOCAL-EXPLICIT (gap-32 fingerprint sentinel)', ()
       coreBundledIds: new Set(),
       manifestEnvelope: undefined,
       configLocalPaths: ['adapters/missing.js'],
+      adaptersEnabled: true,
       fingerprintSentinelPath: fingerprintPath,
     });
     expect(result.adapters).toHaveLength(0);
@@ -301,6 +313,7 @@ describe('discoverAdapters — LOCAL-EXPLICIT (gap-32 fingerprint sentinel)', ()
       coreBundledIds: new Set(),
       manifestEnvelope: undefined,
       configLocalPaths: [localPath],
+      adaptersEnabled: true,
       fingerprintSentinelPath: fingerprintPath,
     });
     expect(result.adapters).toHaveLength(0);
@@ -323,6 +336,7 @@ describe('discoverAdapters — LOCAL-EXPLICIT (gap-32 fingerprint sentinel)', ()
       coreBundledIds: new Set(),
       manifestEnvelope: undefined,
       configLocalPaths: [goodPath, newPath],
+      adaptersEnabled: true,
       fingerprintSentinelPath: fingerprintPath,
     });
     expect(result.adapters).toHaveLength(0);
@@ -338,9 +352,58 @@ describe('discoverAdapters — LOCAL-EXPLICIT (gap-32 fingerprint sentinel)', ()
       coreBundledIds: new Set(),
       manifestEnvelope: undefined,
       configLocalPaths: [],
+      adaptersEnabled: true,
     });
     expect(result.adapters).toHaveLength(0);
     expect(result.warnings.some((w) => w.includes('refusing all LOCAL-EXPLICIT'))).toBe(false);
+  });
+});
+
+describe('discoverAdapters — adapters.enabled kill switch (CR-9 audit C1)', () => {
+  it('emits CORE-BUNDLED but refuses REGISTRY-VERIFIED + LOCAL-EXPLICIT when adaptersEnabled=false', () => {
+    makeNodeModulesPackage('@massu/adapter-rails', {
+      name: '@massu/adapter-rails',
+      version: '0.1.0',
+      'massu-adapter': true,
+    });
+    mkdirSync(resolve(projectRoot, 'adapters'), { recursive: true });
+    writeFileSync(resolve(projectRoot, 'adapters/local.js'), '', 'utf-8');
+    const fingerprintPath = join(projectRoot, '.massu-fp.json');
+    seedSentinel(['adapters/local.js'], fingerprintPath);
+
+    const result = discoverAdapters({
+      projectRoot,
+      coreBundledIds: new Set(['python-fastapi']),
+      manifestEnvelope: manifestWithEntries([{ package: '@massu/adapter-rails', version: '0.1.0' }]),
+      skipInstalledIntegrityCheck: true,
+      configLocalPaths: ['adapters/local.js'],
+      fingerprintSentinelPath: fingerprintPath,
+      adaptersEnabled: false,
+    });
+
+    // ONLY core-bundled survives; the kill switch refuses everything else.
+    expect(result.adapters).toHaveLength(1);
+    expect(result.adapters[0]?.origin).toBe('core-bundled');
+    expect(result.warnings.some((w) => w.includes('adapters.enabled=false'))).toBe(true);
+  });
+
+  it('drift-guard: adaptersEnabled=false ALWAYS short-circuits (no REGISTRY-VERIFIED bypass)', () => {
+    // Even with a perfectly-matching manifest entry, a registered package,
+    // a clean fingerprint, etc., adaptersEnabled=false still refuses.
+    makeNodeModulesPackage('@massu/adapter-rails', {
+      name: '@massu/adapter-rails',
+      version: '0.1.0',
+      'massu-adapter': true,
+    });
+    const result = discoverAdapters({
+      projectRoot,
+      coreBundledIds: new Set(),
+      manifestEnvelope: manifestWithEntries([{ package: '@massu/adapter-rails', version: '0.1.0' }]),
+      skipInstalledIntegrityCheck: true,
+      configLocalPaths: [],
+      adaptersEnabled: false,
+    });
+    expect(result.adapters).toHaveLength(0);
   });
 });
 
@@ -361,6 +424,7 @@ describe('discoverAdapters — combined sources + dedup', () => {
       manifestEnvelope: manifestWithEntries([{ package: '@massu/adapter-rails', version: '0.1.0' }]),
       skipInstalledIntegrityCheck: true,
       configLocalPaths: ['adapters/local.js'],
+      adaptersEnabled: true,
       fingerprintSentinelPath: fingerprintPath,
     });
     expect(result.adapters).toHaveLength(3);

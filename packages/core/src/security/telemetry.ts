@@ -200,7 +200,12 @@ function appendToPendingFile(payload: AdapterDiscoveryPayload): AppendResult {
   // didn't take (some filesystems / umask interactions can leave the file
   // group/world-readable on first creation).
   try {
-    if (isGroupOrWorldWritable(PENDING_PATH)) {
+    // CR-9 audit L4 alignment: isGroupOrWorldWritable can now return null
+    // on stat error (treat unknown as "warn"). For the post-write chmod
+    // tightening here, we treat null + true the same — both trigger a
+    // chmod attempt. False (confirmed safe) skips the chmod.
+    const writability = isGroupOrWorldWritable(PENDING_PATH);
+    if (writability !== false) {
       chmodSync(PENDING_PATH, 0o600);
     }
     const currentMode = statSync(PENDING_PATH).mode & 0o777;

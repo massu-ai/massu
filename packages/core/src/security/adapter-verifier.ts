@@ -60,7 +60,27 @@ import {
   type Envelope,
   type ManifestBody,
 } from './manifest-schema.js';
-import { REGISTRY_PUBKEY_ED25519 } from './registry-pubkey.generated.js';
+import {
+  REGISTRY_PUBKEY_ED25519,
+  REGISTRY_PUBKEY_FINGERPRINT_HEX,
+  KNOWN_PUBKEY_FINGERPRINTS,
+} from './registry-pubkey.generated.js';
+
+/**
+ * CR-9 audit L2 fix: assert at module init that the bundled pubkey's
+ * fingerprint is in the historically-trusted allowlist. A bundled key
+ * that doesn't appear here would refuse to load — defense against a
+ * future build that swaps the pem to an unauthorized key without
+ * updating the allowlist (which would otherwise pass --check at build
+ * time only if KNOWN_PUBKEY_FINGERPRINTS was also tampered).
+ */
+if (!KNOWN_PUBKEY_FINGERPRINTS.has(REGISTRY_PUBKEY_FINGERPRINT_HEX)) {
+  throw new Error(
+    `@massu/core: bundled pubkey fingerprint ${REGISTRY_PUBKEY_FINGERPRINT_HEX.slice(0, 16)}... ` +
+    `is not in KNOWN_PUBKEY_FINGERPRINTS. This @massu/core build appears tampered. ` +
+    `Refusing to load.`,
+  );
+}
 
 export interface VerifyManifestInput {
   /** Raw envelope JSON, parsed but not yet validated. */
@@ -83,6 +103,20 @@ export type VerifyManifestResult =
  */
 function sha256Hex(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+/**
+ * JSON.parse reviver that strips prototype-pollution keys. CR-9 audit H2
+ * fix: a malicious-but-signed manifest could include `"__proto__":{...}`
+ * as an own enumerable key that the schema's `.passthrough()` would
+ * preserve into downstream consumers. Returning undefined from a reviver
+ * tells JSON.parse to omit that key entirely.
+ */
+function reviver(key: string, value: unknown): unknown {
+  if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+    return undefined;
+  }
+  return value;
 }
 
 /**
@@ -156,10 +190,15 @@ export function verifyManifest(input: VerifyManifestInput): VerifyManifestResult
     };
   }
 
-  // Step 4 — JSON.parse manifest_b64 bytes
+  // Step 4 — JSON.parse manifest_b64 bytes.
+  // CR-9 audit H2 fix: the JSON.parse reviver strips __proto__/constructor/
+  // prototype keys at parse time so they cannot be smuggled through the
+  // verifier into downstream consumers. Without this, a malicious-but-
+  // signed manifest could plant prototype-pollution-shaped values that
+  // .passthrough() preserves verbatim.
   let manifestFromBytes: unknown;
   try {
-    manifestFromBytes = JSON.parse(manifestBytes.toString('utf-8'));
+    manifestFromBytes = JSON.parse(manifestBytes.toString('utf-8'), reviver);
   } catch (err) {
     return {
       ok: false,
@@ -167,17 +206,11 @@ export function verifyManifest(input: VerifyManifestInput): VerifyManifestResult
     };
   }
 
-  // Step 5 — deep-equal vs envelope.manifest
-  if (!jsonDeepEqualByCanonical(manifestFromBytes, envelope.manifest)) {
-    return {
-      ok: false,
-      reason:
-        `manifest_b64 (decoded) does not deep-equal envelope.manifest field. ` +
-        `Publisher emitted inconsistent envelope — refusing to trust either view.`,
-    };
-  }
-
-  // Step 6 — manifest body schema
+  // Step 6 — manifest body schema (run BEFORE step-5 deep-equal so both
+  // sides of the deep-equal comparison go through the same Zod defaults +
+  // transforms; otherwise an additive optional field with `.default()` on
+  // one side but not the other would cause spurious deep-equal failures).
+  // CR-9 audit M2 fix.
   const manifestParsed = ManifestBodySchema.safeParse(manifestFromBytes);
   if (!manifestParsed.success) {
     const issues = manifestParsed.error.issues
@@ -186,6 +219,18 @@ export function verifyManifest(input: VerifyManifestInput): VerifyManifestResult
     return { ok: false, reason: `manifest body shape invalid: ${issues}` };
   }
   const manifest = manifestParsed.data;
+
+  // Step 5 — deep-equal vs envelope.manifest. Compare AFTER both sides
+  // have been parsed by ManifestBodySchema so defaults are applied
+  // identically.
+  if (!jsonDeepEqualByCanonical(manifest, envelope.manifest)) {
+    return {
+      ok: false,
+      reason:
+        `manifest_b64 (decoded) does not deep-equal envelope.manifest field. ` +
+        `Publisher emitted inconsistent envelope — refusing to trust either view.`,
+    };
+  }
 
   // Step 7 — Ed25519 signature verify
   let signatureBytes: Buffer;
@@ -231,6 +276,26 @@ export function verifyManifest(input: VerifyManifestInput): VerifyManifestResult
         `This indicates a key rotation; cache must refresh from the live registry, ` +
         `or @massu/core must be upgraded to a version with the new bundled pubkey.`,
     };
+  }
+
+  // Step 8b — every manifest entry's signing_key_id MUST equal the envelope's
+  // signing_key_id. CR-9 audit M3 fix: per-entry signing_key_id was parsed
+  // but never validated. v1 always uses the single registry key per
+  // SECURITY.md; a future federated v2 may countersign per-entry, in which
+  // case this check moves into a per-entry-key verification loop. Today,
+  // any divergence between entry.signing_key_id and envelope.signing_key_id
+  // indicates either a publisher bug or a mixed-signing-key attack.
+  for (const entry of manifest.adapters) {
+    if (entry.signing_key_id !== envelope.signing_key_id) {
+      return {
+        ok: false,
+        reason:
+          `manifest entry ${entry.package} has signing_key_id ${entry.signing_key_id} ` +
+          `which does not match envelope signing_key_id ${envelope.signing_key_id}. ` +
+          `v1 manifests use a single registry key for every entry; this divergence ` +
+          `indicates either a publisher bug or mixed-key attack — refusing.`,
+      };
+    }
   }
 
   // Step 9 — schema version compat

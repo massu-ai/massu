@@ -99,6 +99,17 @@ export interface DiscoverOptions {
    */
   configLocalPaths: ReadonlyArray<string>;
   /**
+   * Plan 3c gap-1 kill switch (CR-9 audit C1 fix). When false, ONLY
+   * CORE-BUNDLED adapters are emitted; REGISTRY-VERIFIED + LOCAL-EXPLICIT
+   * scans short-circuit immediately. Source-of-truth is
+   * `getConfig().adapters?.enabled === true`. Defaults to false at the
+   * config schema layer so operators MUST opt-in to third-party adapter
+   * loading — security-critical. Pass the flag through from
+   * commands/adapters.ts:runAdaptersList; a missing argument here would
+   * silently default to enabled, defeating the kill switch.
+   */
+  adaptersEnabled: boolean;
+  /**
    * Override the on-disk fingerprint sentinel path for testing
    * (gap-32 postinstall-poisoning check). Production callsite uses
    * the default `~/.massu/adapters-local-fingerprint.json`.
@@ -241,6 +252,21 @@ export function discoverAdapters(opts: DiscoverOptions): DiscoveryResult {
     seenIds.add(id);
   }
 
+  // Plan 3c gap-1 kill switch (CR-9 audit C1): when adapters.enabled=false,
+  // ONLY CORE-BUNDLED adapters load. Skip REGISTRY-VERIFIED + LOCAL-EXPLICIT
+  // entirely. Operators rely on this kill switch documented in SECURITY.md;
+  // bypassing it would silently load third-party code in violation of the
+  // documented contract.
+  if (!opts.adaptersEnabled) {
+    if (opts.configLocalPaths.length > 0) {
+      warnings.push(
+        `adapters.enabled=false — refusing all REGISTRY-VERIFIED + LOCAL-EXPLICIT adapters. ` +
+        `Set massu.config.yaml > adapters.enabled: true to opt in.`,
+      );
+    }
+    return { adapters, warnings };
+  }
+
   // 2. REGISTRY-VERIFIED — walk node_modules. For each candidate, look
   // up the manifest entry; refuse if not in the allowlist.
   const manifestEntries = opts.manifestEnvelope?.manifest.adapters ?? [];
@@ -302,6 +328,23 @@ export function discoverAdapters(opts: DiscoverOptions): DiscoveryResult {
         warnings.push(`refusing ${pkg.name}@${pkg.version}: ${integrity.reason}`);
         continue;
       }
+      // CR-9 audit M4 fix: the sidecar can be tampered post-write (mode
+      // 0o600 stops other users but NOT same-user processes running
+      // as the operator). Cross-check the install-time hash recorded in
+      // the sidecar against the SIGNATURE-VERIFIED manifest entry's
+      // sha256. If they diverge, the sidecar was modified after install
+      // — refuse to load. This closes the "attacker writes both the
+      // package AND the sidecar" gap.
+      if (integrity.entry.installed_sha256 !== manifestEntry.sha256) {
+        warnings.push(
+          `refusing ${pkg.name}@${pkg.version}: install-tracking sidecar's installed_sha256 ` +
+          `(${integrity.entry.installed_sha256.slice(0, 16)}...) does not match the signed ` +
+          `manifest entry's sha256 (${manifestEntry.sha256.slice(0, 16)}...). The sidecar ` +
+          `appears tampered post-install. Recover via \`npm uninstall ${pkg.name} && ` +
+          `npm install ${pkg.name} && massu adapters install ${pkg.name}\`.`,
+        );
+        continue;
+      }
     }
 
     const origin = getAdapterOrigin({
@@ -334,7 +377,11 @@ export function discoverAdapters(opts: DiscoverOptions): DiscoveryResult {
   // to re-acknowledge before discovery accepts local adapters again.
   const fingerprintCheck = opts.configLocalPaths.length === 0
     ? { kind: 'match' as const }
-    : checkFingerprintDrift(opts.configLocalPaths, opts.fingerprintSentinelPath ?? FINGERPRINT_PATH);
+    : checkFingerprintDrift(
+        opts.configLocalPaths,
+        opts.projectRoot,
+        opts.fingerprintSentinelPath ?? FINGERPRINT_PATH,
+      );
   if (fingerprintCheck.kind !== 'match') {
     if (opts.configLocalPaths.length > 0) {
       warnings.push(

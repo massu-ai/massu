@@ -44,9 +44,14 @@ ALLOWED_PATTERNS=(
   '^CONTRIBUTING\.md$'
   '^README\.md$'
   '^\.gitignore$'
-  # .claude (settings + hooks only — NOT commands)
+  # .claude — settings + hooks (compiled). Plus CLAUDE.md (the synced
+  # destination of CLAUDE.public.md, per manifest). NOT
+  # .claude/commands/ (those are sync'd from internal too but the
+  # manifest enumerates each public command — we don't allow free-form
+  # additions to .claude/commands/ via this hook).
   '^\.claude/settings\.json$'
   '^\.claude/hooks/'
+  '^\.claude/CLAUDE\.md$'
   # CI (when added)
   '^\.github/workflows/'
 )
@@ -107,7 +112,84 @@ while IFS= read -r path; do
   fi
 done <<< "$STAGED"
 
-if [ ${#denied_violations[@]} -gt 0 ] || [ ${#violations[@]} -gt 0 ]; then
+# ============================================================
+# Content-based scan — Layer 5 of the enterprise leak defense
+# ============================================================
+#
+# Path-based allowlist catches "wrong directory" leaks. Content scan
+# catches the harder case: a legitimate path (e.g. packages/core/src/foo.ts)
+# accidentally containing a trade-secret comment, customer name, internal
+# project codename, etc.
+#
+# Each pattern below is ERE-compatible. To add a new denied pattern,
+# append a line. Patterns are case-insensitive (egrep -i). False
+# positives can be silenced by inserting a `# leak-guard-allow: <reason>`
+# comment on the same line as the match.
+
+CONTENT_PATTERNS=(
+  # Internal project markers
+  'TRADE[ -]?SECRET'
+  'CONFIDENTIAL'
+  'INTERNAL[ -]?ONLY'
+  'NOT[ -]FOR[ -]PUBLIC'
+  'DO[ -]NOT[ -]SHIP'
+  'PROPRIETARY'
+  # Internal-doc references the manifest forbids
+  'docs/internal/'
+  'docs/strategy/'
+  'docs/security/'
+  'docs/incidents/'
+  'reports/gap-analysis/'
+  # Internal-only command prefix
+  'massu-internal-'
+)
+
+# Files that DEFINE or DOCUMENT the leak-guard patterns themselves —
+# these legitimately need to mention the strings without triggering.
+# Adding paths here is a structural choice, not an escape hatch — these
+# are the files whose JOB it is to enumerate the patterns. Any other
+# legitimate-looking content match should use the per-line
+# `# leak-guard-allow:` trailer instead.
+CONTENT_SCAN_SELF_REFERENCE_FILES=(
+  'scripts/massu-public-leak-guard.sh'
+  'scripts/install-hooks.sh'
+  '.github/workflows/leak-guard.yml'
+  '.claude/CLAUDE.md'
+)
+
+is_self_reference_file() {
+  local path="$1"
+  for self in "${CONTENT_SCAN_SELF_REFERENCE_FILES[@]}"; do
+    if [ "$path" = "$self" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+content_violations=()
+while IFS= read -r path; do
+  [ -z "$path" ] && continue
+  # Skip self-reference files (the guard script itself, the CI workflow,
+  # and CLAUDE.md all need to enumerate the patterns).
+  if is_self_reference_file "$path"; then
+    continue
+  fi
+  # Only scan text files we just staged.
+  if ! file "$path" 2>/dev/null | grep -qE 'text|empty'; then
+    continue
+  fi
+  for pat in "${CONTENT_PATTERNS[@]}"; do
+    # Look for the pattern in the staged version (not working tree)
+    matches=$(git diff --cached "$path" | grep -E '^\+' | grep -Ei "$pat" | grep -vE 'leak-guard-allow:' || true)
+    if [ -n "$matches" ]; then
+      first_line=$(echo "$matches" | head -1 | cut -c1-100)
+      content_violations+=("$path  (matched: $pat)  -> ${first_line}")
+    fi
+  done
+done <<< "$STAGED"
+
+if [ ${#denied_violations[@]} -gt 0 ] || [ ${#violations[@]} -gt 0 ] || [ ${#content_violations[@]} -gt 0 ]; then
   echo ""
   echo "============================================================" >&2
   echo "  BLOCKED: massu public repo leak guard" >&2
@@ -130,6 +212,20 @@ if [ ${#denied_violations[@]} -gt 0 ] || [ ${#violations[@]} -gt 0 ]; then
     for v in "${violations[@]}"; do
       echo "    - $v" >&2
     done
+    echo "" >&2
+  fi
+
+  if [ ${#content_violations[@]} -gt 0 ]; then
+    echo "  CONTENT SCAN MATCHED (path is allowed but content contains" >&2
+    echo "  a leak-pattern marker — TRADE-SECRET / CONFIDENTIAL / etc.):" >&2
+    for v in "${content_violations[@]}"; do
+      echo "    - $v" >&2
+    done
+    echo "" >&2
+    echo "  To intentionally allow a content match (e.g. a code comment" >&2
+    echo "  legitimately referencing the word \"confidential\" in" >&2
+    echo "  documentation), add this trailer to the same line:" >&2
+    echo "    # leak-guard-allow: <one-sentence justification>" >&2
     echo "" >&2
   fi
 

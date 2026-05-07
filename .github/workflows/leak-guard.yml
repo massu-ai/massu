@@ -1,0 +1,115 @@
+name: Leak Guard
+
+# Server-side enforcement of the public-repo path + content allowlist.
+# This is the AUTHORITATIVE gate — pre-commit and pre-push hooks can be
+# bypassed locally with --no-verify, but this workflow runs on GitHub's
+# servers and CANNOT be bypassed without an admin overriding branch
+# protection.
+#
+# History: created 2026-05-06 after the docs/internal/ + reports/
+# leak (visible 2026-04-28→05-06, 377 clones / 86 unique-day actors).
+# See ~/.claude/projects/-Users-ekoultra-massu/memory/
+# feedback_public_repo_leak_guard.md for the incident retrospective.
+#
+# When this workflow fails: investigate the violations in the job log.
+# Fix paths to match PUBLIC_MANIFEST.md (in massu-internal). NEVER add
+# the GitHub UI option to bypass required status checks for a single
+# PR — that defeats the purpose of the gate.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leak-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  leak-guard:
+    name: Public Repo Leak Guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for diff range)
+        uses: actions/checkout@v4
+        with:
+          # Need at least 2 commits so we can diff push payload.
+          fetch-depth: 0
+
+      - name: Verify guard script exists and is executable
+        run: |
+          if [ ! -x scripts/massu-public-leak-guard.sh ]; then
+            echo "::error::scripts/massu-public-leak-guard.sh missing or not executable"
+            exit 2
+          fi
+
+      - name: Determine commit range to scan
+        id: range
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            # push to main — scan the new commits only.
+            base="${{ github.event.before }}"
+            head="${{ github.event.after }}"
+            # On first push to a branch (or branch creation), `before`
+            # is all-zeroes. Fall back to scanning HEAD's full diff
+            # against the merge-base with the default branch.
+            if [ "$base" = "0000000000000000000000000000000000000000" ]; then
+              base=$(git merge-base "$head" origin/main 2>/dev/null || git rev-list --max-parents=0 "$head")
+            fi
+          fi
+          echo "base=$base" >> $GITHUB_OUTPUT
+          echo "head=$head" >> $GITHUB_OUTPUT
+          echo "Scanning commit range: $base..$head"
+
+      - name: Run leak guard against each commit in range
+        env:
+          BASE: ${{ steps.range.outputs.base }}
+          HEAD: ${{ steps.range.outputs.head }}
+        run: |
+          set -euo pipefail
+          violations=0
+          for sha in $(git rev-list --reverse "${BASE}..${HEAD}"); do
+            echo "::group::Scanning commit $sha"
+            files=$(git diff-tree --no-commit-id --name-only --diff-filter=ACMR -r "$sha")
+            if [ -z "$files" ]; then
+              echo "(no added/modified/renamed files)"
+              echo "::endgroup::"
+              continue
+            fi
+
+            # Set up an index pointing at this commit so the guard's
+            # `git diff --cached --name-only --diff-filter=ACMR` returns
+            # the same paths the local pre-commit hook would have seen.
+            export GIT_INDEX_FILE="$(mktemp)"
+            git read-tree "$sha"
+            if ! bash scripts/massu-public-leak-guard.sh; then
+              violations=$((violations + 1))
+              echo "::error file=,title=Leak guard violation in commit $sha::See log for details"
+            fi
+            rm -f "$GIT_INDEX_FILE"
+            unset GIT_INDEX_FILE
+            echo "::endgroup::"
+          done
+
+          if [ "$violations" -gt 0 ]; then
+            echo "::error::Leak guard rejected $violations commit(s) in this push/PR"
+            echo ""
+            echo "Remediation:"
+            echo "  - If the file belongs in the INTERNAL repo, move the work"
+            echo "    to /Users/ekoultra/massu-internal/ and re-push from there."
+            echo "  - If the path SHOULD be allowed in public, update both"
+            echo "    PUBLIC_MANIFEST.md (in internal) AND the allowlist in"
+            echo "    scripts/massu-public-leak-guard.sh — together."
+            echo "  - Bypassing this check requires admin override of branch"
+            echo "    protection. Document the incident if you do this."
+            exit 1
+          fi
+
+          echo "::notice::Leak guard PASS — no violations across all commits in range"

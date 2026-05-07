@@ -1,5 +1,40 @@
 # Massu Development
 
+> ## ⚠️ THIS IS THE PUBLIC OPEN-SOURCE REPO ⚠️
+>
+> **`/Users/operator/massu/`** maps to **`https://github.com/massu-ai/massu`** —
+> visibility = **PUBLIC**. Everything you commit here is visible to anyone on
+> GitHub the moment you push.
+>
+> **Before ANY commit in this directory, you MUST:**
+>
+> 1. Verify the path is in `PUBLIC_MANIFEST.md` (in `/Users/operator/massu-internal/scripts/`).
+> 2. Trust the pre-commit hook (`scripts/massu-public-leak-guard.sh`) — it
+>    rejects forbidden paths AND scans content for leak patterns
+>    (TRADE-SECRET, CONFIDENTIAL, INTERNAL ONLY, etc.).
+> 3. **NEVER use `--no-verify`** to bypass the hook. That is a security
+>    incident — see `feedback_public_repo_leak_guard.md` in this project's
+>    auto-memory.
+>
+> **Forbidden paths in this repo** (must go to `/Users/operator/massu-internal/` instead):
+> - `docs/internal/`, `docs/strategy/`, `docs/security/`, `docs/plans/`,
+>   `docs/incidents/`, `docs/reports/`, `docs/TRADE-SECRET-INVENTORY.md`
+> - `reports/` (gap analyses, internal QA artifacts)
+> - `website/` (Next.js + Supabase app, lives in internal)
+> - `.vercel/`, `docker-compose.yml`, `Dockerfile`
+> - `.public` variant files (these are sources for sync)
+> - `.claude/commands/massu-internal-*.md`
+>
+> **Why this banner exists**: 2026-04-28 → 2026-05-06 leak — internal specs
+> + a security audit were committed here for 9 days. 377 GitHub clones from
+> 86 unique-day actors during the window. See incident:
+> `/Users/operator/massu-internal/docs/incidents/2026-05-06-public-repo-leak-playbook.md`.
+>
+> **Sync direction (per `PUBLIC_MANIFEST.md`)**: internal is source of
+> truth → `scripts/sync-public.sh` (in internal) → public. Direct edits to
+> public bypass this and have caused the leak above. **Prefer editing in
+> `/Users/operator/massu-internal/` and syncing forward.**
+
 ## Project Overview
 AI Engineering Governance Platform - an MCP server with Claude Code integration.
 

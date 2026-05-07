@@ -122,6 +122,7 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
       projectRoot,
       coreBundledIds: new Set(),
       manifestEnvelope: manifestWithEntries([{ package: '@massu/adapter-rails', version: '0.1.0' }]),
+      skipInstalledIntegrityCheck: true,
       configLocalPaths: [],
     });
     expect(result.adapters).toHaveLength(1);
@@ -142,6 +143,7 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
       projectRoot,
       coreBundledIds: new Set(),
       manifestEnvelope: manifestWithEntries([]),
+      skipInstalledIntegrityCheck: true,
       configLocalPaths: [],
     });
     expect(result.adapters).toHaveLength(0);
@@ -180,6 +182,7 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
           deprecated: { since: '2026-05-01', replacement: '@massu/adapter-new', reason: 'fork' },
         },
       ]),
+      skipInstalledIntegrityCheck: true,
       configLocalPaths: [],
     });
     expect(result.adapters).toHaveLength(1);
@@ -214,6 +217,7 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
       projectRoot,
       coreBundledIds: new Set(),
       manifestEnvelope: manifestWithEntries([{ package: 'community-adapter-foo', version: '1.0.0' }]),
+      skipInstalledIntegrityCheck: true,
       configLocalPaths: [],
     });
     expect(result.adapters).toHaveLength(1);
@@ -227,6 +231,7 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
       projectRoot,
       coreBundledIds: new Set(),
       manifestEnvelope: manifestWithEntries([]),
+      skipInstalledIntegrityCheck: true,
       configLocalPaths: [],
     });
     expect(result.adapters).toHaveLength(0);
@@ -241,6 +246,7 @@ describe('discoverAdapters — REGISTRY-VERIFIED', () => {
       projectRoot,
       coreBundledIds: new Set(),
       manifestEnvelope: manifestWithEntries([]),
+      skipInstalledIntegrityCheck: true,
       configLocalPaths: [],
     });
     expect(result.adapters).toHaveLength(0);
@@ -353,6 +359,7 @@ describe('discoverAdapters — combined sources + dedup', () => {
       projectRoot,
       coreBundledIds: new Set(['python-fastapi']),
       manifestEnvelope: manifestWithEntries([{ package: '@massu/adapter-rails', version: '0.1.0' }]),
+      skipInstalledIntegrityCheck: true,
       configLocalPaths: ['adapters/local.js'],
       fingerprintSentinelPath: fingerprintPath,
     });

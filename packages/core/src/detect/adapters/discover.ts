@@ -56,6 +56,7 @@ import {
 } from '../../security/adapter-origin.js';
 import type { Envelope, AdapterEntry } from '../../security/manifest-schema.js';
 import { checkFingerprintDrift, FINGERPRINT_PATH } from '../../security/local-fingerprint.js';
+import { verifyInstalledIntegrity, INSTALLED_MANIFEST_PATH } from '../../security/install-tracking.js';
 
 /**
  * Minimal shape of a node_modules package.json that we care about for
@@ -103,6 +104,20 @@ export interface DiscoverOptions {
    * the default `~/.massu/adapters-local-fingerprint.json`.
    */
   fingerprintSentinelPath?: string;
+  /**
+   * Override the on-disk install-tracking sidecar path for testing
+   * (gap-37 install-time + load-time sha256 check). Production callsite
+   * uses the default `~/.massu/adapter-manifest-installed.json`.
+   */
+  installedManifestPath?: string;
+  /**
+   * Skip the gap-37 load-time sha256 integrity check. Default: false
+   * (always check). Setting this to `true` is a test seam ONLY — it
+   * exists so unit tests that don't materialize real package directories
+   * can still exercise the classification logic. Production callsites
+   * MUST NOT pass `true`; per CR-46 this is the most-robust posture.
+   */
+  skipInstalledIntegrityCheck?: boolean;
 }
 
 export interface DiscoveryResult {
@@ -267,9 +282,26 @@ export function discoverAdapters(opts: DiscoverOptions): DiscoveryResult {
     if (manifestEntry.version !== pkg.version) {
       warnings.push(
         `${pkg.name}@${pkg.version} version mismatch with manifest entry ${manifestEntry.version}. ` +
-        `Loading the installed version; signed sha256 verification (Phase 5 follow-up) will catch ` +
-        `tampered installations.`,
+        `Loading the installed version; the gap-37 sha256 integrity check below will catch tampering.`,
       );
+    }
+
+    // gap-37 LOAD-time integrity check: re-compute sha256OfDir on the
+    // installed package and compare to the install-time hash recorded in
+    // ~/.massu/adapter-manifest-installed.json. Missing sidecar entry →
+    // refuse (operator must run `massu adapters install <pkg>`); drift →
+    // refuse (post-install tampering). Caller can suppress for tests via
+    // skipInstalledIntegrityCheck=true.
+    if (!opts.skipInstalledIntegrityCheck) {
+      const integrity = verifyInstalledIntegrity(
+        pkg.name,
+        packageDir,
+        opts.installedManifestPath ?? INSTALLED_MANIFEST_PATH,
+      );
+      if (integrity.kind !== 'ok') {
+        warnings.push(`refusing ${pkg.name}@${pkg.version}: ${integrity.reason}`);
+        continue;
+      }
     }
 
     const origin = getAdapterOrigin({

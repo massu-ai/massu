@@ -6068,6 +6068,19 @@ var WatchConfigSchema = z.object({
   max_watched_files: z.number().int().positive().default(1e4),
   paths_full_root_opt_in: z.boolean().default(false)
 }).passthrough().optional();
+var AdapterLocalPathSchema = z.string().refine((s) => !/^([A-Za-z]:[\\/]|[\\/])/.test(s), {
+  message: "absolute paths are rejected; adapters.local entries must be relative to the massu.config.yaml directory"
+}).refine((s) => !s.split(/[\\/]/).includes(".."), {
+  message: "parent-directory traversal (`..`) is rejected; adapters.local entries must stay inside the project tree"
+}).transform((s) => s.split(/[\\/]/).filter((part) => part !== "" && part !== ".").join("/"));
+var AdaptersConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  allow_unsigned: z.boolean().default(false),
+  local: z.array(AdapterLocalPathSchema).default([])
+}).passthrough().optional();
+var TelemetryConfigSchema = z.object({
+  adapters: z.boolean().default(false)
+}).passthrough().optional();
 var LSPConfigSchema = z.object({
   enabled: z.boolean().default(false),
   servers: z.array(z.object({
@@ -6123,6 +6136,10 @@ var RawConfigSchema = z.object({
   detected: DetectedConfigSchema,
   // Plan 3a: file-watcher daemon tunables
   watch: WatchConfigSchema,
+  // Plan 3c: third-party adapter registry kill-switch + signing override + local-path opt-in.
+  adapters: AdaptersConfigSchema,
+  // Plan 3c: anonymous adapter-discovery telemetry opt-in (default off).
+  telemetry: TelemetryConfigSchema,
   // Plan 3b Phase 4: optional LSP enrichment of AST adapter results.
   lsp: LSPConfigSchema.optional()
 }).passthrough();
@@ -6234,6 +6251,8 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     detection: parsed.detection,
     detected: parsed.detected,
     watch: parsed.watch,
+    adapters: parsed.adapters,
+    telemetry: parsed.telemetry,
     lsp: parsed.lsp
   };
   if (!_config.cloud?.apiKey && process.env.MASSU_API_KEY) {

@@ -372,6 +372,53 @@ const WatchConfigSchema = z.object({
 }).passthrough().optional();
 export type WatchConfig = z.infer<typeof WatchConfigSchema>;
 
+// --- Adapters Config (Plan 3c — third-party adapter registry) ---
+// Tunable knobs for the third-party adapter loading subsystem.
+// `enabled` is the kill switch (default false for first 2 minor releases per
+// Plan 3c gap-1 + audit-iteration-1 deliverable). When false, only the 35
+// CORE-BUNDLED adapters in @massu/core itself load; @massu/adapter-* npm
+// packages and adapters.local entries are ignored. `allow_unsigned` relaxes
+// REGISTRY-VERIFIED signature checking only — it does NOT affect CORE-BUNDLED
+// (always trusted) or LOCAL-EXPLICIT (always requires fingerprint regardless).
+// `local` is the explicit per-path opt-in for project-local TS/JS adapters.
+//
+// Path validation (gap-58): adapters.local entries are normalized to POSIX form
+// for cross-platform fingerprint stability. Absolute paths and `..` traversal
+// are rejected at schema validation (attack-surface defense — a malicious
+// postinstall could add "/etc/passwd" or "../../../home/user/.ssh/" entries
+// that bypass the project tree).
+const AdapterLocalPathSchema = z.string()
+  .refine((s) => !/^([A-Za-z]:[\\/]|[\\/])/.test(s), {
+    message: 'absolute paths are rejected; adapters.local entries must be relative to the massu.config.yaml directory',
+  })
+  .refine((s) => !s.split(/[\\/]/).includes('..'), {
+    message: 'parent-directory traversal (`..`) is rejected; adapters.local entries must stay inside the project tree',
+  })
+  // Normalize to POSIX form for stable cross-platform sha256 fingerprinting.
+  // Windows backslash inputs are converted to forward slashes; consecutive
+  // separators are collapsed; trailing `./` segments are removed.
+  .transform((s) => s.split(/[\\/]/).filter((part) => part !== '' && part !== '.').join('/'));
+
+const AdaptersConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  allow_unsigned: z.boolean().default(false),
+  local: z.array(AdapterLocalPathSchema).default([]),
+}).passthrough().optional();
+export type AdaptersConfig = z.infer<typeof AdaptersConfigSchema>;
+
+// --- Telemetry Config (Plan 3c — adapter-discovery telemetry) ---
+// Optional anonymous telemetry on adapter-discovery counts (NOT file paths,
+// NOT symbol names, NOT source content). Strictly off by default; never
+// enabled silently. When `adapters: true`, the telemetry writer at
+// packages/core/src/security/telemetry.ts emits one JSONL line per discovery
+// event matching AdapterDiscoveryPayloadSchema (defined inline in that
+// module). PII guardrail: schema is `.strict()` so unknown keys are
+// rejected at write time AND at replay time.
+const TelemetryConfigSchema = z.object({
+  adapters: z.boolean().default(false),
+}).passthrough().optional();
+export type TelemetryConfig = z.infer<typeof TelemetryConfigSchema>;
+
 // --- LSP Config (Plan 3b — Phase 4: LSP integration) ---
 // Top-level optional `lsp:` block configuring optional LSP enrichment of AST
 // adapter results. Per VR-LSP-AUTODETECT-OFF-BY-DEFAULT (audit-iter-1 fix G4):
@@ -440,6 +487,10 @@ const RawConfigSchema = z.object({
   detected: DetectedConfigSchema,
   // Plan 3a: file-watcher daemon tunables
   watch: WatchConfigSchema,
+  // Plan 3c: third-party adapter registry kill-switch + signing override + local-path opt-in.
+  adapters: AdaptersConfigSchema,
+  // Plan 3c: anonymous adapter-discovery telemetry opt-in (default off).
+  telemetry: TelemetryConfigSchema,
   // Plan 3b Phase 4: optional LSP enrichment of AST adapter results.
   lsp: LSPConfigSchema.optional(),
 }).passthrough();
@@ -484,6 +535,10 @@ export interface Config {
   detected?: DetectedConfig;
   // Plan 3a: file-watcher daemon tunables
   watch?: WatchConfig;
+  // Plan 3c: third-party adapter registry config block.
+  adapters?: AdaptersConfig;
+  // Plan 3c: telemetry opt-in block.
+  telemetry?: TelemetryConfig;
   // Plan 3b Phase 4: optional LSP enrichment block (default disabled).
   lsp?: LSPConfig;
 }
@@ -635,6 +690,8 @@ export function getConfig(): Config {
     detection: parsed.detection,
     detected: parsed.detected,
     watch: parsed.watch,
+    adapters: parsed.adapters,
+    telemetry: parsed.telemetry,
     lsp: parsed.lsp,
   };
 

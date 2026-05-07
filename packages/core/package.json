@@ -13,7 +13,7 @@
     "build": "tsc --noEmit && npm run build:cli && npm run build:hooks",
     "build:cli": "esbuild --bundle --platform=node --format=esm --outfile=dist/cli.js src/cli.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --banner:js='#!/usr/bin/env node\nimport{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
     "build:hooks": "esbuild --bundle --platform=node --format=esm --outdir=dist/hooks src/hooks/*.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --banner:js='import{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
-    "prepublishOnly": "bash ../../scripts/prepublish-check.sh && npm run build",
+    "prepublishOnly": "bash ../../scripts/prepublish-check.sh && node ../../scripts/bundle-pubkey.mjs && npm run build",
     "bench:watch": "tsx test/perf/watch-benchmark.ts"
   },
   "dependencies": {

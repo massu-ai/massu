@@ -33,8 +33,9 @@
  * ESM imports throughout.
  */
 
-import { spawn, type ChildProcess } from 'child_process';
-import { isAbsolute } from 'path';
+import { spawn, spawnSync, type ChildProcess } from 'child_process';
+import { lstatSync, realpathSync } from 'fs';
+import { isAbsolute, resolve as resolvePath } from 'path';
 import {
   DefinitionResponseSchema,
   DocumentSymbolResponseSchema,
@@ -215,6 +216,166 @@ export interface LSPServerSpec {
   argv: string[];
   /** When true, allow non-absolute argv[0]. Default false (security). */
   allowRelativePath?: boolean;
+  /**
+   * F-014 (closed 2026-05-06): when true, allow argv[0] to be a SUID/SGID
+   * binary (or symlink resolving to one). Default false. SUID binaries
+   * inherit elevated privileges from the kernel at exec time; Node has no
+   * post-spawn way to strip them. The user-trust boundary is at config
+   * time, but a defensive lstat catches accidental misconfigs (e.g.
+   * pointing argv[0] at a system tool).
+   */
+  allowSetuid?: boolean;
+  /**
+   * F-015 (closed 2026-05-06): RSS budget in MB. The watchdog polls
+   * `ps -p <pid> -o rss=` every WATCHDOG_INTERVAL_MS and SIGKILLs the
+   * child if RSS exceeds this budget for two consecutive samples.
+   * Default 1024 (1 GB). Set to 0 to disable the watchdog.
+   */
+  maxRssMb?: number;
+}
+
+// ============================================================
+// Typed errors — F-014, F-015 (closed 2026-05-06)
+// ============================================================
+
+/**
+ * Thrown by `LSPClient.fromCommand` when argv[0] (or its symlink target)
+ * has the SUID/SGID bit set and `spec.allowSetuid: true` was not opted in.
+ *
+ * Why throw rather than silently accept: SUID binaries inherit elevated
+ * privileges from the kernel at exec time. Node cannot strip them
+ * post-spawn. A user who wants this MUST opt in explicitly so the
+ * decision is auditable in their config.
+ */
+export class LspBinaryIsSetuidError extends Error {
+  public readonly path: string;
+  public readonly mode: number;
+  constructor(path: string, mode: number) {
+    super(
+      `LSPClient.fromCommand: refused SUID/SGID binary at "${path}" ` +
+        `(mode=${mode.toString(8)}). The kernel will exec this with ` +
+        `elevated privileges; Node cannot strip that post-spawn. ` +
+        `Set spec.allowSetuid: true to opt in (auditable in config).`,
+    );
+    this.name = 'LspBinaryIsSetuidError';
+    this.path = path;
+    this.mode = mode;
+  }
+}
+
+/**
+ * Constants for the F-015 RSS watchdog. Exported so tests can inspect
+ * (and so a future config can override per-deployment if needed).
+ */
+export const DEFAULT_LSP_MAX_RSS_MB = 1024;
+export const LSP_WATCHDOG_INTERVAL_MS = 30_000;
+/**
+ * Number of consecutive over-budget samples required before SIGKILL.
+ * Avoids killing a server that briefly spikes during indexing — only
+ * sustained over-budget triggers eviction.
+ */
+export const LSP_WATCHDOG_OVERBUDGET_SAMPLES = 2;
+
+/**
+ * F-014 helper: detect SUID/SGID bits on a file. Follows the chain via
+ * lstat then statSync(realpath) so a symlink to a SUID binary is also
+ * caught. Returns null if the file doesn't exist or the stat fails.
+ *
+ * Bit semantics (per stat(2)):
+ *   - 0o4000 = SUID (set-user-ID on execution)
+ *   - 0o2000 = SGID (set-group-ID on execution)
+ */
+export function _detectSetuid(path: string): { hasSetuid: boolean; mode: number; resolvedPath: string } | null {
+  // First lstat — if argv[0] itself is a symlink, follow it via realpath.
+  let resolved = path;
+  try {
+    const linkStat = lstatSync(path);
+    if (linkStat.isSymbolicLink()) {
+      resolved = realpathSync(path);
+    }
+  } catch {
+    return null;
+  }
+  // Now stat the resolved (non-symlink) target.
+  try {
+    const targetStat = lstatSync(resolved);
+    const mode = targetStat.mode;
+    return {
+      hasSetuid: (mode & 0o4000) !== 0 || (mode & 0o2000) !== 0,
+      mode,
+      resolvedPath: resolved,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * F-015 helper: probe a child's RSS in MB via `ps -p <pid> -o rss=`.
+ * Returns null if ps fails (e.g., process already gone, or non-POSIX
+ * platform without ps). Best-effort — watchdog treats null as "no
+ * sample, don't count toward over-budget streak."
+ */
+export function _probeChildRssMb(pid: number): number | null {
+  try {
+    const result = spawnSync('ps', ['-o', 'rss=', '-p', String(pid)], {
+      encoding: 'utf-8',
+      timeout: 5_000,
+    });
+    if (result.status !== 0 || !result.stdout) return null;
+    const rssKb = parseInt(result.stdout.trim(), 10);
+    if (!Number.isFinite(rssKb) || rssKb < 0) return null;
+    return Math.round((rssKb / 1024) * 10) / 10;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * F-015 helper: install an interval-based RSS watchdog on a spawned child.
+ * Returns the watchdog handle (interval id + cleanup) so the caller can
+ * stop it on transport shutdown / process exit.
+ *
+ * The watchdog SIGKILLs the child if RSS exceeds the budget for
+ * `LSP_WATCHDOG_OVERBUDGET_SAMPLES` consecutive samples. Killing emits a
+ * stderr warning naming the LSP language and the breach.
+ */
+export function _startRssWatchdog(
+  child: ChildProcess,
+  language: string,
+  maxRssMb: number,
+  intervalMs: number = LSP_WATCHDOG_INTERVAL_MS,
+): { stop: () => void } {
+  if (maxRssMb <= 0) return { stop: () => { /* disabled */ } };
+  let overBudgetStreak = 0;
+  const tick = (): void => {
+    if (!child.pid || child.killed || child.exitCode !== null) return;
+    const rss = _probeChildRssMb(child.pid);
+    if (rss === null) return; // no sample; don't penalise
+    if (rss > maxRssMb) {
+      overBudgetStreak += 1;
+      process.stderr.write(
+        `[massu/lsp] WARN: ${language} server RSS=${rss}MB > budget ${maxRssMb}MB ` +
+          `(streak=${overBudgetStreak}/${LSP_WATCHDOG_OVERBUDGET_SAMPLES})\n`,
+      );
+      if (overBudgetStreak >= LSP_WATCHDOG_OVERBUDGET_SAMPLES) {
+        process.stderr.write(
+          `[massu/lsp] KILLING ${language} server pid=${child.pid}: ` +
+            `sustained RSS over budget. (F-015 watchdog)\n`,
+        );
+        try { child.kill('SIGKILL'); } catch { /* best-effort */ }
+        clearInterval(handle);
+      }
+    } else {
+      overBudgetStreak = 0;
+    }
+  };
+  const handle = setInterval(tick, intervalMs);
+  // Don't keep the event loop alive solely for the watchdog.
+  if (typeof handle.unref === 'function') handle.unref();
+  return {
+    stop: () => clearInterval(handle),
+  };
 }
 
 // ============================================================
@@ -309,6 +470,20 @@ export class LSPClient {
       );
     }
 
+    // F-014 (closed 2026-05-06): SUID/SGID bit detection. We only check
+    // when argv[0] is absolute (post the relative-path gate) — for
+    // allowRelativePath shapes the user has explicitly accepted that
+    // PATH-resolution semantics apply, including any SUID a binary
+    // resolved from PATH might have. Resolve the path to an absolute
+    // form so the lstat target is unambiguous.
+    if (!spec.allowSetuid) {
+      const absExe = isAbsolute(exe) ? exe : resolvePath(exe);
+      const det = _detectSetuid(absExe);
+      if (det !== null && det.hasSetuid) {
+        throw new LspBinaryIsSetuidError(det.resolvedPath, det.mode);
+      }
+    }
+
     const child = spawn(exe, spec.argv.slice(1), {
       stdio: ['pipe', 'pipe', 'pipe'],
       // Explicitly NO `shell: true` — argv array form is the security
@@ -324,6 +499,17 @@ export class LSPClient {
         LANG: process.env.LANG ?? 'C.UTF-8',
       },
     });
+
+    // F-015 (closed 2026-05-06): RSS watchdog. Polls every 30s, kills
+    // child after sustained over-budget. Disabled when maxRssMb === 0.
+    const maxRssMb = spec.maxRssMb ?? DEFAULT_LSP_MAX_RSS_MB;
+    const watchdog = _startRssWatchdog(child, spec.language, maxRssMb);
+
+    // Stop the watchdog when the child exits naturally so the interval
+    // doesn't outlive the process.
+    child.once('exit', () => watchdog.stop());
+    child.once('error', () => watchdog.stop());
+
     return new LSPClient(createStdioTransport(child), options);
   }
 

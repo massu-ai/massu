@@ -383,6 +383,14 @@ export const LSPConfigSchema = z.object({
   servers: z.array(z.object({
     language: z.string(),
     command: z.string(),
+    // F-014 (closed 2026-05-06): explicit opt-in to spawn SUID/SGID
+    // binaries. Default false — argv[0] with the SUID bit is rejected
+    // unless this is true. Decision is auditable in the YAML.
+    allow_setuid: z.boolean().default(false),
+    // F-015 (closed 2026-05-06): per-server RSS budget (MB). Watchdog
+    // SIGKILLs the server after sustained breach. Default 1024 MB.
+    // Set to 0 to disable the watchdog for this server.
+    max_rss_mb: z.number().int().nonnegative().default(1024),
   })).default([]),
   autoDetect: z.object({
     viaPortScan: z.boolean().default(false),

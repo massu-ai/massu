@@ -1,13 +1,62 @@
 # Changelog
 
-## Unreleased
-
-- chore(config): migrated massu.config.yaml to v2 schema via @massu/core@1 config upgrade (auto-detected stack, preserved user overrides)
-
-
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [1.4.0] - 2026-05-07
+
+Promotes the `1.4.0-soak.0` build (in soak since 2026-05-02) to `latest`. Soak-check verdict on 2026-05-07 09:00 PDT: **PASS** (samples=188, rss_p99=290 MB / budget 700, cpu_load=0.044 / budget 50, alive_pct=100, errors=0, slope=-11.35 MB/hr).
+
+### Added
+
+- **`massu watch` daemon (Plan 3a)** — long-running file-watcher that re-runs detection on stack-relevant changes and auto-installs new variant templates. Subcommands: `massu watch [--once] [--quiescence-ms N]` and `massu refresh-log`. Supervises via `claude-bg` or `launchd`. Self-defense: refuses to start if the watch surface exceeds the configured `watch.max_watched_files` cap and the user has not opted in via `watch.paths_full_root_opt_in`. Quiescence detector uses tick-gap heuristic + lockfile-mid-op detection + git-mid-rebase detection to avoid storming during interactive operations. New config block: `watch: { scope, debounce_ms, storm_window, max_watched_files, paths_full_root_opt_in }`.
+- **AST adapter framework (Plan 3b Phase 1)** — Tree-sitter-based per-language adapters under `packages/core/src/detect/adapters/`. 4 first-party adapters ship: `python-fastapi`, `python-django`, `nextjs-trpc`, `swift-swiftui`. Adapter contract types in `detect/adapters/types.ts`. Per-field confidence levels (high/medium/low/none) — a single weak field never poisons stronger fields. Grammar SHA-256 manifest is hardcoded; mismatch → `GrammarSHAMismatchError` with no silent fallback. Atomic cache writes under `~/.massu/wasm-cache/` with LRU eviction (closes Phase 3.5 finding F-011).
+- **Optional LSP enrichment layer (Plan 3b Phase 4)** — TypeScript-language-server / Python pyright integration for symbol-precise enrichment beyond Tree-sitter. Stays disabled unless `lsp.enabled: true`. Hard RSS watchdog on LSP spawn (closes Phase 3.5 finding F-015). SUID-detection refuses to spawn if the LSP binary is setuid (closes F-014).
+- **Codebase-aware command templates (Plan #2)** — slash-command scaffolds installed by `npx massu init` / `config refresh` are now substituted against the consumer's `massu.config.yaml` AND a per-language `detected:` block sampled from existing source files. Templating engine (`template-engine.ts`) is mustache-style `{{var}}` and `{{var | default("…")}}` — string-substitution only. TPL-SEC-01..07 adversarial tests verify zero `eval`/`Function`/`vm`/`exec`/`spawn`, no prototype walk, no recursive expansion, no template-literal injection. 6 new sub-framework templates: `massu-scaffold-router.python-{fastapi,django}.md`, `massu-deploy.python-{launchd,systemd,docker,fly}.md`. `runDetection({skipIntrospect})` flag preserves session-start hook's 5s budget.
+- **Public-repo leak-defense infrastructure** — 6-layer architecture preventing private-content leaks to the public massu npm/GitHub repo:
+  - Pre-commit hook (`scripts/install-hooks.sh` auto-installs from `npm install`).
+  - Pre-push hook (same).
+  - Per-push CI (`.github/workflows/leak-guard.yml`).
+  - Full-tree retroactive CI (`.github/workflows/leak-guard-retro.yml`).
+  - Source-of-truth discipline CI (`.github/workflows/leak-guard-source-of-truth.yml`).
+  - Weekly scheduled audit (`.github/workflows/leak-guard-scheduled.yml`).
+  Single source-of-truth: `scripts/massu-public-leak-guard.sh` runs in two modes (`staged` for per-commit gates, `tree` for full-tree retroactive scan).
+- **Plan 3c-prework Phase A + C** — `docs/**/*` added to `packages/core` `files[]` (so security/authoring docs ship to npm); `tar@^7.4.3` and `tweetnacl@^1.0.3` deps added (for Phase 5 signed-allowlist registry); 5 placeholder workspace stubs for `@massu/adapter-{rails,phoenix,aspnet,spring,go-chi}` (Phase 7 fills implementation); targeted `.gitignore` patterns replace blanket `*.pem` so the registry pubkey can ship.
+
+### Fixed
+
+- **Path-aware introspect matching for routers/views** — adapter signal logic now considers the file's PATH (e.g., `apps/*/routers/`) in addition to its content shape. Previously, FastAPI router signals could fire on any file containing `from fastapi import APIRouter` regardless of project layout.
+- **Plan 3a hotfix 2026-05-02** — watcher self-defense + measurable RSS/CPU budgets. The 2026-05-02 hotfix added the watch-surface preflight cap, exclusion of high-churn directories (`**/.next/**`, `**/coverage/**`, `**/logs/**`, `**/data/**`, editor temp files), and switched the verdict from spot-percentile CPU to integral cpu-load fraction (catches the 30-100% sustained CPU misconfig pattern that produced false-PASS on a multi-runtime monorepo).
+
+### Security
+
+- **Phase 3.5 deep security audit** — 20 findings, 0 unfixed. Adapter-loading code path audited for prototype pollution, SSRF, RCE, and resource exhaustion. Adversarial test suite (`__tests__/security/`) verifies the LSP IPC layer, Tree-sitter loader, and adapter contract are not exploitable. Audit doc retained internally.
+- **Public-repo historical leak scrub** — 17 historical leak markers removed/anonymized: internal-doc JSDoc cross-references (5), user-machine hardcoded paths (2), incident-doc CHANGELOG citations (3), customer-name design comments (11), test fixture renames (2 directories).
+
+### Tests
+
+- **+248 tests** since 1.2.1: watcher daemon + quiescence (54), AST adapter framework + 4 adapters (62), LSP enrichment (14), codebase-aware templates (50 templating + 13 introspector + 12 variant matrix), security adversarial (35), watcher session-start banner (5), refresh-log (3). Total: **1729 passing** (was 1373 on 1.2.1, 1481 in interim).
+
+### Design notes
+
+- This release intentionally bundles 3a + 3b + Plan #2 codebase-aware + leak-defense infra in one minor bump. The alternative (three separate minors) was rejected because 3a + 3b share a deep security audit (Phase 3.5) and splitting them would compress the audit window for downstream consumers.
+
+## [1.3.0] - 2026-04-26
+
+Stack-aware command templates with per-stack variant resolution. Local-edit protection via 3-hash manifest. (Retroactive entry: not previously logged in CHANGELOG; corresponds to npm-published version `1.3.0` from 2026-04-26.)
+
+### Added
+
+- **Stack-aware variant resolution in `install-commands`** — `pickVariant(baseName, sourceDir, framework)` returns a discriminated `{hit, miss, fallback}` union. Priority order: primary language → languages-declaration order → top-level passthrough fallback (`typescript` / `javascript` / `python` / `swift` / `rust` / `go`) → unsuffixed default. Variant filenames are filtered at the top level only — subdirectory contents recurse as-is.
+- **Local-edit protection via SHA-256 manifest** — manifest at `<claudeDir>/.massu/install-manifest.json` with 3-hash compare (source / existing / last-installed) and atomic tempfile+rename writes. New `SyncStats.kept` counter reports preserved edits. First-install heuristic preserves any pre-existing differing file and seeds the manifest with the existing hash.
+- **`massu show-template <command> [--variant <stack>]` subcommand** — prints the resolved variant content to stdout for diff-against-upstream workflows. Used in the kept-your-version notice.
+- **4 seed variant templates** — `massu-scaffold-router.python.md` (FastAPI), `massu-scaffold-page.swift.md` (SwiftUI), `massu-deploy.python.md` (launchd/systemd/pm2/docker), `massu-scaffold-page.md` regenerated as framework-agnostic with embedded multi-stack examples. Plus `commands/README.md` documenting the variant convention.
+- **+21 tests** — VARIANT-01..10, MANIFEST-01..08, SHOW-01..03. Total suite: 1394 passing (was 1373 on 1.2.1).
+
+### Changed
+
+- `config.ts` spreads `...fw` into the materialized framework so `zod.passthrough()` blocks (`framework.swift`, `framework.python`, …) flow through to consumers. Without this, the iteration-3 passthrough-fallback rule silently never fires in production despite green unit tests.
 
 ## [1.2.1] - 2026-04-20
 
@@ -138,65 +187,3 @@ Auto-detect on install; zero manual config; migration via `migrateV1ToV2()`.
 - Tool descriptions now include tier labels (e.g., "[Pro]") when not on the free tier
 - README and CLAUDE.public.md updated with tier information and tool counts
 - Package description updated to mention tiered tooling
-
-## [Unreleased]
-
-### Added
-- **43 slash commands** now bundled in `@massu/core` npm package
-- `massu init` Step 5 automatically installs slash commands into `.claude/commands/`
-- `massu install-commands` standalone CLI command for updating commands
-- 3 new commands: `massu-deploy`, `massu-loop-playwright`, `massu-simplify`
-- BSL 1.1 license (Phase 1A)
-- Supabase schema with RLS policies (Phase 1A)
-- Auth flow: login, signup, forgot-password, OAuth (Phase 1B)
-- Dashboard with session analytics (Phase 1E)
-- Stripe checkout and billing integration (Phase 1C)
-- API key management with bcrypt hashing (Phase 1D)
-- Cloud sync edge functions (Phase 1D)
-- Terms of Service and Privacy Policy pages
-- CI/CD pipeline with lint, type-check, test, and build jobs (GitHub Actions)
-- Website test infrastructure (vitest + Playwright E2E stubs)
-- Sentry error monitoring configuration stubs
-- Docker and docker-compose setup for local development
-- Contributor License Agreement (CLA.md)
-- Comprehensive security hardening (audit remediation)
-- Toast notification system
-- Shared UI components (TextInput, GitHubIcon, CopyInstallCommand)
-- Public/private visibility classification for observations
-- Zod runtime validation for config parsing (replaced ~35 type assertions)
-- Plugin README documenting planned Claude Code plugin
-
-### Changed
-- Contributing guide updated with environment variable and config documentation
-- Cookie security and CSRF protection documented in code comments
-- API key lookup uses unique key prefix for efficient index queries
-- Hook git commands use spawnSync instead of execSync for safety
-
-### Fixed
-- Stripe checkout redirect SSRF vulnerability
-- XSS via javascript: URLs in MarkdownRenderer
-- CSP unsafe-eval removed
-- CORS restricted on edge functions
-- Webhook secret validation
-- Stripe price ID env var naming mismatch
-- Dashboard billing nav link path
-- Checkout session plan assignment
-- Domain inconsistency (massu.dev to massu.ai)
-- Password visibility toggle keyboard accessibility
-- Multiple silent error handling blocks
-
-### Security
-- Added RLS INSERT/UPDATE/DELETE policies
-- Input validation on sync edge function
-- UUID validation on org IDs
-- Server-side org ID derivation
-- Rate limiting on auth forms
-- LIKE wildcard escaping
-- Redirect parameter validation
-- Auth error message normalization
-
-### Dependency Audit
-- 5 moderate vulnerabilities found, all in dev-only toolchain (esbuild <=0.24.2 via vite/vitest)
-- These affect only the development server, not production builds
-- Fix requires breaking change to esbuild 0.27+ (`npm audit fix --force`)
-- No production runtime vulnerabilities detected

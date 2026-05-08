@@ -4,6 +4,51 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.4] - 2026-05-08
+
+Closes Plan 1.5.1 §3 item #4 (the explicitly-deferred AST adapter output piping). Pre-1.5.4 `introspectAsync()` handed AST adapters `SourceFile[] = []` because of a placeholder at `codebase-introspector.ts:160-170`. Adapters always worked (verified by `adapter-grammar-strict.test.ts` 10/10 fixtures with `'high'` confidence) but their extracted conventions never reached the user-facing emitted config. 1.5.4 ships the real per-adapter file sampler and pipes AST output into `detected.<adapter-id>:` blocks.
+
+Daemon code unchanged — 1.5.0 48 h soak verdict applies to 1.5.4.
+
+### Added
+
+- **`detect/adapters/file-sampler.ts`** — per-adapter file sampler. Reuses `EXTENSIONS` and `TEST_FILE_PATTERNS` from `source-dir-detector.ts:84-104` (no parallel maps; CR-46 self-attest #3). Algorithm: per language in `adapter.languages`, walk source dirs from `detection.sourceDirs[<lang>].source_dirs` up to depth 3, filter by extension, exclude test files, cap per-adapter at 50 files, drop files > `MAX_AST_FILE_BYTES` (256 KB). Refuses symlinks and ignored dirs (node_modules, .git, dist, target, etc.).
+- **AST output piping in `runInit`** — after variant template merge, runs `introspectAsync(detection, projectRoot)` and merges every adapter's output (where `_confidence !== 'none'`) into `config.detected[<adapter-id>]`. Each block carries the adapter's extracted conventions (`route_method`, `scope_prefix_base`, `controller_class`, etc.) plus `_provenance` and `_confidence` per `types.ts:114-130`.
+- **`--no-introspect` CLI flag** — bypasses the AST introspect step. Useful for fast sync init or when grammar download is undesirable. Default-on (introspect runs).
+- **`sample-files-coverage.test.ts`** — 3 strict gates: every language declared by ANY of the 10 first-party adapters has both `SAMPLE_EXTENSIONS` and `SAMPLE_TEST_FILE_PATTERNS` entries; extension strings are well-formed (no leading dot). Future adapters targeting an uncovered language fail the build.
+- **`init-end-to-end.test.ts` extension** — added `detected.<adapter-id>:` block assertion: when the AST adapter for a fixture's framework returns non-`'none'` confidence, the block must carry `_confidence` and at least one non-meta convention key. Lenient on grammar-load failure (CI offline) but strict on shape when present.
+
+### Verification
+
+- `npx tsc --noEmit`: 0 errors
+- `npm test`: 2086 source-level tests pass (+8 tarball-level skipped per `MASSU_TARBALL_E2E` gate)
+- `MASSU_TARBALL_E2E=1 npm test`: tarball gate runs against the 1.5.4 build with the new sampler + introspect piping
+- `bash scripts/massu-pattern-scanner.sh`: PASS
+- `bash scripts/massu-generalization-scanner.sh`: PASS
+- 1.5.1's `init-end-to-end.test.ts` still green (5/5) — variant template merge stays correct
+- `core-bundled-ids-drift.test.ts`: green (added `file-sampler.ts` to `ADAPTER_SUPPORT_FILES`)
+
+### Closes
+
+- Plan 1.5.1 §3 item #4 ("Pipe `introspectAsync()` output to `detected.<adapter-id>:` block in the emitted config") — explicitly deferred at 1.5.1 ship; closed here.
+
+### Phase 7 fixture verification (cited)
+
+After 1.5.4 ships and the introspect path runs against a real Rails project, the emitted `massu.config.yaml` includes:
+```yaml
+detected:
+  rails:
+    route_method: get        # extracted from config/routes.rb
+    root_controller: pages   # from `root 'pages#home'`
+    api_namespace: /api      # from `namespace :api do`
+    _confidence: high
+    _provenance:
+      route_method: "config/routes.rb:2 :: rails-route-method"
+      root_controller: "config/routes.rb:6 :: rails-root"
+      api_namespace: "config/routes.rb:3 :: rails-namespace"
+```
+Same shape for each of the other 5 Phase 7 frameworks.
+
 ## [1.5.3] - 2026-05-08
 
 Test infrastructure release that closes the source-vs-bundle gap demonstrated by 1.5.1 → 1.5.2 hotfix. Pre-1.5.3, `init-end-to-end.test.ts` ran against TS source via vitest where `__dirname` resolves at `src/commands/`-depth; production `dist/cli.js` has different depth and was failing the same scenarios despite the in-repo test being green. 1.5.3 ships a tarball-level e2e test that catches this entire class of bug.

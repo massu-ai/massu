@@ -84,6 +84,13 @@ export interface InitOptions {
   cwd?: string;
   /** Suppress console output. */
   silent?: boolean;
+  /**
+   * Plan 1.5.4: skip AST adapter introspection that surfaces under
+   * `detected.<adapter-id>:` blocks. Default false (introspect runs);
+   * set true via `--no-introspect` for fast sync-only init or when
+   * the AST tier's grammar download isn't desirable.
+   */
+  skipIntrospect?: boolean;
 }
 
 export interface GenerateConfigV2Options {
@@ -1187,6 +1194,7 @@ export function parseInitArgs(argv: string[]): ParseInitArgsResult {
     if (a === '--ci') opts.ci = true;
     else if (a === '--force') opts.force = true;
     else if (a === '--skip-commands') opts.skipCommands = true;
+    else if (a === '--no-introspect') opts.skipIntrospect = true;
     else if (a === '--help' || a === '-h') opts.help = true;
     else if (a === '--template') {
       const next = argv[i + 1];
@@ -1386,7 +1394,41 @@ export async function runInit(argv?: string[], overrides?: InitOptions): Promise
   // Phoenix / clear-Spring projects (CR-39 violation per the Plan 1.5.1
   // 5-fixture verification).
   const baseConfig = buildConfigFromDetection({ projectRoot, detection });
-  const config = applyVariantTemplate(baseConfig, resolveTemplatesDir());
+  const withVariant = applyVariantTemplate(baseConfig, resolveTemplatesDir());
+
+  // Plan 1.5.4 §3: pipe AST adapter introspect output into the emitted
+  // config under `detected.<adapter-id>:` blocks. introspectAsync runs
+  // the AST adapter pipeline (using the real file sampler from
+  // codebase-introspector.ts post-1.5.4); each adapter that returns
+  // non-'none' confidence surfaces its conventions + provenance.
+  // --no-introspect bypasses for users who want sync init.
+  let config = withVariant;
+  if (!opts.skipIntrospect) {
+    try {
+      const { introspectAsync } = await import('../detect/codebase-introspector.ts');
+      const introspected = await introspectAsync(detection, projectRoot);
+      const detectedBlocks: Record<string, unknown> = {};
+      for (const [key, block] of Object.entries(introspected)) {
+        // `introspected` includes language-keyed regex-fallback blocks
+        // (`python`, `swift`, `typescript`) AND adapter-id-keyed AST
+        // blocks. The AST blocks are the ones we want under
+        // `detected.<adapter-id>:` — distinguishable by the presence of
+        // a `_confidence` field on the block (the regex blocks don't
+        // carry it). Filter for AST adapter outputs only.
+        if (block && typeof block === 'object' && '_confidence' in (block as Record<string, unknown>)) {
+          detectedBlocks[key] = block;
+        }
+      }
+      if (Object.keys(detectedBlocks).length > 0) {
+        config = { ...config, detected: detectedBlocks };
+      }
+    } catch (err) {
+      // Non-fatal: AST introspect is enrichment, not core detection.
+      // Log to stderr so operators see the warning if it matters.
+      errLog(`warning: AST adapter introspection failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   const content = renderConfigYaml(config);
   const writeRes = writeConfigAtomic(configPath, content);
   if (!writeRes.validated) {

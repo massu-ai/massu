@@ -78,6 +78,23 @@ describe('init end-to-end (all 6 Phase 7 framework fixtures)', () => {
         const verification = config.verification as Record<string, Record<string, unknown>> | undefined;
         const langVerify = verification?.[lang];
         expect(langVerify?.lint, `verification.${lang}.lint should be set from variant template`).toBeTruthy();
+
+        // Plan 1.5.4 §3: assert AST adapter introspect output piped into
+        // emitted config under `detected.<adapter-id>:`. The fixture id
+        // matches the adapter id (rails/phoenix/aspnet/spring/go-chi).
+        const detected = config.detected as Record<string, unknown> | undefined;
+        const detectedBlock = detected?.[fx.id] as Record<string, unknown> | undefined;
+        // Lenient on presence (grammar load can fail in offline CI), but
+        // strict on shape if present: must carry _confidence + at least
+        // one extracted convention key. Failure would mean the adapter
+        // ran but its output was lost in the emission pipeline.
+        if (detectedBlock) {
+          expect(detectedBlock._confidence, `detected.${fx.id}._confidence must be set`).toBeDefined();
+          expect(detectedBlock._confidence).not.toBe('none');
+          // At least one non-meta key (excluding _confidence + _provenance).
+          const conventionKeys = Object.keys(detectedBlock).filter((k) => !k.startsWith('_'));
+          expect(conventionKeys.length, `detected.${fx.id} must carry at least one extracted convention`).toBeGreaterThan(0);
+        }
       } finally {
         rmSync(root, { recursive: true, force: true });
       }

@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.3] - 2026-05-08
+
+Test infrastructure release that closes the source-vs-bundle gap demonstrated by 1.5.1 → 1.5.2 hotfix. Pre-1.5.3, `init-end-to-end.test.ts` ran against TS source via vitest where `__dirname` resolves at `src/commands/`-depth; production `dist/cli.js` has different depth and was failing the same scenarios despite the in-repo test being green. 1.5.3 ships a tarball-level e2e test that catches this entire class of bug.
+
+Daemon code unchanged — 1.5.0 48 h soak verdict applies to 1.5.3.
+
+### Added
+
+- **`init-tarball-e2e.test.ts`** — runs `npm pack` + clean install + spawns `<install>/node_modules/.bin/massu init` against each Phase 7 fixture in tmpdir, then asserts the same field-by-field expectations the source-level test asserts. Plus 3 tarball-shape gates: `dist/cli.js` exists, `templates/<id>/massu.config.yaml` is well-formed YAML for every present id, `<bin>/massu --version` matches `package.json:version`. Tag-gated via `MASSU_TARBALL_E2E=1` env var so it runs in CI but not in local `npm test` by default.
+- **Shared fixture module `src/__tests__/fixtures/phase7-init-fixtures.ts`** — single source for the 5-fixture test data consumed by BOTH `init-end-to-end.test.ts` AND `init-tarball-e2e.test.ts`. Adding a new framework = ONE entry that BOTH tests pick up.
+- **`resolve-templates-dir-bundle-path.test.ts`** — 4 unit tests that explicitly catch the 1.5.2 path-off-by-one regression class. Sets up both bundled-cli (`<pkg>/dist/cli.js`) and legacy-nested (`<pkg>/dist/commands/init.js`) layouts in tmpdir; asserts the candidate-list logic resolves correctly in each. Future builds that move cli.js to a different depth fail this test before reaching the tarball test.
+- **Hermetic build in tarball-e2e** — `beforeAll` runs `npm run build` before `npm pack` so the test never reads a stale `dist/` from a previous build.
+
+### Verification
+
+- `npx tsc --noEmit`: 0 errors
+- `npm test`: 2079/2079 + 4 new (resolve-templates-dir) = 2083 source-level tests pass
+- `MASSU_TARBALL_E2E=1 npm test`: +8 tarball-level tests (5 fixtures + 3 shape gates) pass against the actual built bundle
+- `bash scripts/massu-pattern-scanner.sh`: PASS
+- `bash scripts/massu-generalization-scanner.sh`: PASS
+
+### Known follow-on
+
+- AST adapter introspect output piping (`detected.<adapter-id>:` block) — Plan 1.5.4 (`docs/plans/2026-05-08-ast-introspect-piping.md`). Hard prerequisite met now (1.5.3 ships the tarball-e2e gate that 1.5.4's variant-template-style changes need to validate against).
+
 ## [1.5.2] - 2026-05-08
 
 Hotfix on 1.5.1 (published ~30 min earlier same day). 1.5.1's variant-template merge was structurally correct but `resolveTemplatesDir()` had a long-standing path-resolution bug that returned `null` from the bundled `dist/cli.js` — so `applyVariantTemplate` always bailed at its first guard, leaving `framework.router: none` in emitted configs.

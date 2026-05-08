@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.2] - 2026-05-08
+
+Hotfix on 1.5.1 (published ~30 min earlier same day). 1.5.1's variant-template merge was structurally correct but `resolveTemplatesDir()` had a long-standing path-resolution bug that returned `null` from the bundled `dist/cli.js` — so `applyVariantTemplate` always bailed at its first guard, leaving `framework.router: none` in emitted configs.
+
+### Fixed
+
+- **`resolveTemplatesDir()` path resolution for bundled cli.js (long-standing bug)** — pre-1.5.2 candidates `../../templates` and `../../../templates` assumed cli.js was nested at `dist/commands/init.js` depth; the actual bundled location is `dist/cli.js`, requiring `../templates`. Pre-1.5.2 the function returned `null` in npm-installed deployments for BOTH `--template <name>` mode AND (new in 1.5.1) the variant-template merge. Cited evidence: `node $cli init --yes` debug instrumentation 2026-05-08 showed candidates `node_modules/@massu/templates` and `node_modules/templates` (wrong scopes) and never the actual `node_modules/@massu/core/templates` directory. Added `../templates` as the first dist-relative candidate; older candidates retained as fallbacks.
+
+### Verification
+
+- `npx --yes @massu/core@1.5.2 init` against the 5 framework fixtures (rails, phoenix, aspnet, spring, go-chi) produces configs with the correct `framework.router`, `paths.source`, `verification.<lang>.lint` values.
+
 ## [1.5.1] - 2026-05-08
 
 Patch release closing two CR-39 violations discovered via end-to-end fixture verification of `npx massu init` against all six Phase 7 frameworks. Phoenix and ASP.NET projects could not previously install Massu (`error: no languages detected`); Rails / Spring / Go-chi installed but emitted generic configs missing the framework-specific variant template's `framework.router`, `paths.source`, and `verification.<lang>.lint` fields.

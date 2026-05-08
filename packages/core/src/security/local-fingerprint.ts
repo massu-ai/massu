@@ -52,6 +52,7 @@ import { resolve, isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { atomicWrite } from './atomic-write.js';
+import { PrintableAsciiStringSchema } from './manifest-schema.js';
 
 export const FINGERPRINT_PATH = resolve(homedir(), '.massu', 'adapters-local-fingerprint.json');
 
@@ -108,7 +109,13 @@ export function computeLocalFingerprint(
 const FingerprintSentinelSchema = z.object({
   fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
   source: z.enum(['cli', 'cli-resync']),
-  ts: z.string().min(1),
+  // CR-9 iter-5 audit LOW-NEW5-1 fix: ts is rendered to stderr in the
+  // drift warning at line 214 (`${sentinel.source} at ${sentinel.ts}`);
+  // a same-user attacker writing the sentinel file with control chars
+  // in ts would log-inject. Same vector iter-3 closed for
+  // InstallEntrySchema.ts; closing the parallel sentinel schema for
+  // single-source-of-truth consistency.
+  ts: PrintableAsciiStringSchema,
 }).strict();
 export type FingerprintSentinel = z.infer<typeof FingerprintSentinelSchema>;
 

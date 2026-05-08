@@ -47,7 +47,9 @@ export type SupportedLanguage =
   | 'swift'
   | 'go'
   | 'java'
-  | 'ruby';
+  | 'ruby'
+  | 'elixir'
+  | 'csharp';
 
 export interface PackageManifest {
   /** Absolute path to the manifest file. */
@@ -81,7 +83,9 @@ export interface PackageManifest {
     | 'go.mod'
     | 'pom.xml'
     | 'build.gradle'
-    | 'Gemfile';
+    | 'Gemfile'
+    | 'mix.exs'
+    | '*.csproj';
 }
 
 export interface DetectionWarning {
@@ -118,19 +122,10 @@ const IGNORED_DIRS = new Set([
   'Pods',
 ]);
 
-const MANIFEST_FILES = [
-  'package.json',
-  'pyproject.toml',
-  'requirements.txt',
-  'Pipfile',
-  'Cargo.toml',
-  'Package.swift',
-  'go.mod',
-  'pom.xml',
-  'build.gradle',
-  'build.gradle.kts',
-  'Gemfile',
-];
+// MANIFEST_FILES removed Plan 1.5.1. The canonical list lives at
+// `manifest-registry.ts:getManifestPatterns()`. `detectManifestsInDir`
+// (below) iterates the registry directly so adding a new manifest type
+// requires only a single registry entry — no second list to keep in sync.
 
 function safeRead(path: string): string | null {
   try {
@@ -153,7 +148,7 @@ function normalizeRelative(root: string, path: string): string {
   return rel.split(/[/\\]/).join('/');
 }
 
-function parsePackageJson(
+export function parsePackageJson(
   path: string,
   directory: string,
   root: string,
@@ -204,7 +199,7 @@ function parsePackageJson(
   };
 }
 
-function parsePyproject(
+export function parsePyproject(
   path: string,
   directory: string,
   root: string,
@@ -323,7 +318,7 @@ function normalizePyDep(spec: string): string {
   return name.trim();
 }
 
-function parseRequirementsTxt(
+export function parseRequirementsTxt(
   path: string,
   directory: string,
   root: string,
@@ -355,7 +350,7 @@ function parseRequirementsTxt(
   };
 }
 
-function parsePipfile(
+export function parsePipfile(
   path: string,
   directory: string,
   root: string,
@@ -392,7 +387,7 @@ function parsePipfile(
   };
 }
 
-function parseCargoToml(
+export function parseCargoToml(
   path: string,
   directory: string,
   root: string,
@@ -430,7 +425,7 @@ function parseCargoToml(
   };
 }
 
-function parsePackageSwift(
+export function parsePackageSwift(
   path: string,
   directory: string,
   root: string,
@@ -472,7 +467,7 @@ function parsePackageSwift(
   };
 }
 
-function parseGoMod(
+export function parseGoMod(
   path: string,
   directory: string,
   root: string,
@@ -523,7 +518,7 @@ function parseGoMod(
   };
 }
 
-function parsePomXml(
+export function parsePomXml(
   path: string,
   directory: string,
   root: string,
@@ -554,7 +549,7 @@ function parsePomXml(
   };
 }
 
-function parseBuildGradle(
+export function parseBuildGradle(
   path: string,
   directory: string,
   root: string,
@@ -591,7 +586,7 @@ function parseBuildGradle(
   };
 }
 
-function parseGemfile(
+export function parseGemfile(
   path: string,
   directory: string,
   root: string,
@@ -628,53 +623,158 @@ function parseGemfile(
   };
 }
 
+/**
+ * Parse a `mix.exs` (Elixir / Mix) file. Plan 1.5.1 — closes CR-39
+ * gap where Phoenix projects failed `npx massu init` with "no languages
+ * detected" because the package-detector layer didn't recognize the
+ * manifest. The AST adapter at `detect/adapters/phoenix.ts` was already
+ * shipped in 1.5.0 and works correctly when given a SourceFile[] directly.
+ *
+ * mix.exs is Elixir source (not a declarative format), but for detection
+ * purposes we extract `{:dep, "~> X.Y"}` style declarations via a regex
+ * scan. False-positive risk is low (any `{:atom, ...}` pattern that's
+ * NOT a dep is rare in mix.exs files outside the deps function).
+ */
+export function parseMixExs(
+  path: string,
+  directory: string,
+  root: string,
+  _warnings: DetectionWarning[],
+): PackageManifest | null {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  const deps: string[] = [];
+  // Match `{:dep_name, ...}` — atom name as first tuple element.
+  const depPattern = /\{\s*:([a-z][a-z0-9_]*)\s*,/g;
+  let m: RegExpExecArray | null;
+  while ((m = depPattern.exec(raw)) !== null) {
+    if (!deps.includes(m[1])) deps.push(m[1]);
+  }
+  // Best-effort `app: :name` extraction (the `def project` block usually
+  // declares this).
+  const appMatch = /\bapp\s*:\s*:([a-z][a-z0-9_]*)/.exec(raw);
+  const name = appMatch ? appMatch[1] : null;
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: 'elixir',
+    runtime: 'beam',
+    name,
+    version: null,
+    dependencies: deps,
+    devDependencies: [],
+    scripts: [],
+    manifestType: 'mix.exs',
+  };
+}
+
+/**
+ * Parse a `*.csproj` (C# / .NET project) file. Plan 1.5.1 — closes CR-39
+ * gap where ASP.NET projects failed `npx massu init`. The AST adapter at
+ * `detect/adapters/aspnet.ts` was already shipped in 1.5.0 and works
+ * correctly.
+ *
+ * .csproj is XML; we use a lightweight regex scan rather than pulling
+ * an XML parser because the only fields we need are `<PackageReference
+ * Include="X" />` (deps) and the `Sdk="..."` attribute (framework hint).
+ * Full XML parsing would be over-engineered for this surface and risks
+ * adding a dependency for marginal gain.
+ */
+export function parseCsproj(
+  path: string,
+  directory: string,
+  root: string,
+  _warnings: DetectionWarning[],
+): PackageManifest | null {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  const deps: string[] = [];
+  // Match `<PackageReference Include="Foo.Bar" ... />` (Include attribute
+  // value is the package id; the Version attribute is captured but we
+  // discard it since runtime/build distinction isn't expressed via
+  // this schema).
+  const pkgRefPattern = /<PackageReference\s+[^>]*Include\s*=\s*"([^"]+)"/gi;
+  let m: RegExpExecArray | null;
+  while ((m = pkgRefPattern.exec(raw)) !== null) {
+    if (!deps.includes(m[1])) deps.push(m[1]);
+  }
+  // The `<Project Sdk="Microsoft.NET.Sdk.Web">` attribute is a strong
+  // ASP.NET Core indicator that doesn't appear as a PackageReference.
+  // Surface it as a dep so framework-detector rules (which match against
+  // the deps set) can fire on it. Same downstream consumer; no new
+  // signal channel needed.
+  const sdkMatch = /<Project\s+[^>]*Sdk\s*=\s*"([^"]+)"/i.exec(raw);
+  if (sdkMatch && !deps.includes(sdkMatch[1])) {
+    deps.push(sdkMatch[1]);
+  }
+  // Best-effort name from filename (Foo.csproj → "Foo").
+  const fname = path.split(/[/\\]/).pop() ?? '';
+  const name = fname.endsWith('.csproj') ? fname.slice(0, -'.csproj'.length) : null;
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: 'csharp',
+    runtime: 'dotnet',
+    name,
+    version: null,
+    dependencies: deps,
+    devDependencies: [],
+    scripts: [],
+    manifestType: '*.csproj',
+  };
+}
+
 function detectManifestsInDir(
   dir: string,
   root: string,
   warnings: DetectionWarning[]
 ): PackageManifest[] {
+  // Plan 1.5.1: dispatch via the canonical MANIFEST_REGISTRY (single
+  // source-of-truth). The previous hand-rolled MANIFEST_FILES list +
+  // switch statement led to drift with runner.ts:buildDetectionSignals
+  // (Phoenix + ASP.NET were unreachable). Closed by registry.
+  // Lazy import to avoid ESM cycle; getManifestRegistry() is itself
+  // lazy-initialized.
+  const { getManifestRegistry, matchManifestPattern } = registryModule;
   const out: PackageManifest[] = [];
-  for (const fname of MANIFEST_FILES) {
-    const path = join(dir, fname);
-    if (!existsSync(path)) continue;
-    let m: PackageManifest | null = null;
-    switch (fname) {
-      case 'package.json':
-        m = parsePackageJson(path, dir, root, warnings);
-        break;
-      case 'pyproject.toml':
-        m = parsePyproject(path, dir, root, warnings);
-        break;
-      case 'requirements.txt':
-        m = parseRequirementsTxt(path, dir, root, warnings);
-        break;
-      case 'Pipfile':
-        m = parsePipfile(path, dir, root, warnings);
-        break;
-      case 'Cargo.toml':
-        m = parseCargoToml(path, dir, root, warnings);
-        break;
-      case 'Package.swift':
-        m = parsePackageSwift(path, dir, root, warnings);
-        break;
-      case 'go.mod':
-        m = parseGoMod(path, dir, root, warnings);
-        break;
-      case 'pom.xml':
-        m = parsePomXml(path, dir, root, warnings);
-        break;
-      case 'build.gradle':
-      case 'build.gradle.kts':
-        m = parseBuildGradle(path, dir, root, warnings);
-        break;
-      case 'Gemfile':
-        m = parseGemfile(path, dir, root, warnings);
-        break;
+  let dirEntries: string[] | null = null;
+  for (const entry of getManifestRegistry()) {
+    if (!entry.pattern.startsWith('*')) {
+      // Exact-filename pattern: O(1) existence check.
+      const path = join(dir, entry.pattern);
+      if (!existsSync(path)) continue;
+      const m = entry.parse(path, dir, root, warnings);
+      if (m !== null) out.push(m);
+    } else {
+      // Extension-glob pattern: scan dir for matches. Lazy-readdir so
+      // we pay the cost only when at least one glob entry exists.
+      if (dirEntries === null) {
+        try {
+          dirEntries = readdirSync(dir);
+        } catch {
+          dirEntries = [];
+        }
+      }
+      for (const fname of dirEntries) {
+        if (!matchManifestPattern(fname, entry.pattern)) continue;
+        const path = join(dir, fname);
+        if (!existsSync(path)) continue;
+        const m = entry.parse(path, dir, root, warnings);
+        if (m !== null) out.push(m);
+      }
     }
-    if (m !== null) out.push(m);
   }
   return out;
 }
+
+// Imported lazily-via-namespace to break the ESM cycle (manifest-registry
+// imports parsers from THIS module). The namespace import is hoisted to
+// the top of the module by ESM, but the named members are resolved on
+// access — by the time `detectManifestsInDir` runs, the registry module's
+// top-level evaluation has completed.
+import * as registryModule from './manifest-registry.ts';
 
 function listSubdirs(dir: string): string[] {
   try {

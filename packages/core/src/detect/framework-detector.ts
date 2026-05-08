@@ -138,6 +138,13 @@ export const DETECTION_RULES: DetectionRule[] = [
   { language: 'go', kind: 'framework', keyword: 'github.com/labstack/echo', value: 'echo', priority: 10 },
   { language: 'go', kind: 'framework', keyword: 'github.com/gofiber/fiber', value: 'fiber', priority: 10 },
   { language: 'go', kind: 'framework', keyword: 'github.com/go-chi/chi', value: 'chi', priority: 9 },
+  // chi versioned import paths (Go convention: github.com/<org>/<name>/v<N>).
+  // matchRule does exact case-insensitive set lookup, so the unversioned and
+  // each major-version path each need their own rule.
+  { language: 'go', kind: 'framework', keyword: 'github.com/go-chi/chi/v2', value: 'chi', priority: 9 },
+  { language: 'go', kind: 'framework', keyword: 'github.com/go-chi/chi/v3', value: 'chi', priority: 9 },
+  { language: 'go', kind: 'framework', keyword: 'github.com/go-chi/chi/v4', value: 'chi', priority: 9 },
+  { language: 'go', kind: 'framework', keyword: 'github.com/go-chi/chi/v5', value: 'chi', priority: 9 },
   { language: 'go', kind: 'test_framework', keyword: 'github.com/stretchr/testify', value: 'testify', priority: 8 },
   { language: 'go', kind: 'orm', keyword: 'gorm.io/gorm', value: 'gorm', priority: 10 },
 
@@ -157,6 +164,25 @@ export const DETECTION_RULES: DetectionRule[] = [
   { language: 'ruby', kind: 'framework', keyword: 'sinatra', value: 'sinatra', priority: 9 },
   { language: 'ruby', kind: 'test_framework', keyword: 'rspec', value: 'rspec', priority: 10 },
   { language: 'ruby', kind: 'orm', keyword: 'activerecord', value: 'activerecord', priority: 10 },
+  // Plan 1.5.1: elixir + csharp framework rules. Closes the CR-39 gap
+  // where Phoenix + ASP.NET projects produced `framework.languages.<lang>`
+  // entries WITHOUT a `framework:` value, which prevented variant
+  // templates from being looked up.
+  { language: 'elixir', kind: 'framework', keyword: 'phoenix', value: 'phoenix', priority: 10 },
+  { language: 'elixir', kind: 'test_framework', keyword: 'ex_unit', value: 'ex-unit', priority: 10 },
+  { language: 'elixir', kind: 'orm', keyword: 'ecto', value: 'ecto', priority: 10 },
+  // ASP.NET Core surfaces via several PackageReference names; the canonical
+  // ones in modern .NET projects are .App and .Mvc. matchRule does exact
+  // (case-insensitive) lookup against the deps set parseCsproj extracts.
+  { language: 'csharp', kind: 'framework', keyword: 'Microsoft.AspNetCore.App', value: 'aspnet-core', priority: 10 },
+  { language: 'csharp', kind: 'framework', keyword: 'Microsoft.AspNetCore.Mvc', value: 'aspnet-core', priority: 10 },
+  { language: 'csharp', kind: 'framework', keyword: 'Microsoft.AspNetCore', value: 'aspnet-core', priority: 9 },
+  // SDK-style projects: `<Project Sdk="Microsoft.NET.Sdk.Web">` is the
+  // canonical ASP.NET Core declaration in modern .NET. parseCsproj
+  // surfaces the Sdk attribute as a dep so this rule can match.
+  { language: 'csharp', kind: 'framework', keyword: 'Microsoft.NET.Sdk.Web', value: 'aspnet-core', priority: 10 },
+  { language: 'csharp', kind: 'test_framework', keyword: 'xunit', value: 'xunit', priority: 10 },
+  { language: 'csharp', kind: 'orm', keyword: 'EntityFrameworkCore', value: 'ef-core', priority: 10 },
 ];
 
 /**

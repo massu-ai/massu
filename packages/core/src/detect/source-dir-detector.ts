@@ -90,6 +90,9 @@ const EXTENSIONS: Record<SupportedLanguage, string[]> = {
   go: ['go'],
   java: ['java', 'kt'],
   ruby: ['rb'],
+  // Plan 1.5.1 — closing CR-39 init gap for Phoenix + ASP.NET projects.
+  elixir: ['ex', 'exs'],
+  csharp: ['cs'],
 };
 
 const TEST_FILE_PATTERNS: Record<SupportedLanguage, RegExp[]> = {
@@ -101,6 +104,10 @@ const TEST_FILE_PATTERNS: Record<SupportedLanguage, RegExp[]> = {
   go: [/_test\.go$/],
   java: [/Test[^/]*\.(java|kt)$/, /[^/]*Test\.(java|kt)$/],
   ruby: [/_spec\.rb$/, /_test\.rb$/],
+  // Phoenix/ExUnit canonical: `test/**_test.exs`. ASP.NET / xUnit
+  // canonical: `*Tests.cs` or `*.Tests/...`.
+  elixir: [/_test\.exs$/, /\/test\//],
+  csharp: [/Tests?\.cs$/, /\.Tests?\//],
 };
 
 const TEST_DIR_KEYWORDS = ['tests', 'test', '__tests__', 'spec', 'specs'];

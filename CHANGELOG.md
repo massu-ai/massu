@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.1] - 2026-05-08
+
+Patch release closing two CR-39 violations discovered via end-to-end fixture verification of `npx massu init` against all six Phase 7 frameworks. Phoenix and ASP.NET projects could not previously install Massu (`error: no languages detected`); Rails / Spring / Go-chi installed but emitted generic configs missing the framework-specific variant template's `framework.router`, `paths.source`, and `verification.<lang>.lint` fields.
+
+Daemon code unchanged from 1.5.0 — the in-flight 1.5.0 48 h soak verdict (started 2026-05-08T15:21:23Z) applies to 1.5.1.
+
+### Added
+
+- **Canonical manifest registry (`packages/core/src/detect/manifest-registry.ts`)** — single source-of-truth for every recognized manifest file. Both `package-detector.ts` (init's framework-detection layer) and `runner.ts:buildDetectionSignals` (AST adapter signal layer) consume from this registry. Adding a new manifest type now requires exactly one entry; both consumers automatically pick it up. Replaces the two parallel hand-rolled lists that diverged during Phase 7.
+- **Elixir + C# manifest support** — `mix.exs` and `*.csproj` now recognized by package-detector. Closes the CR-39 gap where Phoenix and ASP.NET projects failed `npx massu init` even though their AST adapters worked correctly. Includes new `parseMixExs` and `parseCsproj` parser functions; the csproj parser also extracts the `<Project Sdk="...">` attribute for SDK-style detection.
+- **Variant template merge (`applyVariantTemplate` in `commands/init.ts`)** — when `framework.languages.<lang>.framework` resolves to a known id, init now reads the matching `packages/core/templates/<id>/massu.config.yaml` and selectively merges its `framework.router`, `framework.orm`, `framework.ui`, `paths.source`, and `verification.<lang>.{lint,syntax,test,type,build}` fields. Closes the gap where rails/spring/go-chi/phoenix init succeeded but the resulting config lacked the framework's canonical lint command (rubocop / credo / golangci-lint / etc.) and routing identifier.
+- **Framework-detector rules for elixir + csharp** — `phoenix` (`{:phoenix, ...}` in mix.exs), `aspnet-core` (`Microsoft.AspNetCore.App` / `.Mvc` PackageReference, `Microsoft.NET.Sdk.Web` Sdk attribute), `ex-unit` test framework, `xunit`, `ecto`, `ef-core` ORM. go-chi rules expanded to cover all major-versioned import paths (`github.com/go-chi/chi/v2` through `/v5`).
+- **Strict gate `manifest-registry-drift.test.ts`** — 10 assertions: every entry has a callable parse function, unique pattern, well-formed shape; the `MANIFEST_FILES` const is permanently retired; every Phase 7 framework adapter language has a registry entry; every non-null `signalKey` corresponds to a real `DetectionSignals` field.
+- **Strict gate `init-end-to-end.test.ts`** — 5 fixture-based end-to-end tests (rails, phoenix, aspnet, spring, go-chi) that run `runInit` against minimal projects in tmpdir() and assert the emitted `massu.config.yaml` carries the variant-template-defined `framework.router`, `paths.source`, and `verification.<lang>.lint`. The class of bug "init succeeded but variant template missing" is now structurally impossible to merge.
+
+### Fixed
+
+- **CR-39 violation: Phoenix + ASP.NET fixtures fail `npx massu init`** — root cause: `package-detector.ts:122-132` had a `MANIFEST_FILES` list missing `mix.exs` and `*.csproj`. Closed by manifest registry + new parsers.
+- **Variant template `paths.source` for ASP.NET** — was `src` (which doesn't exist by ASP.NET Core convention); now `.` (project root). ASP.NET projects place `Controllers/`, `Pages/`, `Program.cs` etc. at the project root.
+- **`source-dir-detector.ts` extension map missing elixir / csharp** — added `.ex`/`.exs` and `.cs` extensions plus their respective test-file regex patterns (`_test.exs`, `Tests?.cs`, `.Tests?/`).
+
+### Verification
+
+- `npx tsc --noEmit`: 0 errors
+- `npm test`: 2079/2079 pass (+15 new structural tests, zero regressions)
+- `bash scripts/massu-pattern-scanner.sh`: PASS
+- `bash scripts/massu-generalization-scanner.sh`: PASS
+- 5-fixture re-verification: all six Phase 7 frameworks (rails, phoenix, aspnet, spring, go-chi, python-flask covered transitively via SUPPORTED_LANGUAGE) produce valid `massu.config.yaml` with variant-template-merged fields.
+
+### Known follow-on
+
+- AST adapter introspect output (`detected.<adapter-id>:` block in emitted config) is still NOT piped through to init. The blocker is `codebase-introspector.ts:160-180` `sampleFiles` returning `[]` — adapters run but see zero source files. Closing this requires a real file-sampling layer; see follow-on plan to come.
+
 ## [1.5.0] - 2026-05-07
 
 Plan 3c (adapter registry + framework coverage). Registry infrastructure (`registry.massu.ai`) is live and signed; six new first-party AST adapters bring supported framework count from 4 to 10 (rails, phoenix, aspnet, spring, flask, go-chi added on top of the 1.4.0 baseline of fastapi, django, nextjs-trpc, swiftui). A structural drift-guard test now makes "AST adapter silently degrades to regex fallback" impossible to merge — closing the gap that masked a `web-tree-sitter`/`tree-sitter-wasms` ABI mismatch through three Phase 7 commits.

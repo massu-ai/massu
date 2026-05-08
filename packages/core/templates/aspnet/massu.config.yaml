@@ -26,7 +26,11 @@ framework:
         - Models
 
 paths:
-  source: src
+  # ASP.NET Core convention: code lives at project root by default
+  # (Controllers/, Pages/, Models/, Program.cs). `src/` is not canonical
+  # — projects opt into it explicitly. Default to `.` so fresh `npx
+  # massu init` doesn't fail on `paths.source 'src' does not exist`.
+  source: .
   aliases: {}
 
 toolPrefix: massu

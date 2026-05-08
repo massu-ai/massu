@@ -1,0 +1,52 @@
+# Massu AI Configuration — Go / chi router template
+# schema_version 2 — https://massu.ai/docs/getting-started/configuration
+# Plan 3c Phase 7 deliverable (gap-N go-chi).
+
+schema_version: 2
+
+project:
+  name: "{{PROJECT_NAME}}"
+  root: auto
+
+framework:
+  type: go
+  router: chi
+  orm: none
+  ui: none
+  languages:
+    go:
+      framework: chi
+      test_framework: go-test
+      module_layout: standard-cmd-internal
+      source_dirs:
+        - cmd
+        - internal
+        - pkg
+
+paths:
+  source: internal
+  aliases: {}
+
+toolPrefix: massu
+
+domains: []
+
+rules: []
+
+verification:
+  go:
+    test: go test ./...
+    type: go vet ./...
+    syntax: gofmt -l .
+    lint: golangci-lint run
+
+go:
+  root: .
+  exclude_dirs:
+    - vendor
+    - node_modules
+    - .git
+    - dist
+    - bin
+  framework: chi
+  module_layout: standard-cmd-internal

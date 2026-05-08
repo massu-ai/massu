@@ -165,10 +165,19 @@ export function sha256OfDir(dir: string, opts: Sha256OfDirOpts = {}): string {
  * top-level object.
  */
 const InstallEntrySchema = z.object({
-  version: z.string().min(1),
+  // CR-9 iter-3 audit LOW-NEW3-1 fix: reject control characters in version.
+  // Without this, a same-user attacker writing the install-tracking
+  // sidecar could embed ANSI escapes (or other control chars) in version,
+  // log-injecting via runAdaptersResign's `${name}@${entry.version}`
+  // stderr emits. The regex permits printable ASCII (0x20-0x7e) plus
+  // common semver characters; control chars (0x00-0x1f, 0x7f) are
+  // rejected at parse time. Schema-level validation closes the vector
+  // at every callsite that reads the sidecar — no per-callsite escaping
+  // gymnastics needed.
+  version: z.string().min(1).regex(/^[\x20-\x7e]+$/, 'version must be printable ASCII (no control characters)'),
   installed_sha256: z.string().regex(/^[0-9a-f]{64}$/),
   manifest_sha256: z.string().regex(/^[0-9a-f]{64}$/),
-  ts: z.string().min(1),
+  ts: z.string().min(1).regex(/^[\x20-\x7e]+$/, 'ts must be printable ASCII (no control characters)'),
 }).strict();
 export type InstallEntry = z.infer<typeof InstallEntrySchema>;
 

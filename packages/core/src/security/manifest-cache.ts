@@ -47,7 +47,7 @@ import { z } from 'zod';
 import { atomicWrite } from './atomic-write.js';
 import { withFileLockSync } from '../lib/fileLock.js';
 import { verifyManifest, type VerifyManifestResult } from './adapter-verifier.js';
-import { EnvelopeSchema, type Envelope } from './manifest-schema.js';
+import { EnvelopeSchema, PrintableAsciiStringSchema, type Envelope } from './manifest-schema.js';
 import {
   REGISTRY_PUBKEY_ED25519,
   REGISTRY_PUBKEY_FINGERPRINT_HEX,
@@ -66,7 +66,15 @@ export const REGISTRY_MANIFEST_URL = 'https://registry.massu.ai/adapters/manifes
  */
 const CacheWrapperSchema = z.object({
   envelope: EnvelopeSchema,
-  fetched_at: z.string().min(1),
+  // CR-9 iter-6 audit LOW-NEW6-1 fix: fetched_at flows into the
+  // 'fetched_at not parseable as Date' reason render at line 163 → wrapped
+  // by getManifest into 'cache invalid: ...' → reaches stderr in
+  // commands/adapters.ts. Same control-char log-injection vector iter-3
+  // closed for InstallEntrySchema.ts AND iter-5 closed for
+  // FingerprintSentinelSchema.ts. Third sibling closure; the new AST
+  // drift-guard test (test_security_schemas_printable_ascii_drift.test.ts)
+  // makes this class of bug structurally impossible to recur.
+  fetched_at: PrintableAsciiStringSchema,
   bundled_pubkey_fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
 }).strict();
 export type CacheWrapper = z.infer<typeof CacheWrapperSchema>;

@@ -33,6 +33,25 @@ export const KNOWN_MAX_SCHEMA_VERSION = 1 as const;
 const Sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/, 'sha256 hex must be 64 lowercase hex chars');
 
 /**
+ * Printable ASCII string — 0x20 to 0x7e, length 1+. Rejects control
+ * characters (including ESC \x1b for ANSI escapes), tabs, newlines, and
+ * any non-ASCII Unicode. Used for fields that get rendered to stderr or
+ * stdout in the CLI; without this constraint, an attacker could embed
+ * ANSI escape sequences in (manifest entry version, package.json name,
+ * sidecar version, etc.) to log-inject CI/operator-terminal output.
+ *
+ * CR-9 iter-4 audit single-source-of-truth (LOW-NEW4-1/2/3 fix): every
+ * schema field that's downstream of a stderr/stdout emit MUST use this
+ * type instead of bare z.string(). Adding a new string field that's
+ * later rendered in CLI output without reaching for this type is a
+ * regression worth catching at code review.
+ */
+export const PrintableAsciiStringSchema = z.string().min(1).regex(
+  /^[\x20-\x7e]+$/,
+  'must be printable ASCII (0x20-0x7e); control characters like ESC, tab, newline, and non-ASCII are rejected to prevent log injection',
+);
+
+/**
  * Standard base64 (RFC 4648) — alphabet [A-Za-z0-9+/], length must be a
  * multiple of 4 (with up to two `=` padding chars), no newlines.
  * CR-9 audit L1 fix: the prior `^[A-Za-z0-9+/]*={0,2}$` regex permitted a
@@ -59,14 +78,20 @@ const Base64Schema = z.string()
  * - `.passthrough()` preserves unknown additive fields (gap-56 forward-compat).
  */
 export const AdapterEntrySchema = z.object({
-  package: z.string().min(1),
-  version: z.string().min(1),
+  // CR-9 iter-4 audit LOW-NEW4-3 fix: every string field rendered in CLI
+  // output (discover.ts deprecation warning + adapters.ts search status)
+  // uses PrintableAsciiStringSchema to prevent log-injection from a
+  // compromised registry. The trust model assumes the registry can be
+  // adversarial pre-signing; the verifier's signature check + this
+  // schema together neutralize that vector.
+  package: PrintableAsciiStringSchema,
+  version: PrintableAsciiStringSchema,
   sha256: Sha256HexSchema,
   signing_key_id: Sha256HexSchema,
   deprecated: z.object({
-    since: z.string().min(1),
-    replacement: z.string().nullable().optional(),
-    reason: z.string().min(1),
+    since: PrintableAsciiStringSchema,
+    replacement: PrintableAsciiStringSchema.nullable().optional(),
+    reason: PrintableAsciiStringSchema,
   }).optional(),
   unpublished: z.boolean().optional(),
 }).passthrough();

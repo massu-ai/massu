@@ -616,6 +616,7 @@ export function writeConfigAtomic(
     }
 
     // Validate YAML parses.
+    // pattern-scanner-allow: yaml-parse — reason: atomic-write post-validator. We just generated `content` and wrote it to a tmp path; before atomic rename to the final config path we re-parse to verify the bytes we serialized are valid YAML. Calling getConfig() here would re-read from cwd and miss the tmp file.
     const parsed = yamlParse(content);
     if (parsed === null || typeof parsed !== 'object') {
       throw new Error('Generated config is not a valid YAML object');
@@ -661,6 +662,7 @@ export function validateWrittenConfig(
     // getConfig caches against process.cwd() and we may be validating a config
     // outside the current working tree (tests, etc.).
     const content = readFileSync(configPath, 'utf-8');
+    // pattern-scanner-allow: yaml-parse — reason: see preceding comment block; getConfig() caches against process.cwd() and would either return a stale entry or fail to read a config at an arbitrary projectRoot.
     const parsed = yamlParse(content);
     if (parsed === null || typeof parsed !== 'object') {
       return 'Config is not a valid YAML object';

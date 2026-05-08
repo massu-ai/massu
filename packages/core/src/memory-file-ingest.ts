@@ -42,6 +42,7 @@ export function ingestMemoryFile(
 
   if (frontmatterMatch) {
     try {
+      // pattern-scanner-allow: yaml-parse — reason: parses YAML FRONTMATTER from markdown memory files (NOT massu.config.yaml). This is document metadata parsing, not application config access; getConfig() does not apply.
       const fm = parseYaml(frontmatterMatch[1]) as Record<string, unknown>;
       name = (fm.name as string) ?? basename;
       description = (fm.description as string) ?? '';

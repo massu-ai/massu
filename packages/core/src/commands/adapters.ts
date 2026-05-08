@@ -413,6 +413,7 @@ function mutateLocalArray(
     process.stderr.write(`${command}: failed to read ${yamlPath}: ${err instanceof Error ? err.message : String(err)}\n`);
     return { exitCode: 2 };
   }
+  // pattern-scanner-allow: yaml-parse — reason: comment-preserving YAML edit for `massu adapters add-local <path>` (Plan 3c gap-32). getConfig() returns a parsed object that destroys user comments on round-trip; parseDocument is the structurally-correct tool.
   const doc = parseDocument(yamlText);
 
   // Read current adapters.local. yaml-Document's toJS on a node returns the

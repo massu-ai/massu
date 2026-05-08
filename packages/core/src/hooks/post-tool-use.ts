@@ -245,6 +245,7 @@ function readConventions(cwd?: string): {
     const configPath = join(projectRoot, 'massu.config.yaml');
     if (!existsSync(configPath)) return defaults;
     const content = readFileSync(configPath, 'utf-8');
+    // pattern-scanner-allow: yaml-parse — reason: compiled standalone hook (esbuild bundle). Per P2-023a, hooks cannot import getConfig() — they run in the Claude Code subprocess context with no module resolution path back to packages/core. Direct YAML parse is the only available access pattern.
     const parsed = parseYaml(content) as Record<string, unknown> | null;
     if (!parsed || typeof parsed !== 'object') return defaults;
     const conventions = parsed.conventions as Record<string, unknown> | undefined;

@@ -279,6 +279,7 @@ async function buildDriftBanner(): Promise<string> {
     const configPath = resolve(process.cwd(), 'massu.config.yaml');
     if (!existsSync(configPath)) return '';
     const content = readFileSync(configPath, 'utf-8');
+    // pattern-scanner-allow: yaml-parse — reason: compiled standalone hook (esbuild bundle). Per P2-023a, hooks cannot import getConfig() — they run in the Claude Code subprocess context with no module resolution path back to packages/core. Direct YAML parse is the only available access pattern.
     const parsed = parseYaml(content) as Record<string, unknown> | null;
     if (!parsed || typeof parsed !== 'object') return '';
     const det = parsed.detection as Record<string, unknown> | undefined;

@@ -23,6 +23,7 @@ export const CORE_BUNDLED_IDS: ReadonlySet<string> = new Set([
   'nextjs-trpc',
   'python-django',
   'python-fastapi',
+  'python-flask',
   'swift-swiftui',
 ]);
 

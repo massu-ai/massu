@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.7] - 2026-05-08
+
+Test infrastructure release. Closes the two follow-ons documented in 1.5.5 and 1.5.6 CHANGELOGs as the structural drift-prevention against the class of bug that produced both hotfixes (FIRST_PARTY_ADAPTERS divergence + bundle-vs-source CI gap).
+
+Daemon code unchanged — 1.5.0 48 h soak verdict applies to 1.5.7.
+
+### Added
+
+- **`first-party-adapters-coverage.test.ts`** — strict drift-guard asserting `FIRST_PARTY_ADAPTERS` (the runtime dispatch list at `codebase-introspector.ts:75-78`) parity with `CORE_BUNDLED_IDS` (the trust-class id-set at `detect/adapters/index.ts:23-33`). Pre-1.5.7 the two diverged silently — Phase 7 commits added each new adapter to `CORE_BUNDLED_IDS` (gated by `core-bundled-ids-drift.test.ts`) but missed the runtime dispatch list. The 1.5.4 → 1.5.5 hotfix was the surfacing event. This test makes the divergence impossible to merge: every id in CORE_BUNDLED_IDS must have an adapter import in codebase-introspector.ts AND vice versa.
+- **CI `tarball-e2e` job** — extends `.github/workflows/ci.yml` with a job that runs `MASSU_TARBALL_E2E=1 npx vitest run src/__tests__/init-tarball-e2e.test.ts` on every push to main + PR. The test infrastructure was added in 1.5.3 but had no CI trigger; 1.5.5 and 1.5.6 both shipped bundle-only bugs (`FIRST_PARTY_ADAPTERS` omission, web-tree-sitter not externalized) that the tarball-e2e gate would have caught BEFORE publish if it had been wired. Now wired; future bundle-vs-source regressions auto-fail CI before publish.
+
+### Verification
+
+- `npx tsc --noEmit`: 0 errors
+- `npm test`: 2087/2087 source-level pass (+1 new drift test)
+- `bash scripts/massu-pattern-scanner.sh`: PASS
+- `bash scripts/massu-generalization-scanner.sh`: PASS
+
+### Closes
+
+- Plan 1.5.5 CHANGELOG follow-on ("first-party-adapters-coverage gate") — SHIPPED.
+- Plan 1.5.6 CHANGELOG follow-on ("CI workflow that sets MASSU_TARBALL_E2E=1") — SHIPPED.
+
 ## [1.5.6] - 2026-05-08
 
 Hotfix on 1.5.5. 1.5.5 added the 6 Phase 7 adapters to `FIRST_PARTY_ADAPTERS` correctly, but the bundled `dist/cli.js` inlined `web-tree-sitter` while its companion `tree-sitter.wasm` runtime artifact was NOT copied to `dist/`. R-011 evidence (live test against published 1.5.5):

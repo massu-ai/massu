@@ -13309,6 +13309,24 @@ init_parse_guard();
 // src/detect/adapters/swift-swiftui.ts
 init_parse_guard();
 
+// src/detect/adapters/python-flask.ts
+init_parse_guard();
+
+// src/detect/adapters/go-chi.ts
+init_parse_guard();
+
+// src/detect/adapters/rails.ts
+init_parse_guard();
+
+// src/detect/adapters/phoenix.ts
+init_parse_guard();
+
+// src/detect/adapters/aspnet.ts
+init_parse_guard();
+
+// src/detect/adapters/spring.ts
+init_parse_guard();
+
 // src/detect/codebase-introspector.ts
 function introspect(detection, projectRoot) {
   const out2 = {};

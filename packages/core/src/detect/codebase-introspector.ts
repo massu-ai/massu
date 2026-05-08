@@ -48,6 +48,19 @@ import { pythonFastApiAdapter } from './adapters/python-fastapi.ts';
 import { pythonDjangoAdapter } from './adapters/python-django.ts';
 import { nextjsTrpcAdapter } from './adapters/nextjs-trpc.ts';
 import { swiftSwiftUiAdapter } from './adapters/swift-swiftui.ts';
+// Plan 1.5.4 R-011 discovery: Phase 7 adapters were committed but never
+// added to FIRST_PARTY_ADAPTERS. The omission was masked pre-1.5.4 by
+// sampleFiles=[] (every adapter returned 'none' anyway). Now that the
+// sampler works, these 6 adapters MUST be in the dispatch list or
+// `npx massu init` against a Phase 7 project produces no detected.<id>:
+// block (verified via debug instrumentation 2026-05-08 against the
+// 1.5.4 published bundle).
+import { pythonFlaskAdapter } from './adapters/python-flask.ts';
+import { goChiAdapter } from './adapters/go-chi.ts';
+import { railsAdapter } from './adapters/rails.ts';
+import { phoenixAdapter } from './adapters/phoenix.ts';
+import { aspnetAdapter } from './adapters/aspnet.ts';
+import { springAdapter } from './adapters/spring.ts';
 import type { CodebaseAdapter, AdapterResolved } from './adapters/types.ts';
 
 // ============================================================
@@ -75,8 +88,14 @@ export interface DetectedConventions {
 const FIRST_PARTY_ADAPTERS: CodebaseAdapter[] = [
   pythonFastApiAdapter,
   pythonDjangoAdapter,
+  pythonFlaskAdapter,
   nextjsTrpcAdapter,
   swiftSwiftUiAdapter,
+  goChiAdapter,
+  railsAdapter,
+  phoenixAdapter,
+  aspnetAdapter,
+  springAdapter,
 ];
 
 // ============================================================

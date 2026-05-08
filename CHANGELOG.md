@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.6] - 2026-05-08
+
+Hotfix on 1.5.5. 1.5.5 added the 6 Phase 7 adapters to `FIRST_PARTY_ADAPTERS` correctly, but the bundled `dist/cli.js` inlined `web-tree-sitter` while its companion `tree-sitter.wasm` runtime artifact was NOT copied to `dist/`. R-011 evidence (live test against published 1.5.5):
+
+```
+RuntimeError: Aborted(Error: ENOENT: no such file or directory,
+  open '/Users/.../dist/tree-sitter.wasm')
+  at abort (cli.js:13114:20)
+  at Parser.init (cli.js:14585:19)
+  at loadGrammar (cli.js:14946:3)
+```
+
+The bundled web-tree-sitter expects to find its sibling `tree-sitter.wasm` next to its own code. esbuild bundling inlines the JS but can't move companion wasm assets.
+
+### Fixed
+
+- **Externalize `web-tree-sitter` (and other native-asset deps) from the cli bundle** — `build:cli` now passes `--external:web-tree-sitter --external:tweetnacl --external:tar --external:smol-toml --external:vscode-languageserver-protocol`. These remain `dependencies` in package.json so users get them via `npm install` and at runtime the bundle resolves them through normal node_modules. The companion `tree-sitter.wasm` resolves naturally next to web-tree-sitter's own code.
+
+### Verification
+
+- Rebuilt 1.5.6 cli.js loads grammars from `<install>/node_modules/web-tree-sitter/tree-sitter.wasm` correctly.
+- `npx --yes @massu/core@1.5.6 init` against a Phoenix fixture produces `detected.phoenix:` block with extracted conventions.
+
 ## [1.5.5] - 2026-05-08
 
 Hotfix on 1.5.4 (published ~10 min earlier same day). 1.5.4 shipped the file sampler + introspect piping correctly but `codebase-introspector.ts:FIRST_PARTY_ADAPTERS` only listed the 4 original Plan-3b adapters. Phase 7 adapters (`rails`, `phoenix`, `aspnet`, `spring`, `go-chi`, `python-flask`) were committed Phase 7 but never added to the runtime dispatch list. The omission was masked pre-1.5.4 by the `sampleFiles=[]` placeholder (every adapter returned `'none'` anyway). 1.5.4 made the sampler work but the dispatch list was still incomplete → `npx massu init` against a Phoenix project produced an empty `introspected` object → no `detected.phoenix:` block in the emitted config.

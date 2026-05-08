@@ -1,0 +1,57 @@
+# Massu AI Configuration — C# / ASP.NET Core template
+# schema_version 2 — https://massu.ai/docs/getting-started/configuration
+# Plan 3c Phase 7 deliverable (aspnet).
+
+schema_version: 2
+
+project:
+  name: "{{PROJECT_NAME}}"
+  root: auto
+
+framework:
+  type: csharp
+  router: aspnet-core
+  orm: ef-core
+  ui: razor
+  languages:
+    csharp:
+      framework: aspnet-core
+      test_framework: xunit
+      orm: ef-core
+      source_dirs:
+        - src
+        - Controllers
+        - Pages
+        - Views
+        - Models
+
+paths:
+  source: src
+  aliases: {}
+
+toolPrefix: massu
+
+domains: []
+
+rules: []
+
+verification:
+  csharp:
+    test: dotnet test
+    type: dotnet build --no-restore
+    syntax: dotnet build --verbosity quiet
+    lint: dotnet format --verify-no-changes
+
+csharp:
+  root: .
+  exclude_dirs:
+    - bin
+    - obj
+    - .vs
+    - packages
+    - node_modules
+    - .git
+    - publish
+    - TestResults
+  framework: aspnet-core
+  orm: ef-core

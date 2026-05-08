@@ -68,6 +68,24 @@ export interface DetectionSignals {
   cargoToml?: Record<string, unknown>;
   /** Raw `go.mod` text — undefined if absent. */
   goMod?: string;
+  /** Raw `mix.exs` text — undefined if absent. Elixir/Mix manifest. */
+  mixExs?: string;
+  /**
+   * Raw text of the FIRST `.csproj` file found at the project root —
+   * undefined if absent. .NET project file (XML). Adapters that need to
+   * inspect more than one csproj (multi-project solutions) can re-scan from
+   * `presentFiles`.
+   */
+  csproj?: string;
+  /** Raw `pom.xml` text — undefined if absent. Maven build manifest. */
+  pomXml?: string;
+  /**
+   * Raw text of `build.gradle` OR `build.gradle.kts` — whichever exists at
+   * the project root, with `.kts` (Kotlin DSL) preferred when both are
+   * present (Kotlin DSL is the modern default per Gradle 7+ docs).
+   * Undefined if neither exists.
+   */
+  gradleBuild?: string;
   /** Set of present directory names directly under the project root (one level). */
   presentDirs: Set<string>;
   /** Set of present file basenames directly under the project root (one level). */

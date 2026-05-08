@@ -4,6 +4,51 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.0] - 2026-05-07
+
+Plan 3c (adapter registry + framework coverage). Registry infrastructure (`registry.massu.ai`) is live and signed; six new first-party AST adapters bring supported framework count from 4 to 10 (rails, phoenix, aspnet, spring, flask, go-chi added on top of the 1.4.0 baseline of fastapi, django, nextjs-trpc, swiftui). A structural drift-guard test now makes "AST adapter silently degrades to regex fallback" impossible to merge — closing the gap that masked a `web-tree-sitter`/`tree-sitter-wasms` ABI mismatch through three Phase 7 commits.
+
+### Added
+
+- **Adapter registry trust model (Plan 3c Phase 5)** — three-class adapter loading: CORE-BUNDLED (shipped in `@massu/core` itself, no verification needed), REGISTRY-VERIFIED (npm packages cross-checked against the signed manifest at `registry.massu.ai/adapters/manifest.json`), LOCAL-EXPLICIT (operator-configured paths in `massu.config.yaml > adapters.local`). Per-class verification scopes, kill-switch (`adapters.enabled: false` short-circuits REGISTRY-VERIFIED + LOCAL-EXPLICIT entirely), and persistent-stderr warnings on degraded modes. See `packages/core/security/AUDIT-2026-05-XX.md` (Phase 3.5 audit) and `docs/SECURITY.md`.
+- **Adapter registry infrastructure** — `registry.massu.ai` live on Vercel with Let's Encrypt (`CN=registry.massu.ai`), serving the signed manifest envelope (`manifest_b64` + Ed25519 detached signature) at `/adapters/manifest.json`. Public signing key fingerprint `3b6226d036c472e533110d11a7d0cd2773ce1d7d4f1003517d5bd69c5418ed4c` shipped at `packages/core/security/registry-pubkey.{b64,pem,env}`. Private key in macOS Keychain (`security add-generic-password` entry `massu/registry/signing/private`). HTTPS verified (HSTS `max-age=63072000; includeSubDomains; preload`).
+- **Adapter SDK subpath export** — `@massu/core/adapter` subpath provides `defineAdapter()` factory + `CodebaseAdapter` types for third-party adapter authors. Adapters never import from `@massu/core` internals — only from this stable SDK. See `docs/AUTHORING-ADAPTERS.md`.
+- **`npx massu adapters` CLI** — three subcommands: `list` (show which adapters are loaded + their trust class), `refresh` (re-fetch + re-verify the registry manifest), `search <query>` (search the manifest for adapters by id/keywords).
+- **Six new first-party AST adapters (Plan 3c Phase 7)** — bringing supported framework count to 10:
+  - **Flask** (`python-flask`) — extracts `auth_decorator`, `blueprint_url_prefix`, `app_factory`. Matches via `pyproject.toml` mentioning `flask` or `app/` directory shape.
+  - **go-chi** (`go-chi`) — extracts `route_method`, `mount_prefix_base`, `middleware_name`. Matches via `go.mod` mentioning `github.com/go-chi/chi`.
+  - **Rails** (`rails`) — extracts `route_method`, `api_namespace`, `root_controller` from `config/routes.rb`. Matches via strict `gem ['"]rails['"]` regex in Gemfile (rejects `rails-api` / `rails_admin`).
+  - **Phoenix** (`phoenix`) — extracts `route_method`, `scope_prefix_base`, `router_module` from `lib/<app>_web/router.ex`. Matches via `{:phoenix\b(?!_)` regex in mix.exs (rejects `:phoenix_live_view`).
+  - **ASP.NET Core** (`aspnet`) — extracts `route_method`, `route_prefix_base`, `controller_class`. Handles BOTH minimal API (`app.MapGet`) and attribute routing (`[HttpGet]`) uniformly with prefix normalization. Matches via `Microsoft.NET.Sdk.Web` SDK or `Microsoft.AspNetCore.App` reference in `.csproj`.
+  - **Spring** (`spring`) — extracts `route_method`, `route_prefix_base`, `controller_class` from `@RestController` / `@Controller` classes. Handles parameterized (`@GetMapping("/{id}")`) AND parameterless (`@PostMapping`) annotations via separate Tree-sitter `annotation` and `marker_annotation` queries. Matches via `spring-boot-starter*` artifact or `org.springframework` reference in `pom.xml` / `build.gradle.kts`.
+  Each adapter ships with a variant `massu.config.yaml` template (see `packages/core/templates/<framework>/`), 15-22 adversarial unit tests, and a strict-gate fixture in `adapter-grammar-strict.test.ts`.
+- **`GRAMMAR_MANIFEST` expansion** — six new Tree-sitter grammar entries (`go`, `ruby`, `csharp`, `java`, `kotlin`, `elixir`) with hardcoded sha256 hashes for atomic-write cache verification. Each grammar wasm is downloaded once into `~/.massu/wasm-cache/<lang>-<sha>.wasm` with LRU eviction at 16 entries (~50 MB cap).
+- **Detection signal expansion** — `DetectionSignals` now includes `mixExs?`, `csproj?`, `pomXml?`, `gradleBuild?` (preferring `build.gradle.kts` over `build.gradle` per Gradle 7+ defaults). Mirrors the existing `gemfile`/`goMod`/`cargoToml`/`pyprojectToml` manifest-reader pattern.
+- **STRUCTURAL grammar drift-guard (CR-46)** — new test `adapter-grammar-strict.test.ts` asserts every shipped adapter returns NON-`'none'` confidence on a clear-cut fixture. Closes the lenient-test-pattern hole (`expect(['none', 'medium', 'high']).toContain(...)`) that previously allowed grammar-load failures to silently degrade adapters to regex-fallback. Future ABI breaks, query typos, or wasm-cache corruption flip this gate red. The `core-bundled-ids-drift.test.ts` (added in Phase 5) now also covers the 5 new Phase 7 adapter ids.
+- **Telemetry writer** — `~/.massu/telemetry/adapter-discovery-*.jsonl` files capture per-discovery-run statistics (count by trust class, refusal reasons) for offline analysis. Replay command surfaces aggregates without re-running discovery.
+- **`massu adapters add-local` / `remove-local` / `resync-local-fingerprint`** — three CLI commands that maintain the `~/.massu/adapters-local-fingerprint.json` sentinel (gap-32 postinstall-poisoning defense). Drift between the recorded fingerprint and the current `adapters.local` content forces operator re-acknowledgment before LOCAL-EXPLICIT adapters load.
+
+### Fixed
+
+- **Phase 7 grammar loadability (commit `d31b4d8`)** — pinned `web-tree-sitter` from `^0.26.8` to `~0.25.10`. Root cause (cited): `web-tree-sitter@0.26.x` at `web-tree-sitter.js:1944` requires WebAssembly custom-section name `dylink.0`; the wasms shipped by `tree-sitter-wasms@0.1.13` (compiled with `tree-sitter-cli@^0.20.8`) emit the older `dylink` section name (verified via `xxd ~/.massu/wasm-cache/elixir-*.wasm`). Empirical sweep across 0.20.8 → 0.26.8 confirmed 0.25.10 is the maximum-compatible version. Pre-fix, every Phase 7 AST adapter (`python-flask`, `go-chi`, `rails`) was silently degrading to `'none'` confidence (regex fallback). The new `adapter-grammar-strict.test.ts` is the structural drift-prevention that makes this class of bug impossible to merge again.
+- **Rails adapter query (commit `d31b4d8`)** — removed `(method_call ...)` patterns from `rails.ts` queries. The `tree-sitter-ruby` v0.20.1 grammar (pinned by `tree-sitter-wasms@0.1.13`) emits routes.rb DSL invocations as `(call method: (identifier) arguments: (argument_list ...))` — there is no `method_call` node. Verified via AST probe (R-011 evidence cited inline in `rails.ts`). Even after the grammar-load fix, the `method_call` patterns would have thrown `QueryError: Bad node name 'method_call'` at `tree-sitter.js:1477`.
+- **Pattern-scanner FAILs (commit `c943aa3`)** — directive-aware scanner + drift-guard close two stale FAILs. The scanner now respects `// massu-pattern-scanner: skip` directives in source files (intentional regex deviations) and runs a sibling drift-guard test that fails the build if `massu-pattern-scanner.sh` reports any new FAIL category not previously cleared.
+- **Phase 3.5 security audit (commits `51ad804`, `259d7d8`, `4ab141e`, `9c5a80b`, `4d8f60a`, `2c21853`)** — closed all 17 findings across 6 audit iterations. Notable: `HIGH-NEW-1` (manifest cache TOCTOU), 5 `MED` findings on schema validation tightness, `LOW-NEW3-1` (InstallEntrySchema.version regex), `LOW-NEW4-2` (printable-ASCII guard against ANSI log injection), `LOW-NEW5-1` (FingerprintSentinelSchema using PrintableAsciiStringSchema). Final iteration shipped a STRUCTURAL drift-guard test for the manifest-cache `fetched_at` field — making the class of bug "manifest cache silently serves stale data because freshness is unenforced" impossible.
+- **Phase 5 `gap-37` install-time + load-time sha256** — adapter packages now record their `installed_sha256` at `npm install` time in `~/.massu/adapter-manifest-installed.json`; load-time discovery re-computes the hash and refuses to load on drift. Cross-check against the signed registry manifest's `sha256` field detects post-install sidecar tampering (audit `M4` fix).
+- **`scope MyAppWeb do` (alias-only Phoenix scope)** — correctly excluded from `scope_prefix_base` capture per the string-literal-anchor in the SCOPE_PATH_QUERY (verified negative case via AST probe).
+
+### Security
+
+- All Phase 3.5 audit findings closed (0 unfixed) per `packages/core/security/AUDIT-2026-05-XX.md`.
+- Symlink attack defense across `discover.ts:walkNodeModules` (`lstatSync` not `statSync`) — same fix that landed in `install-tracking.ts` (audit `H1`) was missed in `discover.ts` until iter 2.
+- Hidden-directory load-time refusal in `discover.ts` (`MED-NEW-2`) — packages shipping `.git/payload.js` etc. are refused at load time, closing the `sha256OfDir`-excludes-hidden-dirs gap.
+- Adapter-loading kill-switch (`adapters.enabled: false`) defaults to `false` at the config schema layer (gap-1 / `C1`) — operators MUST opt-in to third-party adapter loading.
+
+### Infrastructure
+
+- `web-tree-sitter` pinned to `~0.25.10` (was `^0.26.8`). Hard upper bound documented inline; loosen this only after `tree-sitter-wasms` ships a release with `dylink.0`-format wasms.
+- 5 workspace placeholder packages remain at `0.0.0-prework` (`@massu/adapter-{rails,phoenix,aspnet,spring,go-chi}`) — these adapters ship CORE-BUNDLED in `@massu/core` itself for 1.5.0; separate REGISTRY-VERIFIED package publish is a follow-on.
+
 ## [1.4.0] - 2026-05-07
 
 Promotes the `1.4.0-soak.0` build (in soak since 2026-05-02) to `latest`. Soak-check verdict on 2026-05-07 09:00 PDT: **PASS** (samples=188, rss_p99=290 MB / budget 700, cpu_load=0.044 / budget 50, alive_pct=100, errors=0, slope=-11.35 MB/hr).

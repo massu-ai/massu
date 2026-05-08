@@ -46,4 +46,6 @@ export const ADAPTER_SUPPORT_FILES: ReadonlySet<string> = new Set([
   'tree-sitter-loader.ts',
   'index.ts',
   'discover.ts',
+  // Plan 1.5.4: file sampler (support module, not an adapter).
+  'file-sampler.ts',
 ]);

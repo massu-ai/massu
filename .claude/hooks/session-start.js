@@ -12,6 +12,9 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
   if (typeof require !== "undefined") return require.apply(this, arguments);
   throw Error('Dynamic require of "' + x + '" is not supported');
 });
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
 var __commonJS = (cb, mod) => function __require2() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
@@ -5781,6 +5784,15 @@ var require_out4 = __commonJS({
   }
 });
 
+// src/detect/adapters/parse-guard.ts
+var MAX_AST_FILE_BYTES;
+var init_parse_guard = __esm({
+  "src/detect/adapters/parse-guard.ts"() {
+    "use strict";
+    MAX_AST_FILE_BYTES = 1 * 1024 * 1024;
+  }
+});
+
 // src/memory-db.ts
 import Database from "better-sqlite3";
 import { dirname as dirname2, basename } from "path";
@@ -9335,8 +9347,8 @@ function relativeTo(projectRoot, absPath) {
   return basename2(absPath);
 }
 
-// src/detect/adapters/parse-guard.ts
-var MAX_AST_FILE_BYTES = 1 * 1024 * 1024;
+// src/detect/adapters/runner.ts
+init_parse_guard();
 
 // node_modules/web-tree-sitter/tree-sitter.js
 var __defProp2 = Object.defineProperty;
@@ -13284,6 +13296,18 @@ var Parser = class {
     return this.logCallback;
   }
 };
+
+// src/detect/adapters/python-fastapi.ts
+init_parse_guard();
+
+// src/detect/adapters/python-django.ts
+init_parse_guard();
+
+// src/detect/adapters/nextjs-trpc.ts
+init_parse_guard();
+
+// src/detect/adapters/swift-swiftui.ts
+init_parse_guard();
 
 // src/detect/codebase-introspector.ts
 function introspect(detection, projectRoot) {

@@ -152,20 +152,21 @@ export async function introspectAsync(
 ): Promise<DetectedConventions> {
   const out: DetectedConventions = introspect(detection, projectRoot);
 
-  // Build signals + run AST adapters
+  // Build signals + run AST adapters with the real file sampler (Plan
+  // 1.5.4 §3). Pre-1.5.4 this was a placeholder returning [], which kept
+  // every AST adapter at 'none' confidence in the init flow. The
+  // adapters themselves always worked (verified by adapter-grammar-
+  // strict.test.ts); the gap was purely the seam between detection +
+  // adapter execution. The sampler reuses EXTENSIONS / TEST_FILE_PATTERNS
+  // from source-dir-detector.ts so adding a new language doesn't require
+  // a parallel map (CR-46 self-attest #3).
   const signals = buildDetectionSignals(projectRoot);
+  const { sampleFilesForAdapter } = await import('./adapters/file-sampler.ts');
   let merged;
   try {
     merged = await runAdapters(FIRST_PARTY_ADAPTERS, projectRoot, signals, {
-      sampleFiles: async (_adapter, _root) => {
-        // Phase 1 placeholder: file sampling for adapters is wired in
-        // dedicated harnesses (per-adapter tests inject SourceFile[] directly).
-        // The introspector tier doesn't yet sample for AST adapters — that
-        // wiring lands together with Phase 4 LSP enrichment so the same path
-        // serves both. For now, returning [] keeps adapters at 'none' which
-        // means `out` is regex-only — consistent with the sync path and the
-        // pre-Phase-1 baseline test suite.
-        return [];
+      sampleFiles: async (adapter, root) => {
+        return sampleFilesForAdapter(adapter, root, detection);
       },
     });
   } catch {

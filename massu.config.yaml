@@ -16,6 +16,7 @@ framework:
     javascript:
       source_dirs:
         - website
+        - scripts
     typescript:
       test_framework: vitest
       source_dirs:
@@ -26,7 +27,10 @@ paths:
   source: website
   aliases:
     "@": src
+  monorepo_roots:
+    - packages
 toolPrefix: massu
+domains: []
 rules:
   - pattern: src/**/*.ts
     rules:
@@ -37,7 +41,18 @@ rules:
       - Hooks receive JSON on stdin, output JSON on stdout
       - Hooks must exit within 5 seconds
       - Never import heavy dependencies - hooks must be fast
-domains: []
+verification:
+  javascript:
+    test: cd website && npm test
+    build: cd website && npm run build
+    lint: cd website && npx eslint .
+  typescript:
+    test: cd website && npm test
+    type: cd website && npx tsc --noEmit
+    build: cd website && npm run build
+    lint: cd website && npx eslint .
+detection:
+  fingerprint: 5646fa23d7a3f2aeb4eb9cfc0dbd6e9f7f4f98787631d650625b31b4ad5f1c66
 analytics:
   quality:
     weights:
@@ -142,15 +157,3 @@ regression:
   health_thresholds:
     healthy: 80
     warning: 50
-verification:
-  javascript:
-    test: cd website && npm test
-    build: cd website && npm run build
-    lint: cd website && npx eslint .
-  typescript:
-    test: cd website && npm test
-    type: cd website && npx tsc --noEmit
-    build: cd website && npm run build
-    lint: cd website && npx eslint .
-detection:
-  fingerprint: e6efc2ff62e56a508b8bd9abb6c72b6fc781ce93b25e381b9f020952a3799424

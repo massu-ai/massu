@@ -15,6 +15,10 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
 var __commonJS = (cb, mod) => function __require2() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
+var __export = (target, all) => {
+  for (var name2 in all)
+    __defProp(target, name2, { get: all[name2], enumerable: true });
+};
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -7589,6 +7593,160 @@ function parse(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
   return res;
 }
 
+// src/detect/manifest-registry.ts
+var manifest_registry_exports = {};
+__export(manifest_registry_exports, {
+  getManifestPatterns: () => getManifestPatterns,
+  getManifestRegistry: () => getManifestRegistry,
+  matchManifestPattern: () => matchManifestPattern
+});
+function matchManifestPattern(name2, pattern) {
+  if (pattern.startsWith("*")) {
+    const suffix = pattern.slice(1);
+    if (suffix.includes("*")) {
+      throw new Error(
+        `[manifest-registry] pattern "${pattern}" has more than one wildcard. Only "*.<ext>" extension-globs are supported.`
+      );
+    }
+    return name2.endsWith(suffix);
+  }
+  return name2 === pattern;
+}
+var _registryCache = null;
+function getManifestRegistry() {
+  if (_registryCache !== null) return _registryCache;
+  _registryCache = [
+    {
+      pattern: "package.json",
+      manifestType: "package.json",
+      language: "typescript",
+      runtime: "node",
+      parse: parsePackageJson,
+      signalKey: "packageJson",
+      signalShape: "json"
+    },
+    {
+      pattern: "pyproject.toml",
+      manifestType: "pyproject.toml",
+      language: "python",
+      runtime: "python3",
+      parse: parsePyproject,
+      signalKey: "pyprojectToml",
+      signalShape: "toml"
+    },
+    {
+      pattern: "requirements.txt",
+      manifestType: "requirements.txt",
+      language: "python",
+      runtime: "python3",
+      parse: parseRequirementsTxt,
+      // Captured via pyprojectToml sibling already; no separate signal.
+      signalKey: null,
+      signalShape: "string"
+    },
+    {
+      pattern: "Pipfile",
+      manifestType: "Pipfile",
+      language: "python",
+      runtime: "python3",
+      parse: parsePipfile,
+      // Captured via pyprojectToml sibling already; no separate signal.
+      signalKey: null,
+      signalShape: "string"
+    },
+    {
+      pattern: "Cargo.toml",
+      manifestType: "Cargo.toml",
+      language: "rust",
+      runtime: "cargo",
+      parse: parseCargoToml,
+      signalKey: "cargoToml",
+      signalShape: "toml"
+    },
+    {
+      pattern: "Package.swift",
+      manifestType: "Package.swift",
+      language: "swift",
+      runtime: "xcode",
+      parse: parsePackageSwift,
+      // No AST adapter consumer yet (swift-swiftui doesn't need it).
+      signalKey: null,
+      signalShape: "string"
+    },
+    {
+      pattern: "go.mod",
+      manifestType: "go.mod",
+      language: "go",
+      runtime: "go",
+      parse: parseGoMod,
+      signalKey: "goMod",
+      signalShape: "string"
+    },
+    {
+      pattern: "pom.xml",
+      manifestType: "pom.xml",
+      language: "java",
+      runtime: "jvm",
+      parse: parsePomXml,
+      signalKey: "pomXml",
+      signalShape: "string"
+    },
+    {
+      pattern: "build.gradle",
+      manifestType: "build.gradle",
+      language: "java",
+      runtime: "jvm",
+      parse: parseBuildGradle,
+      signalKey: "gradleBuild",
+      signalShape: "string"
+    },
+    {
+      pattern: "build.gradle.kts",
+      manifestType: "build.gradle",
+      language: "java",
+      runtime: "jvm",
+      parse: parseBuildGradle,
+      signalKey: "gradleBuild",
+      signalShape: "string"
+    },
+    {
+      pattern: "Gemfile",
+      manifestType: "Gemfile",
+      language: "ruby",
+      runtime: "ruby",
+      parse: parseGemfile,
+      signalKey: "gemfile",
+      signalShape: "string"
+    },
+    // Plan 1.5.1 — closes CR-39 violation (1.5.0 init failed for Phoenix
+    // + ASP.NET fixtures). Both rely on AST adapters that already work
+    // in introspect; the gap was solely package-detector unaware of the
+    // manifest filenames.
+    {
+      pattern: "mix.exs",
+      manifestType: "mix.exs",
+      language: "elixir",
+      runtime: "beam",
+      parse: parseMixExs,
+      signalKey: "mixExs",
+      signalShape: "string"
+    },
+    {
+      pattern: "*.csproj",
+      manifestType: "*.csproj",
+      language: "csharp",
+      runtime: "dotnet",
+      parse: parseCsproj,
+      signalKey: "csproj",
+      signalShape: "string"
+    }
+  ];
+  return _registryCache;
+}
+function getManifestPatterns() {
+  return getManifestRegistry().map((e) => e.pattern);
+}
+
 // src/detect/package-detector.ts
 var WORKSPACE_DIRS = ["apps", "packages", "services", "libs", "modules"];
 var IGNORED_DIRS = /* @__PURE__ */ new Set([
@@ -7612,19 +7770,6 @@ var IGNORED_DIRS = /* @__PURE__ */ new Set([
   "DerivedData",
   "Pods"
 ]);
-var MANIFEST_FILES = [
-  "package.json",
-  "pyproject.toml",
-  "requirements.txt",
-  "Pipfile",
-  "Cargo.toml",
-  "Package.swift",
-  "go.mod",
-  "pom.xml",
-  "build.gradle",
-  "build.gradle.kts",
-  "Gemfile"
-];
 function safeRead(path) {
   try {
     if (!existsSync3(path)) return null;
@@ -8029,46 +8174,86 @@ function parseGemfile(path, directory, root, _warnings) {
     manifestType: "Gemfile"
   };
 }
+function parseMixExs(path, directory, root, _warnings) {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  const deps = [];
+  const depPattern = /\{\s*:([a-z][a-z0-9_]*)\s*,/g;
+  let m;
+  while ((m = depPattern.exec(raw)) !== null) {
+    if (!deps.includes(m[1])) deps.push(m[1]);
+  }
+  const appMatch = /\bapp\s*:\s*:([a-z][a-z0-9_]*)/.exec(raw);
+  const name2 = appMatch ? appMatch[1] : null;
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: "elixir",
+    runtime: "beam",
+    name: name2,
+    version: null,
+    dependencies: deps,
+    devDependencies: [],
+    scripts: [],
+    manifestType: "mix.exs"
+  };
+}
+function parseCsproj(path, directory, root, _warnings) {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  const deps = [];
+  const pkgRefPattern = /<PackageReference\s+[^>]*Include\s*=\s*"([^"]+)"/gi;
+  let m;
+  while ((m = pkgRefPattern.exec(raw)) !== null) {
+    if (!deps.includes(m[1])) deps.push(m[1]);
+  }
+  const sdkMatch = /<Project\s+[^>]*Sdk\s*=\s*"([^"]+)"/i.exec(raw);
+  if (sdkMatch && !deps.includes(sdkMatch[1])) {
+    deps.push(sdkMatch[1]);
+  }
+  const fname = path.split(/[/\\]/).pop() ?? "";
+  const name2 = fname.endsWith(".csproj") ? fname.slice(0, -".csproj".length) : null;
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: "csharp",
+    runtime: "dotnet",
+    name: name2,
+    version: null,
+    dependencies: deps,
+    devDependencies: [],
+    scripts: [],
+    manifestType: "*.csproj"
+  };
+}
 function detectManifestsInDir(dir, root, warnings) {
+  const { getManifestRegistry: getManifestRegistry2, matchManifestPattern: matchManifestPattern2 } = manifest_registry_exports;
   const out2 = [];
-  for (const fname of MANIFEST_FILES) {
-    const path = join(dir, fname);
-    if (!existsSync3(path)) continue;
-    let m = null;
-    switch (fname) {
-      case "package.json":
-        m = parsePackageJson(path, dir, root, warnings);
-        break;
-      case "pyproject.toml":
-        m = parsePyproject(path, dir, root, warnings);
-        break;
-      case "requirements.txt":
-        m = parseRequirementsTxt(path, dir, root, warnings);
-        break;
-      case "Pipfile":
-        m = parsePipfile(path, dir, root, warnings);
-        break;
-      case "Cargo.toml":
-        m = parseCargoToml(path, dir, root, warnings);
-        break;
-      case "Package.swift":
-        m = parsePackageSwift(path, dir, root, warnings);
-        break;
-      case "go.mod":
-        m = parseGoMod(path, dir, root, warnings);
-        break;
-      case "pom.xml":
-        m = parsePomXml(path, dir, root, warnings);
-        break;
-      case "build.gradle":
-      case "build.gradle.kts":
-        m = parseBuildGradle(path, dir, root, warnings);
-        break;
-      case "Gemfile":
-        m = parseGemfile(path, dir, root, warnings);
-        break;
+  let dirEntries = null;
+  for (const entry of getManifestRegistry2()) {
+    if (!entry.pattern.startsWith("*")) {
+      const path = join(dir, entry.pattern);
+      if (!existsSync3(path)) continue;
+      const m = entry.parse(path, dir, root, warnings);
+      if (m !== null) out2.push(m);
+    } else {
+      if (dirEntries === null) {
+        try {
+          dirEntries = readdirSync(dir);
+        } catch {
+          dirEntries = [];
+        }
+      }
+      for (const fname of dirEntries) {
+        if (!matchManifestPattern2(fname, entry.pattern)) continue;
+        const path = join(dir, fname);
+        if (!existsSync3(path)) continue;
+        const m = entry.parse(path, dir, root, warnings);
+        if (m !== null) out2.push(m);
+      }
     }
-    if (m !== null) out2.push(m);
   }
   return out2;
 }
@@ -8181,6 +8366,13 @@ var DETECTION_RULES = [
   { language: "go", kind: "framework", keyword: "github.com/labstack/echo", value: "echo", priority: 10 },
   { language: "go", kind: "framework", keyword: "github.com/gofiber/fiber", value: "fiber", priority: 10 },
   { language: "go", kind: "framework", keyword: "github.com/go-chi/chi", value: "chi", priority: 9 },
+  // chi versioned import paths (Go convention: github.com/<org>/<name>/v<N>).
+  // matchRule does exact case-insensitive set lookup, so the unversioned and
+  // each major-version path each need their own rule.
+  { language: "go", kind: "framework", keyword: "github.com/go-chi/chi/v2", value: "chi", priority: 9 },
+  { language: "go", kind: "framework", keyword: "github.com/go-chi/chi/v3", value: "chi", priority: 9 },
+  { language: "go", kind: "framework", keyword: "github.com/go-chi/chi/v4", value: "chi", priority: 9 },
+  { language: "go", kind: "framework", keyword: "github.com/go-chi/chi/v5", value: "chi", priority: 9 },
   { language: "go", kind: "test_framework", keyword: "github.com/stretchr/testify", value: "testify", priority: 8 },
   { language: "go", kind: "orm", keyword: "gorm.io/gorm", value: "gorm", priority: 10 },
   // Swift (SPM dependency names, best-effort)
@@ -8196,7 +8388,26 @@ var DETECTION_RULES = [
   { language: "ruby", kind: "framework", keyword: "rails", value: "rails", priority: 10 },
   { language: "ruby", kind: "framework", keyword: "sinatra", value: "sinatra", priority: 9 },
   { language: "ruby", kind: "test_framework", keyword: "rspec", value: "rspec", priority: 10 },
-  { language: "ruby", kind: "orm", keyword: "activerecord", value: "activerecord", priority: 10 }
+  { language: "ruby", kind: "orm", keyword: "activerecord", value: "activerecord", priority: 10 },
+  // Plan 1.5.1: elixir + csharp framework rules. Closes the CR-39 gap
+  // where Phoenix + ASP.NET projects produced `framework.languages.<lang>`
+  // entries WITHOUT a `framework:` value, which prevented variant
+  // templates from being looked up.
+  { language: "elixir", kind: "framework", keyword: "phoenix", value: "phoenix", priority: 10 },
+  { language: "elixir", kind: "test_framework", keyword: "ex_unit", value: "ex-unit", priority: 10 },
+  { language: "elixir", kind: "orm", keyword: "ecto", value: "ecto", priority: 10 },
+  // ASP.NET Core surfaces via several PackageReference names; the canonical
+  // ones in modern .NET projects are .App and .Mvc. matchRule does exact
+  // (case-insensitive) lookup against the deps set parseCsproj extracts.
+  { language: "csharp", kind: "framework", keyword: "Microsoft.AspNetCore.App", value: "aspnet-core", priority: 10 },
+  { language: "csharp", kind: "framework", keyword: "Microsoft.AspNetCore.Mvc", value: "aspnet-core", priority: 10 },
+  { language: "csharp", kind: "framework", keyword: "Microsoft.AspNetCore", value: "aspnet-core", priority: 9 },
+  // SDK-style projects: `<Project Sdk="Microsoft.NET.Sdk.Web">` is the
+  // canonical ASP.NET Core declaration in modern .NET. parseCsproj
+  // surfaces the Sdk attribute as a dep so this rule can match.
+  { language: "csharp", kind: "framework", keyword: "Microsoft.NET.Sdk.Web", value: "aspnet-core", priority: 10 },
+  { language: "csharp", kind: "test_framework", keyword: "xunit", value: "xunit", priority: 10 },
+  { language: "csharp", kind: "orm", keyword: "EntityFrameworkCore", value: "ef-core", priority: 10 }
 ];
 function matchRule(rules, language, kind, deps) {
   let best = null;
@@ -8312,7 +8523,10 @@ var EXTENSIONS = {
   swift: ["swift"],
   go: ["go"],
   java: ["java", "kt"],
-  ruby: ["rb"]
+  ruby: ["rb"],
+  // Plan 1.5.1 — closing CR-39 init gap for Phoenix + ASP.NET projects.
+  elixir: ["ex", "exs"],
+  csharp: ["cs"]
 };
 var TEST_FILE_PATTERNS = {
   python: [/_test\.py$/, /test_[^/]*\.py$/],
@@ -8322,7 +8536,11 @@ var TEST_FILE_PATTERNS = {
   swift: [/Tests\//],
   go: [/_test\.go$/],
   java: [/Test[^/]*\.(java|kt)$/, /[^/]*Test\.(java|kt)$/],
-  ruby: [/_spec\.rb$/, /_test\.rb$/]
+  ruby: [/_spec\.rb$/, /_test\.rb$/],
+  // Phoenix/ExUnit canonical: `test/**_test.exs`. ASP.NET / xUnit
+  // canonical: `*Tests.cs` or `*.Tests/...`.
+  elixir: [/_test\.exs$/, /\/test\//],
+  csharp: [/Tests?\.cs$/, /\.Tests?\//]
 };
 var TEST_DIR_KEYWORDS = ["tests", "test", "__tests__", "spec", "specs"];
 function extsFor(language) {

@@ -544,6 +544,145 @@ export function buildConfigFromDetection(
 }
 
 /**
+ * Plan 1.5.1 §3 — variant template merge.
+ *
+ * Map from detected `framework.languages.<lang>.framework` value → variant
+ * template directory under `packages/core/templates/`. Most detected
+ * frameworks map 1:1 to a template dir of the same name, but a few have
+ * naming divergence (e.g., detection emits `spring-boot` but the template
+ * dir is `spring`; detection emits `chi` but the template dir is `go-chi`).
+ *
+ * The mapping is intentionally tight — only frameworks with an actual
+ * variant template under `templates/` are listed. Adding a new framework
+ * = one entry here + one templates/<id>/massu.config.yaml file. The
+ * `manifest-registry-drift.test.ts` already gates the manifest side; the
+ * `init-end-to-end.test.ts` gates this map.
+ */
+const FRAMEWORK_TO_TEMPLATE_ID: Record<string, string> = {
+  rails: 'rails',
+  phoenix: 'phoenix',
+  'aspnet-core': 'aspnet',
+  'spring-boot': 'spring',
+  chi: 'go-chi',
+  flask: 'python-flask',
+};
+
+/**
+ * After `buildConfigFromDetection` produces a baseline config, look up the
+ * variant template for the detected framework (if any) and selectively
+ * merge fields. The variant wins on a small allowlist:
+ *   - `framework.router`
+ *   - `framework.orm`
+ *   - `framework.ui`
+ *   - `paths.source`
+ *   - `verification.<lang>.{lint,syntax,test,type,build}` — variant lint
+ *     is the canonical project-style command (rubocop, credo, etc.) and
+ *     should not be overridden by the generic detection default.
+ *
+ * The variant template's `framework.type`, `framework.languages`,
+ * `project.name`, `domains`, and `rules` are NOT merged — those come from
+ * detection and reflect the actual repo state. Allowlist keeps the merge
+ * precise; future fields require an explicit decision.
+ */
+export function applyVariantTemplate(
+  config: Record<string, unknown>,
+  templatesDir: string | null,
+): Record<string, unknown> {
+  if (!templatesDir) return config;
+  const fw = config.framework as Record<string, unknown> | undefined;
+  if (!fw) return config;
+  const langs = fw.languages as Record<string, unknown> | undefined;
+  if (!langs || typeof langs !== 'object') return config;
+
+  // Find the first language that has a `framework` value with a known
+  // variant template. Most projects have ONE primary language; in
+  // monorepos the detection-driven primary is what we honor.
+  let templateId: string | null = null;
+  for (const langEntry of Object.values(langs)) {
+    if (langEntry && typeof langEntry === 'object') {
+      const fwName = (langEntry as Record<string, unknown>).framework;
+      if (typeof fwName === 'string' && FRAMEWORK_TO_TEMPLATE_ID[fwName]) {
+        templateId = FRAMEWORK_TO_TEMPLATE_ID[fwName];
+        break;
+      }
+    }
+  }
+  if (templateId === null) return config;
+
+  const templatePath = resolve(templatesDir, templateId, 'massu.config.yaml');
+  if (!existsSync(templatePath)) return config;
+
+  let template: Record<string, unknown>;
+  try {
+    // pattern-scanner-allow: yaml-parse — reason: this loads a per-framework
+    // variant config-template shipped inside @massu/core. getConfig() reads
+    // the project's massu.config.yaml from cwd; this is a SEPARATE file
+    // (the template) that doesn't pass through that cache and isn't a Zod-
+    // validated config — it's a partial override map.
+    template = yamlParse(readFileSync(templatePath, 'utf-8')) as Record<string, unknown>;
+  } catch {
+    return config;
+  }
+
+  const out = { ...config };
+  const tplFw = template.framework as Record<string, unknown> | undefined;
+  const outFw = (out.framework as Record<string, unknown>) ?? {};
+  if (tplFw) {
+    if (typeof tplFw.router === 'string' && (!outFw.router || outFw.router === 'none')) {
+      outFw.router = tplFw.router;
+    }
+    if (typeof tplFw.orm === 'string' && (!outFw.orm || outFw.orm === 'none')) {
+      outFw.orm = tplFw.orm;
+    }
+    if (typeof tplFw.ui === 'string' && (!outFw.ui || outFw.ui === 'none')) {
+      outFw.ui = tplFw.ui;
+    }
+  }
+  out.framework = outFw;
+
+  const tplPaths = template.paths as Record<string, unknown> | undefined;
+  const outPaths = (out.paths as Record<string, unknown>) ?? {};
+  if (tplPaths && typeof tplPaths.source === 'string' && tplPaths.source) {
+    outPaths.source = tplPaths.source;
+  }
+  out.paths = outPaths;
+
+  const tplVerify = template.verification as Record<string, Record<string, unknown>> | undefined;
+  const outVerify = (out.verification as Record<string, Record<string, unknown>>) ?? {};
+  if (tplVerify) {
+    for (const [lang, tplLangVerify] of Object.entries(tplVerify)) {
+      if (!tplLangVerify || typeof tplLangVerify !== 'object') continue;
+      const outLangVerify = outVerify[lang] ?? {};
+      // Variant wins on lint + syntax (canonical project commands like
+      // rubocop, credo, golangci-lint that the generic detection layer
+      // doesn't know to suggest). For test/type/build, prefer detection-
+      // derived values when present (e.g., monorepo `cd packages/foo`
+      // prefixing) and fall back to variant template otherwise.
+      for (const key of ['lint', 'syntax']) {
+        if (typeof tplLangVerify[key] === 'string' && tplLangVerify[key]) {
+          outLangVerify[key] = tplLangVerify[key];
+        }
+      }
+      for (const key of ['test', 'type', 'build']) {
+        if (
+          typeof tplLangVerify[key] === 'string' &&
+          tplLangVerify[key] &&
+          !outLangVerify[key]
+        ) {
+          outLangVerify[key] = tplLangVerify[key];
+        }
+      }
+      outVerify[lang] = outLangVerify;
+    }
+  }
+  if (Object.keys(outVerify).length > 0) {
+    out.verification = outVerify;
+  }
+
+  return out;
+}
+
+/**
  * Serialize a built config object into YAML with a header comment.
  * Safe for `writeConfigAtomic` and for `fs.writeFileSync` directly.
  */
@@ -1228,8 +1367,16 @@ export async function runInit(argv?: string[], overrides?: InitOptions): Promise
     }
   }
 
-  // Build config + write atomically.
-  const config = buildConfigFromDetection({ projectRoot, detection });
+  // Build config + apply variant template + write atomically. Plan 1.5.1
+  // §3: the framework-specific variant template under
+  // packages/core/templates/<id>/massu.config.yaml supplies router,
+  // paths.source, and verification.<lang>.lint that the generic
+  // detection-derived baseline doesn't know to set. Pre-1.5.1 init
+  // emitted configs with `router: none` even for clear-Rails / clear-
+  // Phoenix / clear-Spring projects (CR-39 violation per the Plan 1.5.1
+  // 5-fixture verification).
+  const baseConfig = buildConfigFromDetection({ projectRoot, detection });
+  const config = applyVariantTemplate(baseConfig, resolveTemplatesDir());
   const content = renderConfigYaml(config);
   const writeRes = writeConfigAtomic(configPath, content);
   if (!writeRes.validated) {

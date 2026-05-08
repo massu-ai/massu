@@ -20,6 +20,7 @@
  */
 
 export const CORE_BUNDLED_IDS: ReadonlySet<string> = new Set([
+  'go-chi',
   'nextjs-trpc',
   'python-django',
   'python-fastapi',

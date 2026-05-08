@@ -61,7 +61,35 @@ export const INSTALLED_MANIFEST_PATH = resolve(homedir(), '.massu', 'adapter-man
  *   - any path containing /.cache/ or /.tmp/
  */
 const DEFAULT_MAX_FILE_BYTES = 64 * 1024 * 1024;
-const EXCLUDED_DIR_NAMES = new Set(['.git', 'node_modules', '.cache', '.tmp']);
+/**
+ * Directory names that sha256OfDir EXCLUDES from hashing — these are
+ * install-time artifacts that vary across machines (.git history,
+ * transitive deps, build caches, scratch dirs). Their CONTENT is not
+ * part of the adapter package's content-addressable hash.
+ *
+ * CR-9 audit M5 + iter-2 audit MED-NEW-1/-2 enforcement: a published
+ * npm tarball MUST NOT ship these directories. Any package that does
+ * is refused at install + resign + load-time discovery via
+ * `containsHiddenDirs()` below. Without these refusals, a malicious
+ * tarball could smuggle payload files under `.git/payload.js` (excluded
+ * from the hash) and have them require()'d by the legitimate adapter
+ * at runtime — hash matches, payload runs.
+ */
+export const EXCLUDED_DIR_NAMES: ReadonlySet<string> = new Set(['.git', 'node_modules', '.cache', '.tmp']);
+
+/**
+ * Returns the first hidden-dir name found in `packageDir`, or null if
+ * none are present. Caller (install / resign / discovery) refuses the
+ * package on non-null return.
+ */
+export function containsHiddenDirs(packageDir: string): string | null {
+  for (const hidden of EXCLUDED_DIR_NAMES) {
+    if (existsSync(`${packageDir}/${hidden}`)) {
+      return hidden;
+    }
+  }
+  return null;
+}
 
 export interface Sha256OfDirOpts {
   /** Override the file-size cap (test-only). */

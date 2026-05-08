@@ -46,7 +46,7 @@
  * detect/extract) is the loader's job (Plan 3b runner.ts). Discovery
  * just enumerates + classifies.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, lstatSync } from 'node:fs';
 import { resolve, isAbsolute } from 'node:path';
 import { z } from 'zod';
 import {
@@ -56,7 +56,11 @@ import {
 } from '../../security/adapter-origin.js';
 import type { Envelope, AdapterEntry } from '../../security/manifest-schema.js';
 import { checkFingerprintDrift, FINGERPRINT_PATH } from '../../security/local-fingerprint.js';
-import { verifyInstalledIntegrity, INSTALLED_MANIFEST_PATH } from '../../security/install-tracking.js';
+import {
+  verifyInstalledIntegrity,
+  containsHiddenDirs,
+  INSTALLED_MANIFEST_PATH,
+} from '../../security/install-tracking.js';
 
 /**
  * Minimal shape of a node_modules package.json that we care about for
@@ -168,8 +172,21 @@ function walkNodeModules(projectRoot: string, warnings: string[]): Array<{
     const entryPath = resolve(nodeModulesDir, entry);
     let entryStat;
     try {
-      entryStat = statSync(entryPath);
+      // CR-9 audit HIGH-NEW-1 fix: lstatSync (not statSync). statSync
+      // followed symlinks, so a malicious package shipping
+      // `node_modules/evil-link -> /elsewhere` would walk into /elsewhere.
+      // The same fix was applied in install-tracking.ts (audit H1) but
+      // discover's node_modules walk was missed at the time.
+      entryStat = lstatSync(entryPath);
     } catch {
+      continue;
+    }
+    if (entryStat.isSymbolicLink()) {
+      warnings.push(
+        `skipping ${entryPath}: top-level node_modules entry is a symlink. ` +
+        `Adapter packages must be real directories (npm-installed); refusing to walk symlinks ` +
+        `as a defense against postinstall scripts that link to attacker-controlled paths.`,
+      );
       continue;
     }
     if (!entryStat.isDirectory()) continue;
@@ -184,6 +201,15 @@ function walkNodeModules(projectRoot: string, warnings: string[]): Array<{
       }
       for (const sub of scopedEntries) {
         const subPath = resolve(entryPath, sub);
+        // Same lstatSync discipline at the inner level — a malicious
+        // postinstall could plant `node_modules/@massu/evil-link -> ...`.
+        let subStat;
+        try {
+          subStat = lstatSync(subPath);
+        } catch {
+          continue;
+        }
+        if (subStat.isSymbolicLink() || !subStat.isDirectory()) continue;
         const result = tryReadAdapterPackage(subPath, warnings);
         if (result) candidates.push(result);
       }
@@ -318,7 +344,23 @@ export function discoverAdapters(opts: DiscoverOptions): DiscoveryResult {
     // refuse (operator must run `massu adapters install <pkg>`); drift →
     // refuse (post-install tampering). Caller can suppress for tests via
     // skipInstalledIntegrityCheck=true.
+    // iter-2 MED-NEW-2 fix: load-time hidden-dir refusal. A postinstall
+    // script that adds `.git/payload.js` to a registered package does NOT
+    // change the load-time hash (sha256OfDir excludes hidden dirs), so
+    // the integrity check passes — but the legitimate adapter could
+    // require() the smuggled payload at runtime. Refusing at load time
+    // closes the gap.
     if (!opts.skipInstalledIntegrityCheck) {
+      const hiddenDir = containsHiddenDirs(packageDir);
+      if (hiddenDir !== null) {
+        warnings.push(
+          `refusing ${pkg.name}@${pkg.version}: contains '${hiddenDir}' subdirectory. ` +
+          `Published adapter packages must not ship hidden directories. ` +
+          `Recover via \`npm uninstall ${pkg.name} && npm install ${pkg.name} && ` +
+          `massu adapters install ${pkg.name}\`.`,
+        );
+        continue;
+      }
       const integrity = verifyInstalledIntegrity(
         pkg.name,
         packageDir,

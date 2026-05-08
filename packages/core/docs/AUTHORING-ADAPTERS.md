@@ -138,10 +138,14 @@ maintainer (`ethankowen-73`) via PR review. The flow:
    Ed25519 key, and deploys to `https://registry.massu.ai`.
 
 Until the manifest is updated + redeployed, the loader will refuse your
-adapter with a "not in the signed registry manifest" error. Operators
-can opt-in to unsigned loading via `massu.config.yaml > adapters.allow_unsigned: true`,
-but that's an explicit operator decision (with a per-startup stderr warning),
-not the default ship path.
+adapter with a "not in the signed registry manifest" error. There is no
+unsigned-loading bypass — the prior `allow_unsigned` config flag was
+removed in CR-9 audit C2 because it was a tripwire: parsed but never
+consulted by any callsite, creating a footgun for future contributors
+who might wire it incorrectly. Authors who want to test their adapter
+locally before the manifest is updated should use the LOCAL-EXPLICIT
+class instead (path entry in `adapters.local`), which is the supported
+operator-acknowledged loading path for in-development adapters.
 
 ## LOCAL-EXPLICIT adapter authoring
 

@@ -33,11 +33,13 @@ import { discoverAdapters } from '../detect/adapters/discover.js';
 import { CORE_BUNDLED_IDS } from '../detect/adapters/index.js';
 import { writeFingerprintSentinel } from '../security/local-fingerprint.js';
 import { atomicWrite } from '../security/atomic-write.js';
+import { withFileLockSync } from '../lib/fileLock.js';
 import {
   sha256OfDir,
   readInstalledManifest,
   writeInstalledManifestEntry,
   removeInstalledManifestEntry,
+  containsHiddenDirs,
   type InstallEntry,
 } from '../security/install-tracking.js';
 import type { AdapterDescriptor } from '../security/adapter-origin.js';
@@ -432,39 +434,53 @@ function mutateLocalArray(
     return { exitCode: 0 };
   }
 
-  // Write back the mutated array. doc.setIn auto-creates intermediate nodes
-  // (adapters: {} → adapters: { local: [...] }) when they don't exist.
-  doc.setIn(['adapters', 'local'], next);
-  const newYaml = doc.toString();
-  const writeResult = atomicWrite(yamlPath, newYaml);
-  if (!writeResult.written) {
-    process.stderr.write(`${command}: yaml write failed: ${writeResult.error}\n`);
-    return { exitCode: 2 };
-  }
+  // iter-2 MED-NEW-3 fix: wrap the yaml-write + getConfig-revalidate +
+  // fingerprint-sentinel-write in a single file lock. Without it, a
+  // concurrent same-user process could swap a local adapter file
+  // between `doc.setIn` (yaml mutation) and `writeFingerprintSentinel`
+  // (which reads the file content for hashing) — locking in attacker-
+  // controlled content as the operator-acked baseline. The lock is on
+  // the project's `.massu/adapters-local-mutate.lock` which is per-
+  // project, NOT per-user, so multiple operator-launched massu CLI
+  // processes against the same project serialize on this lock.
+  const lockPath = resolve(projectRoot, '.massu', 'adapters-local-mutate.lock');
+  return withFileLockSync(lockPath, () => {
+    // Write back the mutated array. doc.setIn auto-creates intermediate
+    // nodes (adapters: {} → adapters: { local: [...] }) when they don't exist.
+    doc.setIn(['adapters', 'local'], next);
+    const newYaml = doc.toString();
+    const writeResult = atomicWrite(yamlPath, newYaml);
+    if (!writeResult.written) {
+      process.stderr.write(`${command}: yaml write failed: ${writeResult.error}\n`);
+      return { exitCode: 2 };
+    }
 
-  // Re-parse via getConfig() to validate the mutated yaml against the full
-  // schema (catches malformations the partial parsing might have missed).
-  resetConfig();
-  try {
-    getConfig();
-  } catch (err) {
-    process.stderr.write(`${command}: yaml mutation produced invalid config: ${err instanceof Error ? err.message : String(err)}\n`);
-    return { exitCode: 2 };
-  }
+    // Re-parse via getConfig() to validate the mutated yaml against the
+    // full schema (catches malformations the partial parsing might have missed).
+    resetConfig();
+    try {
+      getConfig();
+    } catch (err) {
+      process.stderr.write(
+        `${command}: yaml mutation produced invalid config: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      return { exitCode: 2 };
+    }
 
-  // Update fingerprint sentinel — source='cli' marks this as an
-  // operator-acknowledged change so the loader's gap-32 check passes.
-  const fpResult = writeFingerprintSentinel(next, 'cli', projectRoot);
-  if (!fpResult.written) {
-    process.stderr.write(
-      `${command}: yaml updated but sentinel write failed: ${fpResult.error}. ` +
-      `Run \`massu adapters resync-local-fingerprint\` to retry.\n`,
-    );
-    return { exitCode: 2 };
-  }
+    // Update fingerprint sentinel — source='cli' marks this as an
+    // operator-acknowledged change so the loader's gap-32 check passes.
+    const fpResult = writeFingerprintSentinel(next, 'cli', projectRoot);
+    if (!fpResult.written) {
+      process.stderr.write(
+        `${command}: yaml updated but sentinel write failed: ${fpResult.error}. ` +
+        `Run \`massu adapters resync-local-fingerprint\` to retry.\n`,
+      );
+      return { exitCode: 2 };
+    }
 
-  process.stderr.write(`${command}: success — adapters.local now has ${next.length} entry(ies).\n`);
-  return { exitCode: 0 };
+    process.stderr.write(`${command}: success — adapters.local now has ${next.length} entry(ies).\n`);
+    return { exitCode: 0 };
+  });
 }
 
 /**
@@ -604,24 +620,20 @@ export async function runAdaptersInstall(args: string[]): Promise<AdaptersResult
     );
   }
 
-  // CR-9 audit M5 fix: refuse to install any package whose tree contains
-  // hidden directories (.git, node_modules, .cache, .tmp). These are
-  // npm-strip targets at publish time but a malicious tarball can include
-  // them; sha256OfDir EXCLUDES them from hashing, so a payload smuggled
-  // into one of these dirs would never be hashed (install passes) and
-  // never be load-time-checked (load passes), then could be require()'d
-  // by the legitimate adapter at runtime. Refusing at install time is
-  // the structural fix.
-  const HIDDEN_DIRS_TO_REFUSE = ['.git', 'node_modules', '.cache', '.tmp'] as const;
-  for (const hidden of HIDDEN_DIRS_TO_REFUSE) {
-    if (existsSync(resolve(packageDir, hidden))) {
-      process.stderr.write(
-        `install refused: ${packageName} contains a '${hidden}' subdirectory. ` +
-        `Published npm tarballs should not ship these directories — refusing as a ` +
-        `precaution against payload smuggling.\n`,
-      );
-      return { exitCode: 1 };
-    }
+  // CR-9 audit M5 fix (+ iter-2 MED-NEW-1/-2: shared helper used at install,
+  // resign, and discovery load-time). Refuse any package whose tree
+  // contains hidden directories. Published npm tarballs should not ship
+  // these; sha256OfDir excludes them from hashing, so a payload there
+  // would be invisible to install + load checks. Single source of truth:
+  // containsHiddenDirs in security/install-tracking.ts.
+  const hiddenDir = containsHiddenDirs(packageDir);
+  if (hiddenDir !== null) {
+    process.stderr.write(
+      `install refused: ${packageName} contains a '${hiddenDir}' subdirectory. ` +
+      `Published npm tarballs should not ship these directories — refusing as a ` +
+      `precaution against payload smuggling.\n`,
+    );
+    return { exitCode: 1 };
   }
 
   // Compute sha256OfDir + compare.
@@ -705,6 +717,24 @@ export async function runAdaptersResign(_args: string[]): Promise<AdaptersResult
   }
 
   for (const [name, entry] of Object.entries(installed)) {
+    // iter-2 audit LOW-NEW-1 fix: re-validate sidecar keys via the same
+    // npm-name regex used at install. A same-user filesystem write to
+    // ~/.massu/adapter-manifest-installed.json could embed control chars
+    // in a key, which would log-inject when echoed to stderr below.
+    // Refusing to process malformed keys catches this BEFORE any
+    // process.stderr.write that includes `name`.
+    const nameValidation = validatePackageName(name);
+    if (!nameValidation.ok) {
+      removed++;
+      // Render the sidecar key in JSON.stringify form so any control
+      // characters are escaped — the warning is operator-readable + safe
+      // to put in CI logs.
+      warnings.push(
+        `sidecar key ${JSON.stringify(name)} (rendered safely) is malformed: ${nameValidation.reason} — REMOVED from sidecar`,
+      );
+      removeInstalledManifestEntry(name);
+      continue;
+    }
     const newEntry = manifestByName.get(name);
     if (!newEntry) {
       removed++;
@@ -716,6 +746,21 @@ export async function runAdaptersResign(_args: string[]): Promise<AdaptersResult
     if (!existsSync(packageDir)) {
       removed++;
       warnings.push(`${name}@${entry.version}: not present in node_modules — REMOVED from sidecar`);
+      removeInstalledManifestEntry(name);
+      continue;
+    }
+    // iter-2 MED-NEW-1 fix: same hidden-dir refusal that runAdaptersInstall
+    // applies — without this, an attacker could install a clean package,
+    // get registered, swap in a malicious version with `.git/payload.js`,
+    // then have resign re-record it.
+    const hiddenDirAtResign = containsHiddenDirs(packageDir);
+    if (hiddenDirAtResign !== null) {
+      removed++;
+      warnings.push(
+        `${name}@${entry.version}: contains '${hiddenDirAtResign}' subdirectory ` +
+        `— REMOVED from sidecar. Recover via \`npm uninstall ${name} && ` +
+        `npm install ${name} && massu adapters install ${name}\``,
+      );
       removeInstalledManifestEntry(name);
       continue;
     }

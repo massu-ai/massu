@@ -54,7 +54,7 @@ import {
   type AdapterDescriptor,
   type AdapterOriginInput,
 } from '../../security/adapter-origin.js';
-import type { Envelope, AdapterEntry } from '../../security/manifest-schema.js';
+import { PrintableAsciiStringSchema, type Envelope, type AdapterEntry } from '../../security/manifest-schema.js';
 import { checkFingerprintDrift, FINGERPRINT_PATH } from '../../security/local-fingerprint.js';
 import {
   verifyInstalledIntegrity,
@@ -68,8 +68,13 @@ import {
  * time, loose enough (passthrough) to ignore unrelated keys.
  */
 const AdapterPackageJsonSchema = z.object({
-  name: z.string().min(1),
-  version: z.string().min(1),
+  // CR-9 iter-4 audit LOW-NEW4-2 fix: name/version are rendered in stderr
+  // warnings via `${pkg.name}@${pkg.version}` strings; without the
+  // printable-ASCII regex, a malicious local node_modules/<pkg>/package.json
+  // could embed ANSI escapes to log-inject. Postinstall scripts have the
+  // write access needed to mount this attack.
+  name: PrintableAsciiStringSchema,
+  version: PrintableAsciiStringSchema,
   // Plan 3c gap-31 + gap-50: `"massu-adapter": true` is the explicit opt-in
   // marker. @massu/adapter-* packages also declare this.
   'massu-adapter': z.union([z.boolean(), z.literal(undefined)]).optional(),

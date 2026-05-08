@@ -219,8 +219,22 @@ export function writeInstalledManifestEntry(
   entry: InstallEntry,
   path: string = INSTALLED_MANIFEST_PATH,
 ): InstallTrackingWriteResult {
+  // CR-9 iter-4 audit LOW-NEW4-1 fix: validate entry against the schema
+  // BEFORE writing. TypeScript types do NOT enforce Zod regex constraints
+  // at runtime; without this .parse(), a caller passing a control-char-
+  // contaminated entry (e.g. version from an attacker-controlled
+  // node_modules package.json) would write the malformed entry to disk,
+  // and the corresponding stderr emit at the install/resign callsite
+  // would log-inject before the next read-time validation could catch it.
+  const validated = InstallEntrySchema.safeParse(entry);
+  if (!validated.success) {
+    const issues = validated.error.issues
+      .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+      .join('; ');
+    return { written: false, error: `install-tracking entry shape invalid: ${issues}` };
+  }
   const current = readInstalledManifest(path);
-  current[packageName] = entry;
+  current[packageName] = validated.data;
   const result = atomicWrite(path, JSON.stringify(current, null, 2), {
     mode: 0o600,
     ensureParentDirMode: 0o700,

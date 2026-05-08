@@ -161,6 +161,56 @@ export const GRAMMAR_MANIFEST: Partial<Record<TreeSitterLanguage, ManifestEntry>
     sha256: '41c4fdb2249a3aa6d87eed0d383081ff09725c2248b4977043a43825980ffcc7',
     version: '0.1.13',
   },
+  // ----------------------------------------------------------------
+  // Plan 3c Phase 7 expansion (2026-05-07):
+  //
+  // Six additional grammars to support the registry-verified framework
+  // adapters (go-chi, rails, aspnet, spring, ktor, phoenix) plus the
+  // bundled adapters in the same language families (gin/echo/fiber,
+  // sinatra, etc.). All entries use the SAME pinned tree-sitter-wasms
+  // version (0.1.13) as the v1 four to keep the dependency surface
+  // single-source.
+  //
+  // SHA-256s computed 2026-05-07 via:
+  //   curl -fsSL <url> | shasum -a 256
+  //
+  // The unpkg filename for C# uses an underscore (`c_sharp`) while the
+  // TreeSitterLanguage identifier uses no separator (`csharp`); the map
+  // key is the type identifier, the URL is the storage path — they do
+  // NOT need to match, the same as how `python` maps to `tree-sitter-
+  // python.wasm`. This is intentional and validated by the manifest
+  // shape test in tree-sitter-loader-manifest.test.ts.
+  // ----------------------------------------------------------------
+  go: {
+    url: 'https://unpkg.com/tree-sitter-wasms@0.1.13/out/tree-sitter-go.wasm',
+    sha256: '9963ca89b616eaf04b08a43bc1fb0f07b85395bec313330851f1f1ead2f755b6',
+    version: '0.1.13',
+  },
+  ruby: {
+    url: 'https://unpkg.com/tree-sitter-wasms@0.1.13/out/tree-sitter-ruby.wasm',
+    sha256: '93a5022855314cdb45458c7bb026a24a0ebc3a5ff6439e542e881f14dfa13a39',
+    version: '0.1.13',
+  },
+  csharp: {
+    url: 'https://unpkg.com/tree-sitter-wasms@0.1.13/out/tree-sitter-c_sharp.wasm',
+    sha256: '6266a7e32d68a3459104d994dc848df15d5672b0ea8e86d327274b694f8e6991',
+    version: '0.1.13',
+  },
+  java: {
+    url: 'https://unpkg.com/tree-sitter-wasms@0.1.13/out/tree-sitter-java.wasm',
+    sha256: '637aac4415fb39a211a4f4292d63c66b5ce9c32fa2cd35464af4f681d91b9a1f',
+    version: '0.1.13',
+  },
+  kotlin: {
+    url: 'https://unpkg.com/tree-sitter-wasms@0.1.13/out/tree-sitter-kotlin.wasm',
+    sha256: 'b5cb00c8d06ed0f10f1dbe497205b437809d7e87db1f638721a8cfb30e044449',
+    version: '0.1.13',
+  },
+  elixir: {
+    url: 'https://unpkg.com/tree-sitter-wasms@0.1.13/out/tree-sitter-elixir.wasm',
+    sha256: '82e91b9759ddca30d8978ebbfa8e347b4451b64c931f9ae62112e6db9b8fac20',
+    version: '0.1.13',
+  },
 };
 
 // ============================================================

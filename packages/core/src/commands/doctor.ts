@@ -67,6 +67,7 @@ function checkConfig(projectRoot: string): CheckResult {
 
   try {
     const content = readFileSync(configPath, 'utf-8');
+    // pattern-scanner-allow: yaml-parse — reason: `massu doctor` config-integrity diagnostic; runs BEFORE getConfig() to verify the file is well-formed YAML so the user sees a parse error here, not a Zod-validation surprise downstream.
     const parsed = parseYaml(content);
     if (!parsed || typeof parsed !== 'object') {
       return { name: 'Configuration', status: 'fail', detail: 'massu.config.yaml is empty or invalid YAML' };
@@ -449,6 +450,7 @@ export async function runValidateConfig(): Promise<void> {
 
   try {
     const content = readFileSync(configPath, 'utf-8');
+    // pattern-scanner-allow: yaml-parse — reason: `massu doctor` deep-validation pass; same diagnostic-mode reasoning as the upper checkConfig() — surfaces YAML errors with operator-friendly stderr before any getConfig() call.
     const parsed = parseYaml(content);
 
     if (!parsed || typeof parsed !== 'object') {

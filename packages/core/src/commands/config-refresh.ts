@@ -272,6 +272,7 @@ export async function runConfigRefresh(opts: ConfigRefreshOptions = {}): Promise
   let existing: AnyConfig;
   try {
     const content = readFileSync(configPath, 'utf-8');
+    // pattern-scanner-allow: yaml-parse — reason: v1.1.0 config lifecycle command. getConfig() Zod-rejects pre-migration v1 configs (which is exactly what `massu config refresh` is meant to read + migrate). Raw parse is required to inspect a pre-upgrade YAML structure.
     const parsed = parseYaml(content);
     if (!parsed || typeof parsed !== 'object') {
       throw new Error('config is not a YAML object');

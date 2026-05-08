@@ -232,6 +232,7 @@ function detectPnpmWorkspaces(root: string): WorkspacePackage[] | null {
   const raw = safeReadText(join(root, 'pnpm-workspace.yaml'));
   if (!raw) return null;
   try {
+    // pattern-scanner-allow: yaml-parse — reason: Phase 1 auto-detection parses pnpm-workspace.yaml to discover workspace packages BEFORE any massu config exists. This runs PRE-getConfig in the init flow, so getConfig() is unavailable by definition.
     const parsed = parseYaml(raw) as { packages?: unknown } | null;
     const list = Array.isArray(parsed?.packages)
       ? (parsed!.packages as unknown[]).filter((x) => typeof x === 'string') as string[]

@@ -23,26 +23,88 @@ pass() { echo -e "  ${GREEN}PASS${NC}: $1"; }
 fail() { echo -e "  ${RED}FAIL${NC}: $1"; VIOLATIONS=$((VIOLATIONS + 1)); }
 warn() { echo -e "  ${YELLOW}WARN${NC}: $1"; }
 
+# ----------------------------------------------------------
+# scan_with_directive — context-aware violation matcher
+# (Plan 2026-05-07-pattern-scanner-fail-fixes / CR-46 #2)
+#
+# Per-line `grep` cannot consult the previous line, so the previous
+# scanner could not honor a `// pattern-scanner-allow: <key>` directive
+# placed on the line BEFORE a violating call. This helper uses awk to
+# track the immediately-preceding line's directive marker and skip
+# matching call sites whose preceding line authorized them.
+#
+# Usage:
+#   scan_with_directive '<violation_extended_regex>' '<directive_key>' \
+#     [<extra-bash-glob-exclude>...]
+#
+# Args:
+#   $1 = ERE regex matching the call shape (passed to awk via $0 ~ ...)
+#   $2 = directive key (matched against `pattern-scanner-allow:[ws]<key>`)
+#   $@ = optional extra `case`-style glob patterns; files matching ANY
+#        glob are skipped. (Always-skipped: __tests__/, node_modules/,
+#        *.test.ts.) The match runs on the absolute file path.
+#
+# Output: lines as `path:lineno:content` for every UNAUTHORIZED hit.
+# Comment-only lines (JSDoc `*`, inline `//`, block `/*`) are dropped
+# even without a directive so doc strings that mention an API name
+# do not false-positive.
+# ----------------------------------------------------------
+scan_with_directive() {
+  local violation_regex="$1"
+  local directive_key="$2"
+  shift 2
+  local extra_excludes=("$@")
+
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    local skip=0
+    for pat in "${extra_excludes[@]}"; do
+      case "$f" in
+        $pat) skip=1; break ;;
+      esac
+    done
+    [ "$skip" = "1" ] && continue
+    awk -v file="$f" -v vre="$violation_regex" -v key="$directive_key" '
+      $0 ~ "pattern-scanner-allow:[[:space:]]*" key { allow_next = 1; next }
+      $0 ~ vre {
+        if (allow_next) { allow_next = 0; next }
+        if ($0 ~ /^[[:space:]]*(\*|\/\/|\/\*)/) { allow_next = 0; next }
+        print file ":" NR ":" $0
+        allow_next = 0
+        next
+      }
+      { allow_next = 0 }
+    ' "$f"
+  done < <(find "$SRC_DIR" -name "*.ts" \
+    -not -path "*/node_modules/*" \
+    -not -path "*/__tests__/*" \
+    -not -name "*.test.ts" \
+    2>/dev/null)
+}
+
 echo "=== Massu Pattern Scanner ==="
 echo ""
 
 # -------------------------------------------------------
 # Check 1: No require() in source (ESM only)
 # Excludes: hooks/ (bundled by esbuild, require is valid)
+#
+# Plan 2026-05-07-pattern-scanner-fail-fixes refactor:
+#   - Uses scan_with_directive helper (awk-based context-aware match).
+#   - Comment-line filter (JSDoc `*`, inline `//`, block `/*`) is built
+#     into the helper, so doc strings that document attack vectors
+#     containing `require()` no longer false-positive.
+#   - Per-line directive recognizer (`// pattern-scanner-allow: require
+#     — reason: <reason>` placed on the line BEFORE the call) lets
+#     legitimate require sites carry an in-source allow directive,
+#     mirroring scripts/massu-public-leak-guard.sh:179.
 # -------------------------------------------------------
 echo "Check 1: No require() in source files"
-REQUIRE_COUNT=$(grep -rn 'require(' "$SRC_DIR" --include="*.ts" \
-  | grep -v '__tests__' \
-  | grep -v 'node_modules' \
-  | grep -v '// require' \
-  | grep -v '\.test\.ts:' \
-  | grep -v 'hooks/' \
-  | wc -l | tr -d ' ')
+REQUIRE_HITS=$(scan_with_directive 'require\(' 'require' '*/hooks/*')
+REQUIRE_COUNT=$(printf '%s\n' "$REQUIRE_HITS" | grep -c . || true)
 if [ "$REQUIRE_COUNT" -gt 0 ]; then
-  fail "Found $REQUIRE_COUNT require() calls in src/ (use ESM imports)"
-  grep -rn 'require(' "$SRC_DIR" --include="*.ts" \
-    | grep -v '__tests__' | grep -v 'node_modules' | grep -v '\.test\.ts:' | grep -v 'hooks/' \
-    | head -5
+  fail "Found $REQUIRE_COUNT require() calls in src/ (use ESM imports OR add a // pattern-scanner-allow: require directive on the line BEFORE the call)"
+  printf '%s\n' "$REQUIRE_HITS" | head -5
 else
   pass "No require() calls found"
 fi
@@ -113,42 +175,34 @@ fi
 
 # -------------------------------------------------------
 # Check 5: Config via getConfig() only (no direct yaml.parse)
-# Excludes: commands/doctor.ts (diagnostic tool that intentionally
-#           parses YAML to verify config integrity before getConfig())
-# Excludes: hooks/*.ts (compiled standalone — cannot import getConfig(),
-#           must parse massu.config.yaml directly per P2-023a)
-# Excludes: memory-file-ingest.ts (parses YAML frontmatter from markdown
-#           memory files — NOT massu.config.yaml; this is document metadata
-#           parsing, not application config access)
-# Excludes: detect/monorepo-detector.ts (Phase 1 auto-detection — parses
-#           pnpm-workspace.yaml to discover workspaces before any config
-#           exists; NOT massu.config.yaml)
-# Excludes: commands/init.ts (atomic-write post-validator — parses the config
-#           file it just wrote before rename, to verify valid YAML structure;
-#           mirrors existing exemption for doctor.ts)
-# Excludes: commands/config-refresh.ts, commands/config-upgrade.ts,
-#           commands/config-check-drift.ts (v1.1.0 config lifecycle commands —
-#           must parse raw YAML at arbitrary cwd because getConfig() caches
-#           against process.cwd() and Zod-rejects pre-migration v1 configs)
+#
+# Plan 2026-05-07-pattern-scanner-fail-fixes restructure:
+#   - The previous regex `parse.*yaml` was overbroad: matched ANY line
+#     containing `parse` followed by `yaml`, including comments like
+#     `// Re-parse via getConfig() to validate the mutated yaml`.
+#   - The previous file-name exclusion list (8 files: 5 commands +
+#     hooks/ + memory-file-ingest + monorepo-detector) was the N+1th
+#     alias map — every legitimate yaml-parse needed a scanner edit.
+#     CR-46 #3 forbids that pattern; this check now uses per-call-site
+#     directives instead, co-located with the code they document.
+#
+# Restructured via scan_with_directive helper:
+#   - Tightened regex (`yaml\.parse[A-Za-z]*\(|parseYaml\(|yamlParse\(|
+#     parseDocument\(`) requires an opening paren — only call sites
+#     match, NOT comment mentions or import statements.
+#   - Comment-line filter is built into the helper.
+#   - Per-line directive `// pattern-scanner-allow: yaml-parse` placed
+#     on the line BEFORE the call exempts the call. Mirrors leak-guard's
+#     `# leak-guard-allow:` pattern at scripts/massu-public-leak-guard.sh:179.
+#   - Single excluded path: config.ts (THE canonical getConfig
+#     implementation; exempting via directive would be redundant).
 # -------------------------------------------------------
 echo "Check 5: Config access via getConfig() only"
-YAML_PARSE_COUNT=$(grep -rn 'yaml\.parse\|parseYaml\|parse.*yaml' "$SRC_DIR" --include="*.ts" \
-  | grep -v 'config\.ts' \
-  | grep -v '__tests__' \
-  | grep -v 'node_modules' \
-  | grep -v '\.test\.ts:' \
-  | grep -v 'commands/doctor\.ts' \
-  | grep -v 'commands/init\.ts' \
-  | grep -v 'commands/config-refresh\.ts' \
-  | grep -v 'commands/config-upgrade\.ts' \
-  | grep -v 'commands/config-check-drift\.ts' \
-  | grep -v 'hooks/' \
-  | grep -v 'memory-file-ingest\.ts' \
-  | grep -v 'detect/monorepo-detector\.ts' \
-  | wc -l | tr -d ' ')
-if [ "$YAML_PARSE_COUNT" -gt 0 ]; then
-  fail "Found $YAML_PARSE_COUNT direct YAML parse calls outside config.ts (use getConfig())"
-  grep -rn 'yaml\.parse\|parseYaml' "$SRC_DIR" --include="*.ts" | grep -v 'config\.ts' | grep -v '__tests__' | grep -v 'commands/doctor\.ts' | grep -v 'commands/init\.ts' | grep -v 'commands/config-refresh\.ts' | grep -v 'commands/config-upgrade\.ts' | grep -v 'commands/config-check-drift\.ts' | grep -v 'hooks/' | grep -v 'memory-file-ingest\.ts' | grep -v 'detect/monorepo-detector\.ts' | head -5
+YAML_HITS=$(scan_with_directive 'yaml\.parse[A-Za-z]*\(|parseYaml\(|yamlParse\(|parseDocument\(' 'yaml-parse' '*/config.ts')
+YAML_COUNT=$(printf '%s\n' "$YAML_HITS" | grep -c . || true)
+if [ "$YAML_COUNT" -gt 0 ]; then
+  fail "Found $YAML_COUNT direct YAML parse calls outside config.ts (use getConfig() OR add a // pattern-scanner-allow: yaml-parse directive on the line BEFORE the call)"
+  printf '%s\n' "$YAML_HITS" | head -5
 else
   pass "Config access via getConfig() only"
 fi

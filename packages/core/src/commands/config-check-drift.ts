@@ -69,6 +69,7 @@ export async function runConfigCheckDrift(
   let config: AnyConfig;
   try {
     const content = readFileSync(configPath, 'utf-8');
+    // pattern-scanner-allow: yaml-parse — reason: v1.1.0 drift detector. Raw YAML compare needed at arbitrary cwd before getConfig() cache populates; the drift detector intentionally bypasses the cached parse to inspect on-disk state.
     const parsed = parseYaml(content);
     if (!parsed || typeof parsed !== 'object') {
       throw new Error('config is not a YAML object');

@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.5] - 2026-05-08
+
+Hotfix on 1.5.4 (published ~10 min earlier same day). 1.5.4 shipped the file sampler + introspect piping correctly but `codebase-introspector.ts:FIRST_PARTY_ADAPTERS` only listed the 4 original Plan-3b adapters. Phase 7 adapters (`rails`, `phoenix`, `aspnet`, `spring`, `go-chi`, `python-flask`) were committed Phase 7 but never added to the runtime dispatch list. The omission was masked pre-1.5.4 by the `sampleFiles=[]` placeholder (every adapter returned `'none'` anyway). 1.5.4 made the sampler work but the dispatch list was still incomplete → `npx massu init` against a Phoenix project produced an empty `introspected` object → no `detected.phoenix:` block in the emitted config.
+
+R-011 evidence: live debug instrumentation 2026-05-08 against published 1.5.4 cli.js:
+```
+[DBG] introspect-branch entered, skip=undefined
+[DBG] introspected keys= values={}
+```
+Empty result confirms the runner never invoked the phoenix adapter (the only relevant one for the fixture).
+
+### Fixed
+
+- **`codebase-introspector.ts:FIRST_PARTY_ADAPTERS`** — added the 6 Phase 7 adapters (`pythonFlaskAdapter`, `goChiAdapter`, `railsAdapter`, `phoenixAdapter`, `aspnetAdapter`, `springAdapter`). Total dispatch list now 10 adapters, matching `CORE_BUNDLED_IDS` from `detect/adapters/index.ts`.
+
+### Verification
+
+- Re-running the Phoenix fixture against 1.5.5 produces `detected.phoenix:` block with `route_method`, `scope_prefix_base`, `router_module`, `_provenance`, `_confidence: high`.
+- Same for the other 5 Phase 7 fixtures.
+
 ## [1.5.4] - 2026-05-08
 
 Closes Plan 1.5.1 §3 item #4 (the explicitly-deferred AST adapter output piping). Pre-1.5.4 `introspectAsync()` handed AST adapters `SourceFile[] = []` because of a placeholder at `codebase-introspector.ts:160-170`. Adapters always worked (verified by `adapter-grammar-strict.test.ts` 10/10 fixtures with `'high'` confidence) but their extracted conventions never reached the user-facing emitted config. 1.5.4 ships the real per-adapter file sampler and pipes AST output into `detected.<adapter-id>:` blocks.

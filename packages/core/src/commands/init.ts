@@ -900,7 +900,17 @@ export function listTemplates(): readonly string[] {
 export function resolveTemplatesDir(): string | null {
   const cwd = process.cwd();
   const candidates = [
+    // Project-local install: `<project>/node_modules/@massu/core/templates`.
     resolve(cwd, 'node_modules/@massu/core/templates'),
+    // Bundled cli.js layout: cli.js sits at `<package>/dist/cli.js`, so
+    // templates live one level up at `<package>/templates`. (Plan 1.5.1
+    // bug discovery: pre-existing layout assumed `dist/commands/init.js`
+    // depth which never matched the bundled cli, so resolveTemplatesDir
+    // returned null in production for both `--template` mode AND the
+    // applyVariantTemplate path.)
+    resolve(__dirname, '../templates'),
+    // Legacy nested layouts retained as fallbacks (in case a future
+    // build moves cli.js back into a subdirectory).
     resolve(__dirname, '../../templates'),
     resolve(__dirname, '../../../templates'),
   ];

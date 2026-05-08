@@ -1,0 +1,56 @@
+# Massu AI Configuration — Ruby on Rails template
+# schema_version 2 — https://massu.ai/docs/getting-started/configuration
+# Plan 3c Phase 7 deliverable (rails).
+
+schema_version: 2
+
+project:
+  name: "{{PROJECT_NAME}}"
+  root: auto
+
+framework:
+  type: ruby
+  router: rails
+  orm: active-record
+  ui: action-view
+  languages:
+    ruby:
+      framework: rails
+      test_framework: rspec
+      orm: active-record
+      source_dirs:
+        - app
+        - lib
+        - config
+
+paths:
+  source: app
+  aliases: {}
+
+toolPrefix: massu
+
+domains: []
+
+rules: []
+
+verification:
+  ruby:
+    test: bundle exec rspec
+    type: bundle exec sorbet tc
+    syntax: bundle exec ruby -c
+    lint: bundle exec rubocop
+
+ruby:
+  root: .
+  exclude_dirs:
+    - tmp
+    - log
+    - vendor
+    - node_modules
+    - .git
+    - public/assets
+    - public/packs
+    - storage
+    - coverage
+  framework: rails
+  orm: active-record

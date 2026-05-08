@@ -1,0 +1,54 @@
+# Massu AI Configuration — Elixir / Phoenix template
+# schema_version 2 — https://massu.ai/docs/getting-started/configuration
+# Plan 3c Phase 7 deliverable (phoenix).
+
+schema_version: 2
+
+project:
+  name: "{{PROJECT_NAME}}"
+  root: auto
+
+framework:
+  type: elixir
+  router: phoenix
+  orm: ecto
+  ui: phoenix-liveview
+  languages:
+    elixir:
+      framework: phoenix
+      test_framework: ex-unit
+      orm: ecto
+      source_dirs:
+        - lib
+        - test
+        - config
+
+paths:
+  source: lib
+  aliases: {}
+
+toolPrefix: massu
+
+domains: []
+
+rules: []
+
+verification:
+  elixir:
+    test: mix test
+    type: mix dialyzer
+    syntax: mix compile --warnings-as-errors
+    lint: mix credo --strict
+
+elixir:
+  root: .
+  exclude_dirs:
+    - _build
+    - deps
+    - priv/static
+    - cover
+    - .elixir_ls
+    - node_modules
+    - .git
+  framework: phoenix
+  orm: ecto

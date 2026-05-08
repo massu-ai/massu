@@ -1,6 +1,6 @@
 {
   "name": "@massu/core",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "type": "module",
   "description": "AI Engineering Governance MCP Server - Session memory, knowledge system, feature registry, code intelligence, rule enforcement, tiered tooling (12 free / 72 total), 55+ workflow commands, 11 agents, 20+ patterns",
   "main": "src/server.ts",
@@ -30,7 +30,7 @@
     "tar": "^7.4.3",
     "tweetnacl": "^1.0.3",
     "vscode-languageserver-protocol": "^3.17.5",
-    "web-tree-sitter": "^0.26.8",
+    "web-tree-sitter": "~0.25.10",
     "yaml": "^2.4.0",
     "zod": "^3.23.0"
   },

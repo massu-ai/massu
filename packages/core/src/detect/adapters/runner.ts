@@ -216,9 +216,41 @@ export function buildDetectionSignals(rootDir: string): DetectionSignals {
     gemfile: tryReadString(join(rootDir, 'Gemfile')),
     cargoToml: tryReadToml(join(rootDir, 'Cargo.toml')),
     goMod: tryReadString(join(rootDir, 'go.mod')),
+    mixExs: tryReadString(join(rootDir, 'mix.exs')),
+    csproj: tryReadFirstCsproj(rootDir, presentFiles),
+    pomXml: tryReadString(join(rootDir, 'pom.xml')),
+    gradleBuild: tryReadGradleBuild(rootDir, presentFiles),
     presentDirs,
     presentFiles,
   };
+}
+
+/**
+ * Find the first `.csproj` file at the project root (sorted alphabetically
+ * for determinism) and return its raw XML content. Returns undefined if
+ * none exist. Multi-project solutions where the root has no top-level
+ * .csproj (the `.sln` lives at root and projects are in subdirs) get
+ * `csproj=undefined` — adapters then degrade per their own logic.
+ */
+function tryReadFirstCsproj(rootDir: string, presentFiles: Set<string>): string | undefined {
+  const csprojNames = [...presentFiles].filter((f) => f.endsWith('.csproj')).sort();
+  if (csprojNames.length === 0) return undefined;
+  return tryReadString(join(rootDir, csprojNames[0]!));
+}
+
+/**
+ * Read `build.gradle.kts` (Kotlin DSL — modern default per Gradle 7+) if
+ * present; otherwise fall back to `build.gradle` (legacy Groovy DSL).
+ * Returns undefined if neither exists.
+ */
+function tryReadGradleBuild(rootDir: string, presentFiles: Set<string>): string | undefined {
+  if (presentFiles.has('build.gradle.kts')) {
+    return tryReadString(join(rootDir, 'build.gradle.kts'));
+  }
+  if (presentFiles.has('build.gradle')) {
+    return tryReadString(join(rootDir, 'build.gradle'));
+  }
+  return undefined;
 }
 
 function tryReadString(path: string): string | undefined {

@@ -20,11 +20,15 @@
  */
 
 export const CORE_BUNDLED_IDS: ReadonlySet<string> = new Set([
+  'aspnet',
   'go-chi',
   'nextjs-trpc',
+  'phoenix',
   'python-django',
   'python-fastapi',
   'python-flask',
+  'rails',
+  'spring',
   'swift-swiftui',
 ]);
 

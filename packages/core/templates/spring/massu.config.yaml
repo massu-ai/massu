@@ -1,0 +1,56 @@
+# Massu AI Configuration — Java / Spring Boot template
+# schema_version 2 — https://massu.ai/docs/getting-started/configuration
+# Plan 3c Phase 7 deliverable (spring).
+
+schema_version: 2
+
+project:
+  name: "{{PROJECT_NAME}}"
+  root: auto
+
+framework:
+  type: java
+  router: spring-mvc
+  orm: spring-data-jpa
+  ui: thymeleaf
+  languages:
+    java:
+      framework: spring-boot
+      test_framework: junit5
+      orm: spring-data-jpa
+      source_dirs:
+        - src/main/java
+        - src/main/resources
+        - src/test/java
+
+paths:
+  source: src/main/java
+  aliases: {}
+
+toolPrefix: massu
+
+domains: []
+
+rules: []
+
+verification:
+  java:
+    test: ./mvnw test
+    type: ./mvnw compile
+    syntax: ./mvnw compile -q
+    lint: ./mvnw checkstyle:check
+
+java:
+  root: .
+  exclude_dirs:
+    - target
+    - build
+    - .gradle
+    - .mvn
+    - .idea
+    - out
+    - bin
+    - node_modules
+    - .git
+  framework: spring-boot
+  orm: spring-data-jpa

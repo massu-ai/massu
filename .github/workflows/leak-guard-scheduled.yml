@@ -32,6 +32,8 @@ jobs:
   scheduled-audit:
     name: Weekly retroactive leak-guard audit
     runs-on: ubuntu-latest
+    # PUBLIC-REPO-ONLY guard (see leak-guard-retro.yml for full rationale).
+    if: github.repository == 'massu-ai/massu'
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -45,6 +45,14 @@ jobs:
   leak-guard-retro:
     name: Public Repo Leak Guard (full-tree)
     runs-on: ubuntu-latest
+    # PUBLIC-REPO-ONLY guard. This workflow is authored in massu-internal so
+    # it can be edited and synced to the public repo via sync-public.sh's
+    # PUBLIC_ONLY_WORKFLOWS list. GitHub Actions runs the workflow file
+    # wherever it lives, so without this guard it also fires on every
+    # massu-internal push and false-positives on internal-only paths
+    # that legitimately exist in the internal tree. The guard skips the
+    # job entirely when running outside the public repo.
+    if: github.repository == 'massu-ai/massu'
     steps:
       - name: Checkout
         uses: actions/checkout@v4

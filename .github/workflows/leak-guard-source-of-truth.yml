@@ -44,6 +44,12 @@ jobs:
   source-of-truth:
     name: Source-of-Truth Discipline
     runs-on: ubuntu-latest
+    # PUBLIC-REPO-ONLY guard (see leak-guard-retro.yml for full rationale).
+    # This workflow checks every commit subject for the
+    # `sync: Update from massu-internal (<hash>)` pattern that
+    # sync-public.sh generates. On the internal repo every commit is
+    # hand-authored and fails this gate by definition.
+    if: github.repository == 'massu-ai/massu'
     steps:
       - name: Checkout (full history for commit-range scan)
         uses: actions/checkout@v4

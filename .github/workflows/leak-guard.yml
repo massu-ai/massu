@@ -33,6 +33,12 @@ jobs:
   leak-guard:
     name: Public Repo Leak Guard
     runs-on: ubuntu-latest
+    # PUBLIC-REPO-ONLY guard (see leak-guard-retro.yml for full rationale).
+    # leak-guard.yml in staged mode happens to PASS on internal pushes
+    # because the diff doesn't introduce public-leak markers, but firing
+    # it there wastes CI minutes and obscures the contract that this
+    # workflow is the public repo's per-push gate.
+    if: github.repository == 'massu-ai/massu'
     steps:
       - name: Checkout (full history for diff range)
         uses: actions/checkout@v4

@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.8] - 2026-05-09
+
+Plan-status drift-guard release. Closes the recurring "manual refresh of stale plan-Status headers" pattern with three structural layers: schema validator, commit-link drift scanner, and a vitest drift-guard test. Adds a canonical `**Plan Token**:` field to all 55 plans so commits can be cross-referenced bidirectionally with their plan documents. CR-46 / Rule 0 — replaces a recurring manual loop with a structural CI gate.
+
+Daemon code unchanged — any in-flight 1.5.x soak verdict applies to 1.5.8.
+
+### Added
+
+- **`scripts/massu-plan-status-validator.sh`** — schema validator for `docs/plans/*.md`. Parses frontmatter, validates Status against the 8-value canonical enum (DRAFT, IN PROGRESS, SHIPPED, COMPLETE, IMPLEMENTED, APPROVED, SUPERSEDED, HISTORICAL DRAFT), validates `**Plan Token**:` uniqueness, requires SHA citation for SHIPPED, suggests path citation for SUPERSEDED. Supports `--json`, honors `MASSU_PLAN_DIR` env override. Exit 0 = PASS, 1 = FAIL.
+- **`scripts/massu-plan-commit-drift.sh`** — commit-link drift scanner. Greps `git log` since `MASSU_DRIFT_SINCE` (default 2026-04-01) for `(feat|fix|chore|docs)\(plan-<token>\)` references, looks up plans by token, FAILS if Status is in the non-shipped enum (DRAFT, IN PROGRESS), WARNs on misses listed in the cross-repo allowlist.
+- **`scripts/massu-plan-external-tokens.txt`** — cross-repo plan-token allowlist (26 `plan-3c-*` tokens authored in a private sister repository). Prevents the drift scanner from FAILing on legitimately external plan references.
+- **`packages/core/src/__tests__/fixtures/plans/`** — 9 minimal-stub fixtures exercising every validator + scanner code path (stale-draft, fresh-draft, shipped, superseded, historical, duplicate-token-{a,b}, missing-token, unknown-status).
+- **`packages/core/src/__tests__/plan-status-drift-guard.test.ts`** — 8-case vitest test using `execSync` + `MASSU_PLAN_DIR` env override; case 8 runs against live HEAD and gates every PR.
+- **`.github/workflows/ci.yml`** — two new steps in the `type-check` job: Plan Status Validator + Plan Commit Drift Scanner.
+- **`scripts/pre-push-light.sh`** — steps 6 + 7 invoke validator + drift scanner (`set -e` swapped for `set -uo pipefail` matching the rest of the scripts/ idiom).
+- **`scripts/hooks/pre-commit-gate.sh`** — staged-tree gate via merged-corpus extraction (`git show :<path>` for staged Add/Modify/Rename + remove staged deletions); fast-path skip when no plan-related diffs are staged.
+- **`scripts/PUBLIC_MANIFEST.md` + `scripts/sync-public.sh`** — exclude the 3 new private scripts from public sync.
+- **CR-40 / VR-PLAN-STATUS** added to `.claude/CLAUDE.md`.
+- **`**Plan Token**:` field** backfilled across all 55 plans; 38 plans missing `**Status**:` headers received derived Status (commit-cited SHIPPED for plans with matching commits; HISTORICAL DRAFT for legacy plans).
+- **`.claude/templates/plan-frontmatter.md`** — author template (R6 mitigation; auto-emitted by validator).
+
+### Verification
+
+- `npx tsc --noEmit`: 0 errors (`packages/core`)
+- `npm test -- plan-status-drift-guard`: 8/8 PASS
+- `bash scripts/massu-plan-status-validator.sh`: exit 0, 0 violations, 13 deprecation/legacy warnings (Doc ID, Plan ID, COMPLETE legacy synonym — all warn-only by design)
+- `bash scripts/massu-plan-commit-drift.sh`: exit 0, 0 violations, 28 allowlisted external-token warnings, 94 commits scanned, 42 plan refs found
+- `bash scripts/massu-pattern-scanner.sh`: PASS
+- `bash scripts/massu-generalization-scanner.sh`: PASS
+
+### Closes
+
+- The recurring "stale Status header" class of bug (commits `0ed226a` 2026-05-08 + `21e055d` 2026-05-09 manually refreshed 10 stale headers — the second occurrence in <24 h, proving discipline alone is insufficient).
+- Plan 1.5.8 audit converged at 0 gaps after 7 iterations (16 → 9 → 8 → 2 → 2 → 1 → 0).
+
 ## [1.5.7] - 2026-05-08
 
 Test infrastructure release. Closes the two follow-ons documented in 1.5.5 and 1.5.6 CHANGELOGs as the structural drift-prevention against the class of bug that produced both hotfixes (FIRST_PARTY_ADAPTERS divergence + bundle-vs-source CI gap).

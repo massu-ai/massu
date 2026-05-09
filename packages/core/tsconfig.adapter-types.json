@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "allowImportingTsExtensions": false,
+    "moduleResolution": "bundler"
+  },
+  "include": [
+    "src/adapter.ts",
+    "src/detect/adapters/types.ts",
+    "src/detect/adapters/query-helpers.ts",
+    "src/detect/adapters/parse-guard.ts",
+    "src/detect/adapters/tree-sitter-loader.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/__tests__",
+    "src/detect/__tests__",
+    "src/detect/__tests__/fixtures"
+  ]
+}

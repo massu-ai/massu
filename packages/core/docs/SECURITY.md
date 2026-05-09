@@ -240,6 +240,45 @@ per the canonical plan). The maintainer will:
 5. Add the affected adapter to the manifest's `unpublished: true` list
    if applicable, so all consumers refuse to load on next refresh.
 
+## Migration: 1.5.x → 1.6.0 (workspace adapter publish)
+
+> Plan 3c Phase 9b shipped 2026-05-09. See root `CHANGELOG.md` `[1.6.0]`.
+
+`1.6.0` is **additive** — end-users on `1.5.x` are unaffected. No
+breaking changes. No config migration. The 5 first-party AST adapters
+(`rails`, `phoenix`, `aspnet`, `spring`, `go-chi`) continue to ship
+CORE-BUNDLED in `@massu/core` itself; zero-config detection still works
+out of the box.
+
+What's new for users who want REGISTRY-VERIFIED trust:
+
+```bash
+npm install @massu/core@^1.6.0 @massu/adapter-rails@^1.0.0
+```
+
+After install, `npx massu adapters list` will show TWO entries for
+`rails`:
+
+- `rails` — CORE-BUNDLED (from `@massu/core`'s bundled `dist/detect/adapters/rails.js`).
+- `@massu/adapter-rails` — REGISTRY-VERIFIED (from `node_modules/@massu/adapter-rails/dist/`,
+  sha256-cross-checked against the signed manifest at
+  `https://registry.massu.ai/adapters/manifest.json`).
+
+The two co-exist. Discovery prefers REGISTRY-VERIFIED when present
+(the standalone package opts the user into the more-verified path);
+CORE-BUNDLED remains the fallback. There is no "elevation" — they are
+two distinct trust-class entries.
+
+### peerDependency note
+
+`@massu/adapter-*@1.0.0` declares `peerDependencies: { "@massu/core": "^1.6.0" }`.
+Users pinning `@massu/core@1.5.x` who install a standalone adapter will
+see an npm peerDep warning (non-fatal). For cleanest UX, upgrade
+`@massu/core` to `^1.6.0` before installing standalone adapters. The
+adapter source is binary-identical between CORE-BUNDLED and
+REGISTRY-VERIFIED — the warning is informational, not a runtime
+incompatibility.
+
 ## See also
 
 - [`AUTHORING-ADAPTERS.md`](./AUTHORING-ADAPTERS.md) — how to write a

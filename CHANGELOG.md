@@ -4,6 +4,56 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.0] - 2026-05-09
+
+Plan 3c Phase 9b — workspace adapter publish (`plan-3c-phase9b`). Closes the 1.5.0 Infrastructure note ("5 workspace placeholder packages remain at `0.0.0-prework`") by shipping the 5 first-party AST adapters as standalone npm packages alongside `@massu/core@1.6.0`. Architecture is **Z+II**: workspace package source is canonical (`packages/adapter-<f>/src/index.ts`); `@massu/core` consumes those packages as workspace dependencies and bundles their built `dist/` into its own `dist/detect/adapters/<f>.js` via a build step (`packages/core/scripts/bundle-adapters.ts`). True single-source-of-truth: same source produces both the CORE-BUNDLED artifact and the standalone REGISTRY-VERIFIED tarball; sha256 reproducibility is structurally enforced.
+
+End-users on `1.5.x` are **unaffected** — 1.6.0 is additive, zero-config preserved, no breaking changes. Users who want the REGISTRY-VERIFIED trust class can now `npm install @massu/adapter-rails` (etc.) for the same code with a fully signed manifest sha256 chain end-to-end.
+
+Daemon code unchanged from 1.5.8 — any in-flight 1.5.x soak verdict applies to 1.6.0.
+
+### Added
+
+- **`@massu/adapter-rails@1.0.0`** — first-party Rails adapter, standalone npm package. Tarball shasum: `1944b1a4568b5c9f07a457a93050a926f78ac76f` (per `npm view @massu/adapter-rails dist.shasum`). See [`packages/adapter-rails/CHANGELOG.md`](./packages/adapter-rails/CHANGELOG.md).
+- **`@massu/adapter-phoenix@1.0.0`** — first-party Phoenix adapter, standalone npm package. Tarball shasum: `22d856030b8d220d3846d7f16d32d7daa41b76ea`. See [`packages/adapter-phoenix/CHANGELOG.md`](./packages/adapter-phoenix/CHANGELOG.md).
+- **`@massu/adapter-aspnet@1.0.0`** — first-party ASP.NET Core adapter, standalone npm package. Tarball shasum: `2fff624d3491ced5a831f7b7dce36928e91020a2`. See [`packages/adapter-aspnet/CHANGELOG.md`](./packages/adapter-aspnet/CHANGELOG.md).
+- **`@massu/adapter-spring@1.0.0`** — first-party Spring adapter, standalone npm package. Tarball shasum: `b3f7a87e0f25c9174c4e3540c1a255feb333a6cb`. See [`packages/adapter-spring/CHANGELOG.md`](./packages/adapter-spring/CHANGELOG.md).
+- **`@massu/adapter-go-chi@1.0.0`** — first-party go-chi adapter, standalone npm package. Tarball shasum: `48916c0b6e8c7ed0c53d60acb170bef39dffea15`. See [`packages/adapter-go-chi/CHANGELOG.md`](./packages/adapter-go-chi/CHANGELOG.md).
+- **`@massu/core/adapter` runtime helpers in the SemVer-stable surface** — `adapter.ts` now re-exports `runQuery`, `loadGrammar`, `isParsableSource`, `MAX_AST_FILE_BYTES`, and `InvalidQueryError` so workspace adapters import everything they need from a single subpath. The published tarball ships bundled `dist/adapter.js` (~32 kB ESM) + `dist/adapter.d.ts` (1.7 kB) so downstream Node consumers AND tsc resolve cleanly without chasing transitive `.ts` source.
+- **`packages/core/scripts/bundle-adapters.ts`** — esbuild-driven build step that copies the 5 workspace adapter `dist/index.js` files into `packages/core/dist/detect/adapters/<f>.js` and computes a sha256 sentinel at `dist/detect/adapters/.bundle-shasums.json`. Reproducibility enforced by `adapter-bundle-reproducibility.test.ts` (P-B-003).
+- **Three new structural drift-guard tests** — `adapter-source-of-truth.test.ts` (every `CORE_BUNDLED_IDS` entry has exactly one canonical source — either core or workspace, never both), `adapter-bundle-reproducibility.test.ts` (re-running the bundle step from a clean tmpdir produces byte-identical sha256s), and `core-bundled-files-presence.test.ts` (every workspace-canonical id has a corresponding `dist/detect/adapters/<id>.js` after build). The fourth gate, `adapter-manifest-roundtrip.test.ts` (P-D-001), runs in CI when `MASSU_MANIFEST_ROUNDTRIP=1` against the live registry manifest.
+- **Pattern-scanner Check 12 — adapter import direction guard** — `scripts/massu-pattern-scanner.sh` now refuses any `import .* from '@massu/adapter-*'` outside `packages/core/src/detect/adapters/<id>.ts` re-export shims (drift-prevention #3). Inverse imports would create circular runtime deps that npm workspaces silently allow.
+- **Vitest 4 `test.projects` shape** — new root `vitest.config.ts` runs both core (~141 test files) and the 5 adapter packages (5 × 1 smoke test each) in a single `npm test` invocation. Replaces the deprecated Vitest 3 `defineWorkspace` / `vitest.workspace.ts` pattern (removed in Vitest 4.x).
+- **Tarball E2E CI extension (P-D-002)** — `.github/workflows/ci.yml` `tarball-e2e` job now also packs each `packages/adapter-*` and asserts the published shape (no `src/`, no `*.test.ts`, no `tsconfig.json` leak; LICENSE + README.md + `dist/index.{js,d.ts}` + `package.json` required). Adds the manifest round-trip gate.
+
+### Changed
+
+- **`packages/core/package.json`** — version `1.5.8` → `1.6.0`. New `dependencies` for the 5 workspace adapters (`"@massu/adapter-rails": "^1.0.0"`, etc.) so the build pipeline pulls in workspace symlinks. New `exports."./adapter"` conditional shape with explicit `types: "./dist/adapter.d.ts"` + `import: "./dist/adapter.js"` (was raw `./src/adapter.ts` — caused R9 runtime resolution failures for downstream consumers).
+- **Root `package.json:scripts.build`** — explicit chain `build:adapter-types && build:adapter-subpath && build:adapters && build:core` so workspace adapters always build before `bundle-adapters.ts` runs (P-A-016 build-ordering fix; npm `--workspaces` runs alphabetically, not topologically).
+- **`packages/core/src/detect/adapters/{rails,phoenix,aspnet,spring,go-chi}.ts`** — replaced with 4-line re-export shims (`export * from '@massu/adapter-<f>'`). Source moved to workspace package; CORE-BUNDLED behaviour preserved via the bundle step.
+- **`packages/adapter-*/package.json`** — version `0.0.0-prework` → `1.0.0`; `private: true` removed; `peerDependencies."@massu/core": ">=1.5.8 <2.0.0"` (intentionally widened to keep 1.5.x consumers compatible — 1.5.x already CORE-BUNDLES the same code, so peer is loose by design).
+- **`scripts/PUBLIC_MANIFEST.md`** — updated notes for the 5 `packages/adapter-*` entries to reflect the new published 1.0.0 versions (no path changes; they remain in PUBLIC_DIRS).
+
+### Verification
+
+- `npx tsc --noEmit`: 0 errors (`packages/core`)
+- `npm test` (Node 22): `2123 passed | 9 skipped (2132)` across 146 test files (was `2087/2087` per 1.5.7; +36 new tests across the 4 structural drift-guards + 5 adapter smoke tests + the manifest round-trip)
+- `bash scripts/massu-pattern-scanner.sh`: PASS (13 checks, including the new Check 12 adapter import direction guard)
+- `bash scripts/massu-generalization-scanner.sh`: PASS
+- `bash scripts/massu-plan-status-validator.sh`: PASS (55 plans scanned, 0 violations)
+- `bash scripts/massu-plan-commit-drift.sh`: PASS
+- `npm view @massu/core version`: `1.6.0`
+- `npm view @massu/core dist.shasum`: `e3f74555959db52462d14eb1223b3c2d8937a430`
+- `npm view @massu/adapter-rails version` (× 5 adapters): `1.0.0`
+- Smoke test from clean tmpdir: `npm install @massu/core@1.6.0 @massu/adapter-rails@1.0.0` exits 0; `node -e "import('@massu/adapter-rails').then(m => console.log(typeof m.railsAdapter))"` prints `object`
+
+### Closes
+
+- The 1.5.0 CHANGELOG `Infrastructure` note ("5 workspace placeholder packages remain at `0.0.0-prework`") — workspace publish is now SHIPPED.
+- Master plan row 4.12 ("Phase 9b — workspace adapter publish") — moved from APPROVED → SHIPPED.
+- The originating obligation in Plan 3c §Stage 3 Phase 9 line 157 ("Workspace publish for 5 adapters").
+- Plan 3c Phase 9b audit: converged at 0 gaps after 7 iterations (22 → 6 → 5 → 6 → 3 → 3 → 0).
+
 ## [1.5.8] - 2026-05-09
 
 Plan-status drift-guard release. Closes the recurring "manual refresh of stale plan-Status headers" pattern with three structural layers: schema validator, commit-link drift scanner, and a vitest drift-guard test. Adds a canonical `**Plan Token**:` field to all 55 plans so commits can be cross-referenced bidirectionally with their plan documents. CR-46 / Rule 0 — replaces a recurring manual loop with a structural CI gate.

@@ -74,6 +74,37 @@ export {
 
 import type { CodebaseAdapter } from './detect/adapters/types.js';
 
+// ============================================================
+// Plan 3c Phase 9b P-A-001a: runtime helper re-exports.
+//
+// The 5 first-party framework adapters (rails/phoenix/aspnet/spring/go-chi)
+// migrated to `packages/adapter-<f>/src/index.ts` workspace packages need
+// these helpers from `@massu/core/adapter` rather than reaching into
+// `@massu/core` internals (which would couple the workspace package to
+// every transitive .ts file).
+//
+// CR-46: a single SemVer-stable authoring surface. Every export from this
+// file is part of the public adapter API; breaking changes require a
+// major version bump per `massu-adapter-api-version`.
+// ============================================================
+
+// Tree-sitter query helpers (compileQuery is intentionally NOT re-exported —
+// only `runQuery` returns the cooked record shape adapters consume).
+export { runQuery, InvalidQueryError, type RunQueryHit } from './detect/adapters/query-helpers.js';
+
+// Grammar acquisition (runtime: downloads + verifies SHA-256 + caches).
+export { loadGrammar } from './detect/adapters/tree-sitter-loader.js';
+
+// Parse-time safety guards (size cap + nested-depth check).
+export {
+  isParsableSource,
+  MAX_AST_FILE_BYTES,
+  MAX_AST_PARSE_DEPTH,
+  MAX_AST_PARSE_MS,
+  type ParseSkip,
+  type ParseSkipReason,
+} from './detect/adapters/parse-guard.js';
+
 /**
  * Identity factory — narrows the input's type to `CodebaseAdapter` so
  * authors get compile-time checking + IDE autocomplete for missing /

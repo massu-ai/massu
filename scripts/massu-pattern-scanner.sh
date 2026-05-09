@@ -331,11 +331,31 @@ else
 fi
 
 # -------------------------------------------------------
-# Check 12: Generalization compliance
+# Check 12: Adapter import direction guard (Plan 3c Phase 9b P-B-005)
+# Verifies that `packages/core/src/` only imports from `@massu/adapter-*`
+# inside the re-export shims at `packages/core/src/detect/adapters/<id>.ts`.
+# Anywhere else creates circular runtime deps (core depends on adapters,
+# adapters depend on core via @massu/core/adapter).
+# -------------------------------------------------------
+echo "Check 12: Adapter import direction guard"
+DIRECTION_VIOLATIONS=$(grep -rn "from '@massu/adapter-" "$SRC_DIR" --include="*.ts" 2>/dev/null \
+  | grep -v "__tests__" \
+  | grep -v "\.test\.ts:" \
+  | grep -v "/detect/adapters/\(rails\|phoenix\|aspnet\|spring\|go-chi\)\.ts:" \
+  || true)
+if [ -n "$DIRECTION_VIOLATIONS" ]; then
+  fail "Forbidden imports from @massu/adapter-* outside re-export shims:"
+  echo "$DIRECTION_VIOLATIONS" | head -10
+else
+  pass "Adapter import direction respected (core → adapter only via shims)"
+fi
+
+# -------------------------------------------------------
+# Check 13: Generalization compliance
 # Runs the generalization scanner to verify no project-specific
 # references leaked into shipped files
 # -------------------------------------------------------
-echo "Check 12: Generalization compliance"
+echo "Check 13: Generalization compliance"
 GEN_SCANNER="$REPO_ROOT/scripts/massu-generalization-scanner.sh"
 if [ -f "$GEN_SCANNER" ]; then
   if bash "$GEN_SCANNER" > /tmp/gen-scanner.log 2>&1; then

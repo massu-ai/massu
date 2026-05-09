@@ -200,6 +200,47 @@ adapter authors to opt-in to the new shape.
 Additive changes (new optional fields on result types, new
 TreeSitterLanguage enum entries) are minor-version compatible.
 
+## Manifest sha256 round-trip — what to do when CI fails
+
+> Plan 3c Phase 9b P-D-004 runbook excerpt.
+
+The `tarball-e2e` CI job runs `adapter-manifest-roundtrip.test.ts` against the
+live registry manifest at `https://registry.massu.ai/adapters/manifest.json`.
+The test rebuilds every workspace adapter's `dist/`, computes the sha256, and
+asserts it matches the manifest's `sha256` entry for that `{package, version}`
+pair.
+
+**If the round-trip fails after a workspace adapter source edit**, the
+manifest must be re-signed BEFORE merge. The flow:
+
+1. **Verify your edit is intentional.** Run `npm run build` from the repo
+   root and inspect `git diff packages/adapter-<f>/dist/`. If the diff is
+   non-trivial, the source change is real and needs a manifest re-sign.
+2. **Bump the adapter version** in `packages/adapter-<f>/package.json` (e.g.
+   `1.0.0` → `1.0.1` for a bugfix; `1.1.0` for an additive feature). Manifest
+   entries are versioned, so re-signing without a version bump would break
+   reproducibility for users on the prior version.
+3. **Compute the new sha256** via `node packages/core/scripts/compute-adapter-shasums.mjs`
+   (or equivalent) — this writes to `~/.massu/build-shasums.json`.
+4. **Re-sign the manifest.** Run `bash scripts/provision/registry-publish.sh
+   path/to/manifest-body.json` — reads the Ed25519 private key from macOS
+   Keychain (`massu/registry/signing/private`), produces an envelope, deploys
+   to Vercel.
+5. **Re-run the round-trip test locally**: `MASSU_MANIFEST_ROUNDTRIP=1 npm test
+   -- adapter-manifest-roundtrip` — should now PASS.
+6. **Commit + open PR**. The CI gate will re-verify against the freshly-deployed
+   manifest.
+
+If CI fails on a transient registry outage (5xx, DNS, CDN cache miss), the
+test SKIPs cleanly with a console.warn — does NOT fail the job. Re-run the
+job to recover.
+
+**Non-monorepo adapter authors** (third-party packages NOT under `packages/adapter-*`):
+the round-trip test SKIPs your package automatically (workspace dir absent in
+the monorepo). Your install-time verification chain runs against the registry
+sha256 directly via `discover.ts:295-360` — that path catches the same drift
+class without requiring the test.
+
 ## See also
 
 - [`SECURITY.md`](./SECURITY.md) — signing model, key rotation, supply-chain risks

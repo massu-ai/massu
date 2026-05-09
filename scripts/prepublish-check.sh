@@ -49,15 +49,37 @@ else
 fi
 
 # Check 4: types field
+# Handles both top-level `types` AND nested `exports["./X"].types` (conditional
+# exports introduced in Phase 9b commit chain — `./adapter` subpath ships
+# `dist/adapter.d.ts`). Pre-9b semantics: substring match on `"types"` would
+# false-positive on nested keys.
 echo "Check 4: types field"
-if grep -q '"types"' "$PKG_JSON"; then
-  # types field exists - verify it points to a valid path
-  TYPES_PATH=$(node -e "console.log(require('$PKG_JSON').types || '')" 2>/dev/null)
-  if [ -n "$TYPES_PATH" ] && [ -f "$REPO_ROOT/packages/core/$TYPES_PATH" ]; then
-    pass "types field points to valid path: $TYPES_PATH"
+TOP_TYPES=$(node -e "console.log(require('$PKG_JSON').types || '')" 2>/dev/null)
+NESTED_TYPES=$(node -e "
+  const pkg = require('$PKG_JSON');
+  const out = [];
+  for (const [k, v] of Object.entries(pkg.exports || {})) {
+    if (typeof v === 'object' && v !== null && v.types) out.push(k + ':' + v.types);
+  }
+  console.log(out.join('\n'));
+" 2>/dev/null)
+if [ -n "$TOP_TYPES" ]; then
+  if [ -f "$REPO_ROOT/packages/core/$TOP_TYPES" ]; then
+    pass "top-level types field points to valid path: $TOP_TYPES"
   else
-    fail "types field points to invalid path: $TYPES_PATH"
+    fail "top-level types field points to invalid path: $TOP_TYPES"
   fi
+elif [ -n "$NESTED_TYPES" ]; then
+  while IFS= read -r entry; do
+    [ -z "$entry" ] && continue
+    KEY="${entry%%:*}"
+    PATH_VAL="${entry#*:}"
+    if [ -f "$REPO_ROOT/packages/core/$PATH_VAL" ]; then
+      pass "exports[\"$KEY\"].types points to valid path: $PATH_VAL"
+    else
+      fail "exports[\"$KEY\"].types points to invalid path: $PATH_VAL"
+    fi
+  done <<< "$NESTED_TYPES"
 else
   pass "types field absent (no .d.ts files shipped)"
 fi

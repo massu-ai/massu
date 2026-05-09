@@ -1,12 +1,16 @@
 {
   "name": "@massu/core",
-  "version": "1.5.8",
+  "version": "1.6.0",
   "type": "module",
   "description": "AI Engineering Governance MCP Server - Session memory, knowledge system, feature registry, code intelligence, rule enforcement, tiered tooling (12 free / 72 total), 55+ workflow commands, 11 agents, 20+ patterns",
   "main": "src/server.ts",
   "exports": {
     ".": "./src/server.ts",
-    "./adapter": "./src/adapter.ts"
+    "./adapter": {
+      "types": "./dist/adapter.d.ts",
+      "import": "./dist/adapter.js",
+      "default": "./dist/adapter.js"
+    }
   },
   "bin": {
     "massu": "./dist/cli.js"
@@ -14,14 +18,22 @@
   "scripts": {
     "start": "npx tsx src/server.ts",
     "test": "vitest run",
-    "build": "tsc --noEmit && npm run build:cli && npm run build:hooks",
+    "build": "tsc --noEmit && npm run build:cli && npm run build:hooks && npm run build:adapter-types && npm run build:adapter-subpath && npm run build:bundle-adapters",
+    "build:adapter-types": "tsc -p tsconfig.adapter-types.json",
+    "build:adapter-subpath": "tsx scripts/bundle-adapters.ts --subpath-only",
+    "build:bundle-adapters": "tsx scripts/bundle-adapters.ts",
     "build:cli": "esbuild --bundle --platform=node --format=esm --outfile=dist/cli.js src/cli.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --external:web-tree-sitter --external:tweetnacl --external:tar --external:smol-toml --external:vscode-languageserver-protocol --banner:js='#!/usr/bin/env node\nimport{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
-    "build:hooks": "esbuild --bundle --platform=node --format=esm --outdir=dist/hooks src/hooks/*.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --banner:js='import{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
+    "build:hooks": "esbuild --bundle --platform=node --format=esm --outdir=dist/hooks src/hooks/*.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --external:web-tree-sitter --external:tweetnacl --external:tar --external:smol-toml --external:vscode-languageserver-protocol --banner:js='import{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
     "prepublishOnly": "bash ../../scripts/prepublish-check.sh && node ../../scripts/bundle-pubkey.mjs && npm run build",
     "bench:watch": "tsx test/perf/watch-benchmark.ts"
   },
   "dependencies": {
     "@clack/prompts": "^0.9.1",
+    "@massu/adapter-aspnet": "^1.0.0",
+    "@massu/adapter-go-chi": "^1.0.0",
+    "@massu/adapter-phoenix": "^1.0.0",
+    "@massu/adapter-rails": "^1.0.0",
+    "@massu/adapter-spring": "^1.0.0",
     "better-sqlite3": "^12.6.2",
     "chokidar": "^3.6.0",
     "fast-glob": "^3.3.0",

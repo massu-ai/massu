@@ -173,6 +173,36 @@ describe.skipIf(!ENABLED)('init end-to-end against the BUILT tarball', () => {
     }
   });
 
+  it('tarball: every workspace-canonical CORE_BUNDLED_IDS entry has dist/detect/adapters/<id>.js (P-B-007)', () => {
+    // Plan 3c Phase 9b P-B-007: extension of the templates check above. After
+    // Phase 9b, the 5 framework adapters (rails/phoenix/aspnet/spring/go-chi)
+    // are workspace-canonical and bundled by `bundle-adapters.ts` into
+    // `dist/detect/adapters/<id>.js`. Verify the published tarball ships
+    // these bundled artifacts (NOT just the re-export shim source).
+    const indexSrcPath = join(
+      SHARED_INSTALL_DIR!,
+      'node_modules/@massu/core/src/detect/adapters/index.ts',
+    );
+    if (!existsSync(indexSrcPath)) return; // src not shipped (acceptable)
+    const src = readFileSync(indexSrcPath, 'utf-8');
+    const setMatch = /CORE_BUNDLED_IDS[^=]*=\s*new Set\(\[([\s\S]*?)\]\)/.exec(src);
+    if (!setMatch) return;
+    const ids = (setMatch![1].match(/'([^']+)'/g) ?? []).map((s) => s.slice(1, -1));
+    // Workspace-canonical ids = those with packages/adapter-<id>/ in the
+    // monorepo. Detected by checking the re-export shim source for the
+    // `from '@massu/adapter-<id>'` marker.
+    const distAdaptersDir = join(SHARED_INSTALL_DIR!, 'node_modules/@massu/core/dist/detect/adapters');
+    for (const id of ids) {
+      const shimPath = join(SHARED_INSTALL_DIR!, 'node_modules/@massu/core/src/detect/adapters', `${id}.ts`);
+      if (!existsSync(shimPath)) continue;
+      const shimSrc = readFileSync(shimPath, 'utf-8');
+      if (!shimSrc.includes(`from '@massu/adapter-${id}'`)) continue; // core-canonical
+      // Workspace-canonical: dist/detect/adapters/<id>.js MUST exist.
+      const distFile = join(distAdaptersDir, `${id}.js`);
+      expect(existsSync(distFile), `tarball missing bundled ${id}.js at ${distFile}`).toBe(true);
+    }
+  });
+
   it('tarball: <bin>/massu --version prints package.json.version', () => {
     const cliBin = join(SHARED_INSTALL_DIR!, 'node_modules/.bin/massu');
     const pkgJsonPath = join(SHARED_INSTALL_DIR!, 'node_modules/@massu/core/package.json');

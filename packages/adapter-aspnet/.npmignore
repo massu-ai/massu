@@ -1,0 +1,7 @@
+src/
+tsconfig.json
+vitest.config.ts
+*.test.ts
+node_modules/
+.DS_Store
+*.tgz

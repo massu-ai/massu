@@ -19,8 +19,8 @@ var __commonJS = (cb, mod) => function __require2() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
 var __export = (target, all) => {
-  for (var name2 in all)
-    __defProp(target, name2, { get: all[name2], enumerable: true });
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -86,8 +86,8 @@ var require_fs = __commonJS({
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.createDirentFromStats = void 0;
     var DirentFromStats = class {
-      constructor(name2, stats) {
-        this.name = name2;
+      constructor(name, stats) {
+        this.name = name;
         this.isBlockDevice = stats.isBlockDevice.bind(stats);
         this.isCharacterDevice = stats.isCharacterDevice.bind(stats);
         this.isDirectory = stats.isDirectory.bind(stats);
@@ -97,8 +97,8 @@ var require_fs = __commonJS({
         this.isSymbolicLink = stats.isSymbolicLink.bind(stats);
       }
     };
-    function createDirentFromStats(name2, stats) {
-      return new DirentFromStats(name2, stats);
+    function createDirentFromStats(name, stats) {
+      return new DirentFromStats(name, stats);
     }
     exports.createDirentFromStats = createDirentFromStats;
   }
@@ -159,8 +159,8 @@ var require_path = __commonJS({
 
 // ../../node_modules/is-extglob/index.js
 var require_is_extglob = __commonJS({
-  "../../node_modules/is-extglob/index.js"(exports, module2) {
-    module2.exports = function isExtglob(str) {
+  "../../node_modules/is-extglob/index.js"(exports, module) {
+    module.exports = function isExtglob(str) {
       if (typeof str !== "string" || str === "") {
         return false;
       }
@@ -176,7 +176,7 @@ var require_is_extglob = __commonJS({
 
 // ../../node_modules/is-glob/index.js
 var require_is_glob = __commonJS({
-  "../../node_modules/is-glob/index.js"(exports, module2) {
+  "../../node_modules/is-glob/index.js"(exports, module) {
     var isExtglob = require_is_extglob();
     var chars = { "{": "}", "(": ")", "[": "]" };
     var strictCheck = function(str) {
@@ -289,7 +289,7 @@ var require_is_glob = __commonJS({
       }
       return false;
     };
-    module2.exports = function isGlob(str, options) {
+    module.exports = function isGlob(str, options) {
       if (typeof str !== "string" || str === "") {
         return false;
       }
@@ -307,7 +307,7 @@ var require_is_glob = __commonJS({
 
 // ../../node_modules/glob-parent/index.js
 var require_glob_parent = __commonJS({
-  "../../node_modules/glob-parent/index.js"(exports, module2) {
+  "../../node_modules/glob-parent/index.js"(exports, module) {
     "use strict";
     var isGlob = require_is_glob();
     var pathPosixDirname = __require("path").posix.dirname;
@@ -317,7 +317,7 @@ var require_glob_parent = __commonJS({
     var enclosure = /[\{\[].*[\}\]]$/;
     var globby = /(^|[^\\])([\{\[]|\([^\)]+$)/;
     var escaped = /\\([\!\*\?\|\[\]\(\)\{\}])/g;
-    module2.exports = function globParent(str, opts) {
+    module.exports = function globParent(str, opts) {
       var options = Object.assign({ flipBackslashes: true }, opts);
       if (options.flipBackslashes && isWin32 && str.indexOf(slash) < 0) {
         str = str.replace(backslash, slash);
@@ -395,11 +395,11 @@ var require_utils = __commonJS({
       if (node.type === "range") node.type = "text";
       return acc;
     }, []);
-    exports.flatten = (...args2) => {
+    exports.flatten = (...args) => {
       const result = [];
       const flat = (arr) => {
-        for (let i2 = 0; i2 < arr.length; i2++) {
-          const ele = arr[i2];
+        for (let i = 0; i < arr.length; i++) {
+          const ele = arr[i];
           if (Array.isArray(ele)) {
             flat(ele);
             continue;
@@ -410,7 +410,7 @@ var require_utils = __commonJS({
         }
         return result;
       };
-      flat(args2);
+      flat(args);
       return result;
     };
   }
@@ -418,11 +418,11 @@ var require_utils = __commonJS({
 
 // ../../node_modules/braces/lib/stringify.js
 var require_stringify = __commonJS({
-  "../../node_modules/braces/lib/stringify.js"(exports, module2) {
+  "../../node_modules/braces/lib/stringify.js"(exports, module) {
     "use strict";
     var utils = require_utils();
-    module2.exports = (ast, options = {}) => {
-      const stringify2 = (node, parent = {}) => {
+    module.exports = (ast, options = {}) => {
+      const stringify = (node, parent = {}) => {
         const invalidBlock = options.escapeInvalid && utils.isInvalidBrace(parent);
         const invalidNode = node.invalid === true && options.escapeInvalid === true;
         let output = "";
@@ -437,21 +437,21 @@ var require_stringify = __commonJS({
         }
         if (node.nodes) {
           for (const child of node.nodes) {
-            output += stringify2(child);
+            output += stringify(child);
           }
         }
         return output;
       };
-      return stringify2(ast);
+      return stringify(ast);
     };
   }
 });
 
 // ../../node_modules/is-number/index.js
 var require_is_number = __commonJS({
-  "../../node_modules/is-number/index.js"(exports, module2) {
+  "../../node_modules/is-number/index.js"(exports, module) {
     "use strict";
-    module2.exports = function(num) {
+    module.exports = function(num) {
       if (typeof num === "number") {
         return num - num === 0;
       }
@@ -465,7 +465,7 @@ var require_is_number = __commonJS({
 
 // ../../node_modules/to-regex-range/index.js
 var require_to_regex_range = __commonJS({
-  "../../node_modules/to-regex-range/index.js"(exports, module2) {
+  "../../node_modules/to-regex-range/index.js"(exports, module) {
     "use strict";
     var isNumber = require_is_number();
     var toRegexRange = (min, max, options) => {
@@ -539,33 +539,33 @@ var require_to_regex_range = __commonJS({
     function splitToRanges(min, max) {
       let nines = 1;
       let zeros = 1;
-      let stop2 = countNines(min, nines);
+      let stop = countNines(min, nines);
       let stops = /* @__PURE__ */ new Set([max]);
-      while (min <= stop2 && stop2 <= max) {
-        stops.add(stop2);
+      while (min <= stop && stop <= max) {
+        stops.add(stop);
         nines += 1;
-        stop2 = countNines(min, nines);
+        stop = countNines(min, nines);
       }
-      stop2 = countZeros(max + 1, zeros) - 1;
-      while (min < stop2 && stop2 <= max) {
-        stops.add(stop2);
+      stop = countZeros(max + 1, zeros) - 1;
+      while (min < stop && stop <= max) {
+        stops.add(stop);
         zeros += 1;
-        stop2 = countZeros(max + 1, zeros) - 1;
+        stop = countZeros(max + 1, zeros) - 1;
       }
       stops = [...stops];
       stops.sort(compare);
       return stops;
     }
-    function rangeToPattern(start2, stop2, options) {
-      if (start2 === stop2) {
-        return { pattern: start2, count: [], digits: 0 };
+    function rangeToPattern(start, stop, options) {
+      if (start === stop) {
+        return { pattern: start, count: [], digits: 0 };
       }
-      let zipped = zip(start2, stop2);
+      let zipped = zip(start, stop);
       let digits = zipped.length;
       let pattern = "";
       let count = 0;
-      for (let i2 = 0; i2 < digits; i2++) {
-        let [startDigit, stopDigit] = zipped[i2];
+      for (let i = 0; i < digits; i++) {
+        let [startDigit, stopDigit] = zipped[i];
         if (startDigit === stopDigit) {
           pattern += startDigit;
         } else if (startDigit !== "0" || stopDigit !== "9") {
@@ -582,11 +582,11 @@ var require_to_regex_range = __commonJS({
     function splitToPatterns(min, max, tok, options) {
       let ranges = splitToRanges(min, max);
       let tokens = [];
-      let start2 = min;
+      let start = min;
       let prev;
-      for (let i2 = 0; i2 < ranges.length; i2++) {
-        let max2 = ranges[i2];
-        let obj = rangeToPattern(String(start2), String(max2), options);
+      for (let i = 0; i < ranges.length; i++) {
+        let max2 = ranges[i];
+        let obj = rangeToPattern(String(start), String(max2), options);
         let zeros = "";
         if (!tok.isPadded && prev && prev.pattern === obj.pattern) {
           if (prev.count.length > 1) {
@@ -594,7 +594,7 @@ var require_to_regex_range = __commonJS({
           }
           prev.count.push(obj.count[0]);
           prev.string = prev.pattern + toQuantifier(prev.count);
-          start2 = max2 + 1;
+          start = max2 + 1;
           continue;
         }
         if (tok.isPadded) {
@@ -602,7 +602,7 @@ var require_to_regex_range = __commonJS({
         }
         obj.string = zeros + obj.pattern + toQuantifier(obj.count);
         tokens.push(obj);
-        start2 = max2 + 1;
+        start = max2 + 1;
         prev = obj;
       }
       return tokens;
@@ -622,7 +622,7 @@ var require_to_regex_range = __commonJS({
     }
     function zip(a, b) {
       let arr = [];
-      for (let i2 = 0; i2 < a.length; i2++) arr.push([a[i2], b[i2]]);
+      for (let i = 0; i < a.length; i++) arr.push([a[i], b[i]]);
       return arr;
     }
     function compare(a, b) {
@@ -638,9 +638,9 @@ var require_to_regex_range = __commonJS({
       return integer - integer % Math.pow(10, zeros);
     }
     function toQuantifier(digits) {
-      let [start2 = 0, stop2 = ""] = digits;
-      if (stop2 || start2 > 1) {
-        return `{${start2 + (stop2 ? "," + stop2 : "")}}`;
+      let [start = 0, stop = ""] = digits;
+      if (stop || start > 1) {
+        return `{${start + (stop ? "," + stop : "")}}`;
       }
       return "";
     }
@@ -670,13 +670,13 @@ var require_to_regex_range = __commonJS({
     }
     toRegexRange.cache = {};
     toRegexRange.clearCache = () => toRegexRange.cache = {};
-    module2.exports = toRegexRange;
+    module.exports = toRegexRange;
   }
 });
 
 // ../../node_modules/fill-range/index.js
 var require_fill_range = __commonJS({
-  "../../node_modules/fill-range/index.js"(exports, module2) {
+  "../../node_modules/fill-range/index.js"(exports, module) {
     "use strict";
     var util = __require("util");
     var toRegexRange = require_to_regex_range();
@@ -696,8 +696,8 @@ var require_fill_range = __commonJS({
       while (value[++index] === "0") ;
       return index > 0;
     };
-    var stringify2 = (start2, end, options) => {
-      if (typeof start2 === "string" || typeof end === "string") {
+    var stringify = (start, end, options) => {
+      if (typeof start === "string" || typeof end === "string") {
         return true;
       }
       return options.stringify === true;
@@ -722,18 +722,18 @@ var require_fill_range = __commonJS({
       while (input.length < maxLength) input = "0" + input;
       return negative ? "-" + input : input;
     };
-    var toSequence = (parts2, options, maxLen) => {
-      parts2.negatives.sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
-      parts2.positives.sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+    var toSequence = (parts, options, maxLen) => {
+      parts.negatives.sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+      parts.positives.sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
       let prefix2 = options.capture ? "" : "?:";
       let positives = "";
       let negatives = "";
       let result;
-      if (parts2.positives.length) {
-        positives = parts2.positives.map((v) => toMaxLen(String(v), maxLen)).join("|");
+      if (parts.positives.length) {
+        positives = parts.positives.map((v) => toMaxLen(String(v), maxLen)).join("|");
       }
-      if (parts2.negatives.length) {
-        negatives = `-(${prefix2}${parts2.negatives.map((v) => toMaxLen(String(v), maxLen)).join("|")})`;
+      if (parts.negatives.length) {
+        negatives = `-(${prefix2}${parts.negatives.map((v) => toMaxLen(String(v), maxLen)).join("|")})`;
       }
       if (positives && negatives) {
         result = `${positives}|${negatives}`;
@@ -749,24 +749,24 @@ var require_fill_range = __commonJS({
       if (isNumbers) {
         return toRegexRange(a, b, { wrap: false, ...options });
       }
-      let start2 = String.fromCharCode(a);
-      if (a === b) return start2;
-      let stop2 = String.fromCharCode(b);
-      return `[${start2}-${stop2}]`;
+      let start = String.fromCharCode(a);
+      if (a === b) return start;
+      let stop = String.fromCharCode(b);
+      return `[${start}-${stop}]`;
     };
-    var toRegex = (start2, end, options) => {
-      if (Array.isArray(start2)) {
+    var toRegex = (start, end, options) => {
+      if (Array.isArray(start)) {
         let wrap = options.wrap === true;
         let prefix2 = options.capture ? "" : "?:";
-        return wrap ? `(${prefix2}${start2.join("|")})` : start2.join("|");
+        return wrap ? `(${prefix2}${start.join("|")})` : start.join("|");
       }
-      return toRegexRange(start2, end, options);
+      return toRegexRange(start, end, options);
     };
-    var rangeError = (...args2) => {
-      return new RangeError("Invalid range arguments: " + util.inspect(...args2));
+    var rangeError = (...args) => {
+      return new RangeError("Invalid range arguments: " + util.inspect(...args));
     };
-    var invalidRange = (start2, end, options) => {
-      if (options.strictRanges === true) throw rangeError([start2, end]);
+    var invalidRange = (start, end, options) => {
+      if (options.strictRanges === true) throw rangeError([start, end]);
       return [];
     };
     var invalidStep = (step, options) => {
@@ -775,29 +775,29 @@ var require_fill_range = __commonJS({
       }
       return [];
     };
-    var fillNumbers = (start2, end, step = 1, options = {}) => {
-      let a = Number(start2);
+    var fillNumbers = (start, end, step = 1, options = {}) => {
+      let a = Number(start);
       let b = Number(end);
       if (!Number.isInteger(a) || !Number.isInteger(b)) {
-        if (options.strictRanges === true) throw rangeError([start2, end]);
+        if (options.strictRanges === true) throw rangeError([start, end]);
         return [];
       }
       if (a === 0) a = 0;
       if (b === 0) b = 0;
       let descending = a > b;
-      let startString = String(start2);
+      let startString = String(start);
       let endString = String(end);
       let stepString = String(step);
       step = Math.max(Math.abs(step), 1);
       let padded = zeros(startString) || zeros(endString) || zeros(stepString);
       let maxLen = padded ? Math.max(startString.length, endString.length, stepString.length) : 0;
-      let toNumber = padded === false && stringify2(start2, end, options) === false;
+      let toNumber = padded === false && stringify(start, end, options) === false;
       let format = options.transform || transform(toNumber);
       if (options.toRegex && step === 1) {
-        return toRange(toMaxLen(start2, maxLen), toMaxLen(end, maxLen), true, options);
+        return toRange(toMaxLen(start, maxLen), toMaxLen(end, maxLen), true, options);
       }
-      let parts2 = { negatives: [], positives: [] };
-      let push = (num) => parts2[num < 0 ? "negatives" : "positives"].push(Math.abs(num));
+      let parts = { negatives: [], positives: [] };
+      let push = (num) => parts[num < 0 ? "negatives" : "positives"].push(Math.abs(num));
       let range = [];
       let index = 0;
       while (descending ? a >= b : a <= b) {
@@ -810,16 +810,16 @@ var require_fill_range = __commonJS({
         index++;
       }
       if (options.toRegex === true) {
-        return step > 1 ? toSequence(parts2, options, maxLen) : toRegex(range, null, { wrap: false, ...options });
+        return step > 1 ? toSequence(parts, options, maxLen) : toRegex(range, null, { wrap: false, ...options });
       }
       return range;
     };
-    var fillLetters = (start2, end, step = 1, options = {}) => {
-      if (!isNumber(start2) && start2.length > 1 || !isNumber(end) && end.length > 1) {
-        return invalidRange(start2, end, options);
+    var fillLetters = (start, end, step = 1, options = {}) => {
+      if (!isNumber(start) && start.length > 1 || !isNumber(end) && end.length > 1) {
+        return invalidRange(start, end, options);
       }
       let format = options.transform || ((val) => String.fromCharCode(val));
-      let a = `${start2}`.charCodeAt(0);
+      let a = `${start}`.charCodeAt(0);
       let b = `${end}`.charCodeAt(0);
       let descending = a > b;
       let min = Math.min(a, b);
@@ -839,38 +839,38 @@ var require_fill_range = __commonJS({
       }
       return range;
     };
-    var fill = (start2, end, step, options = {}) => {
-      if (end == null && isValidValue(start2)) {
-        return [start2];
+    var fill = (start, end, step, options = {}) => {
+      if (end == null && isValidValue(start)) {
+        return [start];
       }
-      if (!isValidValue(start2) || !isValidValue(end)) {
-        return invalidRange(start2, end, options);
+      if (!isValidValue(start) || !isValidValue(end)) {
+        return invalidRange(start, end, options);
       }
       if (typeof step === "function") {
-        return fill(start2, end, 1, { transform: step });
+        return fill(start, end, 1, { transform: step });
       }
       if (isObject(step)) {
-        return fill(start2, end, 0, step);
+        return fill(start, end, 0, step);
       }
       let opts = { ...options };
       if (opts.capture === true) opts.wrap = true;
       step = step || opts.step || 1;
       if (!isNumber(step)) {
         if (step != null && !isObject(step)) return invalidStep(step, opts);
-        return fill(start2, end, 1, step);
+        return fill(start, end, 1, step);
       }
-      if (isNumber(start2) && isNumber(end)) {
-        return fillNumbers(start2, end, step, opts);
+      if (isNumber(start) && isNumber(end)) {
+        return fillNumbers(start, end, step, opts);
       }
-      return fillLetters(start2, end, Math.max(Math.abs(step), 1), opts);
+      return fillLetters(start, end, Math.max(Math.abs(step), 1), opts);
     };
-    module2.exports = fill;
+    module.exports = fill;
   }
 });
 
 // ../../node_modules/braces/lib/compile.js
 var require_compile = __commonJS({
-  "../../node_modules/braces/lib/compile.js"(exports, module2) {
+  "../../node_modules/braces/lib/compile.js"(exports, module) {
     "use strict";
     var fill = require_fill_range();
     var utils = require_utils();
@@ -901,10 +901,10 @@ var require_compile = __commonJS({
           return node.value;
         }
         if (node.nodes && node.ranges > 0) {
-          const args2 = utils.reduce(node.nodes);
-          const range = fill(...args2, { ...options, wrap: false, toRegex: true, strictZeros: true });
+          const args = utils.reduce(node.nodes);
+          const range = fill(...args, { ...options, wrap: false, toRegex: true, strictZeros: true });
           if (range.length !== 0) {
-            return args2.length > 1 && range.length > 1 ? `(${range})` : range;
+            return args.length > 1 && range.length > 1 ? `(${range})` : range;
           }
         }
         if (node.nodes) {
@@ -916,16 +916,16 @@ var require_compile = __commonJS({
       };
       return walk(ast);
     };
-    module2.exports = compile;
+    module.exports = compile;
   }
 });
 
 // ../../node_modules/braces/lib/expand.js
 var require_expand = __commonJS({
-  "../../node_modules/braces/lib/expand.js"(exports, module2) {
+  "../../node_modules/braces/lib/expand.js"(exports, module) {
     "use strict";
     var fill = require_fill_range();
-    var stringify2 = require_stringify();
+    var stringify = require_stringify();
     var utils = require_utils();
     var append = (queue = "", stash = "", enclose = false) => {
       const result = [];
@@ -960,7 +960,7 @@ var require_expand = __commonJS({
           q = p.queue;
         }
         if (node.invalid || node.dollar) {
-          q.push(append(q.pop(), stringify2(node, options)));
+          q.push(append(q.pop(), stringify(node, options)));
           return;
         }
         if (node.type === "brace" && node.invalid !== true && node.nodes.length === 2) {
@@ -968,13 +968,13 @@ var require_expand = __commonJS({
           return;
         }
         if (node.nodes && node.ranges > 0) {
-          const args2 = utils.reduce(node.nodes);
-          if (utils.exceedsLimit(...args2, options.step, rangeLimit)) {
+          const args = utils.reduce(node.nodes);
+          if (utils.exceedsLimit(...args, options.step, rangeLimit)) {
             throw new RangeError("expanded array length exceeds range limit. Use options.rangeLimit to increase or disable the limit.");
           }
-          let range = fill(...args2, options);
+          let range = fill(...args, options);
           if (range.length === 0) {
-            range = stringify2(node, options);
+            range = stringify(node, options);
           }
           q.push(append(q.pop(), range));
           node.nodes = [];
@@ -987,10 +987,10 @@ var require_expand = __commonJS({
           block = block.parent;
           queue = block.queue;
         }
-        for (let i2 = 0; i2 < node.nodes.length; i2++) {
-          const child = node.nodes[i2];
+        for (let i = 0; i < node.nodes.length; i++) {
+          const child = node.nodes[i];
           if (child.type === "comma" && node.type === "brace") {
-            if (i2 === 1) queue.push("");
+            if (i === 1) queue.push("");
             queue.push("");
             continue;
           }
@@ -1010,15 +1010,15 @@ var require_expand = __commonJS({
       };
       return utils.flatten(walk(ast));
     };
-    module2.exports = expand;
+    module.exports = expand;
   }
 });
 
 // ../../node_modules/braces/lib/constants.js
 var require_constants = __commonJS({
-  "../../node_modules/braces/lib/constants.js"(exports, module2) {
+  "../../node_modules/braces/lib/constants.js"(exports, module) {
     "use strict";
-    module2.exports = {
+    module.exports = {
       MAX_LENGTH: 1e4,
       // Digits
       CHAR_0: "0",
@@ -1117,9 +1117,9 @@ var require_constants = __commonJS({
 
 // ../../node_modules/braces/lib/parse.js
 var require_parse = __commonJS({
-  "../../node_modules/braces/lib/parse.js"(exports, module2) {
+  "../../node_modules/braces/lib/parse.js"(exports, module) {
     "use strict";
-    var stringify2 = require_stringify();
+    var stringify = require_stringify();
     var {
       MAX_LENGTH,
       CHAR_BACKSLASH,
@@ -1149,7 +1149,7 @@ var require_parse = __commonJS({
       CHAR_NO_BREAK_SPACE,
       CHAR_ZERO_WIDTH_NOBREAK_SPACE
     } = require_constants();
-    var parse2 = (input, options = {}) => {
+    var parse = (input, options = {}) => {
       if (typeof input !== "string") {
         throw new TypeError("Expected a string");
       }
@@ -1291,7 +1291,7 @@ var require_parse = __commonJS({
           if (block.ranges > 0) {
             block.ranges = 0;
             const open = block.nodes.shift();
-            block.nodes = [open, { type: "text", value: stringify2(block) }];
+            block.nodes = [open, { type: "text", value: stringify(block) }];
           }
           push({ type: "comma", value });
           block.commas++;
@@ -1349,18 +1349,18 @@ var require_parse = __commonJS({
       push({ type: "eos" });
       return ast;
     };
-    module2.exports = parse2;
+    module.exports = parse;
   }
 });
 
 // ../../node_modules/braces/index.js
 var require_braces = __commonJS({
-  "../../node_modules/braces/index.js"(exports, module2) {
+  "../../node_modules/braces/index.js"(exports, module) {
     "use strict";
-    var stringify2 = require_stringify();
+    var stringify = require_stringify();
     var compile = require_compile();
     var expand = require_expand();
-    var parse2 = require_parse();
+    var parse = require_parse();
     var braces = (input, options = {}) => {
       let output = [];
       if (Array.isArray(input)) {
@@ -1380,12 +1380,12 @@ var require_braces = __commonJS({
       }
       return output;
     };
-    braces.parse = (input, options = {}) => parse2(input, options);
+    braces.parse = (input, options = {}) => parse(input, options);
     braces.stringify = (input, options = {}) => {
       if (typeof input === "string") {
-        return stringify2(braces.parse(input, options), options);
+        return stringify(braces.parse(input, options), options);
       }
-      return stringify2(input, options);
+      return stringify(input, options);
     };
     braces.compile = (input, options = {}) => {
       if (typeof input === "string") {
@@ -1412,13 +1412,13 @@ var require_braces = __commonJS({
       }
       return options.expand !== true ? braces.compile(input, options) : braces.expand(input, options);
     };
-    module2.exports = braces;
+    module.exports = braces;
   }
 });
 
 // ../../node_modules/micromatch/node_modules/picomatch/lib/constants.js
 var require_constants2 = __commonJS({
-  "../../node_modules/micromatch/node_modules/picomatch/lib/constants.js"(exports, module2) {
+  "../../node_modules/micromatch/node_modules/picomatch/lib/constants.js"(exports, module) {
     "use strict";
     var path = __require("path");
     var WIN_SLASH = "\\\\/";
@@ -1487,7 +1487,7 @@ var require_constants2 = __commonJS({
       word: "A-Za-z0-9_",
       xdigit: "A-Fa-f0-9"
     };
-    module2.exports = {
+    module.exports = {
       DEFAULT_MAX_EXTGLOB_RECURSION,
       MAX_LENGTH: 1024 * 64,
       POSIX_REGEX_SOURCE,
@@ -1680,7 +1680,7 @@ var require_utils2 = __commonJS({
 
 // ../../node_modules/micromatch/node_modules/picomatch/lib/scan.js
 var require_scan = __commonJS({
-  "../../node_modules/micromatch/node_modules/picomatch/lib/scan.js"(exports, module2) {
+  "../../node_modules/micromatch/node_modules/picomatch/lib/scan.js"(exports, module) {
     "use strict";
     var utils = require_utils2();
     var {
@@ -1729,10 +1729,10 @@ var require_scan = __commonJS({
       const scanToEnd = opts.parts === true || opts.scanToEnd === true;
       const slashes = [];
       const tokens = [];
-      const parts2 = [];
+      const parts = [];
       let str = input;
       let index = -1;
-      let start2 = 0;
+      let start = 0;
       let lastIndex = 0;
       let isBrace = false;
       let isBracket = false;
@@ -1815,8 +1815,8 @@ var require_scan = __commonJS({
           tokens.push(token);
           token = { value: "", depth: 0, isGlob: false };
           if (finished === true) continue;
-          if (prev === CHAR_DOT && index === start2 + 1) {
-            start2 += 2;
+          if (prev === CHAR_DOT && index === start + 1) {
+            start += 2;
             continue;
           }
           lastIndex = index + 1;
@@ -1828,7 +1828,7 @@ var require_scan = __commonJS({
             isGlob = token.isGlob = true;
             isExtglob = token.isExtglob = true;
             finished = true;
-            if (code === CHAR_EXCLAMATION_MARK && index === start2) {
+            if (code === CHAR_EXCLAMATION_MARK && index === start) {
               negatedExtglob = true;
             }
             if (scanToEnd === true) {
@@ -1885,9 +1885,9 @@ var require_scan = __commonJS({
           }
           break;
         }
-        if (opts.nonegate !== true && code === CHAR_EXCLAMATION_MARK && index === start2) {
+        if (opts.nonegate !== true && code === CHAR_EXCLAMATION_MARK && index === start) {
           negated = token.negated = true;
-          start2++;
+          start++;
           continue;
         }
         if (opts.noparen !== true && code === CHAR_LEFT_PARENTHESES) {
@@ -1923,10 +1923,10 @@ var require_scan = __commonJS({
       let base = str;
       let prefix2 = "";
       let glob = "";
-      if (start2 > 0) {
-        prefix2 = str.slice(0, start2);
-        str = str.slice(start2);
-        lastIndex -= start2;
+      if (start > 0) {
+        prefix2 = str.slice(0, start);
+        str = str.slice(start);
+        lastIndex -= start;
       }
       if (base && isGlob === true && lastIndex > 0) {
         base = str.slice(0, lastIndex);
@@ -1951,7 +1951,7 @@ var require_scan = __commonJS({
       const state = {
         prefix: prefix2,
         input,
-        start: start2,
+        start,
         base,
         glob,
         isBrace,
@@ -1972,11 +1972,11 @@ var require_scan = __commonJS({
       if (opts.parts === true || opts.tokens === true) {
         let prevIndex;
         for (let idx = 0; idx < slashes.length; idx++) {
-          const n = prevIndex ? prevIndex + 1 : start2;
-          const i2 = slashes[idx];
-          const value = input.slice(n, i2);
+          const n = prevIndex ? prevIndex + 1 : start;
+          const i = slashes[idx];
+          const value = input.slice(n, i);
           if (opts.tokens) {
-            if (idx === 0 && start2 !== 0) {
+            if (idx === 0 && start !== 0) {
               tokens[idx].isPrefix = true;
               tokens[idx].value = prefix2;
             } else {
@@ -1986,13 +1986,13 @@ var require_scan = __commonJS({
             state.maxDepth += tokens[idx].depth;
           }
           if (idx !== 0 || value !== "") {
-            parts2.push(value);
+            parts.push(value);
           }
-          prevIndex = i2;
+          prevIndex = i;
         }
         if (prevIndex && prevIndex + 1 < input.length) {
           const value = input.slice(prevIndex + 1);
-          parts2.push(value);
+          parts.push(value);
           if (opts.tokens) {
             tokens[tokens.length - 1].value = value;
             depth(tokens[tokens.length - 1]);
@@ -2000,17 +2000,17 @@ var require_scan = __commonJS({
           }
         }
         state.slashes = slashes;
-        state.parts = parts2;
+        state.parts = parts;
       }
       return state;
     };
-    module2.exports = scan;
+    module.exports = scan;
   }
 });
 
 // ../../node_modules/micromatch/node_modules/picomatch/lib/parse.js
 var require_parse2 = __commonJS({
-  "../../node_modules/micromatch/node_modules/picomatch/lib/parse.js"(exports, module2) {
+  "../../node_modules/micromatch/node_modules/picomatch/lib/parse.js"(exports, module) {
     "use strict";
     var constants = require_constants2();
     var utils = require_utils2();
@@ -2021,16 +2021,16 @@ var require_parse2 = __commonJS({
       REGEX_SPECIAL_CHARS_BACKREF,
       REPLACEMENTS
     } = constants;
-    var expandRange = (args2, options) => {
+    var expandRange = (args, options) => {
       if (typeof options.expandRange === "function") {
-        return options.expandRange(...args2, options);
+        return options.expandRange(...args, options);
       }
-      args2.sort();
-      const value = `[${args2.join("-")}]`;
+      args.sort();
+      const value = `[${args.join("-")}]`;
       try {
         new RegExp(value);
       } catch (ex) {
-        return args2.map((v) => utils.escapeRegex(v)).join("..");
+        return args.map((v) => utils.escapeRegex(v)).join("..");
       }
       return value;
     };
@@ -2038,7 +2038,7 @@ var require_parse2 = __commonJS({
       return `Missing ${type}: "${char}" - use "\\\\${char}" to match literal characters`;
     };
     var splitTopLevel = (input) => {
-      const parts2 = [];
+      const parts = [];
       let bracket = 0;
       let paren = 0;
       let quote = 0;
@@ -2071,7 +2071,7 @@ var require_parse2 = __commonJS({
             } else if (ch === ")" && paren > 0) {
               paren--;
             } else if (ch === "|" && paren === 0) {
-              parts2.push(value);
+              parts.push(value);
               value = "";
               continue;
             }
@@ -2079,8 +2079,8 @@ var require_parse2 = __commonJS({
         }
         value += ch;
       }
-      parts2.push(value);
-      return parts2;
+      parts.push(value);
+      return parts;
     };
     var isPlainBranch = (branch) => {
       let escaped = false;
@@ -2116,9 +2116,9 @@ var require_parse2 = __commonJS({
     };
     var hasRepeatedCharPrefixOverlap = (branches) => {
       const values = branches.map(normalizeSimpleBranch).filter(Boolean);
-      for (let i2 = 0; i2 < values.length; i2++) {
-        for (let j = i2 + 1; j < values.length; j++) {
-          const a = values[i2];
+      for (let i = 0; i < values.length; i++) {
+        for (let j = i + 1; j < values.length; j++) {
+          const a = values[i];
           const b = values[j];
           const char = a[0];
           if (!char || a !== char.repeat(a.length) || b !== char.repeat(b.length)) {
@@ -2139,8 +2139,8 @@ var require_parse2 = __commonJS({
       let paren = 0;
       let quote = 0;
       let escaped = false;
-      for (let i2 = 1; i2 < pattern.length; i2++) {
-        const ch = pattern[i2];
+      for (let i = 1; i < pattern.length; i++) {
+        const ch = pattern[i];
         if (escaped === true) {
           escaped = false;
           continue;
@@ -2174,13 +2174,13 @@ var require_parse2 = __commonJS({
         if (ch === ")") {
           paren--;
           if (paren === 0) {
-            if (requireEnd === true && i2 !== pattern.length - 1) {
+            if (requireEnd === true && i !== pattern.length - 1) {
               return;
             }
             return {
               type: pattern[0],
-              body: pattern.slice(2, i2),
-              end: i2
+              body: pattern.slice(2, i),
+              end: i
             };
           }
         }
@@ -2222,12 +2222,12 @@ var require_parse2 = __commonJS({
       }
       return depth;
     };
-    var analyzeRepeatedExtglob = (body2, options) => {
+    var analyzeRepeatedExtglob = (body, options) => {
       if (options.maxExtglobRecursion === false) {
         return { risky: false };
       }
       const max = typeof options.maxExtglobRecursion === "number" ? options.maxExtglobRecursion : constants.DEFAULT_MAX_EXTGLOB_RECURSION;
-      const branches = splitTopLevel(body2).map((branch) => branch.trim());
+      const branches = splitTopLevel(body).map((branch) => branch.trim());
       if (branches.length > 1) {
         if (branches.some((branch) => branch === "") || branches.some((branch) => /^[*?]+$/.test(branch)) || hasRepeatedCharPrefixOverlap(branches)) {
           return { risky: true };
@@ -2244,7 +2244,7 @@ var require_parse2 = __commonJS({
       }
       return { risky: false };
     };
-    var parse2 = (input, options) => {
+    var parse = (input, options) => {
       if (typeof input !== "string") {
         throw new TypeError("Expected a string");
       }
@@ -2385,18 +2385,18 @@ var require_parse2 = __commonJS({
       };
       const extglobClose = (token) => {
         const literal = input.slice(token.startIndex, state.index + 1);
-        const body2 = input.slice(token.startIndex + 2, state.index);
-        const analysis = analyzeRepeatedExtglob(body2, opts);
+        const body = input.slice(token.startIndex + 2, state.index);
+        const analysis = analyzeRepeatedExtglob(body, opts);
         if ((token.type === "plus" || token.type === "star") && analysis.risky) {
           const safeOutput = analysis.safeOutput ? (token.output ? "" : ONE_CHAR) + (opts.capture ? `(${analysis.safeOutput})` : analysis.safeOutput) : void 0;
           const open = tokens[token.tokensIndex];
           open.type = "text";
           open.value = literal;
           open.output = safeOutput || utils.escapeRegex(literal);
-          for (let i2 = token.tokensIndex + 1; i2 < tokens.length; i2++) {
-            tokens[i2].value = "";
-            tokens[i2].output = "";
-            delete tokens[i2].suffix;
+          for (let i = token.tokensIndex + 1; i < tokens.length; i++) {
+            tokens[i].value = "";
+            tokens[i].output = "";
+            delete tokens[i].suffix;
           }
           state.output = token.output + open.output;
           state.backtrack = true;
@@ -2415,7 +2415,7 @@ var require_parse2 = __commonJS({
             output = token.close = `)$))${extglobStar}`;
           }
           if (token.inner.includes("*") && (rest = remaining()) && /^\.[^\\/.]+$/.test(rest)) {
-            const expression = parse2(rest, { ...options, fastpaths: false }).output;
+            const expression = parse(rest, { ...options, fastpaths: false }).output;
             output = token.close = `)${expression})${extglobStar})`;
           }
           if (token.prev.type === "bos") {
@@ -2639,24 +2639,24 @@ var require_parse2 = __commonJS({
           if (brace.dots === true) {
             const arr = tokens.slice();
             const range = [];
-            for (let i2 = arr.length - 1; i2 >= 0; i2--) {
+            for (let i = arr.length - 1; i >= 0; i--) {
               tokens.pop();
-              if (arr[i2].type === "brace") {
+              if (arr[i].type === "brace") {
                 break;
               }
-              if (arr[i2].type !== "dots") {
-                range.unshift(arr[i2].value);
+              if (arr[i].type !== "dots") {
+                range.unshift(arr[i].value);
               }
             }
             output = expandRange(range, opts);
             state.backtrack = true;
           }
           if (brace.comma !== true && brace.dots !== true) {
-            const out2 = state.output.slice(0, brace.outputIndex);
+            const out = state.output.slice(0, brace.outputIndex);
             const toks = state.tokens.slice(brace.tokensIndex);
             brace.value = brace.output = "\\{";
             value = output = "\\}";
-            state.output = out2;
+            state.output = out;
             for (const t of toks) {
               state.output += t.output || t.value;
             }
@@ -2940,7 +2940,7 @@ var require_parse2 = __commonJS({
       }
       return state;
     };
-    parse2.fastpaths = (input, options) => {
+    parse.fastpaths = (input, options) => {
       const opts = { ...options };
       const max = typeof opts.maxLength === "number" ? Math.min(MAX_LENGTH, opts.maxLength) : MAX_LENGTH;
       const len = input.length;
@@ -3006,17 +3006,17 @@ var require_parse2 = __commonJS({
       }
       return source;
     };
-    module2.exports = parse2;
+    module.exports = parse;
   }
 });
 
 // ../../node_modules/micromatch/node_modules/picomatch/lib/picomatch.js
 var require_picomatch = __commonJS({
-  "../../node_modules/micromatch/node_modules/picomatch/lib/picomatch.js"(exports, module2) {
+  "../../node_modules/micromatch/node_modules/picomatch/lib/picomatch.js"(exports, module) {
     "use strict";
     var path = __require("path");
     var scan = require_scan();
-    var parse2 = require_parse2();
+    var parse = require_parse2();
     var utils = require_utils2();
     var constants = require_constants2();
     var isObject = (val) => val && typeof val === "object" && !Array.isArray(val);
@@ -3104,7 +3104,7 @@ var require_picomatch = __commonJS({
     picomatch.isMatch = (str, patterns, options) => picomatch(patterns, options)(str);
     picomatch.parse = (pattern, options) => {
       if (Array.isArray(pattern)) return pattern.map((p) => picomatch.parse(p, options));
-      return parse2(pattern, { ...options, fastpaths: false });
+      return parse(pattern, { ...options, fastpaths: false });
     };
     picomatch.scan = (input, options) => scan(input, options);
     picomatch.compileRe = (state, options, returnOutput = false, returnState = false) => {
@@ -3130,10 +3130,10 @@ var require_picomatch = __commonJS({
       }
       let parsed = { negated: false, fastpaths: true };
       if (options.fastpaths !== false && (input[0] === "." || input[0] === "*")) {
-        parsed.output = parse2.fastpaths(input, options);
+        parsed.output = parse.fastpaths(input, options);
       }
       if (!parsed.output) {
-        parsed = parse2(input, options);
+        parsed = parse(input, options);
       }
       return picomatch.compileRe(parsed, options, returnOutput, returnState);
     };
@@ -3141,27 +3141,27 @@ var require_picomatch = __commonJS({
       try {
         const opts = options || {};
         return new RegExp(source, opts.flags || (opts.nocase ? "i" : ""));
-      } catch (err2) {
-        if (options && options.debug === true) throw err2;
+      } catch (err) {
+        if (options && options.debug === true) throw err;
         return /$^/;
       }
     };
     picomatch.constants = constants;
-    module2.exports = picomatch;
+    module.exports = picomatch;
   }
 });
 
 // ../../node_modules/micromatch/node_modules/picomatch/index.js
 var require_picomatch2 = __commonJS({
-  "../../node_modules/micromatch/node_modules/picomatch/index.js"(exports, module2) {
+  "../../node_modules/micromatch/node_modules/picomatch/index.js"(exports, module) {
     "use strict";
-    module2.exports = require_picomatch();
+    module.exports = require_picomatch();
   }
 });
 
 // ../../node_modules/micromatch/index.js
 var require_micromatch = __commonJS({
-  "../../node_modules/micromatch/index.js"(exports, module2) {
+  "../../node_modules/micromatch/index.js"(exports, module) {
     "use strict";
     var util = __require("util");
     var braces = require_braces();
@@ -3185,8 +3185,8 @@ var require_micromatch = __commonJS({
           options.onResult(state);
         }
       };
-      for (let i2 = 0; i2 < patterns.length; i2++) {
-        let isMatch = picomatch(String(patterns[i2]), { ...options, onResult }, true);
+      for (let i = 0; i < patterns.length; i++) {
+        let isMatch = picomatch(String(patterns[i]), { ...options, onResult }, true);
         let negated = isMatch.state.negated || isMatch.state.negatedExtglob;
         if (negated) negatives++;
         for (let item of list) {
@@ -3293,8 +3293,8 @@ var require_micromatch = __commonJS({
         return match.slice(1).map((v) => v === void 0 ? "" : v);
       }
     };
-    micromatch.makeRe = (...args2) => picomatch.makeRe(...args2);
-    micromatch.scan = (...args2) => picomatch.scan(...args2);
+    micromatch.makeRe = (...args) => picomatch.makeRe(...args);
+    micromatch.scan = (...args) => picomatch.scan(...args);
     micromatch.parse = (patterns, options) => {
       let res = [];
       for (let pattern of [].concat(patterns || [])) {
@@ -3316,7 +3316,7 @@ var require_micromatch = __commonJS({
       return micromatch.braces(pattern, { ...options, expand: true });
     };
     micromatch.hasBraces = hasBraces;
-    module2.exports = micromatch;
+    module.exports = micromatch;
   }
 });
 
@@ -3438,15 +3438,15 @@ var require_pattern = __commonJS({
     }
     exports.expandBraceExpansion = expandBraceExpansion;
     function getPatternParts(pattern, options) {
-      let { parts: parts2 } = micromatch.scan(pattern, Object.assign(Object.assign({}, options), { parts: true }));
-      if (parts2.length === 0) {
-        parts2 = [pattern];
+      let { parts } = micromatch.scan(pattern, Object.assign(Object.assign({}, options), { parts: true }));
+      if (parts.length === 0) {
+        parts = [pattern];
       }
-      if (parts2[0].startsWith("/")) {
-        parts2[0] = parts2[0].slice(1);
-        parts2.unshift("");
+      if (parts[0].startsWith("/")) {
+        parts[0] = parts[0].slice(1);
+        parts.unshift("");
       }
-      return parts2;
+      return parts;
     }
     exports.getPatternParts = getPatternParts;
     function makeRe(pattern, options) {
@@ -3487,19 +3487,19 @@ var require_pattern = __commonJS({
 
 // ../../node_modules/merge2/index.js
 var require_merge2 = __commonJS({
-  "../../node_modules/merge2/index.js"(exports, module2) {
+  "../../node_modules/merge2/index.js"(exports, module) {
     "use strict";
     var Stream = __require("stream");
     var PassThrough = Stream.PassThrough;
     var slice = Array.prototype.slice;
-    module2.exports = merge2;
+    module.exports = merge2;
     function merge2() {
       const streamsQueue = [];
-      const args2 = slice.call(arguments);
+      const args = slice.call(arguments);
       let merging = false;
-      let options = args2[args2.length - 1];
+      let options = args[args.length - 1];
       if (options && !Array.isArray(options) && options.pipe == null) {
-        args2.pop();
+        args.pop();
       } else {
         options = {};
       }
@@ -3513,8 +3513,8 @@ var require_merge2 = __commonJS({
       }
       const mergedStream = PassThrough(options);
       function addStream() {
-        for (let i2 = 0, len = arguments.length; i2 < len; i2++) {
-          streamsQueue.push(pauseStreams(arguments[i2], options));
+        for (let i = 0, len = arguments.length; i < len; i++) {
+          streamsQueue.push(pauseStreams(arguments[i], options));
         }
         mergeStream();
         return this;
@@ -3549,8 +3549,8 @@ var require_merge2 = __commonJS({
             }
             next();
           }
-          function onerror(err2) {
-            mergedStream.emit("error", err2);
+          function onerror(err) {
+            mergedStream.emit("error", err);
           }
           if (stream._readableState.endEmitted) {
             return next();
@@ -3563,8 +3563,8 @@ var require_merge2 = __commonJS({
           stream.pipe(mergedStream, { end: false });
           stream.resume();
         }
-        for (let i2 = 0; i2 < streams.length; i2++) {
-          pipe(streams[i2]);
+        for (let i = 0; i < streams.length; i++) {
+          pipe(streams[i]);
         }
         next();
       }
@@ -3580,8 +3580,8 @@ var require_merge2 = __commonJS({
       mergedStream.on("unpipe", function(stream) {
         stream.emit("merge2UnpipeEnd");
       });
-      if (args2.length) {
-        addStream.apply(null, args2);
+      if (args.length) {
+        addStream.apply(null, args);
       }
       return mergedStream;
     }
@@ -3595,8 +3595,8 @@ var require_merge2 = __commonJS({
         }
         streams.pause();
       } else {
-        for (let i2 = 0, len = streams.length; i2 < len; i2++) {
-          streams[i2] = pauseStreams(streams[i2], options);
+        for (let i = 0, len = streams.length; i < len; i++) {
+          streams[i] = pauseStreams(streams[i], options);
         }
       }
       return streams;
@@ -3654,8 +3654,8 @@ var require_utils3 = __commonJS({
     exports.array = array;
     var errno = require_errno();
     exports.errno = errno;
-    var fs2 = require_fs();
-    exports.fs = fs2;
+    var fs = require_fs();
+    exports.fs = fs;
     var path = require_path();
     exports.path = path;
     var pattern = require_pattern();
@@ -3839,12 +3839,12 @@ var require_fs2 = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.createFileSystemAdapter = exports.FILE_SYSTEM_ADAPTER = void 0;
-    var fs2 = __require("fs");
+    var fs = __require("fs");
     exports.FILE_SYSTEM_ADAPTER = {
-      lstat: fs2.lstat,
-      stat: fs2.stat,
-      lstatSync: fs2.lstatSync,
-      statSync: fs2.statSync
+      lstat: fs.lstat,
+      stat: fs.stat,
+      lstatSync: fs.lstatSync,
+      statSync: fs.statSync
     };
     function createFileSystemAdapter(fsMethods) {
       if (fsMethods === void 0) {
@@ -3861,12 +3861,12 @@ var require_settings = __commonJS({
   "../../node_modules/@nodelib/fs.stat/out/settings.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    var fs2 = require_fs2();
+    var fs = require_fs2();
     var Settings = class {
       constructor(_options = {}) {
         this._options = _options;
         this.followSymbolicLink = this._getValue(this._options.followSymbolicLink, true);
-        this.fs = fs2.createFileSystemAdapter(this._options.fs);
+        this.fs = fs.createFileSystemAdapter(this._options.fs);
         this.markSymbolicLink = this._getValue(this._options.markSymbolicLink, false);
         this.throwErrorOnBrokenSymbolicLink = this._getValue(this._options.throwErrorOnBrokenSymbolicLink, true);
       }
@@ -3912,18 +3912,18 @@ var require_out = __commonJS({
 
 // ../../node_modules/queue-microtask/index.js
 var require_queue_microtask = __commonJS({
-  "../../node_modules/queue-microtask/index.js"(exports, module2) {
+  "../../node_modules/queue-microtask/index.js"(exports, module) {
     var promise;
-    module2.exports = typeof queueMicrotask === "function" ? queueMicrotask.bind(typeof window !== "undefined" ? window : global) : (cb) => (promise || (promise = Promise.resolve())).then(cb).catch((err2) => setTimeout(() => {
-      throw err2;
+    module.exports = typeof queueMicrotask === "function" ? queueMicrotask.bind(typeof window !== "undefined" ? window : global) : (cb) => (promise || (promise = Promise.resolve())).then(cb).catch((err) => setTimeout(() => {
+      throw err;
     }, 0));
   }
 });
 
 // ../../node_modules/run-parallel/index.js
 var require_run_parallel = __commonJS({
-  "../../node_modules/run-parallel/index.js"(exports, module2) {
-    module2.exports = runParallel;
+  "../../node_modules/run-parallel/index.js"(exports, module) {
+    module.exports = runParallel;
     var queueMicrotask2 = require_queue_microtask();
     function runParallel(tasks, cb) {
       let results, pending, keys;
@@ -3936,32 +3936,32 @@ var require_run_parallel = __commonJS({
         results = {};
         pending = keys.length;
       }
-      function done(err2) {
+      function done(err) {
         function end() {
-          if (cb) cb(err2, results);
+          if (cb) cb(err, results);
           cb = null;
         }
         if (isSync) queueMicrotask2(end);
         else end();
       }
-      function each(i2, err2, result) {
-        results[i2] = result;
-        if (--pending === 0 || err2) {
-          done(err2);
+      function each(i, err, result) {
+        results[i] = result;
+        if (--pending === 0 || err) {
+          done(err);
         }
       }
       if (!pending) {
         done(null);
       } else if (keys) {
         keys.forEach(function(key) {
-          tasks[key](function(err2, result) {
-            each(key, err2, result);
+          tasks[key](function(err, result) {
+            each(key, err, result);
           });
         });
       } else {
-        tasks.forEach(function(task, i2) {
-          task(function(err2, result) {
-            each(i2, err2, result);
+        tasks.forEach(function(task, i) {
+          task(function(err, result) {
+            each(i, err, result);
           });
         });
       }
@@ -3997,8 +3997,8 @@ var require_fs3 = __commonJS({
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.createDirentFromStats = void 0;
     var DirentFromStats = class {
-      constructor(name2, stats) {
-        this.name = name2;
+      constructor(name, stats) {
+        this.name = name;
         this.isBlockDevice = stats.isBlockDevice.bind(stats);
         this.isCharacterDevice = stats.isCharacterDevice.bind(stats);
         this.isDirectory = stats.isDirectory.bind(stats);
@@ -4008,8 +4008,8 @@ var require_fs3 = __commonJS({
         this.isSymbolicLink = stats.isSymbolicLink.bind(stats);
       }
     };
-    function createDirentFromStats(name2, stats) {
-      return new DirentFromStats(name2, stats);
+    function createDirentFromStats(name, stats) {
+      return new DirentFromStats(name, stats);
     }
     exports.createDirentFromStats = createDirentFromStats;
   }
@@ -4021,8 +4021,8 @@ var require_utils4 = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.fs = void 0;
-    var fs2 = require_fs3();
-    exports.fs = fs2;
+    var fs = require_fs3();
+    exports.fs = fs;
   }
 });
 
@@ -4113,8 +4113,8 @@ var require_async2 = __commonJS({
           callFailureCallback(callback, readdirError);
           return;
         }
-        const tasks = names.map((name2) => {
-          const path = common.joinPathSegments(directory, name2, settings.pathSegmentSeparator);
+        const tasks = names.map((name) => {
+          const path = common.joinPathSegments(directory, name, settings.pathSegmentSeparator);
           return (done) => {
             fsStat.stat(path, settings.fsStatSettings, (error, stats) => {
               if (error !== null) {
@@ -4122,9 +4122,9 @@ var require_async2 = __commonJS({
                 return;
               }
               const entry = {
-                name: name2,
+                name,
                 path,
-                dirent: utils.fs.createDirentFromStats(name2, stats)
+                dirent: utils.fs.createDirentFromStats(name, stats)
               };
               if (settings.stats) {
                 entry.stats = stats;
@@ -4193,13 +4193,13 @@ var require_sync2 = __commonJS({
     exports.readdirWithFileTypes = readdirWithFileTypes;
     function readdir(directory, settings) {
       const names = settings.fs.readdirSync(directory);
-      return names.map((name2) => {
-        const entryPath = common.joinPathSegments(directory, name2, settings.pathSegmentSeparator);
+      return names.map((name) => {
+        const entryPath = common.joinPathSegments(directory, name, settings.pathSegmentSeparator);
         const stats = fsStat.statSync(entryPath, settings.fsStatSettings);
         const entry = {
-          name: name2,
+          name,
           path: entryPath,
-          dirent: utils.fs.createDirentFromStats(name2, stats)
+          dirent: utils.fs.createDirentFromStats(name, stats)
         };
         if (settings.stats) {
           entry.stats = stats;
@@ -4217,14 +4217,14 @@ var require_fs4 = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.createFileSystemAdapter = exports.FILE_SYSTEM_ADAPTER = void 0;
-    var fs2 = __require("fs");
+    var fs = __require("fs");
     exports.FILE_SYSTEM_ADAPTER = {
-      lstat: fs2.lstat,
-      stat: fs2.stat,
-      lstatSync: fs2.lstatSync,
-      statSync: fs2.statSync,
-      readdir: fs2.readdir,
-      readdirSync: fs2.readdirSync
+      lstat: fs.lstat,
+      stat: fs.stat,
+      lstatSync: fs.lstatSync,
+      statSync: fs.statSync,
+      readdir: fs.readdir,
+      readdirSync: fs.readdirSync
     };
     function createFileSystemAdapter(fsMethods) {
       if (fsMethods === void 0) {
@@ -4243,12 +4243,12 @@ var require_settings2 = __commonJS({
     Object.defineProperty(exports, "__esModule", { value: true });
     var path = __require("path");
     var fsStat = require_out();
-    var fs2 = require_fs4();
+    var fs = require_fs4();
     var Settings = class {
       constructor(_options = {}) {
         this._options = _options;
         this.followSymbolicLinks = this._getValue(this._options.followSymbolicLinks, false);
-        this.fs = fs2.createFileSystemAdapter(this._options.fs);
+        this.fs = fs.createFileSystemAdapter(this._options.fs);
         this.pathSegmentSeparator = this._getValue(this._options.pathSegmentSeparator, path.sep);
         this.stats = this._getValue(this._options.stats, false);
         this.throwErrorOnBrokenSymbolicLink = this._getValue(this._options.throwErrorOnBrokenSymbolicLink, true);
@@ -4300,7 +4300,7 @@ var require_out2 = __commonJS({
 
 // ../../node_modules/reusify/reusify.js
 var require_reusify = __commonJS({
-  "../../node_modules/reusify/reusify.js"(exports, module2) {
+  "../../node_modules/reusify/reusify.js"(exports, module) {
     "use strict";
     function reusify(Constructor) {
       var head = new Constructor();
@@ -4325,13 +4325,13 @@ var require_reusify = __commonJS({
         release
       };
     }
-    module2.exports = reusify;
+    module.exports = reusify;
   }
 });
 
 // ../../node_modules/fastq/queue.js
 var require_queue = __commonJS({
-  "../../node_modules/fastq/queue.js"(exports, module2) {
+  "../../node_modules/fastq/queue.js"(exports, module) {
     "use strict";
     var reusify = require_reusify();
     function fastqueue(context, worker, _concurrency) {
@@ -4348,7 +4348,7 @@ var require_queue = __commonJS({
       var queueTail = null;
       var _running = 0;
       var errorHandler = null;
-      var self2 = {
+      var self = {
         push,
         drain: noop,
         saturated: noop,
@@ -4362,7 +4362,7 @@ var require_queue = __commonJS({
             throw new Error("fastqueue concurrency must be equal to or greater than 1");
           }
           _concurrency = value;
-          if (self2.paused) return;
+          if (self.paused) return;
           for (; queueHead && _running < _concurrency; ) {
             _running++;
             release();
@@ -4378,14 +4378,14 @@ var require_queue = __commonJS({
         kill,
         killAndDrain,
         error,
-        abort: abort2
+        abort
       };
-      return self2;
+      return self;
       function running() {
         return _running;
       }
       function pause() {
-        self2.paused = true;
+        self.paused = true;
       }
       function length() {
         var current = queueHead;
@@ -4406,8 +4406,8 @@ var require_queue = __commonJS({
         return tasks;
       }
       function resume() {
-        if (!self2.paused) return;
-        self2.paused = false;
+        if (!self.paused) return;
+        self.paused = false;
         if (queueHead === null) {
           _running++;
           release();
@@ -4419,7 +4419,7 @@ var require_queue = __commonJS({
         }
       }
       function idle() {
-        return _running === 0 && self2.length() === 0;
+        return _running === 0 && self.length() === 0;
       }
       function push(value, done) {
         var current = cache.get();
@@ -4428,14 +4428,14 @@ var require_queue = __commonJS({
         current.value = value;
         current.callback = done || noop;
         current.errorHandler = errorHandler;
-        if (_running >= _concurrency || self2.paused) {
+        if (_running >= _concurrency || self.paused) {
           if (queueTail) {
             queueTail.next = current;
             queueTail = current;
           } else {
             queueHead = current;
             queueTail = current;
-            self2.saturated();
+            self.saturated();
           }
         } else {
           _running++;
@@ -4449,14 +4449,14 @@ var require_queue = __commonJS({
         current.value = value;
         current.callback = done || noop;
         current.errorHandler = errorHandler;
-        if (_running >= _concurrency || self2.paused) {
+        if (_running >= _concurrency || self.paused) {
           if (queueHead) {
             current.next = queueHead;
             queueHead = current;
           } else {
             queueHead = current;
             queueTail = current;
-            self2.saturated();
+            self.saturated();
           }
         } else {
           _running++;
@@ -4469,7 +4469,7 @@ var require_queue = __commonJS({
         }
         var next = queueHead;
         if (next && _running <= _concurrency) {
-          if (!self2.paused) {
+          if (!self.paused) {
             if (queueTail === queueHead) {
               queueTail = null;
             }
@@ -4477,27 +4477,27 @@ var require_queue = __commonJS({
             next.next = null;
             worker.call(context, next.value, next.worked);
             if (queueTail === null) {
-              self2.empty();
+              self.empty();
             }
           } else {
             _running--;
           }
         } else if (--_running === 0) {
-          self2.drain();
+          self.drain();
         }
       }
       function kill() {
         queueHead = null;
         queueTail = null;
-        self2.drain = noop;
+        self.drain = noop;
       }
       function killAndDrain() {
         queueHead = null;
         queueTail = null;
-        self2.drain();
-        self2.drain = noop;
+        self.drain();
+        self.drain = noop;
       }
-      function abort2() {
+      function abort() {
         var current = queueHead;
         queueHead = null;
         queueTail = null;
@@ -4517,7 +4517,7 @@ var require_queue = __commonJS({
           current.release(current);
           current = next;
         }
-        self2.drain = noop;
+        self.drain = noop;
       }
       function error(handler) {
         errorHandler = handler;
@@ -4532,18 +4532,18 @@ var require_queue = __commonJS({
       this.release = noop;
       this.context = null;
       this.errorHandler = null;
-      var self2 = this;
-      this.worked = function worked(err2, result) {
-        var callback = self2.callback;
-        var errorHandler = self2.errorHandler;
-        var val = self2.value;
-        self2.value = null;
-        self2.callback = noop;
-        if (self2.errorHandler) {
-          errorHandler(err2, val);
+      var self = this;
+      this.worked = function worked(err, result) {
+        var callback = self.callback;
+        var errorHandler = self.errorHandler;
+        var val = self.value;
+        self.value = null;
+        self.callback = noop;
+        if (self.errorHandler) {
+          errorHandler(err, val);
         }
-        callback.call(self2.context, err2, result);
-        self2.release(self2);
+        callback.call(self.context, err, result);
+        self.release(self);
       };
     }
     function queueAsPromised(context, worker, _concurrency) {
@@ -4566,9 +4566,9 @@ var require_queue = __commonJS({
       return queue;
       function push(value) {
         var p = new Promise(function(resolve6, reject) {
-          pushCb(value, function(err2, result) {
-            if (err2) {
-              reject(err2);
+          pushCb(value, function(err, result) {
+            if (err) {
+              reject(err);
               return;
             }
             resolve6(result);
@@ -4579,9 +4579,9 @@ var require_queue = __commonJS({
       }
       function unshift(value) {
         var p = new Promise(function(resolve6, reject) {
-          unshiftCb(value, function(err2, result) {
-            if (err2) {
-              reject(err2);
+          unshiftCb(value, function(err, result) {
+            if (err) {
+              reject(err);
               return;
             }
             resolve6(result);
@@ -4608,8 +4608,8 @@ var require_queue = __commonJS({
         return p;
       }
     }
-    module2.exports = fastqueue;
-    module2.exports.promise = queueAsPromised;
+    module.exports = fastqueue;
+    module.exports.promise = queueAsPromised;
   }
 });
 
@@ -5071,8 +5071,8 @@ var require_stream3 = __commonJS({
             done();
           }).catch(done);
         };
-        for (let i2 = 0; i2 < filepaths.length; i2++) {
-          stream.write(i2);
+        for (let i = 0; i < filepaths.length; i++) {
+          stream.write(i);
         }
         return stream;
       }
@@ -5162,8 +5162,8 @@ var require_matcher = __commonJS({
         }
       }
       _getPatternSegments(pattern) {
-        const parts2 = utils.pattern.getPatternParts(pattern, this._micromatchOptions);
-        return parts2.map((part) => {
+        const parts = utils.pattern.getPatternParts(pattern, this._micromatchOptions);
+        return parts.map((part) => {
           const dynamic = utils.pattern.isDynamicPattern(part, this._settings);
           if (!dynamic) {
             return {
@@ -5194,15 +5194,15 @@ var require_partial = __commonJS({
     var matcher_1 = require_matcher();
     var PartialMatcher = class extends matcher_1.default {
       match(filepath) {
-        const parts2 = filepath.split("/");
-        const levels = parts2.length;
-        const patterns = this._storage.filter((info2) => !info2.complete || info2.segments.length > levels);
+        const parts = filepath.split("/");
+        const levels = parts.length;
+        const patterns = this._storage.filter((info) => !info.complete || info.segments.length > levels);
         for (const pattern of patterns) {
           const section = pattern.sections[0];
           if (!pattern.complete && levels > section.length) {
             return true;
           }
-          const match = parts2.every((part, index) => {
+          const match = parts.every((part, index) => {
             const segment = pattern.segments[index];
             if (segment.dynamic && segment.patternRe.test(part)) {
               return true;
@@ -5629,16 +5629,16 @@ var require_settings4 = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.DEFAULT_FILE_SYSTEM_ADAPTER = void 0;
-    var fs2 = __require("fs");
+    var fs = __require("fs");
     var os = __require("os");
     var CPU_COUNT = Math.max(os.cpus().length, 1);
     exports.DEFAULT_FILE_SYSTEM_ADAPTER = {
-      lstat: fs2.lstat,
-      lstatSync: fs2.lstatSync,
-      stat: fs2.stat,
-      statSync: fs2.statSync,
-      readdir: fs2.readdir,
-      readdirSync: fs2.readdirSync
+      lstat: fs.lstat,
+      lstatSync: fs.lstatSync,
+      stat: fs.stat,
+      statSync: fs.statSync,
+      readdir: fs.readdir,
+      readdirSync: fs.readdirSync
     };
     var Settings = class {
       constructor(_options = {}) {
@@ -5685,7 +5685,7 @@ var require_settings4 = __commonJS({
 
 // ../../node_modules/fast-glob/out/index.js
 var require_out4 = __commonJS({
-  "../../node_modules/fast-glob/out/index.js"(exports, module2) {
+  "../../node_modules/fast-glob/out/index.js"(exports, module) {
     "use strict";
     var taskManager = require_tasks();
     var async_1 = require_async6();
@@ -5780,7 +5780,7 @@ var require_out4 = __commonJS({
         throw new TypeError("Patterns must be a string (non empty) or an array of strings");
       }
     }
-    module2.exports = FastGlob;
+    module.exports = FastGlob;
   }
 });
 
@@ -6202,10 +6202,10 @@ function getConfig() {
   }
   const result = RawConfigSchema.safeParse(rawYaml);
   if (!result.success) {
-    const issues = result.error.issues.map((i2) => {
-      const path = i2.path.length > 0 ? i2.path.join(".") : "(root)";
-      const received = "received" in i2 && i2.received !== void 0 ? ` (received ${JSON.stringify(i2.received)})` : "";
-      return `  - ${path}: ${i2.message}${received}`;
+    const issues = result.error.issues.map((i) => {
+      const path = i.path.length > 0 ? i.path.join(".") : "(root)";
+      const received = "received" in i && i.received !== void 0 ? ` (received ${JSON.stringify(i.received)})` : "";
+      return `  - ${path}: ${i.message}${received}`;
     }).join("\n");
     throw new Error(
       `Invalid massu.config.yaml at ${configPath}:
@@ -6914,696 +6914,7 @@ import { parse as parseYaml3 } from "yaml";
 // src/detect/package-detector.ts
 import { readFileSync as readFileSync2, existsSync as existsSync3, statSync, lstatSync, readdirSync } from "fs";
 import { join, relative } from "path";
-
-// ../../node_modules/smol-toml/dist/error.js
-function getLineColFromPtr(string, ptr) {
-  let lines = string.slice(0, ptr).split(/\r\n|\n|\r/g);
-  return [lines.length, lines.pop().length + 1];
-}
-function makeCodeBlock(string, line, column) {
-  let lines = string.split(/\r\n|\n|\r/g);
-  let codeblock = "";
-  let numberLen = (Math.log10(line + 1) | 0) + 1;
-  for (let i2 = line - 1; i2 <= line + 1; i2++) {
-    let l = lines[i2 - 1];
-    if (!l)
-      continue;
-    codeblock += i2.toString().padEnd(numberLen, " ");
-    codeblock += ":  ";
-    codeblock += l;
-    codeblock += "\n";
-    if (i2 === line) {
-      codeblock += " ".repeat(numberLen + column + 2);
-      codeblock += "^\n";
-    }
-  }
-  return codeblock;
-}
-var TomlError = class extends Error {
-  line;
-  column;
-  codeblock;
-  constructor(message, options) {
-    const [line, column] = getLineColFromPtr(options.toml, options.ptr);
-    const codeblock = makeCodeBlock(options.toml, line, column);
-    super(`Invalid TOML document: ${message}
-
-${codeblock}`, options);
-    this.line = line;
-    this.column = column;
-    this.codeblock = codeblock;
-  }
-};
-
-// ../../node_modules/smol-toml/dist/util.js
-function isEscaped(str, ptr) {
-  let i2 = 0;
-  while (str[ptr - ++i2] === "\\")
-    ;
-  return --i2 && i2 % 2;
-}
-function indexOfNewline(str, start2 = 0, end = str.length) {
-  let idx = str.indexOf("\n", start2);
-  if (str[idx - 1] === "\r")
-    idx--;
-  return idx <= end ? idx : -1;
-}
-function skipComment(str, ptr) {
-  for (let i2 = ptr; i2 < str.length; i2++) {
-    let c = str[i2];
-    if (c === "\n")
-      return i2;
-    if (c === "\r" && str[i2 + 1] === "\n")
-      return i2 + 1;
-    if (c < " " && c !== "	" || c === "\x7F") {
-      throw new TomlError("control characters are not allowed in comments", {
-        toml: str,
-        ptr
-      });
-    }
-  }
-  return str.length;
-}
-function skipVoid(str, ptr, banNewLines, banComments) {
-  let c;
-  while (1) {
-    while ((c = str[ptr]) === " " || c === "	" || !banNewLines && (c === "\n" || c === "\r" && str[ptr + 1] === "\n"))
-      ptr++;
-    if (banComments || c !== "#")
-      break;
-    ptr = skipComment(str, ptr);
-  }
-  return ptr;
-}
-function skipUntil(str, ptr, sep, end, banNewLines = false) {
-  if (!end) {
-    ptr = indexOfNewline(str, ptr);
-    return ptr < 0 ? str.length : ptr;
-  }
-  for (let i2 = ptr; i2 < str.length; i2++) {
-    let c = str[i2];
-    if (c === "#") {
-      i2 = indexOfNewline(str, i2);
-    } else if (c === sep) {
-      return i2 + 1;
-    } else if (c === end || banNewLines && (c === "\n" || c === "\r" && str[i2 + 1] === "\n")) {
-      return i2;
-    }
-  }
-  throw new TomlError("cannot find end of structure", {
-    toml: str,
-    ptr
-  });
-}
-function getStringEnd(str, seek) {
-  let first = str[seek];
-  let target = first === str[seek + 1] && str[seek + 1] === str[seek + 2] ? str.slice(seek, seek + 3) : first;
-  seek += target.length - 1;
-  do
-    seek = str.indexOf(target, ++seek);
-  while (seek > -1 && first !== "'" && isEscaped(str, seek));
-  if (seek > -1) {
-    seek += target.length;
-    if (target.length > 1) {
-      if (str[seek] === first)
-        seek++;
-      if (str[seek] === first)
-        seek++;
-    }
-  }
-  return seek;
-}
-
-// ../../node_modules/smol-toml/dist/date.js
-var DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[T ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[-+]\d{2}:\d{2})?$/i;
-var TomlDate = class _TomlDate extends Date {
-  #hasDate = false;
-  #hasTime = false;
-  #offset = null;
-  constructor(date) {
-    let hasDate = true;
-    let hasTime = true;
-    let offset = "Z";
-    if (typeof date === "string") {
-      let match = date.match(DATE_TIME_RE);
-      if (match) {
-        if (!match[1]) {
-          hasDate = false;
-          date = `0000-01-01T${date}`;
-        }
-        hasTime = !!match[2];
-        hasTime && date[10] === " " && (date = date.replace(" ", "T"));
-        if (match[2] && +match[2] > 23) {
-          date = "";
-        } else {
-          offset = match[3] || null;
-          date = date.toUpperCase();
-          if (!offset && hasTime)
-            date += "Z";
-        }
-      } else {
-        date = "";
-      }
-    }
-    super(date);
-    if (!isNaN(this.getTime())) {
-      this.#hasDate = hasDate;
-      this.#hasTime = hasTime;
-      this.#offset = offset;
-    }
-  }
-  isDateTime() {
-    return this.#hasDate && this.#hasTime;
-  }
-  isLocal() {
-    return !this.#hasDate || !this.#hasTime || !this.#offset;
-  }
-  isDate() {
-    return this.#hasDate && !this.#hasTime;
-  }
-  isTime() {
-    return this.#hasTime && !this.#hasDate;
-  }
-  isValid() {
-    return this.#hasDate || this.#hasTime;
-  }
-  toISOString() {
-    let iso = super.toISOString();
-    if (this.isDate())
-      return iso.slice(0, 10);
-    if (this.isTime())
-      return iso.slice(11, 23);
-    if (this.#offset === null)
-      return iso.slice(0, -1);
-    if (this.#offset === "Z")
-      return iso;
-    let offset = +this.#offset.slice(1, 3) * 60 + +this.#offset.slice(4, 6);
-    offset = this.#offset[0] === "-" ? offset : -offset;
-    let offsetDate = new Date(this.getTime() - offset * 6e4);
-    return offsetDate.toISOString().slice(0, -1) + this.#offset;
-  }
-  static wrapAsOffsetDateTime(jsDate, offset = "Z") {
-    let date = new _TomlDate(jsDate);
-    date.#offset = offset;
-    return date;
-  }
-  static wrapAsLocalDateTime(jsDate) {
-    let date = new _TomlDate(jsDate);
-    date.#offset = null;
-    return date;
-  }
-  static wrapAsLocalDate(jsDate) {
-    let date = new _TomlDate(jsDate);
-    date.#hasTime = false;
-    date.#offset = null;
-    return date;
-  }
-  static wrapAsLocalTime(jsDate) {
-    let date = new _TomlDate(jsDate);
-    date.#hasDate = false;
-    date.#offset = null;
-    return date;
-  }
-};
-
-// ../../node_modules/smol-toml/dist/primitive.js
-var INT_REGEX = /^((0x[0-9a-fA-F](_?[0-9a-fA-F])*)|(([+-]|0[ob])?\d(_?\d)*))$/;
-var FLOAT_REGEX = /^[+-]?\d(_?\d)*(\.\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?$/;
-var LEADING_ZERO = /^[+-]?0[0-9_]/;
-var ESCAPE_REGEX = /^[0-9a-f]{2,8}$/i;
-var ESC_MAP = {
-  b: "\b",
-  t: "	",
-  n: "\n",
-  f: "\f",
-  r: "\r",
-  e: "\x1B",
-  '"': '"',
-  "\\": "\\"
-};
-function parseString(str, ptr = 0, endPtr = str.length) {
-  let isLiteral = str[ptr] === "'";
-  let isMultiline = str[ptr++] === str[ptr] && str[ptr] === str[ptr + 1];
-  if (isMultiline) {
-    endPtr -= 2;
-    if (str[ptr += 2] === "\r")
-      ptr++;
-    if (str[ptr] === "\n")
-      ptr++;
-  }
-  let tmp = 0;
-  let isEscape;
-  let parsed = "";
-  let sliceStart = ptr;
-  while (ptr < endPtr - 1) {
-    let c = str[ptr++];
-    if (c === "\n" || c === "\r" && str[ptr] === "\n") {
-      if (!isMultiline) {
-        throw new TomlError("newlines are not allowed in strings", {
-          toml: str,
-          ptr: ptr - 1
-        });
-      }
-    } else if (c < " " && c !== "	" || c === "\x7F") {
-      throw new TomlError("control characters are not allowed in strings", {
-        toml: str,
-        ptr: ptr - 1
-      });
-    }
-    if (isEscape) {
-      isEscape = false;
-      if (c === "x" || c === "u" || c === "U") {
-        let code = str.slice(ptr, ptr += c === "x" ? 2 : c === "u" ? 4 : 8);
-        if (!ESCAPE_REGEX.test(code)) {
-          throw new TomlError("invalid unicode escape", {
-            toml: str,
-            ptr: tmp
-          });
-        }
-        try {
-          parsed += String.fromCodePoint(parseInt(code, 16));
-        } catch {
-          throw new TomlError("invalid unicode escape", {
-            toml: str,
-            ptr: tmp
-          });
-        }
-      } else if (isMultiline && (c === "\n" || c === " " || c === "	" || c === "\r")) {
-        ptr = skipVoid(str, ptr - 1, true);
-        if (str[ptr] !== "\n" && str[ptr] !== "\r") {
-          throw new TomlError("invalid escape: only line-ending whitespace may be escaped", {
-            toml: str,
-            ptr: tmp
-          });
-        }
-        ptr = skipVoid(str, ptr);
-      } else if (c in ESC_MAP) {
-        parsed += ESC_MAP[c];
-      } else {
-        throw new TomlError("unrecognized escape sequence", {
-          toml: str,
-          ptr: tmp
-        });
-      }
-      sliceStart = ptr;
-    } else if (!isLiteral && c === "\\") {
-      tmp = ptr - 1;
-      isEscape = true;
-      parsed += str.slice(sliceStart, tmp);
-    }
-  }
-  return parsed + str.slice(sliceStart, endPtr - 1);
-}
-function parseValue(value, toml, ptr, integersAsBigInt) {
-  if (value === "true")
-    return true;
-  if (value === "false")
-    return false;
-  if (value === "-inf")
-    return -Infinity;
-  if (value === "inf" || value === "+inf")
-    return Infinity;
-  if (value === "nan" || value === "+nan" || value === "-nan")
-    return NaN;
-  if (value === "-0")
-    return integersAsBigInt ? 0n : 0;
-  let isInt = INT_REGEX.test(value);
-  if (isInt || FLOAT_REGEX.test(value)) {
-    if (LEADING_ZERO.test(value)) {
-      throw new TomlError("leading zeroes are not allowed", {
-        toml,
-        ptr
-      });
-    }
-    value = value.replace(/_/g, "");
-    let numeric = +value;
-    if (isNaN(numeric)) {
-      throw new TomlError("invalid number", {
-        toml,
-        ptr
-      });
-    }
-    if (isInt) {
-      if ((isInt = !Number.isSafeInteger(numeric)) && !integersAsBigInt) {
-        throw new TomlError("integer value cannot be represented losslessly", {
-          toml,
-          ptr
-        });
-      }
-      if (isInt || integersAsBigInt === true)
-        numeric = BigInt(value);
-    }
-    return numeric;
-  }
-  const date = new TomlDate(value);
-  if (!date.isValid()) {
-    throw new TomlError("invalid value", {
-      toml,
-      ptr
-    });
-  }
-  return date;
-}
-
-// ../../node_modules/smol-toml/dist/extract.js
-function sliceAndTrimEndOf(str, startPtr, endPtr) {
-  let value = str.slice(startPtr, endPtr);
-  let commentIdx = value.indexOf("#");
-  if (commentIdx > -1) {
-    skipComment(str, commentIdx);
-    value = value.slice(0, commentIdx);
-  }
-  return [value.trimEnd(), commentIdx];
-}
-function extractValue(str, ptr, end, depth, integersAsBigInt) {
-  if (depth === 0) {
-    throw new TomlError("document contains excessively nested structures. aborting.", {
-      toml: str,
-      ptr
-    });
-  }
-  let c = str[ptr];
-  if (c === "[" || c === "{") {
-    let [value, endPtr2] = c === "[" ? parseArray(str, ptr, depth, integersAsBigInt) : parseInlineTable(str, ptr, depth, integersAsBigInt);
-    if (end) {
-      endPtr2 = skipVoid(str, endPtr2);
-      if (str[endPtr2] === ",")
-        endPtr2++;
-      else if (str[endPtr2] !== end) {
-        throw new TomlError("expected comma or end of structure", {
-          toml: str,
-          ptr: endPtr2
-        });
-      }
-    }
-    return [value, endPtr2];
-  }
-  let endPtr;
-  if (c === '"' || c === "'") {
-    endPtr = getStringEnd(str, ptr);
-    let parsed = parseString(str, ptr, endPtr);
-    if (end) {
-      endPtr = skipVoid(str, endPtr);
-      if (str[endPtr] && str[endPtr] !== "," && str[endPtr] !== end && str[endPtr] !== "\n" && str[endPtr] !== "\r") {
-        throw new TomlError("unexpected character encountered", {
-          toml: str,
-          ptr: endPtr
-        });
-      }
-      endPtr += +(str[endPtr] === ",");
-    }
-    return [parsed, endPtr];
-  }
-  endPtr = skipUntil(str, ptr, ",", end);
-  let slice = sliceAndTrimEndOf(str, ptr, endPtr - +(str[endPtr - 1] === ","));
-  if (!slice[0]) {
-    throw new TomlError("incomplete key-value declaration: no value specified", {
-      toml: str,
-      ptr
-    });
-  }
-  if (end && slice[1] > -1) {
-    endPtr = skipVoid(str, ptr + slice[1]);
-    endPtr += +(str[endPtr] === ",");
-  }
-  return [
-    parseValue(slice[0], str, ptr, integersAsBigInt),
-    endPtr
-  ];
-}
-
-// ../../node_modules/smol-toml/dist/struct.js
-var KEY_PART_RE = /^[a-zA-Z0-9-_]+[ \t]*$/;
-function parseKey(str, ptr, end = "=") {
-  let dot = ptr - 1;
-  let parsed = [];
-  let endPtr = str.indexOf(end, ptr);
-  if (endPtr < 0) {
-    throw new TomlError("incomplete key-value: cannot find end of key", {
-      toml: str,
-      ptr
-    });
-  }
-  do {
-    let c = str[ptr = ++dot];
-    if (c !== " " && c !== "	") {
-      if (c === '"' || c === "'") {
-        if (c === str[ptr + 1] && c === str[ptr + 2]) {
-          throw new TomlError("multiline strings are not allowed in keys", {
-            toml: str,
-            ptr
-          });
-        }
-        let eos = getStringEnd(str, ptr);
-        if (eos < 0) {
-          throw new TomlError("unfinished string encountered", {
-            toml: str,
-            ptr
-          });
-        }
-        dot = str.indexOf(".", eos);
-        let strEnd = str.slice(eos, dot < 0 || dot > endPtr ? endPtr : dot);
-        let newLine = indexOfNewline(strEnd);
-        if (newLine > -1) {
-          throw new TomlError("newlines are not allowed in keys", {
-            toml: str,
-            ptr: ptr + dot + newLine
-          });
-        }
-        if (strEnd.trimStart()) {
-          throw new TomlError("found extra tokens after the string part", {
-            toml: str,
-            ptr: eos
-          });
-        }
-        if (endPtr < eos) {
-          endPtr = str.indexOf(end, eos);
-          if (endPtr < 0) {
-            throw new TomlError("incomplete key-value: cannot find end of key", {
-              toml: str,
-              ptr
-            });
-          }
-        }
-        parsed.push(parseString(str, ptr, eos));
-      } else {
-        dot = str.indexOf(".", ptr);
-        let part = str.slice(ptr, dot < 0 || dot > endPtr ? endPtr : dot);
-        if (!KEY_PART_RE.test(part)) {
-          throw new TomlError("only letter, numbers, dashes and underscores are allowed in keys", {
-            toml: str,
-            ptr
-          });
-        }
-        parsed.push(part.trimEnd());
-      }
-    }
-  } while (dot + 1 && dot < endPtr);
-  return [parsed, skipVoid(str, endPtr + 1, true, true)];
-}
-function parseInlineTable(str, ptr, depth, integersAsBigInt) {
-  let res = {};
-  let seen = /* @__PURE__ */ new Set();
-  let c;
-  ptr++;
-  while ((c = str[ptr++]) !== "}" && c) {
-    if (c === ",") {
-      throw new TomlError("expected value, found comma", {
-        toml: str,
-        ptr: ptr - 1
-      });
-    } else if (c === "#")
-      ptr = skipComment(str, ptr);
-    else if (c !== " " && c !== "	" && c !== "\n" && c !== "\r") {
-      let k;
-      let t = res;
-      let hasOwn = false;
-      let [key, keyEndPtr] = parseKey(str, ptr - 1);
-      for (let i2 = 0; i2 < key.length; i2++) {
-        if (i2)
-          t = hasOwn ? t[k] : t[k] = {};
-        k = key[i2];
-        if ((hasOwn = Object.hasOwn(t, k)) && (typeof t[k] !== "object" || seen.has(t[k]))) {
-          throw new TomlError("trying to redefine an already defined value", {
-            toml: str,
-            ptr
-          });
-        }
-        if (!hasOwn && k === "__proto__") {
-          Object.defineProperty(t, k, { enumerable: true, configurable: true, writable: true });
-        }
-      }
-      if (hasOwn) {
-        throw new TomlError("trying to redefine an already defined value", {
-          toml: str,
-          ptr
-        });
-      }
-      let [value, valueEndPtr] = extractValue(str, keyEndPtr, "}", depth - 1, integersAsBigInt);
-      seen.add(value);
-      t[k] = value;
-      ptr = valueEndPtr;
-    }
-  }
-  if (!c) {
-    throw new TomlError("unfinished table encountered", {
-      toml: str,
-      ptr
-    });
-  }
-  return [res, ptr];
-}
-function parseArray(str, ptr, depth, integersAsBigInt) {
-  let res = [];
-  let c;
-  ptr++;
-  while ((c = str[ptr++]) !== "]" && c) {
-    if (c === ",") {
-      throw new TomlError("expected value, found comma", {
-        toml: str,
-        ptr: ptr - 1
-      });
-    } else if (c === "#")
-      ptr = skipComment(str, ptr);
-    else if (c !== " " && c !== "	" && c !== "\n" && c !== "\r") {
-      let e = extractValue(str, ptr - 1, "]", depth - 1, integersAsBigInt);
-      res.push(e[0]);
-      ptr = e[1];
-    }
-  }
-  if (!c) {
-    throw new TomlError("unfinished array encountered", {
-      toml: str,
-      ptr
-    });
-  }
-  return [res, ptr];
-}
-
-// ../../node_modules/smol-toml/dist/parse.js
-function peekTable(key, table, meta, type) {
-  let t = table;
-  let m = meta;
-  let k;
-  let hasOwn = false;
-  let state;
-  for (let i2 = 0; i2 < key.length; i2++) {
-    if (i2) {
-      t = hasOwn ? t[k] : t[k] = {};
-      m = (state = m[k]).c;
-      if (type === 0 && (state.t === 1 || state.t === 2)) {
-        return null;
-      }
-      if (state.t === 2) {
-        let l = t.length - 1;
-        t = t[l];
-        m = m[l].c;
-      }
-    }
-    k = key[i2];
-    if ((hasOwn = Object.hasOwn(t, k)) && m[k]?.t === 0 && m[k]?.d) {
-      return null;
-    }
-    if (!hasOwn) {
-      if (k === "__proto__") {
-        Object.defineProperty(t, k, { enumerable: true, configurable: true, writable: true });
-        Object.defineProperty(m, k, { enumerable: true, configurable: true, writable: true });
-      }
-      m[k] = {
-        t: i2 < key.length - 1 && type === 2 ? 3 : type,
-        d: false,
-        i: 0,
-        c: {}
-      };
-    }
-  }
-  state = m[k];
-  if (state.t !== type && !(type === 1 && state.t === 3)) {
-    return null;
-  }
-  if (type === 2) {
-    if (!state.d) {
-      state.d = true;
-      t[k] = [];
-    }
-    t[k].push(t = {});
-    state.c[state.i++] = state = { t: 1, d: false, i: 0, c: {} };
-  }
-  if (state.d) {
-    return null;
-  }
-  state.d = true;
-  if (type === 1) {
-    t = hasOwn ? t[k] : t[k] = {};
-  } else if (type === 0 && hasOwn) {
-    return null;
-  }
-  return [k, t, state.c];
-}
-function parse(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
-  let res = {};
-  let meta = {};
-  let tbl = res;
-  let m = meta;
-  for (let ptr = skipVoid(toml, 0); ptr < toml.length; ) {
-    if (toml[ptr] === "[") {
-      let isTableArray = toml[++ptr] === "[";
-      let k = parseKey(toml, ptr += +isTableArray, "]");
-      if (isTableArray) {
-        if (toml[k[1] - 1] !== "]") {
-          throw new TomlError("expected end of table declaration", {
-            toml,
-            ptr: k[1] - 1
-          });
-        }
-        k[1]++;
-      }
-      let p = peekTable(
-        k[0],
-        res,
-        meta,
-        isTableArray ? 2 : 1
-        /* Type.EXPLICIT */
-      );
-      if (!p) {
-        throw new TomlError("trying to redefine an already defined table or value", {
-          toml,
-          ptr
-        });
-      }
-      m = p[2];
-      tbl = p[1];
-      ptr = k[1];
-    } else {
-      let k = parseKey(toml, ptr);
-      let p = peekTable(
-        k[0],
-        tbl,
-        m,
-        0
-        /* Type.DOTTED */
-      );
-      if (!p) {
-        throw new TomlError("trying to redefine an already defined table or value", {
-          toml,
-          ptr
-        });
-      }
-      let v = extractValue(toml, k[1], void 0, maxDepth, integersAsBigInt);
-      p[1][p[0]] = v[0];
-      ptr = v[1];
-    }
-    ptr = skipVoid(toml, ptr, true);
-    if (toml[ptr] && toml[ptr] !== "\n" && toml[ptr] !== "\r") {
-      throw new TomlError("each key-value declaration must be followed by an end-of-line", {
-        toml,
-        ptr
-      });
-    }
-    ptr = skipVoid(toml, ptr);
-  }
-  return res;
-}
+import { parse as parseToml } from "smol-toml";
 
 // src/detect/manifest-registry.ts
 var manifest_registry_exports = {};
@@ -7612,7 +6923,7 @@ __export(manifest_registry_exports, {
   getManifestRegistry: () => getManifestRegistry,
   matchManifestPattern: () => matchManifestPattern
 });
-function matchManifestPattern(name2, pattern) {
+function matchManifestPattern(name, pattern) {
   if (pattern.startsWith("*")) {
     const suffix = pattern.slice(1);
     if (suffix.includes("*")) {
@@ -7620,9 +6931,9 @@ function matchManifestPattern(name2, pattern) {
         `[manifest-registry] pattern "${pattern}" has more than one wildcard. Only "*.<ext>" extension-globs are supported.`
       );
     }
-    return name2.endsWith(suffix);
+    return name.endsWith(suffix);
   }
-  return name2 === pattern;
+  return name === pattern;
 }
 var _registryCache = null;
 function getManifestRegistry() {
@@ -7804,10 +7115,10 @@ function parsePackageJson(path, directory, root, warnings) {
   let pkg;
   try {
     pkg = JSON.parse(raw);
-  } catch (err2) {
+  } catch (err) {
     warnings.push({
       path,
-      reason: `package.json JSON parse failed: ${err2.message}`
+      reason: `package.json JSON parse failed: ${err.message}`
     });
     return null;
   }
@@ -7844,22 +7155,22 @@ function parsePyproject(path, directory, root, warnings) {
   if (raw === null) return null;
   let toml;
   try {
-    toml = parse(raw);
-  } catch (err2) {
+    toml = parseToml(raw);
+  } catch (err) {
     warnings.push({
       path,
-      reason: `pyproject.toml TOML parse failed: ${err2.message}`
+      reason: `pyproject.toml TOML parse failed: ${err.message}`
     });
     return null;
   }
   const deps = [];
   const devDeps = [];
   const scripts = [];
-  let name2 = null;
+  let name = null;
   let version = null;
   const project = toml.project;
   if (project && typeof project === "object") {
-    if (typeof project.name === "string") name2 = project.name;
+    if (typeof project.name === "string") name = project.name;
     if (typeof project.version === "string") version = project.version;
     const pd = project.dependencies;
     if (Array.isArray(pd)) {
@@ -7885,7 +7196,7 @@ function parsePyproject(path, directory, root, warnings) {
   const tool = toml.tool;
   const poetry = tool?.poetry;
   if (poetry && typeof poetry === "object") {
-    if (!name2 && typeof poetry.name === "string") name2 = poetry.name;
+    if (!name && typeof poetry.name === "string") name = poetry.name;
     if (!version && typeof poetry.version === "string") version = poetry.version;
     const pdeps = poetry.dependencies;
     if (pdeps && typeof pdeps === "object") {
@@ -7922,7 +7233,7 @@ function parsePyproject(path, directory, root, warnings) {
     directory,
     language: "python",
     runtime: "python3",
-    name: name2,
+    name,
     version,
     dependencies: deps,
     devDependencies: devDeps,
@@ -7933,8 +7244,8 @@ function parsePyproject(path, directory, root, warnings) {
 function normalizePyDep(spec) {
   const semi = spec.split(";")[0];
   const extras = semi.split("[")[0];
-  const name2 = extras.split(/[=<>!~ ]/)[0];
-  return name2.trim();
+  const name = extras.split(/[=<>!~ ]/)[0];
+  return name.trim();
 }
 function parseRequirementsTxt(path, directory, root, _warnings) {
   const raw = safeRead(path);
@@ -7945,8 +7256,8 @@ function parseRequirementsTxt(path, directory, root, _warnings) {
     if (!trimmed) continue;
     if (trimmed.startsWith("#")) continue;
     if (trimmed.startsWith("-")) continue;
-    const name2 = normalizePyDep(trimmed);
-    if (name2) deps.push(name2);
+    const name = normalizePyDep(trimmed);
+    if (name) deps.push(name);
   }
   return {
     path,
@@ -7967,11 +7278,11 @@ function parsePipfile(path, directory, root, warnings) {
   if (raw === null) return null;
   let toml;
   try {
-    toml = parse(raw);
-  } catch (err2) {
+    toml = parseToml(raw);
+  } catch (err) {
     warnings.push({
       path,
-      reason: `Pipfile TOML parse failed: ${err2.message}`
+      reason: `Pipfile TOML parse failed: ${err.message}`
     });
     return null;
   }
@@ -7996,11 +7307,11 @@ function parseCargoToml(path, directory, root, warnings) {
   if (raw === null) return null;
   let toml;
   try {
-    toml = parse(raw);
-  } catch (err2) {
+    toml = parseToml(raw);
+  } catch (err) {
     warnings.push({
       path,
-      reason: `Cargo.toml TOML parse failed: ${err2.message}`
+      reason: `Cargo.toml TOML parse failed: ${err.message}`
     });
     return null;
   }
@@ -8059,13 +7370,13 @@ function parseGoMod(path, directory, root, _warnings) {
   const raw = safeRead(path);
   if (raw === null) return null;
   const deps = [];
-  let name2 = null;
+  let name = null;
   let inRequire = false;
   for (const rawLine of raw.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("//")) continue;
     if (line.startsWith("module ")) {
-      name2 = line.slice("module ".length).trim();
+      name = line.slice("module ".length).trim();
       continue;
     }
     if (line === "require (") {
@@ -8077,13 +7388,13 @@ function parseGoMod(path, directory, root, _warnings) {
         inRequire = false;
         continue;
       }
-      const parts2 = line.split(/\s+/);
-      if (parts2.length >= 2 && !parts2[0].startsWith("//")) deps.push(parts2[0]);
+      const parts = line.split(/\s+/);
+      if (parts.length >= 2 && !parts[0].startsWith("//")) deps.push(parts[0]);
       continue;
     }
     if (line.startsWith("require ")) {
-      const parts2 = line.slice("require ".length).trim().split(/\s+/);
-      if (parts2[0]) deps.push(parts2[0]);
+      const parts = line.slice("require ".length).trim().split(/\s+/);
+      if (parts[0]) deps.push(parts[0]);
     }
   }
   return {
@@ -8092,7 +7403,7 @@ function parseGoMod(path, directory, root, _warnings) {
     directory,
     language: "go",
     runtime: "go",
-    name: name2,
+    name,
     version: null,
     dependencies: deps,
     devDependencies: [],
@@ -8135,8 +7446,8 @@ function parseBuildGradle(path, directory, root, _warnings) {
   while ((m = re.exec(raw)) !== null) {
     const scope = m[1];
     const coord = m[2];
-    const parts2 = coord.split(":");
-    const artifact = parts2.length >= 2 ? parts2[1] : parts2[0];
+    const parts = coord.split(":");
+    const artifact = parts.length >= 2 ? parts[1] : parts[0];
     if (!artifact) continue;
     if (scope.toLowerCase().startsWith("test")) devDeps.push(artifact);
     else deps.push(artifact);
@@ -8196,14 +7507,14 @@ function parseMixExs(path, directory, root, _warnings) {
     if (!deps.includes(m[1])) deps.push(m[1]);
   }
   const appMatch = /\bapp\s*:\s*:([a-z][a-z0-9_]*)/.exec(raw);
-  const name2 = appMatch ? appMatch[1] : null;
+  const name = appMatch ? appMatch[1] : null;
   return {
     path,
     relativePath: normalizeRelative(root, path),
     directory,
     language: "elixir",
     runtime: "beam",
-    name: name2,
+    name,
     version: null,
     dependencies: deps,
     devDependencies: [],
@@ -8225,14 +7536,14 @@ function parseCsproj(path, directory, root, _warnings) {
     deps.push(sdkMatch[1]);
   }
   const fname = path.split(/[/\\]/).pop() ?? "";
-  const name2 = fname.endsWith(".csproj") ? fname.slice(0, -".csproj".length) : null;
+  const name = fname.endsWith(".csproj") ? fname.slice(0, -".csproj".length) : null;
   return {
     path,
     relativePath: normalizeRelative(root, path),
     directory,
     language: "csharp",
     runtime: "dotnet",
-    name: name2,
+    name,
     version: null,
     dependencies: deps,
     devDependencies: [],
@@ -8242,14 +7553,14 @@ function parseCsproj(path, directory, root, _warnings) {
 }
 function detectManifestsInDir(dir, root, warnings) {
   const { getManifestRegistry: getManifestRegistry2, matchManifestPattern: matchManifestPattern2 } = manifest_registry_exports;
-  const out2 = [];
+  const out = [];
   let dirEntries = null;
   for (const entry of getManifestRegistry2()) {
     if (!entry.pattern.startsWith("*")) {
       const path = join(dir, entry.pattern);
       if (!existsSync3(path)) continue;
       const m = entry.parse(path, dir, root, warnings);
-      if (m !== null) out2.push(m);
+      if (m !== null) out.push(m);
     } else {
       if (dirEntries === null) {
         try {
@@ -8263,11 +7574,11 @@ function detectManifestsInDir(dir, root, warnings) {
         const path = join(dir, fname);
         if (!existsSync3(path)) continue;
         const m = entry.parse(path, dir, root, warnings);
-        if (m !== null) out2.push(m);
+        if (m !== null) out.push(m);
       }
     }
   }
-  return out2;
+  return out;
 }
 function listSubdirs(dir) {
   try {
@@ -8465,7 +7776,7 @@ function detectFrameworks(manifests, userDetection) {
     byLang.set(m.language, entry);
   }
   const rules = userDetection?.disable_builtin ? [] : [...DETECTION_RULES];
-  const out2 = {};
+  const out = {};
   for (const [language, { deps }] of byLang.entries()) {
     const fw = matchRule(rules, language, "framework", deps);
     const userFw = matchUserFrameworkRules(
@@ -8479,7 +7790,7 @@ function detectFrameworks(manifests, userDetection) {
     } else if (fw) {
       frameworkValue = fw.value;
     }
-    const info2 = {
+    const info = {
       framework: frameworkValue,
       version: null,
       test_framework: matchRule(rules, language, "test_framework", deps)?.value ?? null,
@@ -8487,9 +7798,9 @@ function detectFrameworks(manifests, userDetection) {
       ui_library: matchRule(rules, language, "ui_library", deps)?.value ?? null,
       router: matchRule(rules, language, "router", deps)?.value ?? null
     };
-    out2[language] = info2;
+    out[language] = info;
   }
-  return out2;
+  return out;
 }
 
 // src/detect/source-dir-detector.ts
@@ -8574,8 +7885,8 @@ function isTestPath(language, path) {
   return patterns.some((re) => re.test(path));
 }
 function topSegment(rel) {
-  const parts2 = rel.split("/");
-  return parts2.length > 1 ? parts2[0] : ".";
+  const parts = rel.split("/");
+  return parts.length > 1 ? parts[0] : ".";
 }
 function isInsideRoot(root, candidate) {
   try {
@@ -8588,7 +7899,7 @@ function isInsideRoot(root, candidate) {
 }
 function detectSourceDirs(projectRoot, languages, opts) {
   const fallbackTsForJs = opts?.fallbackTsForJs ?? false;
-  const out2 = {};
+  const out = {};
   for (const lang of languages) {
     const exts = extsWithFallback(lang, fallbackTsForJs);
     if (exts.length === 0) continue;
@@ -8654,9 +7965,9 @@ function detectSourceDirs(projectRoot, languages, opts) {
     const testPrefixes = /* @__PURE__ */ new Set();
     for (const f of testDirHits) {
       const segs = f.split("/");
-      for (let i2 = 0; i2 < segs.length; i2++) {
-        if (TEST_DIR_KEYWORDS.includes(segs[i2])) {
-          testPrefixes.add(segs.slice(0, i2 + 1).join("/"));
+      for (let i = 0; i < segs.length; i++) {
+        if (TEST_DIR_KEYWORDS.includes(segs[i])) {
+          testPrefixes.add(segs.slice(0, i + 1).join("/"));
           break;
         }
       }
@@ -8671,20 +7982,21 @@ function detectSourceDirs(projectRoot, languages, opts) {
     if (colocated) {
       for (const s of source_dirs) if (!test_dirs.includes(s)) test_dirs.push(s);
     }
-    out2[lang] = {
+    out[lang] = {
       source_dirs,
       test_dirs,
       colocated,
       file_count: files.length
     };
   }
-  return out2;
+  return out;
 }
 
 // src/detect/monorepo-detector.ts
 import { readFileSync as readFileSync3, existsSync as existsSync4, statSync as statSync2, lstatSync as lstatSync2, readdirSync as readdirSync2 } from "fs";
 import { join as join2, relative as relative2 } from "path";
 import { parse as parseYaml2 } from "yaml";
+import { parse as parseToml2 } from "smol-toml";
 var MANIFEST_PRIORITY = [
   "package.json",
   "pyproject.toml",
@@ -8748,7 +8060,7 @@ function manifestName(dir, manifest) {
     if (manifest === "pyproject.toml") {
       const raw = safeReadText(join2(dir, "pyproject.toml"));
       if (!raw) return null;
-      const toml = parse(raw);
+      const toml = parseToml2(raw);
       const project = toml.project;
       if (project && typeof project.name === "string") return project.name;
       const tool = toml.tool;
@@ -8759,7 +8071,7 @@ function manifestName(dir, manifest) {
     if (manifest === "Cargo.toml") {
       const raw = safeReadText(join2(dir, "Cargo.toml"));
       if (!raw) return null;
-      const toml = parse(raw);
+      const toml = parseToml2(raw);
       const pkg = toml.package;
       if (pkg && typeof pkg.name === "string") return pkg.name;
       return null;
@@ -8795,16 +8107,16 @@ function listSubdirs2(dir) {
   }
 }
 function genericWorkspaces(root) {
-  const out2 = [];
+  const out = [];
   for (const parent of CONVENTIONAL_WORKSPACE_PARENTS) {
     const p = join2(root, parent);
     if (!existsSync4(p)) continue;
     for (const sub of listSubdirs2(p)) {
       const pkg = pkgFromDir(root, sub);
-      if (pkg) out2.push(pkg);
+      if (pkg) out.push(pkg);
     }
   }
-  return out2;
+  return out;
 }
 function detectYarnWorkspaces(root) {
   const raw = safeReadText(join2(root, "package.json"));
@@ -8833,18 +8145,18 @@ function detectPnpmWorkspaces(root) {
   }
 }
 function expandWorkspaceGlobs(root, globs) {
-  const out2 = [];
+  const out = [];
   const seen = /* @__PURE__ */ new Set();
   for (const pattern of globs) {
-    const parts2 = pattern.split("/");
-    if (parts2.length === 2 && (parts2[1] === "*" || parts2[1] === "**")) {
-      const parent = join2(root, parts2[0]);
+    const parts = pattern.split("/");
+    if (parts.length === 2 && (parts[1] === "*" || parts[1] === "**")) {
+      const parent = join2(root, parts[0]);
       if (!existsSync4(parent)) continue;
       for (const sub of listSubdirs2(parent)) {
         const pkg = pkgFromDir(root, sub);
         if (pkg && !seen.has(pkg.path)) {
           seen.add(pkg.path);
-          out2.push(pkg);
+          out.push(pkg);
         }
       }
       continue;
@@ -8854,11 +8166,11 @@ function expandWorkspaceGlobs(root, globs) {
       const pkg = pkgFromDir(root, direct);
       if (pkg && !seen.has(pkg.path)) {
         seen.add(pkg.path);
-        out2.push(pkg);
+        out.push(pkg);
       }
     }
   }
-  return out2;
+  return out;
 }
 function hasTurbo(root) {
   return existsSync4(join2(root, "turbo.json"));
@@ -9039,9 +8351,9 @@ function titleCase(s) {
 }
 function domainFromWorkspace(pkg) {
   const pathTail = pkg.path.split("/").pop() ?? pkg.path;
-  const name2 = pkg.name ?? titleCase(pathTail);
+  const name = pkg.name ?? titleCase(pathTail);
   return {
-    name: name2,
+    name,
     routers: [],
     pages: [],
     tables: [],
@@ -9110,7 +8422,7 @@ function introspectPython(detection, projectRoot) {
   const routerFiles = sampleFiles(
     sourceDir,
     /\.py$/,
-    (absPath, name2) => /\/(routers?|api|endpoints?|views)\//.test(absPath) || /^(routers?|api|endpoints?)\.py$/.test(name2)
+    (absPath, name) => /\/(routers?|api|endpoints?|views)\//.test(absPath) || /^(routers?|api|endpoints?)\.py$/.test(name)
   );
   const viewFiles = sampleFiles(sourceDir, /^views\.py$/);
   const fallbackFiles = routerFiles.length === 0 && viewFiles.length === 0 ? sampleFiles(sourceDir, /\.py$/) : [];
@@ -9123,26 +8435,26 @@ function introspectPython(detection, projectRoot) {
   const prefixBases = /* @__PURE__ */ new Map();
   const testAsyncPatterns = /* @__PURE__ */ new Map();
   for (const path of candidates) {
-    const body2 = readSafe(path);
-    if (body2 === null) continue;
+    const body = readSafe(path);
+    if (body === null) continue;
     const authRegex = /\bDepends\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)/gu;
-    forEachMatch(authRegex, body2, (m) => {
-      const name2 = m[1];
-      if (!authDeps.has(name2)) authDeps.set(name2, path);
+    forEachMatch(authRegex, body, (m) => {
+      const name = m[1];
+      if (!authDeps.has(name)) authDeps.set(name, path);
     });
     const djangoAuthRegex = /^@\s*([a-z_][a-z0-9_]*(?:_required|_login))\b/gmu;
-    forEachMatch(djangoAuthRegex, body2, (m) => {
-      const name2 = m[1];
-      if (!authDeps.has(name2)) authDeps.set(name2, path);
+    forEachMatch(djangoAuthRegex, body, (m) => {
+      const name = m[1];
+      if (!authDeps.has(name)) authDeps.set(name, path);
     });
     const prefixRegex = /\bAPIRouter\s*\(\s*[^)]*?prefix\s*=\s*["']([^"']+)["']/gu;
-    forEachMatch(prefixRegex, body2, (m) => {
+    forEachMatch(prefixRegex, body, (m) => {
       const fullPrefix = m[1];
       const base = extractPrefixBase(fullPrefix);
       if (base && !prefixBases.has(base)) prefixBases.set(base, path);
     });
     const asyncRegex = /^(@pytest\.mark\.asyncio(?:\s*\([^)]*\))?)/gmu;
-    forEachMatch(asyncRegex, body2, (m) => {
+    forEachMatch(asyncRegex, body, (m) => {
       const pat = m[1].trim();
       if (!testAsyncPatterns.has(pat)) testAsyncPatterns.set(pat, path);
     });
@@ -9181,7 +8493,7 @@ function introspectSwift(detection, projectRoot) {
   const viewFiles = sampleFiles(
     sourceDir,
     /\.swift$/,
-    (absPath, name2) => /View\.swift$/.test(name2) || /\/Views\//.test(absPath)
+    (absPath, name) => /View\.swift$/.test(name) || /\/Views\//.test(absPath)
   );
   const fallbackFiles = viewFiles.length === 0 ? sampleFiles(sourceDir, /\.swift$/) : [];
   const candidates = [...viewFiles, ...fallbackFiles].slice(
@@ -9192,17 +8504,17 @@ function introspectSwift(detection, projectRoot) {
   const apiClasses = /* @__PURE__ */ new Map();
   const biometricPolicies = /* @__PURE__ */ new Map();
   for (const path of candidates) {
-    const body2 = readSafe(path);
-    if (body2 === null) continue;
+    const body = readSafe(path);
+    if (body === null) continue;
     const apiRegex = /\b([A-Z][A-Za-z0-9_]*API)\s*(?:\(|\.shared|\b)/gu;
-    forEachMatch(apiRegex, body2, (m) => {
-      const name2 = m[1];
-      if (!apiClasses.has(name2)) apiClasses.set(name2, path);
+    forEachMatch(apiRegex, body, (m) => {
+      const name = m[1];
+      if (!apiClasses.has(name)) apiClasses.set(name, path);
     });
     const policyRegex = /\.(deviceOwnerAuthentication(?:WithBiometrics)?)\b/gu;
-    forEachMatch(policyRegex, body2, (m) => {
-      const name2 = m[1];
-      if (!biometricPolicies.has(name2)) biometricPolicies.set(name2, path);
+    forEachMatch(policyRegex, body, (m) => {
+      const name = m[1];
+      if (!biometricPolicies.has(name)) biometricPolicies.set(name, path);
     });
   }
   const apiClass = pickBestSingleton(apiClasses);
@@ -9227,24 +8539,24 @@ function introspectTypeScript(detection, projectRoot) {
   const routerFiles = sampleFiles(
     sourceDir,
     /\.tsx?$/,
-    (absPath, name2) => /(router|trpc)/i.test(name2) || /\/(routers|trpc|server\/api)\//.test(absPath)
+    (absPath, name) => /(router|trpc)/i.test(name) || /\/(routers|trpc|server\/api)\//.test(absPath)
   );
   const candidates = routerFiles.slice(0, MAX_SAMPLES_PER_ADAPTER);
   if (candidates.length === 0) return null;
   const builders = /* @__PURE__ */ new Map();
   const procedurePatterns = /* @__PURE__ */ new Map();
   for (const path of candidates) {
-    const body2 = readSafe(path);
-    if (body2 === null) continue;
+    const body = readSafe(path);
+    if (body === null) continue;
     const builderRegex = /\b(createTRPCRouter|router|t\.router)\s*\(/gu;
-    forEachMatch(builderRegex, body2, (m) => {
-      const name2 = m[1];
-      if (!builders.has(name2)) builders.set(name2, path);
+    forEachMatch(builderRegex, body, (m) => {
+      const name = m[1];
+      if (!builders.has(name)) builders.set(name, path);
     });
     const procRegex = /\b([a-z]+Procedure)\b/gu;
-    forEachMatch(procRegex, body2, (m) => {
-      const name2 = m[1];
-      if (!procedurePatterns.has(name2)) procedurePatterns.set(name2, path);
+    forEachMatch(procRegex, body, (m) => {
+      const name = m[1];
+      if (!procedurePatterns.has(name)) procedurePatterns.set(name, path);
     });
   }
   const builder = pickBestSingleton(builders);
@@ -9265,8 +8577,8 @@ function introspectTypeScript(detection, projectRoot) {
 }
 function resolveSourceDir(detection, lang, projectRoot) {
   const dirs = detection.sourceDirs;
-  const info2 = dirs[lang];
-  const list = info2?.source_dirs ?? [];
+  const info = dirs[lang];
+  const list = info?.source_dirs ?? [];
   if (list.length > 0) {
     const first = list[0];
     const abs = resolve4(projectRoot, first);
@@ -9275,9 +8587,9 @@ function resolveSourceDir(detection, lang, projectRoot) {
   return existsSync6(projectRoot) ? projectRoot : null;
 }
 function sampleFiles(dir, nameRegex, pathFilter) {
-  const out2 = [];
+  const out = [];
   const stack = [{ path: dir, depth: 0 }];
-  while (stack.length > 0 && out2.length < MAX_SAMPLES_PER_ADAPTER * 4) {
+  while (stack.length > 0 && out.length < MAX_SAMPLES_PER_ADAPTER * 4) {
     const { path, depth } = stack.pop();
     if (depth > MAX_DIR_DEPTH) continue;
     let entries;
@@ -9306,12 +8618,12 @@ function sampleFiles(dir, nameRegex, pathFilter) {
       if (!nameRegex.test(entry)) continue;
       if (pathFilter && !pathFilter(child, entry)) continue;
       if (st.size > MAX_FILE_BYTES) continue;
-      out2.push(child);
-      if (out2.length >= MAX_SAMPLES_PER_ADAPTER * 4) break;
+      out.push(child);
+      if (out.length >= MAX_SAMPLES_PER_ADAPTER * 4) break;
     }
   }
-  out2.sort();
-  return out2.slice(0, MAX_SAMPLES_PER_ADAPTER * 2);
+  out.sort();
+  return out.slice(0, MAX_SAMPLES_PER_ADAPTER * 2);
 }
 function readSafe(path) {
   try {
@@ -9322,12 +8634,12 @@ function readSafe(path) {
     return null;
   }
 }
-function forEachMatch(re, body2, cb) {
+function forEachMatch(re, body, cb) {
   if (!re.global) return;
   re.lastIndex = 0;
   let count = 0;
   let m;
-  while ((m = re.exec(body2)) !== null) {
+  while ((m = re.exec(body)) !== null) {
     cb(m);
     count++;
     if (count > 1e3) break;
@@ -9350,4008 +8662,79 @@ function relativeTo(projectRoot, absPath) {
 // src/detect/adapters/runner.ts
 init_parse_guard();
 
-// node_modules/web-tree-sitter/tree-sitter.js
-var __defProp2 = Object.defineProperty;
-var __name = (target, value) => __defProp2(target, "name", { value, configurable: true });
-var SIZE_OF_SHORT = 2;
-var SIZE_OF_INT = 4;
-var SIZE_OF_CURSOR = 4 * SIZE_OF_INT;
-var SIZE_OF_NODE = 5 * SIZE_OF_INT;
-var SIZE_OF_POINT = 2 * SIZE_OF_INT;
-var SIZE_OF_RANGE = 2 * SIZE_OF_INT + 2 * SIZE_OF_POINT;
-var ZERO_POINT = { row: 0, column: 0 };
-var INTERNAL = /* @__PURE__ */ Symbol("INTERNAL");
-function assertInternal(x) {
-  if (x !== INTERNAL) throw new Error("Illegal constructor");
-}
-__name(assertInternal, "assertInternal");
-function isPoint(point) {
-  return !!point && typeof point.row === "number" && typeof point.column === "number";
-}
-__name(isPoint, "isPoint");
-function setModule(module2) {
-  C = module2;
-}
-__name(setModule, "setModule");
-var C;
-var LookaheadIterator = class {
-  static {
-    __name(this, "LookaheadIterator");
-  }
-  /** @internal */
-  [0] = 0;
-  // Internal handle for WASM
-  /** @internal */
-  language;
-  /** @internal */
-  constructor(internal, address, language) {
-    assertInternal(internal);
-    this[0] = address;
-    this.language = language;
-  }
-  /** Get the current symbol of the lookahead iterator. */
-  get currentTypeId() {
-    return C._ts_lookahead_iterator_current_symbol(this[0]);
-  }
-  /** Get the current symbol name of the lookahead iterator. */
-  get currentType() {
-    return this.language.types[this.currentTypeId] || "ERROR";
-  }
-  /** Delete the lookahead iterator, freeing its resources. */
-  delete() {
-    C._ts_lookahead_iterator_delete(this[0]);
-    this[0] = 0;
-  }
-  /**
-   * Reset the lookahead iterator.
-   *
-   * This returns `true` if the language was set successfully and `false`
-   * otherwise.
-   */
-  reset(language, stateId) {
-    if (C._ts_lookahead_iterator_reset(this[0], language[0], stateId)) {
-      this.language = language;
-      return true;
-    }
-    return false;
-  }
-  /**
-   * Reset the lookahead iterator to another state.
-   *
-   * This returns `true` if the iterator was reset to the given state and
-   * `false` otherwise.
-   */
-  resetState(stateId) {
-    return Boolean(C._ts_lookahead_iterator_reset_state(this[0], stateId));
-  }
-  /**
-   * Returns an iterator that iterates over the symbols of the lookahead iterator.
-   *
-   * The iterator will yield the current symbol name as a string for each step
-   * until there are no more symbols to iterate over.
-   */
-  [Symbol.iterator]() {
-    return {
-      next: /* @__PURE__ */ __name(() => {
-        if (C._ts_lookahead_iterator_next(this[0])) {
-          return { done: false, value: this.currentType };
-        }
-        return { done: true, value: "" };
-      }, "next")
-    };
-  }
-};
-function getText(tree, startIndex, endIndex, startPosition) {
-  const length = endIndex - startIndex;
-  let result = tree.textCallback(startIndex, startPosition);
-  if (result) {
-    startIndex += result.length;
-    while (startIndex < endIndex) {
-      const string = tree.textCallback(startIndex, startPosition);
-      if (string && string.length > 0) {
-        startIndex += string.length;
-        result += string;
-      } else {
-        break;
-      }
-    }
-    if (startIndex > endIndex) {
-      result = result.slice(0, length);
-    }
-  }
-  return result ?? "";
-}
-__name(getText, "getText");
-var Tree = class _Tree {
-  static {
-    __name(this, "Tree");
-  }
-  /** @internal */
-  [0] = 0;
-  // Internal handle for WASM
-  /** @internal */
-  textCallback;
-  /** The language that was used to parse the syntax tree. */
-  language;
-  /** @internal */
-  constructor(internal, address, language, textCallback) {
-    assertInternal(internal);
-    this[0] = address;
-    this.language = language;
-    this.textCallback = textCallback;
-  }
-  /** Create a shallow copy of the syntax tree. This is very fast. */
-  copy() {
-    const address = C._ts_tree_copy(this[0]);
-    return new _Tree(INTERNAL, address, this.language, this.textCallback);
-  }
-  /** Delete the syntax tree, freeing its resources. */
-  delete() {
-    C._ts_tree_delete(this[0]);
-    this[0] = 0;
-  }
-  /** Get the root node of the syntax tree. */
-  get rootNode() {
-    C._ts_tree_root_node_wasm(this[0]);
-    return unmarshalNode(this);
-  }
-  /**
-   * Get the root node of the syntax tree, but with its position shifted
-   * forward by the given offset.
-   */
-  rootNodeWithOffset(offsetBytes, offsetExtent) {
-    const address = TRANSFER_BUFFER + SIZE_OF_NODE;
-    C.setValue(address, offsetBytes, "i32");
-    marshalPoint(address + SIZE_OF_INT, offsetExtent);
-    C._ts_tree_root_node_with_offset_wasm(this[0]);
-    return unmarshalNode(this);
-  }
-  /**
-   * Edit the syntax tree to keep it in sync with source code that has been
-   * edited.
-   *
-   * You must describe the edit both in terms of byte offsets and in terms of
-   * row/column coordinates.
-   */
-  edit(edit) {
-    marshalEdit(edit);
-    C._ts_tree_edit_wasm(this[0]);
-  }
-  /** Create a new {@link TreeCursor} starting from the root of the tree. */
-  walk() {
-    return this.rootNode.walk();
-  }
-  /**
-   * Compare this old edited syntax tree to a new syntax tree representing
-   * the same document, returning a sequence of ranges whose syntactic
-   * structure has changed.
-   *
-   * For this to work correctly, this syntax tree must have been edited such
-   * that its ranges match up to the new tree. Generally, you'll want to
-   * call this method right after calling one of the [`Parser::parse`]
-   * functions. Call it on the old tree that was passed to parse, and
-   * pass the new tree that was returned from `parse`.
-   */
-  getChangedRanges(other) {
-    if (!(other instanceof _Tree)) {
-      throw new TypeError("Argument must be a Tree");
-    }
-    C._ts_tree_get_changed_ranges_wasm(this[0], other[0]);
-    const count = C.getValue(TRANSFER_BUFFER, "i32");
-    const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-    const result = new Array(count);
-    if (count > 0) {
-      let address = buffer;
-      for (let i2 = 0; i2 < count; i2++) {
-        result[i2] = unmarshalRange(address);
-        address += SIZE_OF_RANGE;
-      }
-      C._free(buffer);
-    }
-    return result;
-  }
-  /** Get the included ranges that were used to parse the syntax tree. */
-  getIncludedRanges() {
-    C._ts_tree_included_ranges_wasm(this[0]);
-    const count = C.getValue(TRANSFER_BUFFER, "i32");
-    const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-    const result = new Array(count);
-    if (count > 0) {
-      let address = buffer;
-      for (let i2 = 0; i2 < count; i2++) {
-        result[i2] = unmarshalRange(address);
-        address += SIZE_OF_RANGE;
-      }
-      C._free(buffer);
-    }
-    return result;
-  }
-};
-var TreeCursor = class _TreeCursor {
-  static {
-    __name(this, "TreeCursor");
-  }
-  /** @internal */
-  // @ts-expect-error: never read
-  [0] = 0;
-  // Internal handle for Wasm
-  /** @internal */
-  // @ts-expect-error: never read
-  [1] = 0;
-  // Internal handle for Wasm
-  /** @internal */
-  // @ts-expect-error: never read
-  [2] = 0;
-  // Internal handle for Wasm
-  /** @internal */
-  // @ts-expect-error: never read
-  [3] = 0;
-  // Internal handle for Wasm
-  /** @internal */
-  tree;
-  /** @internal */
-  constructor(internal, tree) {
-    assertInternal(internal);
-    this.tree = tree;
-    unmarshalTreeCursor(this);
-  }
-  /** Creates a deep copy of the tree cursor. This allocates new memory. */
-  copy() {
-    const copy = new _TreeCursor(INTERNAL, this.tree);
-    C._ts_tree_cursor_copy_wasm(this.tree[0]);
-    unmarshalTreeCursor(copy);
-    return copy;
-  }
-  /** Delete the tree cursor, freeing its resources. */
-  delete() {
-    marshalTreeCursor(this);
-    C._ts_tree_cursor_delete_wasm(this.tree[0]);
-    this[0] = this[1] = this[2] = 0;
-  }
-  /** Get the tree cursor's current {@link Node}. */
-  get currentNode() {
-    marshalTreeCursor(this);
-    C._ts_tree_cursor_current_node_wasm(this.tree[0]);
-    return unmarshalNode(this.tree);
-  }
-  /**
-   * Get the numerical field id of this tree cursor's current node.
-   *
-   * See also {@link TreeCursor#currentFieldName}.
-   */
-  get currentFieldId() {
-    marshalTreeCursor(this);
-    return C._ts_tree_cursor_current_field_id_wasm(this.tree[0]);
-  }
-  /** Get the field name of this tree cursor's current node. */
-  get currentFieldName() {
-    return this.tree.language.fields[this.currentFieldId];
-  }
-  /**
-   * Get the depth of the cursor's current node relative to the original
-   * node that the cursor was constructed with.
-   */
-  get currentDepth() {
-    marshalTreeCursor(this);
-    return C._ts_tree_cursor_current_depth_wasm(this.tree[0]);
-  }
-  /**
-   * Get the index of the cursor's current node out of all of the
-   * descendants of the original node that the cursor was constructed with.
-   */
-  get currentDescendantIndex() {
-    marshalTreeCursor(this);
-    return C._ts_tree_cursor_current_descendant_index_wasm(this.tree[0]);
-  }
-  /** Get the type of the cursor's current node. */
-  get nodeType() {
-    return this.tree.language.types[this.nodeTypeId] || "ERROR";
-  }
-  /** Get the type id of the cursor's current node. */
-  get nodeTypeId() {
-    marshalTreeCursor(this);
-    return C._ts_tree_cursor_current_node_type_id_wasm(this.tree[0]);
-  }
-  /** Get the state id of the cursor's current node. */
-  get nodeStateId() {
-    marshalTreeCursor(this);
-    return C._ts_tree_cursor_current_node_state_id_wasm(this.tree[0]);
-  }
-  /** Get the id of the cursor's current node. */
-  get nodeId() {
-    marshalTreeCursor(this);
-    return C._ts_tree_cursor_current_node_id_wasm(this.tree[0]);
-  }
-  /**
-   * Check if the cursor's current node is *named*.
-   *
-   * Named nodes correspond to named rules in the grammar, whereas
-   * *anonymous* nodes correspond to string literals in the grammar.
-   */
-  get nodeIsNamed() {
-    marshalTreeCursor(this);
-    return C._ts_tree_cursor_current_node_is_named_wasm(this.tree[0]) === 1;
-  }
-  /**
-   * Check if the cursor's current node is *missing*.
-   *
-   * Missing nodes are inserted by the parser in order to recover from
-   * certain kinds of syntax errors.
-   */
-  get nodeIsMissing() {
-    marshalTreeCursor(this);
-    return C._ts_tree_cursor_current_node_is_missing_wasm(this.tree[0]) === 1;
-  }
-  /** Get the string content of the cursor's current node. */
-  get nodeText() {
-    marshalTreeCursor(this);
-    const startIndex = C._ts_tree_cursor_start_index_wasm(this.tree[0]);
-    const endIndex = C._ts_tree_cursor_end_index_wasm(this.tree[0]);
-    C._ts_tree_cursor_start_position_wasm(this.tree[0]);
-    const startPosition = unmarshalPoint(TRANSFER_BUFFER);
-    return getText(this.tree, startIndex, endIndex, startPosition);
-  }
-  /** Get the start position of the cursor's current node. */
-  get startPosition() {
-    marshalTreeCursor(this);
-    C._ts_tree_cursor_start_position_wasm(this.tree[0]);
-    return unmarshalPoint(TRANSFER_BUFFER);
-  }
-  /** Get the end position of the cursor's current node. */
-  get endPosition() {
-    marshalTreeCursor(this);
-    C._ts_tree_cursor_end_position_wasm(this.tree[0]);
-    return unmarshalPoint(TRANSFER_BUFFER);
-  }
-  /** Get the start index of the cursor's current node. */
-  get startIndex() {
-    marshalTreeCursor(this);
-    return C._ts_tree_cursor_start_index_wasm(this.tree[0]);
-  }
-  /** Get the end index of the cursor's current node. */
-  get endIndex() {
-    marshalTreeCursor(this);
-    return C._ts_tree_cursor_end_index_wasm(this.tree[0]);
-  }
-  /**
-   * Move this cursor to the first child of its current node.
-   *
-   * This returns `true` if the cursor successfully moved, and returns
-   * `false` if there were no children.
-   */
-  gotoFirstChild() {
-    marshalTreeCursor(this);
-    const result = C._ts_tree_cursor_goto_first_child_wasm(this.tree[0]);
-    unmarshalTreeCursor(this);
-    return result === 1;
-  }
-  /**
-   * Move this cursor to the last child of its current node.
-   *
-   * This returns `true` if the cursor successfully moved, and returns
-   * `false` if there were no children.
-   *
-   * Note that this function may be slower than
-   * {@link TreeCursor#gotoFirstChild} because it needs to
-   * iterate through all the children to compute the child's position.
-   */
-  gotoLastChild() {
-    marshalTreeCursor(this);
-    const result = C._ts_tree_cursor_goto_last_child_wasm(this.tree[0]);
-    unmarshalTreeCursor(this);
-    return result === 1;
-  }
-  /**
-   * Move this cursor to the parent of its current node.
-   *
-   * This returns `true` if the cursor successfully moved, and returns
-   * `false` if there was no parent node (the cursor was already on the
-   * root node).
-   *
-   * Note that the node the cursor was constructed with is considered the root
-   * of the cursor, and the cursor cannot walk outside this node.
-   */
-  gotoParent() {
-    marshalTreeCursor(this);
-    const result = C._ts_tree_cursor_goto_parent_wasm(this.tree[0]);
-    unmarshalTreeCursor(this);
-    return result === 1;
-  }
-  /**
-   * Move this cursor to the next sibling of its current node.
-   *
-   * This returns `true` if the cursor successfully moved, and returns
-   * `false` if there was no next sibling node.
-   *
-   * Note that the node the cursor was constructed with is considered the root
-   * of the cursor, and the cursor cannot walk outside this node.
-   */
-  gotoNextSibling() {
-    marshalTreeCursor(this);
-    const result = C._ts_tree_cursor_goto_next_sibling_wasm(this.tree[0]);
-    unmarshalTreeCursor(this);
-    return result === 1;
-  }
-  /**
-   * Move this cursor to the previous sibling of its current node.
-   *
-   * This returns `true` if the cursor successfully moved, and returns
-   * `false` if there was no previous sibling node.
-   *
-   * Note that this function may be slower than
-   * {@link TreeCursor#gotoNextSibling} due to how node
-   * positions are stored. In the worst case, this will need to iterate
-   * through all the children up to the previous sibling node to recalculate
-   * its position. Also note that the node the cursor was constructed with is
-   * considered the root of the cursor, and the cursor cannot walk outside this node.
-   */
-  gotoPreviousSibling() {
-    marshalTreeCursor(this);
-    const result = C._ts_tree_cursor_goto_previous_sibling_wasm(this.tree[0]);
-    unmarshalTreeCursor(this);
-    return result === 1;
-  }
-  /**
-   * Move the cursor to the node that is the nth descendant of
-   * the original node that the cursor was constructed with, where
-   * zero represents the original node itself.
-   */
-  gotoDescendant(goalDescendantIndex) {
-    marshalTreeCursor(this);
-    C._ts_tree_cursor_goto_descendant_wasm(this.tree[0], goalDescendantIndex);
-    unmarshalTreeCursor(this);
-  }
-  /**
-   * Move this cursor to the first child of its current node that contains or
-   * starts after the given byte offset.
-   *
-   * This returns `true` if the cursor successfully moved to a child node, and returns
-   * `false` if no such child was found.
-   */
-  gotoFirstChildForIndex(goalIndex) {
-    marshalTreeCursor(this);
-    C.setValue(TRANSFER_BUFFER + SIZE_OF_CURSOR, goalIndex, "i32");
-    const result = C._ts_tree_cursor_goto_first_child_for_index_wasm(this.tree[0]);
-    unmarshalTreeCursor(this);
-    return result === 1;
-  }
-  /**
-   * Move this cursor to the first child of its current node that contains or
-   * starts after the given byte offset.
-   *
-   * This returns the index of the child node if one was found, and returns
-   * `null` if no such child was found.
-   */
-  gotoFirstChildForPosition(goalPosition) {
-    marshalTreeCursor(this);
-    marshalPoint(TRANSFER_BUFFER + SIZE_OF_CURSOR, goalPosition);
-    const result = C._ts_tree_cursor_goto_first_child_for_position_wasm(this.tree[0]);
-    unmarshalTreeCursor(this);
-    return result === 1;
-  }
-  /**
-   * Re-initialize this tree cursor to start at the original node that the
-   * cursor was constructed with.
-   */
-  reset(node) {
-    marshalNode(node);
-    marshalTreeCursor(this, TRANSFER_BUFFER + SIZE_OF_NODE);
-    C._ts_tree_cursor_reset_wasm(this.tree[0]);
-    unmarshalTreeCursor(this);
-  }
-  /**
-   * Re-initialize a tree cursor to the same position as another cursor.
-   *
-   * Unlike {@link TreeCursor#reset}, this will not lose parent
-   * information and allows reusing already created cursors.
-   */
-  resetTo(cursor) {
-    marshalTreeCursor(this, TRANSFER_BUFFER);
-    marshalTreeCursor(cursor, TRANSFER_BUFFER + SIZE_OF_CURSOR);
-    C._ts_tree_cursor_reset_to_wasm(this.tree[0], cursor.tree[0]);
-    unmarshalTreeCursor(this);
-  }
-};
-var Node = class {
-  static {
-    __name(this, "Node");
-  }
-  /** @internal */
-  // @ts-expect-error: never read
-  [0] = 0;
-  // Internal handle for Wasm
-  /** @internal */
-  _children;
-  /** @internal */
-  _namedChildren;
-  /** @internal */
-  constructor(internal, {
-    id,
-    tree,
-    startIndex,
-    startPosition,
-    other
-  }) {
-    assertInternal(internal);
-    this[0] = other;
-    this.id = id;
-    this.tree = tree;
-    this.startIndex = startIndex;
-    this.startPosition = startPosition;
-  }
-  /**
-   * The numeric id for this node that is unique.
-   *
-   * Within a given syntax tree, no two nodes have the same id. However:
-   *
-   * * If a new tree is created based on an older tree, and a node from the old tree is reused in
-   *   the process, then that node will have the same id in both trees.
-   *
-   * * A node not marked as having changes does not guarantee it was reused.
-   *
-   * * If a node is marked as having changed in the old tree, it will not be reused.
-   */
-  id;
-  /** The byte index where this node starts. */
-  startIndex;
-  /** The position where this node starts. */
-  startPosition;
-  /** The tree that this node belongs to. */
-  tree;
-  /** Get this node's type as a numerical id. */
-  get typeId() {
-    marshalNode(this);
-    return C._ts_node_symbol_wasm(this.tree[0]);
-  }
-  /**
-   * Get the node's type as a numerical id as it appears in the grammar,
-   * ignoring aliases.
-   */
-  get grammarId() {
-    marshalNode(this);
-    return C._ts_node_grammar_symbol_wasm(this.tree[0]);
-  }
-  /** Get this node's type as a string. */
-  get type() {
-    return this.tree.language.types[this.typeId] || "ERROR";
-  }
-  /**
-   * Get this node's symbol name as it appears in the grammar, ignoring
-   * aliases as a string.
-   */
-  get grammarType() {
-    return this.tree.language.types[this.grammarId] || "ERROR";
-  }
-  /**
-   * Check if this node is *named*.
-   *
-   * Named nodes correspond to named rules in the grammar, whereas
-   * *anonymous* nodes correspond to string literals in the grammar.
-   */
-  get isNamed() {
-    marshalNode(this);
-    return C._ts_node_is_named_wasm(this.tree[0]) === 1;
-  }
-  /**
-   * Check if this node is *extra*.
-   *
-   * Extra nodes represent things like comments, which are not required
-   * by the grammar, but can appear anywhere.
-   */
-  get isExtra() {
-    marshalNode(this);
-    return C._ts_node_is_extra_wasm(this.tree[0]) === 1;
-  }
-  /**
-   * Check if this node represents a syntax error.
-   *
-   * Syntax errors represent parts of the code that could not be incorporated
-   * into a valid syntax tree.
-   */
-  get isError() {
-    marshalNode(this);
-    return C._ts_node_is_error_wasm(this.tree[0]) === 1;
-  }
-  /**
-   * Check if this node is *missing*.
-   *
-   * Missing nodes are inserted by the parser in order to recover from
-   * certain kinds of syntax errors.
-   */
-  get isMissing() {
-    marshalNode(this);
-    return C._ts_node_is_missing_wasm(this.tree[0]) === 1;
-  }
-  /** Check if this node has been edited. */
-  get hasChanges() {
-    marshalNode(this);
-    return C._ts_node_has_changes_wasm(this.tree[0]) === 1;
-  }
-  /**
-   * Check if this node represents a syntax error or contains any syntax
-   * errors anywhere within it.
-   */
-  get hasError() {
-    marshalNode(this);
-    return C._ts_node_has_error_wasm(this.tree[0]) === 1;
-  }
-  /** Get the byte index where this node ends. */
-  get endIndex() {
-    marshalNode(this);
-    return C._ts_node_end_index_wasm(this.tree[0]);
-  }
-  /** Get the position where this node ends. */
-  get endPosition() {
-    marshalNode(this);
-    C._ts_node_end_point_wasm(this.tree[0]);
-    return unmarshalPoint(TRANSFER_BUFFER);
-  }
-  /** Get the string content of this node. */
-  get text() {
-    return getText(this.tree, this.startIndex, this.endIndex, this.startPosition);
-  }
-  /** Get this node's parse state. */
-  get parseState() {
-    marshalNode(this);
-    return C._ts_node_parse_state_wasm(this.tree[0]);
-  }
-  /** Get the parse state after this node. */
-  get nextParseState() {
-    marshalNode(this);
-    return C._ts_node_next_parse_state_wasm(this.tree[0]);
-  }
-  /** Check if this node is equal to another node. */
-  equals(other) {
-    return this.tree === other.tree && this.id === other.id;
-  }
-  /**
-   * Get the node's child at the given index, where zero represents the first child.
-   *
-   * This method is fairly fast, but its cost is technically log(n), so if
-   * you might be iterating over a long list of children, you should use
-   * {@link Node#children} instead.
-   */
-  child(index) {
-    marshalNode(this);
-    C._ts_node_child_wasm(this.tree[0], index);
-    return unmarshalNode(this.tree);
-  }
-  /**
-   * Get this node's *named* child at the given index.
-   *
-   * See also {@link Node#isNamed}.
-   * This method is fairly fast, but its cost is technically log(n), so if
-   * you might be iterating over a long list of children, you should use
-   * {@link Node#namedChildren} instead.
-   */
-  namedChild(index) {
-    marshalNode(this);
-    C._ts_node_named_child_wasm(this.tree[0], index);
-    return unmarshalNode(this.tree);
-  }
-  /**
-   * Get this node's child with the given numerical field id.
-   *
-   * See also {@link Node#childForFieldName}. You can
-   * convert a field name to an id using {@link Language#fieldIdForName}.
-   */
-  childForFieldId(fieldId) {
-    marshalNode(this);
-    C._ts_node_child_by_field_id_wasm(this.tree[0], fieldId);
-    return unmarshalNode(this.tree);
-  }
-  /**
-   * Get the first child with the given field name.
-   *
-   * If multiple children may have the same field name, access them using
-   * {@link Node#childrenForFieldName}.
-   */
-  childForFieldName(fieldName) {
-    const fieldId = this.tree.language.fields.indexOf(fieldName);
-    if (fieldId !== -1) return this.childForFieldId(fieldId);
-    return null;
-  }
-  /** Get the field name of this node's child at the given index. */
-  fieldNameForChild(index) {
-    marshalNode(this);
-    const address = C._ts_node_field_name_for_child_wasm(this.tree[0], index);
-    if (!address) return null;
-    return C.AsciiToString(address);
-  }
-  /** Get the field name of this node's named child at the given index. */
-  fieldNameForNamedChild(index) {
-    marshalNode(this);
-    const address = C._ts_node_field_name_for_named_child_wasm(this.tree[0], index);
-    if (!address) return null;
-    return C.AsciiToString(address);
-  }
-  /**
-   * Get an array of this node's children with a given field name.
-   *
-   * See also {@link Node#children}.
-   */
-  childrenForFieldName(fieldName) {
-    const fieldId = this.tree.language.fields.indexOf(fieldName);
-    if (fieldId !== -1 && fieldId !== 0) return this.childrenForFieldId(fieldId);
-    return [];
-  }
-  /**
-    * Get an array of this node's children with a given field id.
-    *
-    * See also {@link Node#childrenForFieldName}.
-    */
-  childrenForFieldId(fieldId) {
-    marshalNode(this);
-    C._ts_node_children_by_field_id_wasm(this.tree[0], fieldId);
-    const count = C.getValue(TRANSFER_BUFFER, "i32");
-    const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-    const result = new Array(count);
-    if (count > 0) {
-      let address = buffer;
-      for (let i2 = 0; i2 < count; i2++) {
-        result[i2] = unmarshalNode(this.tree, address);
-        address += SIZE_OF_NODE;
-      }
-      C._free(buffer);
-    }
-    return result;
-  }
-  /** Get the node's first child that contains or starts after the given byte offset. */
-  firstChildForIndex(index) {
-    marshalNode(this);
-    const address = TRANSFER_BUFFER + SIZE_OF_NODE;
-    C.setValue(address, index, "i32");
-    C._ts_node_first_child_for_byte_wasm(this.tree[0]);
-    return unmarshalNode(this.tree);
-  }
-  /** Get the node's first named child that contains or starts after the given byte offset. */
-  firstNamedChildForIndex(index) {
-    marshalNode(this);
-    const address = TRANSFER_BUFFER + SIZE_OF_NODE;
-    C.setValue(address, index, "i32");
-    C._ts_node_first_named_child_for_byte_wasm(this.tree[0]);
-    return unmarshalNode(this.tree);
-  }
-  /** Get this node's number of children. */
-  get childCount() {
-    marshalNode(this);
-    return C._ts_node_child_count_wasm(this.tree[0]);
-  }
-  /**
-   * Get this node's number of *named* children.
-   *
-   * See also {@link Node#isNamed}.
-   */
-  get namedChildCount() {
-    marshalNode(this);
-    return C._ts_node_named_child_count_wasm(this.tree[0]);
-  }
-  /** Get this node's first child. */
-  get firstChild() {
-    return this.child(0);
-  }
-  /**
-   * Get this node's first named child.
-   *
-   * See also {@link Node#isNamed}.
-   */
-  get firstNamedChild() {
-    return this.namedChild(0);
-  }
-  /** Get this node's last child. */
-  get lastChild() {
-    return this.child(this.childCount - 1);
-  }
-  /**
-   * Get this node's last named child.
-   *
-   * See also {@link Node#isNamed}.
-   */
-  get lastNamedChild() {
-    return this.namedChild(this.namedChildCount - 1);
-  }
-  /**
-   * Iterate over this node's children.
-   *
-   * If you're walking the tree recursively, you may want to use the
-   * {@link TreeCursor} APIs directly instead.
-   */
-  get children() {
-    if (!this._children) {
-      marshalNode(this);
-      C._ts_node_children_wasm(this.tree[0]);
-      const count = C.getValue(TRANSFER_BUFFER, "i32");
-      const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-      this._children = new Array(count);
-      if (count > 0) {
-        let address = buffer;
-        for (let i2 = 0; i2 < count; i2++) {
-          this._children[i2] = unmarshalNode(this.tree, address);
-          address += SIZE_OF_NODE;
-        }
-        C._free(buffer);
-      }
-    }
-    return this._children;
-  }
-  /**
-   * Iterate over this node's named children.
-   *
-   * See also {@link Node#children}.
-   */
-  get namedChildren() {
-    if (!this._namedChildren) {
-      marshalNode(this);
-      C._ts_node_named_children_wasm(this.tree[0]);
-      const count = C.getValue(TRANSFER_BUFFER, "i32");
-      const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-      this._namedChildren = new Array(count);
-      if (count > 0) {
-        let address = buffer;
-        for (let i2 = 0; i2 < count; i2++) {
-          this._namedChildren[i2] = unmarshalNode(this.tree, address);
-          address += SIZE_OF_NODE;
-        }
-        C._free(buffer);
-      }
-    }
-    return this._namedChildren;
-  }
-  /**
-   * Get the descendants of this node that are the given type, or in the given types array.
-   *
-   * The types array should contain node type strings, which can be retrieved from {@link Language#types}.
-   *
-   * Additionally, a `startPosition` and `endPosition` can be passed in to restrict the search to a byte range.
-   */
-  descendantsOfType(types, startPosition = ZERO_POINT, endPosition = ZERO_POINT) {
-    if (!Array.isArray(types)) types = [types];
-    const symbols = [];
-    const typesBySymbol = this.tree.language.types;
-    for (const node_type of types) {
-      if (node_type == "ERROR") {
-        symbols.push(65535);
-      }
-    }
-    for (let i2 = 0, n = typesBySymbol.length; i2 < n; i2++) {
-      if (types.includes(typesBySymbol[i2])) {
-        symbols.push(i2);
-      }
-    }
-    const symbolsAddress = C._malloc(SIZE_OF_INT * symbols.length);
-    for (let i2 = 0, n = symbols.length; i2 < n; i2++) {
-      C.setValue(symbolsAddress + i2 * SIZE_OF_INT, symbols[i2], "i32");
-    }
-    marshalNode(this);
-    C._ts_node_descendants_of_type_wasm(
-      this.tree[0],
-      symbolsAddress,
-      symbols.length,
-      startPosition.row,
-      startPosition.column,
-      endPosition.row,
-      endPosition.column
-    );
-    const descendantCount = C.getValue(TRANSFER_BUFFER, "i32");
-    const descendantAddress = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-    const result = new Array(descendantCount);
-    if (descendantCount > 0) {
-      let address = descendantAddress;
-      for (let i2 = 0; i2 < descendantCount; i2++) {
-        result[i2] = unmarshalNode(this.tree, address);
-        address += SIZE_OF_NODE;
-      }
-    }
-    C._free(descendantAddress);
-    C._free(symbolsAddress);
-    return result;
-  }
-  /** Get this node's next sibling. */
-  get nextSibling() {
-    marshalNode(this);
-    C._ts_node_next_sibling_wasm(this.tree[0]);
-    return unmarshalNode(this.tree);
-  }
-  /** Get this node's previous sibling. */
-  get previousSibling() {
-    marshalNode(this);
-    C._ts_node_prev_sibling_wasm(this.tree[0]);
-    return unmarshalNode(this.tree);
-  }
-  /**
-   * Get this node's next *named* sibling.
-   *
-   * See also {@link Node#isNamed}.
-   */
-  get nextNamedSibling() {
-    marshalNode(this);
-    C._ts_node_next_named_sibling_wasm(this.tree[0]);
-    return unmarshalNode(this.tree);
-  }
-  /**
-   * Get this node's previous *named* sibling.
-   *
-   * See also {@link Node#isNamed}.
-   */
-  get previousNamedSibling() {
-    marshalNode(this);
-    C._ts_node_prev_named_sibling_wasm(this.tree[0]);
-    return unmarshalNode(this.tree);
-  }
-  /** Get the node's number of descendants, including one for the node itself. */
-  get descendantCount() {
-    marshalNode(this);
-    return C._ts_node_descendant_count_wasm(this.tree[0]);
-  }
-  /**
-   * Get this node's immediate parent.
-   * Prefer {@link Node#childWithDescendant} for iterating over this node's ancestors.
-   */
-  get parent() {
-    marshalNode(this);
-    C._ts_node_parent_wasm(this.tree[0]);
-    return unmarshalNode(this.tree);
-  }
-  /**
-   * Get the node that contains `descendant`.
-   *
-   * Note that this can return `descendant` itself.
-   */
-  childWithDescendant(descendant) {
-    marshalNode(this);
-    marshalNode(descendant, 1);
-    C._ts_node_child_with_descendant_wasm(this.tree[0]);
-    return unmarshalNode(this.tree);
-  }
-  /** Get the smallest node within this node that spans the given byte range. */
-  descendantForIndex(start2, end = start2) {
-    if (typeof start2 !== "number" || typeof end !== "number") {
-      throw new Error("Arguments must be numbers");
-    }
-    marshalNode(this);
-    const address = TRANSFER_BUFFER + SIZE_OF_NODE;
-    C.setValue(address, start2, "i32");
-    C.setValue(address + SIZE_OF_INT, end, "i32");
-    C._ts_node_descendant_for_index_wasm(this.tree[0]);
-    return unmarshalNode(this.tree);
-  }
-  /** Get the smallest named node within this node that spans the given byte range. */
-  namedDescendantForIndex(start2, end = start2) {
-    if (typeof start2 !== "number" || typeof end !== "number") {
-      throw new Error("Arguments must be numbers");
-    }
-    marshalNode(this);
-    const address = TRANSFER_BUFFER + SIZE_OF_NODE;
-    C.setValue(address, start2, "i32");
-    C.setValue(address + SIZE_OF_INT, end, "i32");
-    C._ts_node_named_descendant_for_index_wasm(this.tree[0]);
-    return unmarshalNode(this.tree);
-  }
-  /** Get the smallest node within this node that spans the given point range. */
-  descendantForPosition(start2, end = start2) {
-    if (!isPoint(start2) || !isPoint(end)) {
-      throw new Error("Arguments must be {row, column} objects");
-    }
-    marshalNode(this);
-    const address = TRANSFER_BUFFER + SIZE_OF_NODE;
-    marshalPoint(address, start2);
-    marshalPoint(address + SIZE_OF_POINT, end);
-    C._ts_node_descendant_for_position_wasm(this.tree[0]);
-    return unmarshalNode(this.tree);
-  }
-  /** Get the smallest named node within this node that spans the given point range. */
-  namedDescendantForPosition(start2, end = start2) {
-    if (!isPoint(start2) || !isPoint(end)) {
-      throw new Error("Arguments must be {row, column} objects");
-    }
-    marshalNode(this);
-    const address = TRANSFER_BUFFER + SIZE_OF_NODE;
-    marshalPoint(address, start2);
-    marshalPoint(address + SIZE_OF_POINT, end);
-    C._ts_node_named_descendant_for_position_wasm(this.tree[0]);
-    return unmarshalNode(this.tree);
-  }
-  /**
-   * Create a new {@link TreeCursor} starting from this node.
-   *
-   * Note that the given node is considered the root of the cursor,
-   * and the cursor cannot walk outside this node.
-   */
-  walk() {
-    marshalNode(this);
-    C._ts_tree_cursor_new_wasm(this.tree[0]);
-    return new TreeCursor(INTERNAL, this.tree);
-  }
-  /**
-   * Edit this node to keep it in-sync with source code that has been edited.
-   *
-   * This function is only rarely needed. When you edit a syntax tree with
-   * the {@link Tree#edit} method, all of the nodes that you retrieve from
-   * the tree afterward will already reflect the edit. You only need to
-   * use {@link Node#edit} when you have a specific {@link Node} instance that
-   * you want to keep and continue to use after an edit.
-   */
-  edit(edit) {
-    if (this.startIndex >= edit.oldEndIndex) {
-      this.startIndex = edit.newEndIndex + (this.startIndex - edit.oldEndIndex);
-      let subbedPointRow;
-      let subbedPointColumn;
-      if (this.startPosition.row > edit.oldEndPosition.row) {
-        subbedPointRow = this.startPosition.row - edit.oldEndPosition.row;
-        subbedPointColumn = this.startPosition.column;
-      } else {
-        subbedPointRow = 0;
-        subbedPointColumn = this.startPosition.column;
-        if (this.startPosition.column >= edit.oldEndPosition.column) {
-          subbedPointColumn = this.startPosition.column - edit.oldEndPosition.column;
-        }
-      }
-      if (subbedPointRow > 0) {
-        this.startPosition.row += subbedPointRow;
-        this.startPosition.column = subbedPointColumn;
-      } else {
-        this.startPosition.column += subbedPointColumn;
-      }
-    } else if (this.startIndex > edit.startIndex) {
-      this.startIndex = edit.newEndIndex;
-      this.startPosition.row = edit.newEndPosition.row;
-      this.startPosition.column = edit.newEndPosition.column;
-    }
-  }
-  /** Get the S-expression representation of this node. */
-  toString() {
-    marshalNode(this);
-    const address = C._ts_node_to_string_wasm(this.tree[0]);
-    const result = C.AsciiToString(address);
-    C._free(address);
-    return result;
-  }
-};
-function unmarshalCaptures(query, tree, address, patternIndex, result) {
-  for (let i2 = 0, n = result.length; i2 < n; i2++) {
-    const captureIndex = C.getValue(address, "i32");
-    address += SIZE_OF_INT;
-    const node = unmarshalNode(tree, address);
-    address += SIZE_OF_NODE;
-    result[i2] = { patternIndex, name: query.captureNames[captureIndex], node };
-  }
-  return address;
-}
-__name(unmarshalCaptures, "unmarshalCaptures");
-function marshalNode(node, index = 0) {
-  let address = TRANSFER_BUFFER + index * SIZE_OF_NODE;
-  C.setValue(address, node.id, "i32");
-  address += SIZE_OF_INT;
-  C.setValue(address, node.startIndex, "i32");
-  address += SIZE_OF_INT;
-  C.setValue(address, node.startPosition.row, "i32");
-  address += SIZE_OF_INT;
-  C.setValue(address, node.startPosition.column, "i32");
-  address += SIZE_OF_INT;
-  C.setValue(address, node[0], "i32");
-}
-__name(marshalNode, "marshalNode");
-function unmarshalNode(tree, address = TRANSFER_BUFFER) {
-  const id = C.getValue(address, "i32");
-  address += SIZE_OF_INT;
-  if (id === 0) return null;
-  const index = C.getValue(address, "i32");
-  address += SIZE_OF_INT;
-  const row = C.getValue(address, "i32");
-  address += SIZE_OF_INT;
-  const column = C.getValue(address, "i32");
-  address += SIZE_OF_INT;
-  const other = C.getValue(address, "i32");
-  const result = new Node(INTERNAL, {
-    id,
-    tree,
-    startIndex: index,
-    startPosition: { row, column },
-    other
-  });
-  return result;
-}
-__name(unmarshalNode, "unmarshalNode");
-function marshalTreeCursor(cursor, address = TRANSFER_BUFFER) {
-  C.setValue(address + 0 * SIZE_OF_INT, cursor[0], "i32");
-  C.setValue(address + 1 * SIZE_OF_INT, cursor[1], "i32");
-  C.setValue(address + 2 * SIZE_OF_INT, cursor[2], "i32");
-  C.setValue(address + 3 * SIZE_OF_INT, cursor[3], "i32");
-}
-__name(marshalTreeCursor, "marshalTreeCursor");
-function unmarshalTreeCursor(cursor) {
-  cursor[0] = C.getValue(TRANSFER_BUFFER + 0 * SIZE_OF_INT, "i32");
-  cursor[1] = C.getValue(TRANSFER_BUFFER + 1 * SIZE_OF_INT, "i32");
-  cursor[2] = C.getValue(TRANSFER_BUFFER + 2 * SIZE_OF_INT, "i32");
-  cursor[3] = C.getValue(TRANSFER_BUFFER + 3 * SIZE_OF_INT, "i32");
-}
-__name(unmarshalTreeCursor, "unmarshalTreeCursor");
-function marshalPoint(address, point) {
-  C.setValue(address, point.row, "i32");
-  C.setValue(address + SIZE_OF_INT, point.column, "i32");
-}
-__name(marshalPoint, "marshalPoint");
-function unmarshalPoint(address) {
-  const result = {
-    row: C.getValue(address, "i32") >>> 0,
-    column: C.getValue(address + SIZE_OF_INT, "i32") >>> 0
-  };
-  return result;
-}
-__name(unmarshalPoint, "unmarshalPoint");
-function marshalRange(address, range) {
-  marshalPoint(address, range.startPosition);
-  address += SIZE_OF_POINT;
-  marshalPoint(address, range.endPosition);
-  address += SIZE_OF_POINT;
-  C.setValue(address, range.startIndex, "i32");
-  address += SIZE_OF_INT;
-  C.setValue(address, range.endIndex, "i32");
-  address += SIZE_OF_INT;
-}
-__name(marshalRange, "marshalRange");
-function unmarshalRange(address) {
-  const result = {};
-  result.startPosition = unmarshalPoint(address);
-  address += SIZE_OF_POINT;
-  result.endPosition = unmarshalPoint(address);
-  address += SIZE_OF_POINT;
-  result.startIndex = C.getValue(address, "i32") >>> 0;
-  address += SIZE_OF_INT;
-  result.endIndex = C.getValue(address, "i32") >>> 0;
-  return result;
-}
-__name(unmarshalRange, "unmarshalRange");
-function marshalEdit(edit, address = TRANSFER_BUFFER) {
-  marshalPoint(address, edit.startPosition);
-  address += SIZE_OF_POINT;
-  marshalPoint(address, edit.oldEndPosition);
-  address += SIZE_OF_POINT;
-  marshalPoint(address, edit.newEndPosition);
-  address += SIZE_OF_POINT;
-  C.setValue(address, edit.startIndex, "i32");
-  address += SIZE_OF_INT;
-  C.setValue(address, edit.oldEndIndex, "i32");
-  address += SIZE_OF_INT;
-  C.setValue(address, edit.newEndIndex, "i32");
-  address += SIZE_OF_INT;
-}
-__name(marshalEdit, "marshalEdit");
-function unmarshalLanguageMetadata(address) {
-  const major_version = C.getValue(address, "i32");
-  const minor_version = C.getValue(address += SIZE_OF_INT, "i32");
-  const patch_version = C.getValue(address += SIZE_OF_INT, "i32");
-  return { major_version, minor_version, patch_version };
-}
-__name(unmarshalLanguageMetadata, "unmarshalLanguageMetadata");
-var PREDICATE_STEP_TYPE_CAPTURE = 1;
-var PREDICATE_STEP_TYPE_STRING = 2;
-var QUERY_WORD_REGEX = /[\w-]+/g;
-var CaptureQuantifier = {
-  Zero: 0,
-  ZeroOrOne: 1,
-  ZeroOrMore: 2,
-  One: 3,
-  OneOrMore: 4
-};
-var isCaptureStep = /* @__PURE__ */ __name((step) => step.type === "capture", "isCaptureStep");
-var isStringStep = /* @__PURE__ */ __name((step) => step.type === "string", "isStringStep");
-var QueryErrorKind = {
-  Syntax: 1,
-  NodeName: 2,
-  FieldName: 3,
-  CaptureName: 4,
-  PatternStructure: 5
-};
-var QueryError = class _QueryError extends Error {
-  constructor(kind, info2, index, length) {
-    super(_QueryError.formatMessage(kind, info2));
-    this.kind = kind;
-    this.info = info2;
-    this.index = index;
-    this.length = length;
-    this.name = "QueryError";
-  }
-  static {
-    __name(this, "QueryError");
-  }
-  /** Formats an error message based on the error kind and info */
-  static formatMessage(kind, info2) {
-    switch (kind) {
-      case QueryErrorKind.NodeName:
-        return `Bad node name '${info2.word}'`;
-      case QueryErrorKind.FieldName:
-        return `Bad field name '${info2.word}'`;
-      case QueryErrorKind.CaptureName:
-        return `Bad capture name @${info2.word}`;
-      case QueryErrorKind.PatternStructure:
-        return `Bad pattern structure at offset ${info2.suffix}`;
-      case QueryErrorKind.Syntax:
-        return `Bad syntax at offset ${info2.suffix}`;
-    }
-  }
-};
-function parseAnyPredicate(steps, index, operator, textPredicates) {
-  if (steps.length !== 3) {
-    throw new Error(
-      `Wrong number of arguments to \`#${operator}\` predicate. Expected 2, got ${steps.length - 1}`
-    );
-  }
-  if (!isCaptureStep(steps[1])) {
-    throw new Error(
-      `First argument of \`#${operator}\` predicate must be a capture. Got "${steps[1].value}"`
-    );
-  }
-  const isPositive = operator === "eq?" || operator === "any-eq?";
-  const matchAll = !operator.startsWith("any-");
-  if (isCaptureStep(steps[2])) {
-    const captureName1 = steps[1].name;
-    const captureName2 = steps[2].name;
-    textPredicates[index].push((captures) => {
-      const nodes1 = [];
-      const nodes2 = [];
-      for (const c of captures) {
-        if (c.name === captureName1) nodes1.push(c.node);
-        if (c.name === captureName2) nodes2.push(c.node);
-      }
-      const compare = /* @__PURE__ */ __name((n1, n2, positive) => {
-        return positive ? n1.text === n2.text : n1.text !== n2.text;
-      }, "compare");
-      return matchAll ? nodes1.every((n1) => nodes2.some((n2) => compare(n1, n2, isPositive))) : nodes1.some((n1) => nodes2.some((n2) => compare(n1, n2, isPositive)));
-    });
-  } else {
-    const captureName = steps[1].name;
-    const stringValue = steps[2].value;
-    const matches = /* @__PURE__ */ __name((n) => n.text === stringValue, "matches");
-    const doesNotMatch = /* @__PURE__ */ __name((n) => n.text !== stringValue, "doesNotMatch");
-    textPredicates[index].push((captures) => {
-      const nodes = [];
-      for (const c of captures) {
-        if (c.name === captureName) nodes.push(c.node);
-      }
-      const test = isPositive ? matches : doesNotMatch;
-      return matchAll ? nodes.every(test) : nodes.some(test);
-    });
-  }
-}
-__name(parseAnyPredicate, "parseAnyPredicate");
-function parseMatchPredicate(steps, index, operator, textPredicates) {
-  if (steps.length !== 3) {
-    throw new Error(
-      `Wrong number of arguments to \`#${operator}\` predicate. Expected 2, got ${steps.length - 1}.`
-    );
-  }
-  if (steps[1].type !== "capture") {
-    throw new Error(
-      `First argument of \`#${operator}\` predicate must be a capture. Got "${steps[1].value}".`
-    );
-  }
-  if (steps[2].type !== "string") {
-    throw new Error(
-      `Second argument of \`#${operator}\` predicate must be a string. Got @${steps[2].name}.`
-    );
-  }
-  const isPositive = operator === "match?" || operator === "any-match?";
-  const matchAll = !operator.startsWith("any-");
-  const captureName = steps[1].name;
-  const regex = new RegExp(steps[2].value);
-  textPredicates[index].push((captures) => {
-    const nodes = [];
-    for (const c of captures) {
-      if (c.name === captureName) nodes.push(c.node.text);
-    }
-    const test = /* @__PURE__ */ __name((text, positive) => {
-      return positive ? regex.test(text) : !regex.test(text);
-    }, "test");
-    if (nodes.length === 0) return !isPositive;
-    return matchAll ? nodes.every((text) => test(text, isPositive)) : nodes.some((text) => test(text, isPositive));
-  });
-}
-__name(parseMatchPredicate, "parseMatchPredicate");
-function parseAnyOfPredicate(steps, index, operator, textPredicates) {
-  if (steps.length < 2) {
-    throw new Error(
-      `Wrong number of arguments to \`#${operator}\` predicate. Expected at least 1. Got ${steps.length - 1}.`
-    );
-  }
-  if (steps[1].type !== "capture") {
-    throw new Error(
-      `First argument of \`#${operator}\` predicate must be a capture. Got "${steps[1].value}".`
-    );
-  }
-  const isPositive = operator === "any-of?";
-  const captureName = steps[1].name;
-  const stringSteps = steps.slice(2);
-  if (!stringSteps.every(isStringStep)) {
-    throw new Error(
-      `Arguments to \`#${operator}\` predicate must be strings.".`
-    );
-  }
-  const values = stringSteps.map((s) => s.value);
-  textPredicates[index].push((captures) => {
-    const nodes = [];
-    for (const c of captures) {
-      if (c.name === captureName) nodes.push(c.node.text);
-    }
-    if (nodes.length === 0) return !isPositive;
-    return nodes.every((text) => values.includes(text)) === isPositive;
-  });
-}
-__name(parseAnyOfPredicate, "parseAnyOfPredicate");
-function parseIsPredicate(steps, index, operator, assertedProperties, refutedProperties) {
-  if (steps.length < 2 || steps.length > 3) {
-    throw new Error(
-      `Wrong number of arguments to \`#${operator}\` predicate. Expected 1 or 2. Got ${steps.length - 1}.`
-    );
-  }
-  if (!steps.every(isStringStep)) {
-    throw new Error(
-      `Arguments to \`#${operator}\` predicate must be strings.".`
-    );
-  }
-  const properties = operator === "is?" ? assertedProperties : refutedProperties;
-  if (!properties[index]) properties[index] = {};
-  properties[index][steps[1].value] = steps[2]?.value ?? null;
-}
-__name(parseIsPredicate, "parseIsPredicate");
-function parseSetDirective(steps, index, setProperties) {
-  if (steps.length < 2 || steps.length > 3) {
-    throw new Error(`Wrong number of arguments to \`#set!\` predicate. Expected 1 or 2. Got ${steps.length - 1}.`);
-  }
-  if (!steps.every(isStringStep)) {
-    throw new Error(`Arguments to \`#set!\` predicate must be strings.".`);
-  }
-  if (!setProperties[index]) setProperties[index] = {};
-  setProperties[index][steps[1].value] = steps[2]?.value ?? null;
-}
-__name(parseSetDirective, "parseSetDirective");
-function parsePattern(index, stepType, stepValueId, captureNames, stringValues, steps, textPredicates, predicates, setProperties, assertedProperties, refutedProperties) {
-  if (stepType === PREDICATE_STEP_TYPE_CAPTURE) {
-    const name2 = captureNames[stepValueId];
-    steps.push({ type: "capture", name: name2 });
-  } else if (stepType === PREDICATE_STEP_TYPE_STRING) {
-    steps.push({ type: "string", value: stringValues[stepValueId] });
-  } else if (steps.length > 0) {
-    if (steps[0].type !== "string") {
-      throw new Error("Predicates must begin with a literal value");
-    }
-    const operator = steps[0].value;
-    switch (operator) {
-      case "any-not-eq?":
-      case "not-eq?":
-      case "any-eq?":
-      case "eq?":
-        parseAnyPredicate(steps, index, operator, textPredicates);
-        break;
-      case "any-not-match?":
-      case "not-match?":
-      case "any-match?":
-      case "match?":
-        parseMatchPredicate(steps, index, operator, textPredicates);
-        break;
-      case "not-any-of?":
-      case "any-of?":
-        parseAnyOfPredicate(steps, index, operator, textPredicates);
-        break;
-      case "is?":
-      case "is-not?":
-        parseIsPredicate(steps, index, operator, assertedProperties, refutedProperties);
-        break;
-      case "set!":
-        parseSetDirective(steps, index, setProperties);
-        break;
-      default:
-        predicates[index].push({ operator, operands: steps.slice(1) });
-    }
-    steps.length = 0;
-  }
-}
-__name(parsePattern, "parsePattern");
-var Query = class {
-  static {
-    __name(this, "Query");
-  }
-  /** @internal */
-  [0] = 0;
-  // Internal handle for WASM
-  /** @internal */
-  exceededMatchLimit;
-  /** @internal */
-  textPredicates;
-  /** The names of the captures used in the query. */
-  captureNames;
-  /** The quantifiers of the captures used in the query. */
-  captureQuantifiers;
-  /**
-   * The other user-defined predicates associated with the given index.
-   *
-   * This includes predicates with operators other than:
-   * - `match?`
-   * - `eq?` and `not-eq?`
-   * - `any-of?` and `not-any-of?`
-   * - `is?` and `is-not?`
-   * - `set!`
-   */
-  predicates;
-  /** The properties for predicates with the operator `set!`. */
-  setProperties;
-  /** The properties for predicates with the operator `is?`. */
-  assertedProperties;
-  /** The properties for predicates with the operator `is-not?`. */
-  refutedProperties;
-  /** The maximum number of in-progress matches for this cursor. */
-  matchLimit;
-  /**
-   * Create a new query from a string containing one or more S-expression
-   * patterns.
-   *
-   * The query is associated with a particular language, and can only be run
-   * on syntax nodes parsed with that language. References to Queries can be
-   * shared between multiple threads.
-   *
-   * @link {@see https://tree-sitter.github.io/tree-sitter/using-parsers/queries}
-   */
-  constructor(language, source) {
-    const sourceLength = C.lengthBytesUTF8(source);
-    const sourceAddress = C._malloc(sourceLength + 1);
-    C.stringToUTF8(source, sourceAddress, sourceLength + 1);
-    const address = C._ts_query_new(
-      language[0],
-      sourceAddress,
-      sourceLength,
-      TRANSFER_BUFFER,
-      TRANSFER_BUFFER + SIZE_OF_INT
-    );
-    if (!address) {
-      const errorId = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-      const errorByte = C.getValue(TRANSFER_BUFFER, "i32");
-      const errorIndex = C.UTF8ToString(sourceAddress, errorByte).length;
-      const suffix = source.slice(errorIndex, errorIndex + 100).split("\n")[0];
-      const word = suffix.match(QUERY_WORD_REGEX)?.[0] ?? "";
-      C._free(sourceAddress);
-      switch (errorId) {
-        case QueryErrorKind.Syntax:
-          throw new QueryError(QueryErrorKind.Syntax, { suffix: `${errorIndex}: '${suffix}'...` }, errorIndex, 0);
-        case QueryErrorKind.NodeName:
-          throw new QueryError(errorId, { word }, errorIndex, word.length);
-        case QueryErrorKind.FieldName:
-          throw new QueryError(errorId, { word }, errorIndex, word.length);
-        case QueryErrorKind.CaptureName:
-          throw new QueryError(errorId, { word }, errorIndex, word.length);
-        case QueryErrorKind.PatternStructure:
-          throw new QueryError(errorId, { suffix: `${errorIndex}: '${suffix}'...` }, errorIndex, 0);
-      }
-    }
-    const stringCount = C._ts_query_string_count(address);
-    const captureCount = C._ts_query_capture_count(address);
-    const patternCount = C._ts_query_pattern_count(address);
-    const captureNames = new Array(captureCount);
-    const captureQuantifiers = new Array(patternCount);
-    const stringValues = new Array(stringCount);
-    for (let i2 = 0; i2 < captureCount; i2++) {
-      const nameAddress = C._ts_query_capture_name_for_id(
-        address,
-        i2,
-        TRANSFER_BUFFER
-      );
-      const nameLength = C.getValue(TRANSFER_BUFFER, "i32");
-      captureNames[i2] = C.UTF8ToString(nameAddress, nameLength);
-    }
-    for (let i2 = 0; i2 < patternCount; i2++) {
-      const captureQuantifiersArray = new Array(captureCount);
-      for (let j = 0; j < captureCount; j++) {
-        const quantifier = C._ts_query_capture_quantifier_for_id(address, i2, j);
-        captureQuantifiersArray[j] = quantifier;
-      }
-      captureQuantifiers[i2] = captureQuantifiersArray;
-    }
-    for (let i2 = 0; i2 < stringCount; i2++) {
-      const valueAddress = C._ts_query_string_value_for_id(
-        address,
-        i2,
-        TRANSFER_BUFFER
-      );
-      const nameLength = C.getValue(TRANSFER_BUFFER, "i32");
-      stringValues[i2] = C.UTF8ToString(valueAddress, nameLength);
-    }
-    const setProperties = new Array(patternCount);
-    const assertedProperties = new Array(patternCount);
-    const refutedProperties = new Array(patternCount);
-    const predicates = new Array(patternCount);
-    const textPredicates = new Array(patternCount);
-    for (let i2 = 0; i2 < patternCount; i2++) {
-      const predicatesAddress = C._ts_query_predicates_for_pattern(address, i2, TRANSFER_BUFFER);
-      const stepCount = C.getValue(TRANSFER_BUFFER, "i32");
-      predicates[i2] = [];
-      textPredicates[i2] = [];
-      const steps = new Array();
-      let stepAddress = predicatesAddress;
-      for (let j = 0; j < stepCount; j++) {
-        const stepType = C.getValue(stepAddress, "i32");
-        stepAddress += SIZE_OF_INT;
-        const stepValueId = C.getValue(stepAddress, "i32");
-        stepAddress += SIZE_OF_INT;
-        parsePattern(
-          i2,
-          stepType,
-          stepValueId,
-          captureNames,
-          stringValues,
-          steps,
-          textPredicates,
-          predicates,
-          setProperties,
-          assertedProperties,
-          refutedProperties
-        );
-      }
-      Object.freeze(textPredicates[i2]);
-      Object.freeze(predicates[i2]);
-      Object.freeze(setProperties[i2]);
-      Object.freeze(assertedProperties[i2]);
-      Object.freeze(refutedProperties[i2]);
-    }
-    C._free(sourceAddress);
-    this[0] = address;
-    this.captureNames = captureNames;
-    this.captureQuantifiers = captureQuantifiers;
-    this.textPredicates = textPredicates;
-    this.predicates = predicates;
-    this.setProperties = setProperties;
-    this.assertedProperties = assertedProperties;
-    this.refutedProperties = refutedProperties;
-    this.exceededMatchLimit = false;
-  }
-  /** Delete the query, freeing its resources. */
-  delete() {
-    C._ts_query_delete(this[0]);
-    this[0] = 0;
-  }
-  /**
-   * Iterate over all of the matches in the order that they were found.
-   *
-   * Each match contains the index of the pattern that matched, and a list of
-   * captures. Because multiple patterns can match the same set of nodes,
-   * one match may contain captures that appear *before* some of the
-   * captures from a previous match.
-   *
-   * @param {Node} node - The node to execute the query on.
-   *
-   * @param {QueryOptions} options - Options for query execution.
-   */
-  matches(node, options = {}) {
-    const startPosition = options.startPosition ?? ZERO_POINT;
-    const endPosition = options.endPosition ?? ZERO_POINT;
-    const startIndex = options.startIndex ?? 0;
-    const endIndex = options.endIndex ?? 0;
-    const matchLimit = options.matchLimit ?? 4294967295;
-    const maxStartDepth = options.maxStartDepth ?? 4294967295;
-    const timeoutMicros = options.timeoutMicros ?? 0;
-    const progressCallback = options.progressCallback;
-    if (typeof matchLimit !== "number") {
-      throw new Error("Arguments must be numbers");
-    }
-    this.matchLimit = matchLimit;
-    if (endIndex !== 0 && startIndex > endIndex) {
-      throw new Error("`startIndex` cannot be greater than `endIndex`");
-    }
-    if (endPosition !== ZERO_POINT && (startPosition.row > endPosition.row || startPosition.row === endPosition.row && startPosition.column > endPosition.column)) {
-      throw new Error("`startPosition` cannot be greater than `endPosition`");
-    }
-    if (progressCallback) {
-      C.currentQueryProgressCallback = progressCallback;
-    }
-    marshalNode(node);
-    C._ts_query_matches_wasm(
-      this[0],
-      node.tree[0],
-      startPosition.row,
-      startPosition.column,
-      endPosition.row,
-      endPosition.column,
-      startIndex,
-      endIndex,
-      matchLimit,
-      maxStartDepth,
-      timeoutMicros
-    );
-    const rawCount = C.getValue(TRANSFER_BUFFER, "i32");
-    const startAddress = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-    const didExceedMatchLimit = C.getValue(TRANSFER_BUFFER + 2 * SIZE_OF_INT, "i32");
-    const result = new Array(rawCount);
-    this.exceededMatchLimit = Boolean(didExceedMatchLimit);
-    let filteredCount = 0;
-    let address = startAddress;
-    for (let i2 = 0; i2 < rawCount; i2++) {
-      const patternIndex = C.getValue(address, "i32");
-      address += SIZE_OF_INT;
-      const captureCount = C.getValue(address, "i32");
-      address += SIZE_OF_INT;
-      const captures = new Array(captureCount);
-      address = unmarshalCaptures(this, node.tree, address, patternIndex, captures);
-      if (this.textPredicates[patternIndex].every((p) => p(captures))) {
-        result[filteredCount] = { pattern: patternIndex, patternIndex, captures };
-        const setProperties = this.setProperties[patternIndex];
-        result[filteredCount].setProperties = setProperties;
-        const assertedProperties = this.assertedProperties[patternIndex];
-        result[filteredCount].assertedProperties = assertedProperties;
-        const refutedProperties = this.refutedProperties[patternIndex];
-        result[filteredCount].refutedProperties = refutedProperties;
-        filteredCount++;
-      }
-    }
-    result.length = filteredCount;
-    C._free(startAddress);
-    C.currentQueryProgressCallback = null;
-    return result;
-  }
-  /**
-   * Iterate over all of the individual captures in the order that they
-   * appear.
-   *
-   * This is useful if you don't care about which pattern matched, and just
-   * want a single, ordered sequence of captures.
-   *
-   * @param {Node} node - The node to execute the query on.
-   *
-   * @param {QueryOptions} options - Options for query execution.
-   */
-  captures(node, options = {}) {
-    const startPosition = options.startPosition ?? ZERO_POINT;
-    const endPosition = options.endPosition ?? ZERO_POINT;
-    const startIndex = options.startIndex ?? 0;
-    const endIndex = options.endIndex ?? 0;
-    const matchLimit = options.matchLimit ?? 4294967295;
-    const maxStartDepth = options.maxStartDepth ?? 4294967295;
-    const timeoutMicros = options.timeoutMicros ?? 0;
-    const progressCallback = options.progressCallback;
-    if (typeof matchLimit !== "number") {
-      throw new Error("Arguments must be numbers");
-    }
-    this.matchLimit = matchLimit;
-    if (endIndex !== 0 && startIndex > endIndex) {
-      throw new Error("`startIndex` cannot be greater than `endIndex`");
-    }
-    if (endPosition !== ZERO_POINT && (startPosition.row > endPosition.row || startPosition.row === endPosition.row && startPosition.column > endPosition.column)) {
-      throw new Error("`startPosition` cannot be greater than `endPosition`");
-    }
-    if (progressCallback) {
-      C.currentQueryProgressCallback = progressCallback;
-    }
-    marshalNode(node);
-    C._ts_query_captures_wasm(
-      this[0],
-      node.tree[0],
-      startPosition.row,
-      startPosition.column,
-      endPosition.row,
-      endPosition.column,
-      startIndex,
-      endIndex,
-      matchLimit,
-      maxStartDepth,
-      timeoutMicros
-    );
-    const count = C.getValue(TRANSFER_BUFFER, "i32");
-    const startAddress = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-    const didExceedMatchLimit = C.getValue(TRANSFER_BUFFER + 2 * SIZE_OF_INT, "i32");
-    const result = new Array();
-    this.exceededMatchLimit = Boolean(didExceedMatchLimit);
-    const captures = new Array();
-    let address = startAddress;
-    for (let i2 = 0; i2 < count; i2++) {
-      const patternIndex = C.getValue(address, "i32");
-      address += SIZE_OF_INT;
-      const captureCount = C.getValue(address, "i32");
-      address += SIZE_OF_INT;
-      const captureIndex = C.getValue(address, "i32");
-      address += SIZE_OF_INT;
-      captures.length = captureCount;
-      address = unmarshalCaptures(this, node.tree, address, patternIndex, captures);
-      if (this.textPredicates[patternIndex].every((p) => p(captures))) {
-        const capture = captures[captureIndex];
-        const setProperties = this.setProperties[patternIndex];
-        capture.setProperties = setProperties;
-        const assertedProperties = this.assertedProperties[patternIndex];
-        capture.assertedProperties = assertedProperties;
-        const refutedProperties = this.refutedProperties[patternIndex];
-        capture.refutedProperties = refutedProperties;
-        result.push(capture);
-      }
-    }
-    C._free(startAddress);
-    C.currentQueryProgressCallback = null;
-    return result;
-  }
-  /** Get the predicates for a given pattern. */
-  predicatesForPattern(patternIndex) {
-    return this.predicates[patternIndex];
-  }
-  /**
-   * Disable a certain capture within a query.
-   *
-   * This prevents the capture from being returned in matches, and also
-   * avoids any resource usage associated with recording the capture.
-   */
-  disableCapture(captureName) {
-    const captureNameLength = C.lengthBytesUTF8(captureName);
-    const captureNameAddress = C._malloc(captureNameLength + 1);
-    C.stringToUTF8(captureName, captureNameAddress, captureNameLength + 1);
-    C._ts_query_disable_capture(this[0], captureNameAddress, captureNameLength);
-    C._free(captureNameAddress);
-  }
-  /**
-   * Disable a certain pattern within a query.
-   *
-   * This prevents the pattern from matching, and also avoids any resource
-   * usage associated with the pattern. This throws an error if the pattern
-   * index is out of bounds.
-   */
-  disablePattern(patternIndex) {
-    if (patternIndex >= this.predicates.length) {
-      throw new Error(
-        `Pattern index is ${patternIndex} but the pattern count is ${this.predicates.length}`
-      );
-    }
-    C._ts_query_disable_pattern(this[0], patternIndex);
-  }
-  /**
-   * Check if, on its last execution, this cursor exceeded its maximum number
-   * of in-progress matches.
-   */
-  didExceedMatchLimit() {
-    return this.exceededMatchLimit;
-  }
-  /** Get the byte offset where the given pattern starts in the query's source. */
-  startIndexForPattern(patternIndex) {
-    if (patternIndex >= this.predicates.length) {
-      throw new Error(
-        `Pattern index is ${patternIndex} but the pattern count is ${this.predicates.length}`
-      );
-    }
-    return C._ts_query_start_byte_for_pattern(this[0], patternIndex);
-  }
-  /** Get the byte offset where the given pattern ends in the query's source. */
-  endIndexForPattern(patternIndex) {
-    if (patternIndex >= this.predicates.length) {
-      throw new Error(
-        `Pattern index is ${patternIndex} but the pattern count is ${this.predicates.length}`
-      );
-    }
-    return C._ts_query_end_byte_for_pattern(this[0], patternIndex);
-  }
-  /** Get the number of patterns in the query. */
-  patternCount() {
-    return C._ts_query_pattern_count(this[0]);
-  }
-  /** Get the index for a given capture name. */
-  captureIndexForName(captureName) {
-    return this.captureNames.indexOf(captureName);
-  }
-  /** Check if a given pattern within a query has a single root node. */
-  isPatternRooted(patternIndex) {
-    return C._ts_query_is_pattern_rooted(this[0], patternIndex) === 1;
-  }
-  /** Check if a given pattern within a query has a single root node. */
-  isPatternNonLocal(patternIndex) {
-    return C._ts_query_is_pattern_non_local(this[0], patternIndex) === 1;
-  }
-  /**
-   * Check if a given step in a query is 'definite'.
-   *
-   * A query step is 'definite' if its parent pattern will be guaranteed to
-   * match successfully once it reaches the step.
-   */
-  isPatternGuaranteedAtStep(byteIndex) {
-    return C._ts_query_is_pattern_guaranteed_at_step(this[0], byteIndex) === 1;
-  }
-};
-var LANGUAGE_FUNCTION_REGEX = /^tree_sitter_\w+$/;
-var Language = class _Language {
-  static {
-    __name(this, "Language");
-  }
-  /** @internal */
-  [0] = 0;
-  // Internal handle for WASM
-  /**
-   * A list of all node types in the language. The index of each type in this
-   * array is its node type id.
-   */
-  types;
-  /**
-   * A list of all field names in the language. The index of each field name in
-   * this array is its field id.
-   */
-  fields;
-  /** @internal */
-  constructor(internal, address) {
-    assertInternal(internal);
-    this[0] = address;
-    this.types = new Array(C._ts_language_symbol_count(this[0]));
-    for (let i2 = 0, n = this.types.length; i2 < n; i2++) {
-      if (C._ts_language_symbol_type(this[0], i2) < 2) {
-        this.types[i2] = C.UTF8ToString(C._ts_language_symbol_name(this[0], i2));
-      }
-    }
-    this.fields = new Array(C._ts_language_field_count(this[0]) + 1);
-    for (let i2 = 0, n = this.fields.length; i2 < n; i2++) {
-      const fieldName = C._ts_language_field_name_for_id(this[0], i2);
-      if (fieldName !== 0) {
-        this.fields[i2] = C.UTF8ToString(fieldName);
-      } else {
-        this.fields[i2] = null;
-      }
-    }
-  }
-  /**
-   * Gets the name of the language.
-   */
-  get name() {
-    const ptr = C._ts_language_name(this[0]);
-    if (ptr === 0) return null;
-    return C.UTF8ToString(ptr);
-  }
-  /**
-   * @deprecated since version 0.25.0, use {@link Language#abiVersion} instead
-   * Gets the version of the language.
-   */
-  get version() {
-    return C._ts_language_version(this[0]);
-  }
-  /**
-   * Gets the ABI version of the language.
-   */
-  get abiVersion() {
-    return C._ts_language_abi_version(this[0]);
-  }
-  /**
-  * Get the metadata for this language. This information is generated by the
-  * CLI, and relies on the language author providing the correct metadata in
-  * the language's `tree-sitter.json` file.
-  */
-  get metadata() {
-    C._ts_language_metadata(this[0]);
-    const length = C.getValue(TRANSFER_BUFFER, "i32");
-    const address = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-    if (length === 0) return null;
-    return unmarshalLanguageMetadata(address);
-  }
-  /**
-   * Gets the number of fields in the language.
-   */
-  get fieldCount() {
-    return this.fields.length - 1;
-  }
-  /**
-   * Gets the number of states in the language.
-   */
-  get stateCount() {
-    return C._ts_language_state_count(this[0]);
-  }
-  /**
-   * Get the field id for a field name.
-   */
-  fieldIdForName(fieldName) {
-    const result = this.fields.indexOf(fieldName);
-    return result !== -1 ? result : null;
-  }
-  /**
-   * Get the field name for a field id.
-   */
-  fieldNameForId(fieldId) {
-    return this.fields[fieldId] ?? null;
-  }
-  /**
-   * Get the node type id for a node type name.
-   */
-  idForNodeType(type, named) {
-    const typeLength = C.lengthBytesUTF8(type);
-    const typeAddress = C._malloc(typeLength + 1);
-    C.stringToUTF8(type, typeAddress, typeLength + 1);
-    const result = C._ts_language_symbol_for_name(this[0], typeAddress, typeLength, named ? 1 : 0);
-    C._free(typeAddress);
-    return result || null;
-  }
-  /**
-   * Gets the number of node types in the language.
-   */
-  get nodeTypeCount() {
-    return C._ts_language_symbol_count(this[0]);
-  }
-  /**
-   * Get the node type name for a node type id.
-   */
-  nodeTypeForId(typeId) {
-    const name2 = C._ts_language_symbol_name(this[0], typeId);
-    return name2 ? C.UTF8ToString(name2) : null;
-  }
-  /**
-   * Check if a node type is named.
-   *
-   * @see {@link https://tree-sitter.github.io/tree-sitter/using-parsers/2-basic-parsing.html#named-vs-anonymous-nodes}
-   */
-  nodeTypeIsNamed(typeId) {
-    return C._ts_language_type_is_named_wasm(this[0], typeId) ? true : false;
-  }
-  /**
-   * Check if a node type is visible.
-   */
-  nodeTypeIsVisible(typeId) {
-    return C._ts_language_type_is_visible_wasm(this[0], typeId) ? true : false;
-  }
-  /**
-   * Get the supertypes ids of this language.
-   *
-   * @see {@link https://tree-sitter.github.io/tree-sitter/using-parsers/6-static-node-types.html?highlight=supertype#supertype-nodes}
-   */
-  get supertypes() {
-    C._ts_language_supertypes_wasm(this[0]);
-    const count = C.getValue(TRANSFER_BUFFER, "i32");
-    const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-    const result = new Array(count);
-    if (count > 0) {
-      let address = buffer;
-      for (let i2 = 0; i2 < count; i2++) {
-        result[i2] = C.getValue(address, "i16");
-        address += SIZE_OF_SHORT;
-      }
-    }
-    return result;
-  }
-  /**
-   * Get the subtype ids for a given supertype node id.
-   */
-  subtypes(supertype) {
-    C._ts_language_subtypes_wasm(this[0], supertype);
-    const count = C.getValue(TRANSFER_BUFFER, "i32");
-    const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-    const result = new Array(count);
-    if (count > 0) {
-      let address = buffer;
-      for (let i2 = 0; i2 < count; i2++) {
-        result[i2] = C.getValue(address, "i16");
-        address += SIZE_OF_SHORT;
-      }
-    }
-    return result;
-  }
-  /**
-   * Get the next state id for a given state id and node type id.
-   */
-  nextState(stateId, typeId) {
-    return C._ts_language_next_state(this[0], stateId, typeId);
-  }
-  /**
-   * Create a new lookahead iterator for this language and parse state.
-   *
-   * This returns `null` if state is invalid for this language.
-   *
-   * Iterating {@link LookaheadIterator} will yield valid symbols in the given
-   * parse state. Newly created lookahead iterators will return the `ERROR`
-   * symbol from {@link LookaheadIterator#currentType}.
-   *
-   * Lookahead iterators can be useful for generating suggestions and improving
-   * syntax error diagnostics. To get symbols valid in an `ERROR` node, use the
-   * lookahead iterator on its first leaf node state. For `MISSING` nodes, a
-   * lookahead iterator created on the previous non-extra leaf node may be
-   * appropriate.
-   */
-  lookaheadIterator(stateId) {
-    const address = C._ts_lookahead_iterator_new(this[0], stateId);
-    if (address) return new LookaheadIterator(INTERNAL, address, this);
-    return null;
-  }
-  /**
-   * @deprecated since version 0.25.0, call `new` on a {@link Query} instead
-   *
-   * Create a new query from a string containing one or more S-expression
-   * patterns.
-   *
-   * The query is associated with a particular language, and can only be run
-   * on syntax nodes parsed with that language. References to Queries can be
-   * shared between multiple threads.
-   *
-   * @link {@see https://tree-sitter.github.io/tree-sitter/using-parsers/queries}
-   */
-  query(source) {
-    console.warn("Language.query is deprecated. Use new Query(language, source) instead.");
-    return new Query(this, source);
-  }
-  /**
-   * Load a language from a WebAssembly module.
-   * The module can be provided as a path to a file or as a buffer.
-   */
-  static async load(input) {
-    let bytes;
-    if (input instanceof Uint8Array) {
-      bytes = Promise.resolve(input);
-    } else {
-      if (globalThis.process?.versions.node) {
-        const fs2 = await import("fs/promises");
-        bytes = fs2.readFile(input);
-      } else {
-        bytes = fetch(input).then((response) => response.arrayBuffer().then((buffer) => {
-          if (response.ok) {
-            return new Uint8Array(buffer);
-          } else {
-            const body2 = new TextDecoder("utf-8").decode(buffer);
-            throw new Error(`Language.load failed with status ${response.status}.
+// src/detect/adapters/python-fastapi.ts
+import { Parser as Parser2 } from "web-tree-sitter";
 
-${body2}`);
-          }
-        }));
-      }
-    }
-    const mod = await C.loadWebAssemblyModule(await bytes, { loadAsync: true });
-    const symbolNames = Object.keys(mod);
-    const functionName = symbolNames.find((key) => LANGUAGE_FUNCTION_REGEX.test(key) && !key.includes("external_scanner_"));
-    if (!functionName) {
-      console.log(`Couldn't find language function in WASM file. Symbols:
-${JSON.stringify(symbolNames, null, 2)}`);
-      throw new Error("Language.load failed: no language function found in WASM file");
-    }
-    const languageAddress = mod[functionName]();
-    return new _Language(INTERNAL, languageAddress);
-  }
-};
-var Module2 = (() => {
-  var _scriptName = import.meta.url;
-  return async function(moduleArg = {}) {
-    var moduleRtn;
-    var Module = moduleArg;
-    var readyPromiseResolve, readyPromiseReject;
-    var readyPromise = new Promise((resolve6, reject) => {
-      readyPromiseResolve = resolve6;
-      readyPromiseReject = reject;
-    });
-    var ENVIRONMENT_IS_WEB = typeof window == "object";
-    var ENVIRONMENT_IS_WORKER = typeof WorkerGlobalScope != "undefined";
-    var ENVIRONMENT_IS_NODE = typeof process == "object" && typeof process.versions == "object" && typeof process.versions.node == "string" && process.type != "renderer";
-    var ENVIRONMENT_IS_SHELL = !ENVIRONMENT_IS_WEB && !ENVIRONMENT_IS_NODE && !ENVIRONMENT_IS_WORKER;
-    if (ENVIRONMENT_IS_NODE) {
-      const { createRequire } = await import("module");
-      var require = createRequire(import.meta.url);
-    }
-    Module.currentQueryProgressCallback = null;
-    Module.currentProgressCallback = null;
-    Module.currentLogCallback = null;
-    Module.currentParseCallback = null;
-    var moduleOverrides = Object.assign({}, Module);
-    var arguments_ = [];
-    var thisProgram = "./this.program";
-    var quit_ = /* @__PURE__ */ __name((status, toThrow) => {
-      throw toThrow;
-    }, "quit_");
-    var scriptDirectory = "";
-    function locateFile(path) {
-      if (Module["locateFile"]) {
-        return Module["locateFile"](path, scriptDirectory);
-      }
-      return scriptDirectory + path;
-    }
-    __name(locateFile, "locateFile");
-    var readAsync, readBinary;
-    if (ENVIRONMENT_IS_NODE) {
-      var fs = require("fs");
-      var nodePath = require("path");
-      if (!import.meta.url.startsWith("data:")) {
-        scriptDirectory = nodePath.dirname(require("url").fileURLToPath(import.meta.url)) + "/";
-      }
-      readBinary = /* @__PURE__ */ __name((filename) => {
-        filename = isFileURI(filename) ? new URL(filename) : filename;
-        var ret = fs.readFileSync(filename);
-        return ret;
-      }, "readBinary");
-      readAsync = /* @__PURE__ */ __name(async (filename, binary2 = true) => {
-        filename = isFileURI(filename) ? new URL(filename) : filename;
-        var ret = fs.readFileSync(filename, binary2 ? void 0 : "utf8");
-        return ret;
-      }, "readAsync");
-      if (!Module["thisProgram"] && process.argv.length > 1) {
-        thisProgram = process.argv[1].replace(/\\/g, "/");
-      }
-      arguments_ = process.argv.slice(2);
-      quit_ = /* @__PURE__ */ __name((status, toThrow) => {
-        process.exitCode = status;
-        throw toThrow;
-      }, "quit_");
-    } else if (ENVIRONMENT_IS_WEB || ENVIRONMENT_IS_WORKER) {
-      if (ENVIRONMENT_IS_WORKER) {
-        scriptDirectory = self.location.href;
-      } else if (typeof document != "undefined" && document.currentScript) {
-        scriptDirectory = document.currentScript.src;
-      }
-      if (_scriptName) {
-        scriptDirectory = _scriptName;
-      }
-      if (scriptDirectory.startsWith("blob:")) {
-        scriptDirectory = "";
-      } else {
-        scriptDirectory = scriptDirectory.slice(0, scriptDirectory.replace(/[?#].*/, "").lastIndexOf("/") + 1);
-      }
-      {
-        if (ENVIRONMENT_IS_WORKER) {
-          readBinary = /* @__PURE__ */ __name((url) => {
-            var xhr = new XMLHttpRequest();
-            xhr.open("GET", url, false);
-            xhr.responseType = "arraybuffer";
-            xhr.send(null);
-            return new Uint8Array(
-              /** @type{!ArrayBuffer} */
-              xhr.response
-            );
-          }, "readBinary");
-        }
-        readAsync = /* @__PURE__ */ __name(async (url) => {
-          if (isFileURI(url)) {
-            return new Promise((resolve6, reject) => {
-              var xhr = new XMLHttpRequest();
-              xhr.open("GET", url, true);
-              xhr.responseType = "arraybuffer";
-              xhr.onload = () => {
-                if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
-                  resolve6(xhr.response);
-                  return;
-                }
-                reject(xhr.status);
-              };
-              xhr.onerror = reject;
-              xhr.send(null);
-            });
-          }
-          var response = await fetch(url, {
-            credentials: "same-origin"
-          });
-          if (response.ok) {
-            return response.arrayBuffer();
-          }
-          throw new Error(response.status + " : " + response.url);
-        }, "readAsync");
-      }
-    } else {
-    }
-    var out = Module["print"] || console.log.bind(console);
-    var err = Module["printErr"] || console.error.bind(console);
-    Object.assign(Module, moduleOverrides);
-    moduleOverrides = null;
-    if (Module["arguments"]) arguments_ = Module["arguments"];
-    if (Module["thisProgram"]) thisProgram = Module["thisProgram"];
-    var dynamicLibraries = Module["dynamicLibraries"] || [];
-    var wasmBinary = Module["wasmBinary"];
-    var wasmMemory;
-    var ABORT = false;
-    var EXITSTATUS;
-    function assert(condition, text) {
-      if (!condition) {
-        abort(text);
-      }
-    }
-    __name(assert, "assert");
-    var HEAP, HEAP8, HEAPU8, HEAP16, HEAPU16, HEAP32, HEAPU32, HEAPF32, HEAP64, HEAPU64, HEAPF64;
-    var HEAP_DATA_VIEW;
-    var runtimeInitialized = false;
-    var isFileURI = /* @__PURE__ */ __name((filename) => filename.startsWith("file://"), "isFileURI");
-    function updateMemoryViews() {
-      var b = wasmMemory.buffer;
-      Module["HEAP_DATA_VIEW"] = HEAP_DATA_VIEW = new DataView(b);
-      Module["HEAP8"] = HEAP8 = new Int8Array(b);
-      Module["HEAP16"] = HEAP16 = new Int16Array(b);
-      Module["HEAPU8"] = HEAPU8 = new Uint8Array(b);
-      Module["HEAPU16"] = HEAPU16 = new Uint16Array(b);
-      Module["HEAP32"] = HEAP32 = new Int32Array(b);
-      Module["HEAPU32"] = HEAPU32 = new Uint32Array(b);
-      Module["HEAPF32"] = HEAPF32 = new Float32Array(b);
-      Module["HEAPF64"] = HEAPF64 = new Float64Array(b);
-      Module["HEAP64"] = HEAP64 = new BigInt64Array(b);
-      Module["HEAPU64"] = HEAPU64 = new BigUint64Array(b);
-    }
-    __name(updateMemoryViews, "updateMemoryViews");
-    if (Module["wasmMemory"]) {
-      wasmMemory = Module["wasmMemory"];
-    } else {
-      var INITIAL_MEMORY = Module["INITIAL_MEMORY"] || 33554432;
-      wasmMemory = new WebAssembly.Memory({
-        "initial": INITIAL_MEMORY / 65536,
-        // In theory we should not need to emit the maximum if we want "unlimited"
-        // or 4GB of memory, but VMs error on that atm, see
-        // https://github.com/emscripten-core/emscripten/issues/14130
-        // And in the pthreads case we definitely need to emit a maximum. So
-        // always emit one.
-        "maximum": 32768
-      });
-    }
-    updateMemoryViews();
-    var __RELOC_FUNCS__ = [];
-    function preRun() {
-      if (Module["preRun"]) {
-        if (typeof Module["preRun"] == "function") Module["preRun"] = [Module["preRun"]];
-        while (Module["preRun"].length) {
-          addOnPreRun(Module["preRun"].shift());
-        }
-      }
-      callRuntimeCallbacks(onPreRuns);
-    }
-    __name(preRun, "preRun");
-    function initRuntime() {
-      runtimeInitialized = true;
-      callRuntimeCallbacks(__RELOC_FUNCS__);
-      wasmExports["__wasm_call_ctors"]();
-      callRuntimeCallbacks(onPostCtors);
-    }
-    __name(initRuntime, "initRuntime");
-    function preMain() {
-    }
-    __name(preMain, "preMain");
-    function postRun() {
-      if (Module["postRun"]) {
-        if (typeof Module["postRun"] == "function") Module["postRun"] = [Module["postRun"]];
-        while (Module["postRun"].length) {
-          addOnPostRun(Module["postRun"].shift());
-        }
-      }
-      callRuntimeCallbacks(onPostRuns);
-    }
-    __name(postRun, "postRun");
-    var runDependencies = 0;
-    var dependenciesFulfilled = null;
-    function getUniqueRunDependency(id) {
-      return id;
-    }
-    __name(getUniqueRunDependency, "getUniqueRunDependency");
-    function addRunDependency(id) {
-      runDependencies++;
-      Module["monitorRunDependencies"]?.(runDependencies);
-    }
-    __name(addRunDependency, "addRunDependency");
-    function removeRunDependency(id) {
-      runDependencies--;
-      Module["monitorRunDependencies"]?.(runDependencies);
-      if (runDependencies == 0) {
-        if (dependenciesFulfilled) {
-          var callback = dependenciesFulfilled;
-          dependenciesFulfilled = null;
-          callback();
-        }
-      }
-    }
-    __name(removeRunDependency, "removeRunDependency");
-    function abort(what) {
-      Module["onAbort"]?.(what);
-      what = "Aborted(" + what + ")";
-      err(what);
-      ABORT = true;
-      what += ". Build with -sASSERTIONS for more info.";
-      var e = new WebAssembly.RuntimeError(what);
-      readyPromiseReject(e);
-      throw e;
-    }
-    __name(abort, "abort");
-    var wasmBinaryFile;
-    function findWasmBinary() {
-      if (Module["locateFile"]) {
-        return locateFile("tree-sitter.wasm");
-      }
-      return new URL("tree-sitter.wasm", import.meta.url).href;
-    }
-    __name(findWasmBinary, "findWasmBinary");
-    function getBinarySync(file) {
-      if (file == wasmBinaryFile && wasmBinary) {
-        return new Uint8Array(wasmBinary);
-      }
-      if (readBinary) {
-        return readBinary(file);
-      }
-      throw "both async and sync fetching of the wasm failed";
-    }
-    __name(getBinarySync, "getBinarySync");
-    async function getWasmBinary(binaryFile) {
-      if (!wasmBinary) {
-        try {
-          var response = await readAsync(binaryFile);
-          return new Uint8Array(response);
-        } catch {
-        }
-      }
-      return getBinarySync(binaryFile);
-    }
-    __name(getWasmBinary, "getWasmBinary");
-    async function instantiateArrayBuffer(binaryFile, imports) {
-      try {
-        var binary2 = await getWasmBinary(binaryFile);
-        var instance2 = await WebAssembly.instantiate(binary2, imports);
-        return instance2;
-      } catch (reason) {
-        err(`failed to asynchronously prepare wasm: ${reason}`);
-        abort(reason);
-      }
-    }
-    __name(instantiateArrayBuffer, "instantiateArrayBuffer");
-    async function instantiateAsync(binary2, binaryFile, imports) {
-      if (!binary2 && typeof WebAssembly.instantiateStreaming == "function" && !isFileURI(binaryFile) && !ENVIRONMENT_IS_NODE) {
-        try {
-          var response = fetch(binaryFile, {
-            credentials: "same-origin"
-          });
-          var instantiationResult = await WebAssembly.instantiateStreaming(response, imports);
-          return instantiationResult;
-        } catch (reason) {
-          err(`wasm streaming compile failed: ${reason}`);
-          err("falling back to ArrayBuffer instantiation");
-        }
-      }
-      return instantiateArrayBuffer(binaryFile, imports);
-    }
-    __name(instantiateAsync, "instantiateAsync");
-    function getWasmImports() {
-      return {
-        "env": wasmImports,
-        "wasi_snapshot_preview1": wasmImports,
-        "GOT.mem": new Proxy(wasmImports, GOTHandler),
-        "GOT.func": new Proxy(wasmImports, GOTHandler)
-      };
-    }
-    __name(getWasmImports, "getWasmImports");
-    async function createWasm() {
-      function receiveInstance(instance2, module2) {
-        wasmExports = instance2.exports;
-        wasmExports = relocateExports(wasmExports, 1024);
-        var metadata2 = getDylinkMetadata(module2);
-        if (metadata2.neededDynlibs) {
-          dynamicLibraries = metadata2.neededDynlibs.concat(dynamicLibraries);
-        }
-        mergeLibSymbols(wasmExports, "main");
-        LDSO.init();
-        loadDylibs();
-        __RELOC_FUNCS__.push(wasmExports["__wasm_apply_data_relocs"]);
-        removeRunDependency("wasm-instantiate");
-        return wasmExports;
-      }
-      __name(receiveInstance, "receiveInstance");
-      addRunDependency("wasm-instantiate");
-      function receiveInstantiationResult(result2) {
-        return receiveInstance(result2["instance"], result2["module"]);
-      }
-      __name(receiveInstantiationResult, "receiveInstantiationResult");
-      var info2 = getWasmImports();
-      if (Module["instantiateWasm"]) {
-        return new Promise((resolve6, reject) => {
-          Module["instantiateWasm"](info2, (mod, inst) => {
-            receiveInstance(mod, inst);
-            resolve6(mod.exports);
-          });
-        });
-      }
-      wasmBinaryFile ??= findWasmBinary();
-      try {
-        var result = await instantiateAsync(wasmBinary, wasmBinaryFile, info2);
-        var exports = receiveInstantiationResult(result);
-        return exports;
-      } catch (e) {
-        readyPromiseReject(e);
-        return Promise.reject(e);
-      }
-    }
-    __name(createWasm, "createWasm");
-    var ASM_CONSTS = {};
-    class ExitStatus {
-      static {
-        __name(this, "ExitStatus");
-      }
-      name = "ExitStatus";
-      constructor(status) {
-        this.message = `Program terminated with exit(${status})`;
-        this.status = status;
-      }
-    }
-    var GOT = {};
-    var currentModuleWeakSymbols = /* @__PURE__ */ new Set([]);
-    var GOTHandler = {
-      get(obj, symName) {
-        var rtn = GOT[symName];
-        if (!rtn) {
-          rtn = GOT[symName] = new WebAssembly.Global({
-            "value": "i32",
-            "mutable": true
-          });
-        }
-        if (!currentModuleWeakSymbols.has(symName)) {
-          rtn.required = true;
-        }
-        return rtn;
-      }
-    };
-    var LE_HEAP_LOAD_F32 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getFloat32(byteOffset, true), "LE_HEAP_LOAD_F32");
-    var LE_HEAP_LOAD_F64 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getFloat64(byteOffset, true), "LE_HEAP_LOAD_F64");
-    var LE_HEAP_LOAD_I16 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getInt16(byteOffset, true), "LE_HEAP_LOAD_I16");
-    var LE_HEAP_LOAD_I32 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getInt32(byteOffset, true), "LE_HEAP_LOAD_I32");
-    var LE_HEAP_LOAD_U16 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getUint16(byteOffset, true), "LE_HEAP_LOAD_U16");
-    var LE_HEAP_LOAD_U32 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getUint32(byteOffset, true), "LE_HEAP_LOAD_U32");
-    var LE_HEAP_STORE_F32 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setFloat32(byteOffset, value, true), "LE_HEAP_STORE_F32");
-    var LE_HEAP_STORE_F64 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setFloat64(byteOffset, value, true), "LE_HEAP_STORE_F64");
-    var LE_HEAP_STORE_I16 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setInt16(byteOffset, value, true), "LE_HEAP_STORE_I16");
-    var LE_HEAP_STORE_I32 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setInt32(byteOffset, value, true), "LE_HEAP_STORE_I32");
-    var LE_HEAP_STORE_U16 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setUint16(byteOffset, value, true), "LE_HEAP_STORE_U16");
-    var LE_HEAP_STORE_U32 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setUint32(byteOffset, value, true), "LE_HEAP_STORE_U32");
-    var callRuntimeCallbacks = /* @__PURE__ */ __name((callbacks) => {
-      while (callbacks.length > 0) {
-        callbacks.shift()(Module);
-      }
-    }, "callRuntimeCallbacks");
-    var onPostRuns = [];
-    var addOnPostRun = /* @__PURE__ */ __name((cb) => onPostRuns.unshift(cb), "addOnPostRun");
-    var onPreRuns = [];
-    var addOnPreRun = /* @__PURE__ */ __name((cb) => onPreRuns.unshift(cb), "addOnPreRun");
-    var UTF8Decoder = typeof TextDecoder != "undefined" ? new TextDecoder() : void 0;
-    var UTF8ArrayToString = /* @__PURE__ */ __name((heapOrArray, idx = 0, maxBytesToRead = NaN) => {
-      var endIdx = idx + maxBytesToRead;
-      var endPtr = idx;
-      while (heapOrArray[endPtr] && !(endPtr >= endIdx)) ++endPtr;
-      if (endPtr - idx > 16 && heapOrArray.buffer && UTF8Decoder) {
-        return UTF8Decoder.decode(heapOrArray.subarray(idx, endPtr));
-      }
-      var str = "";
-      while (idx < endPtr) {
-        var u0 = heapOrArray[idx++];
-        if (!(u0 & 128)) {
-          str += String.fromCharCode(u0);
-          continue;
-        }
-        var u1 = heapOrArray[idx++] & 63;
-        if ((u0 & 224) == 192) {
-          str += String.fromCharCode((u0 & 31) << 6 | u1);
-          continue;
-        }
-        var u2 = heapOrArray[idx++] & 63;
-        if ((u0 & 240) == 224) {
-          u0 = (u0 & 15) << 12 | u1 << 6 | u2;
-        } else {
-          u0 = (u0 & 7) << 18 | u1 << 12 | u2 << 6 | heapOrArray[idx++] & 63;
-        }
-        if (u0 < 65536) {
-          str += String.fromCharCode(u0);
-        } else {
-          var ch = u0 - 65536;
-          str += String.fromCharCode(55296 | ch >> 10, 56320 | ch & 1023);
-        }
-      }
-      return str;
-    }, "UTF8ArrayToString");
-    var getDylinkMetadata = /* @__PURE__ */ __name((binary2) => {
-      var offset = 0;
-      var end = 0;
-      function getU8() {
-        return binary2[offset++];
-      }
-      __name(getU8, "getU8");
-      function getLEB() {
-        var ret = 0;
-        var mul = 1;
-        while (1) {
-          var byte = binary2[offset++];
-          ret += (byte & 127) * mul;
-          mul *= 128;
-          if (!(byte & 128)) break;
-        }
-        return ret;
-      }
-      __name(getLEB, "getLEB");
-      function getString() {
-        var len = getLEB();
-        offset += len;
-        return UTF8ArrayToString(binary2, offset - len, len);
-      }
-      __name(getString, "getString");
-      function failIf(condition, message) {
-        if (condition) throw new Error(message);
-      }
-      __name(failIf, "failIf");
-      var name2 = "dylink.0";
-      if (binary2 instanceof WebAssembly.Module) {
-        var dylinkSection = WebAssembly.Module.customSections(binary2, name2);
-        if (dylinkSection.length === 0) {
-          name2 = "dylink";
-          dylinkSection = WebAssembly.Module.customSections(binary2, name2);
-        }
-        failIf(dylinkSection.length === 0, "need dylink section");
-        binary2 = new Uint8Array(dylinkSection[0]);
-        end = binary2.length;
-      } else {
-        var int32View = new Uint32Array(new Uint8Array(binary2.subarray(0, 24)).buffer);
-        var magicNumberFound = int32View[0] == 1836278016 || int32View[0] == 6386541;
-        failIf(!magicNumberFound, "need to see wasm magic number");
-        failIf(binary2[8] !== 0, "need the dylink section to be first");
-        offset = 9;
-        var section_size = getLEB();
-        end = offset + section_size;
-        name2 = getString();
-      }
-      var customSection = {
-        neededDynlibs: [],
-        tlsExports: /* @__PURE__ */ new Set(),
-        weakImports: /* @__PURE__ */ new Set()
-      };
-      if (name2 == "dylink") {
-        customSection.memorySize = getLEB();
-        customSection.memoryAlign = getLEB();
-        customSection.tableSize = getLEB();
-        customSection.tableAlign = getLEB();
-        var neededDynlibsCount = getLEB();
-        for (var i2 = 0; i2 < neededDynlibsCount; ++i2) {
-          var libname = getString();
-          customSection.neededDynlibs.push(libname);
-        }
-      } else {
-        failIf(name2 !== "dylink.0");
-        var WASM_DYLINK_MEM_INFO = 1;
-        var WASM_DYLINK_NEEDED = 2;
-        var WASM_DYLINK_EXPORT_INFO = 3;
-        var WASM_DYLINK_IMPORT_INFO = 4;
-        var WASM_SYMBOL_TLS = 256;
-        var WASM_SYMBOL_BINDING_MASK = 3;
-        var WASM_SYMBOL_BINDING_WEAK = 1;
-        while (offset < end) {
-          var subsectionType = getU8();
-          var subsectionSize = getLEB();
-          if (subsectionType === WASM_DYLINK_MEM_INFO) {
-            customSection.memorySize = getLEB();
-            customSection.memoryAlign = getLEB();
-            customSection.tableSize = getLEB();
-            customSection.tableAlign = getLEB();
-          } else if (subsectionType === WASM_DYLINK_NEEDED) {
-            var neededDynlibsCount = getLEB();
-            for (var i2 = 0; i2 < neededDynlibsCount; ++i2) {
-              libname = getString();
-              customSection.neededDynlibs.push(libname);
-            }
-          } else if (subsectionType === WASM_DYLINK_EXPORT_INFO) {
-            var count = getLEB();
-            while (count--) {
-              var symname = getString();
-              var flags2 = getLEB();
-              if (flags2 & WASM_SYMBOL_TLS) {
-                customSection.tlsExports.add(symname);
-              }
-            }
-          } else if (subsectionType === WASM_DYLINK_IMPORT_INFO) {
-            var count = getLEB();
-            while (count--) {
-              var modname = getString();
-              var symname = getString();
-              var flags2 = getLEB();
-              if ((flags2 & WASM_SYMBOL_BINDING_MASK) == WASM_SYMBOL_BINDING_WEAK) {
-                customSection.weakImports.add(symname);
-              }
-            }
-          } else {
-            offset += subsectionSize;
-          }
-        }
-      }
-      return customSection;
-    }, "getDylinkMetadata");
-    function getValue(ptr, type = "i8") {
-      if (type.endsWith("*")) type = "*";
-      switch (type) {
-        case "i1":
-          return HEAP8[ptr];
-        case "i8":
-          return HEAP8[ptr];
-        case "i16":
-          return LE_HEAP_LOAD_I16((ptr >> 1) * 2);
-        case "i32":
-          return LE_HEAP_LOAD_I32((ptr >> 2) * 4);
-        case "i64":
-          return HEAP64[ptr >> 3];
-        case "float":
-          return LE_HEAP_LOAD_F32((ptr >> 2) * 4);
-        case "double":
-          return LE_HEAP_LOAD_F64((ptr >> 3) * 8);
-        case "*":
-          return LE_HEAP_LOAD_U32((ptr >> 2) * 4);
-        default:
-          abort(`invalid type for getValue: ${type}`);
-      }
-    }
-    __name(getValue, "getValue");
-    var newDSO = /* @__PURE__ */ __name((name2, handle2, syms) => {
-      var dso = {
-        refcount: Infinity,
-        name: name2,
-        exports: syms,
-        global: true
-      };
-      LDSO.loadedLibsByName[name2] = dso;
-      if (handle2 != void 0) {
-        LDSO.loadedLibsByHandle[handle2] = dso;
-      }
-      return dso;
-    }, "newDSO");
-    var LDSO = {
-      loadedLibsByName: {},
-      loadedLibsByHandle: {},
-      init() {
-        newDSO("__main__", 0, wasmImports);
-      }
-    };
-    var ___heap_base = 78224;
-    var alignMemory = /* @__PURE__ */ __name((size, alignment) => Math.ceil(size / alignment) * alignment, "alignMemory");
-    var getMemory = /* @__PURE__ */ __name((size) => {
-      if (runtimeInitialized) {
-        return _calloc(size, 1);
-      }
-      var ret = ___heap_base;
-      var end = ret + alignMemory(size, 16);
-      ___heap_base = end;
-      GOT["__heap_base"].value = end;
-      return ret;
-    }, "getMemory");
-    var isInternalSym = /* @__PURE__ */ __name((symName) => ["__cpp_exception", "__c_longjmp", "__wasm_apply_data_relocs", "__dso_handle", "__tls_size", "__tls_align", "__set_stack_limits", "_emscripten_tls_init", "__wasm_init_tls", "__wasm_call_ctors", "__start_em_asm", "__stop_em_asm", "__start_em_js", "__stop_em_js"].includes(symName) || symName.startsWith("__em_js__"), "isInternalSym");
-    var uleb128Encode = /* @__PURE__ */ __name((n, target) => {
-      if (n < 128) {
-        target.push(n);
-      } else {
-        target.push(n % 128 | 128, n >> 7);
-      }
-    }, "uleb128Encode");
-    var sigToWasmTypes = /* @__PURE__ */ __name((sig) => {
-      var typeNames = {
-        "i": "i32",
-        "j": "i64",
-        "f": "f32",
-        "d": "f64",
-        "e": "externref",
-        "p": "i32"
-      };
-      var type = {
-        parameters: [],
-        results: sig[0] == "v" ? [] : [typeNames[sig[0]]]
-      };
-      for (var i2 = 1; i2 < sig.length; ++i2) {
-        type.parameters.push(typeNames[sig[i2]]);
-      }
-      return type;
-    }, "sigToWasmTypes");
-    var generateFuncType = /* @__PURE__ */ __name((sig, target) => {
-      var sigRet = sig.slice(0, 1);
-      var sigParam = sig.slice(1);
-      var typeCodes = {
-        "i": 127,
-        // i32
-        "p": 127,
-        // i32
-        "j": 126,
-        // i64
-        "f": 125,
-        // f32
-        "d": 124,
-        // f64
-        "e": 111
-      };
-      target.push(96);
-      uleb128Encode(sigParam.length, target);
-      for (var i2 = 0; i2 < sigParam.length; ++i2) {
-        target.push(typeCodes[sigParam[i2]]);
-      }
-      if (sigRet == "v") {
-        target.push(0);
-      } else {
-        target.push(1, typeCodes[sigRet]);
-      }
-    }, "generateFuncType");
-    var convertJsFunctionToWasm = /* @__PURE__ */ __name((func2, sig) => {
-      if (typeof WebAssembly.Function == "function") {
-        return new WebAssembly.Function(sigToWasmTypes(sig), func2);
-      }
-      var typeSectionBody = [1];
-      generateFuncType(sig, typeSectionBody);
-      var bytes = [
-        0,
-        97,
-        115,
-        109,
-        // magic ("\0asm")
-        1,
-        0,
-        0,
-        0,
-        // version: 1
-        1
-      ];
-      uleb128Encode(typeSectionBody.length, bytes);
-      bytes.push(...typeSectionBody);
-      bytes.push(
-        2,
-        7,
-        // import section
-        // (import "e" "f" (func 0 (type 0)))
-        1,
-        1,
-        101,
-        1,
-        102,
-        0,
-        0,
-        7,
-        5,
-        // export section
-        // (export "f" (func 0 (type 0)))
-        1,
-        1,
-        102,
-        0,
-        0
-      );
-      var module2 = new WebAssembly.Module(new Uint8Array(bytes));
-      var instance2 = new WebAssembly.Instance(module2, {
-        "e": {
-          "f": func2
-        }
-      });
-      var wrappedFunc = instance2.exports["f"];
-      return wrappedFunc;
-    }, "convertJsFunctionToWasm");
-    var wasmTableMirror = [];
-    var wasmTable = new WebAssembly.Table({
-      "initial": 31,
-      "element": "anyfunc"
-    });
-    var getWasmTableEntry = /* @__PURE__ */ __name((funcPtr) => {
-      var func2 = wasmTableMirror[funcPtr];
-      if (!func2) {
-        if (funcPtr >= wasmTableMirror.length) wasmTableMirror.length = funcPtr + 1;
-        wasmTableMirror[funcPtr] = func2 = wasmTable.get(funcPtr);
-      }
-      return func2;
-    }, "getWasmTableEntry");
-    var updateTableMap = /* @__PURE__ */ __name((offset, count) => {
-      if (functionsInTableMap) {
-        for (var i2 = offset; i2 < offset + count; i2++) {
-          var item = getWasmTableEntry(i2);
-          if (item) {
-            functionsInTableMap.set(item, i2);
-          }
-        }
-      }
-    }, "updateTableMap");
-    var functionsInTableMap;
-    var getFunctionAddress = /* @__PURE__ */ __name((func2) => {
-      if (!functionsInTableMap) {
-        functionsInTableMap = /* @__PURE__ */ new WeakMap();
-        updateTableMap(0, wasmTable.length);
-      }
-      return functionsInTableMap.get(func2) || 0;
-    }, "getFunctionAddress");
-    var freeTableIndexes = [];
-    var getEmptyTableSlot = /* @__PURE__ */ __name(() => {
-      if (freeTableIndexes.length) {
-        return freeTableIndexes.pop();
-      }
-      try {
-        wasmTable.grow(1);
-      } catch (err2) {
-        if (!(err2 instanceof RangeError)) {
-          throw err2;
-        }
-        throw "Unable to grow wasm table. Set ALLOW_TABLE_GROWTH.";
-      }
-      return wasmTable.length - 1;
-    }, "getEmptyTableSlot");
-    var setWasmTableEntry = /* @__PURE__ */ __name((idx, func2) => {
-      wasmTable.set(idx, func2);
-      wasmTableMirror[idx] = wasmTable.get(idx);
-    }, "setWasmTableEntry");
-    var addFunction = /* @__PURE__ */ __name((func2, sig) => {
-      var rtn = getFunctionAddress(func2);
-      if (rtn) {
-        return rtn;
-      }
-      var ret = getEmptyTableSlot();
-      try {
-        setWasmTableEntry(ret, func2);
-      } catch (err2) {
-        if (!(err2 instanceof TypeError)) {
-          throw err2;
-        }
-        var wrapped = convertJsFunctionToWasm(func2, sig);
-        setWasmTableEntry(ret, wrapped);
-      }
-      functionsInTableMap.set(func2, ret);
-      return ret;
-    }, "addFunction");
-    var updateGOT = /* @__PURE__ */ __name((exports, replace) => {
-      for (var symName in exports) {
-        if (isInternalSym(symName)) {
-          continue;
-        }
-        var value = exports[symName];
-        GOT[symName] ||= new WebAssembly.Global({
-          "value": "i32",
-          "mutable": true
-        });
-        if (replace || GOT[symName].value == 0) {
-          if (typeof value == "function") {
-            GOT[symName].value = addFunction(value);
-          } else if (typeof value == "number") {
-            GOT[symName].value = value;
-          } else {
-            err(`unhandled export type for '${symName}': ${typeof value}`);
-          }
-        }
-      }
-    }, "updateGOT");
-    var relocateExports = /* @__PURE__ */ __name((exports, memoryBase2, replace) => {
-      var relocated = {};
-      for (var e in exports) {
-        var value = exports[e];
-        if (typeof value == "object") {
-          value = value.value;
-        }
-        if (typeof value == "number") {
-          value += memoryBase2;
-        }
-        relocated[e] = value;
-      }
-      updateGOT(relocated, replace);
-      return relocated;
-    }, "relocateExports");
-    var isSymbolDefined = /* @__PURE__ */ __name((symName) => {
-      var existing = wasmImports[symName];
-      if (!existing || existing.stub) {
-        return false;
-      }
-      return true;
-    }, "isSymbolDefined");
-    var dynCall = /* @__PURE__ */ __name((sig, ptr, args2 = []) => {
-      var rtn = getWasmTableEntry(ptr)(...args2);
-      return rtn;
-    }, "dynCall");
-    var stackSave = /* @__PURE__ */ __name(() => _emscripten_stack_get_current(), "stackSave");
-    var stackRestore = /* @__PURE__ */ __name((val) => __emscripten_stack_restore(val), "stackRestore");
-    var createInvokeFunction = /* @__PURE__ */ __name((sig) => (ptr, ...args2) => {
-      var sp = stackSave();
-      try {
-        return dynCall(sig, ptr, args2);
-      } catch (e) {
-        stackRestore(sp);
-        if (e !== e + 0) throw e;
-        _setThrew(1, 0);
-        if (sig[0] == "j") return 0n;
-      }
-    }, "createInvokeFunction");
-    var resolveGlobalSymbol = /* @__PURE__ */ __name((symName, direct = false) => {
-      var sym;
-      if (isSymbolDefined(symName)) {
-        sym = wasmImports[symName];
-      } else if (symName.startsWith("invoke_")) {
-        sym = wasmImports[symName] = createInvokeFunction(symName.split("_")[1]);
-      }
-      return {
-        sym,
-        name: symName
-      };
-    }, "resolveGlobalSymbol");
-    var onPostCtors = [];
-    var addOnPostCtor = /* @__PURE__ */ __name((cb) => onPostCtors.unshift(cb), "addOnPostCtor");
-    var UTF8ToString = /* @__PURE__ */ __name((ptr, maxBytesToRead) => ptr ? UTF8ArrayToString(HEAPU8, ptr, maxBytesToRead) : "", "UTF8ToString");
-    var loadWebAssemblyModule = /* @__PURE__ */ __name((binary, flags, libName, localScope, handle) => {
-      var metadata = getDylinkMetadata(binary);
-      currentModuleWeakSymbols = metadata.weakImports;
-      function loadModule() {
-        var memAlign = Math.pow(2, metadata.memoryAlign);
-        var memoryBase = metadata.memorySize ? alignMemory(getMemory(metadata.memorySize + memAlign), memAlign) : 0;
-        var tableBase = metadata.tableSize ? wasmTable.length : 0;
-        if (handle) {
-          HEAP8[handle + 8] = 1;
-          LE_HEAP_STORE_U32((handle + 12 >> 2) * 4, memoryBase);
-          LE_HEAP_STORE_I32((handle + 16 >> 2) * 4, metadata.memorySize);
-          LE_HEAP_STORE_U32((handle + 20 >> 2) * 4, tableBase);
-          LE_HEAP_STORE_I32((handle + 24 >> 2) * 4, metadata.tableSize);
-        }
-        if (metadata.tableSize) {
-          wasmTable.grow(metadata.tableSize);
-        }
-        var moduleExports;
-        function resolveSymbol(sym) {
-          var resolved = resolveGlobalSymbol(sym).sym;
-          if (!resolved && localScope) {
-            resolved = localScope[sym];
-          }
-          if (!resolved) {
-            resolved = moduleExports[sym];
-          }
-          return resolved;
-        }
-        __name(resolveSymbol, "resolveSymbol");
-        var proxyHandler = {
-          get(stubs, prop) {
-            switch (prop) {
-              case "__memory_base":
-                return memoryBase;
-              case "__table_base":
-                return tableBase;
-            }
-            if (prop in wasmImports && !wasmImports[prop].stub) {
-              var res = wasmImports[prop];
-              return res;
-            }
-            if (!(prop in stubs)) {
-              var resolved;
-              stubs[prop] = (...args2) => {
-                resolved ||= resolveSymbol(prop);
-                return resolved(...args2);
-              };
-            }
-            return stubs[prop];
-          }
-        };
-        var proxy = new Proxy({}, proxyHandler);
-        var info = {
-          "GOT.mem": new Proxy({}, GOTHandler),
-          "GOT.func": new Proxy({}, GOTHandler),
-          "env": proxy,
-          "wasi_snapshot_preview1": proxy
-        };
-        function postInstantiation(module, instance) {
-          updateTableMap(tableBase, metadata.tableSize);
-          moduleExports = relocateExports(instance.exports, memoryBase);
-          if (!flags.allowUndefined) {
-            reportUndefinedSymbols();
-          }
-          function addEmAsm(addr, body) {
-            var args = [];
-            var arity = 0;
-            for (; arity < 16; arity++) {
-              if (body.indexOf("$" + arity) != -1) {
-                args.push("$" + arity);
-              } else {
-                break;
-              }
-            }
-            args = args.join(",");
-            var func = `(${args}) => { ${body} };`;
-            ASM_CONSTS[start] = eval(func);
-          }
-          __name(addEmAsm, "addEmAsm");
-          if ("__start_em_asm" in moduleExports) {
-            var start = moduleExports["__start_em_asm"];
-            var stop = moduleExports["__stop_em_asm"];
-            while (start < stop) {
-              var jsString = UTF8ToString(start);
-              addEmAsm(start, jsString);
-              start = HEAPU8.indexOf(0, start) + 1;
-            }
-          }
-          function addEmJs(name, cSig, body) {
-            var jsArgs = [];
-            cSig = cSig.slice(1, -1);
-            if (cSig != "void") {
-              cSig = cSig.split(",");
-              for (var i in cSig) {
-                var jsArg = cSig[i].split(" ").pop();
-                jsArgs.push(jsArg.replace("*", ""));
-              }
-            }
-            var func = `(${jsArgs}) => ${body};`;
-            moduleExports[name] = eval(func);
-          }
-          __name(addEmJs, "addEmJs");
-          for (var name in moduleExports) {
-            if (name.startsWith("__em_js__")) {
-              var start = moduleExports[name];
-              var jsString = UTF8ToString(start);
-              var parts = jsString.split("<::>");
-              addEmJs(name.replace("__em_js__", ""), parts[0], parts[1]);
-              delete moduleExports[name];
-            }
-          }
-          var applyRelocs = moduleExports["__wasm_apply_data_relocs"];
-          if (applyRelocs) {
-            if (runtimeInitialized) {
-              applyRelocs();
-            } else {
-              __RELOC_FUNCS__.push(applyRelocs);
-            }
-          }
-          var init = moduleExports["__wasm_call_ctors"];
-          if (init) {
-            if (runtimeInitialized) {
-              init();
-            } else {
-              addOnPostCtor(init);
-            }
-          }
-          return moduleExports;
-        }
-        __name(postInstantiation, "postInstantiation");
-        if (flags.loadAsync) {
-          if (binary instanceof WebAssembly.Module) {
-            var instance = new WebAssembly.Instance(binary, info);
-            return Promise.resolve(postInstantiation(binary, instance));
-          }
-          return WebAssembly.instantiate(binary, info).then((result) => postInstantiation(result.module, result.instance));
-        }
-        var module = binary instanceof WebAssembly.Module ? binary : new WebAssembly.Module(binary);
-        var instance = new WebAssembly.Instance(module, info);
-        return postInstantiation(module, instance);
-      }
-      __name(loadModule, "loadModule");
-      if (flags.loadAsync) {
-        return metadata.neededDynlibs.reduce((chain, dynNeeded) => chain.then(() => loadDynamicLibrary(dynNeeded, flags, localScope)), Promise.resolve()).then(loadModule);
-      }
-      metadata.neededDynlibs.forEach((needed) => loadDynamicLibrary(needed, flags, localScope));
-      return loadModule();
-    }, "loadWebAssemblyModule");
-    var mergeLibSymbols = /* @__PURE__ */ __name((exports, libName2) => {
-      for (var [sym, exp] of Object.entries(exports)) {
-        const setImport = /* @__PURE__ */ __name((target) => {
-          if (!isSymbolDefined(target)) {
-            wasmImports[target] = exp;
-          }
-        }, "setImport");
-        setImport(sym);
-        const main_alias = "__main_argc_argv";
-        if (sym == "main") {
-          setImport(main_alias);
-        }
-        if (sym == main_alias) {
-          setImport("main");
-        }
-      }
-    }, "mergeLibSymbols");
-    var asyncLoad = /* @__PURE__ */ __name(async (url) => {
-      var arrayBuffer = await readAsync(url);
-      return new Uint8Array(arrayBuffer);
-    }, "asyncLoad");
-    function loadDynamicLibrary(libName2, flags2 = {
-      global: true,
-      nodelete: true
-    }, localScope2, handle2) {
-      var dso = LDSO.loadedLibsByName[libName2];
-      if (dso) {
-        if (!flags2.global) {
-          if (localScope2) {
-            Object.assign(localScope2, dso.exports);
-          }
-        } else if (!dso.global) {
-          dso.global = true;
-          mergeLibSymbols(dso.exports, libName2);
-        }
-        if (flags2.nodelete && dso.refcount !== Infinity) {
-          dso.refcount = Infinity;
-        }
-        dso.refcount++;
-        if (handle2) {
-          LDSO.loadedLibsByHandle[handle2] = dso;
-        }
-        return flags2.loadAsync ? Promise.resolve(true) : true;
-      }
-      dso = newDSO(libName2, handle2, "loading");
-      dso.refcount = flags2.nodelete ? Infinity : 1;
-      dso.global = flags2.global;
-      function loadLibData() {
-        if (handle2) {
-          var data = LE_HEAP_LOAD_U32((handle2 + 28 >> 2) * 4);
-          var dataSize = LE_HEAP_LOAD_U32((handle2 + 32 >> 2) * 4);
-          if (data && dataSize) {
-            var libData = HEAP8.slice(data, data + dataSize);
-            return flags2.loadAsync ? Promise.resolve(libData) : libData;
-          }
-        }
-        var libFile = locateFile(libName2);
-        if (flags2.loadAsync) {
-          return asyncLoad(libFile);
-        }
-        if (!readBinary) {
-          throw new Error(`${libFile}: file not found, and synchronous loading of external files is not available`);
-        }
-        return readBinary(libFile);
-      }
-      __name(loadLibData, "loadLibData");
-      function getExports() {
-        if (flags2.loadAsync) {
-          return loadLibData().then((libData) => loadWebAssemblyModule(libData, flags2, libName2, localScope2, handle2));
-        }
-        return loadWebAssemblyModule(loadLibData(), flags2, libName2, localScope2, handle2);
-      }
-      __name(getExports, "getExports");
-      function moduleLoaded(exports) {
-        if (dso.global) {
-          mergeLibSymbols(exports, libName2);
-        } else if (localScope2) {
-          Object.assign(localScope2, exports);
-        }
-        dso.exports = exports;
-      }
-      __name(moduleLoaded, "moduleLoaded");
-      if (flags2.loadAsync) {
-        return getExports().then((exports) => {
-          moduleLoaded(exports);
-          return true;
-        });
-      }
-      moduleLoaded(getExports());
-      return true;
-    }
-    __name(loadDynamicLibrary, "loadDynamicLibrary");
-    var reportUndefinedSymbols = /* @__PURE__ */ __name(() => {
-      for (var [symName, entry] of Object.entries(GOT)) {
-        if (entry.value == 0) {
-          var value = resolveGlobalSymbol(symName, true).sym;
-          if (!value && !entry.required) {
-            continue;
-          }
-          if (typeof value == "function") {
-            entry.value = addFunction(value, value.sig);
-          } else if (typeof value == "number") {
-            entry.value = value;
-          } else {
-            throw new Error(`bad export type for '${symName}': ${typeof value}`);
-          }
-        }
-      }
-    }, "reportUndefinedSymbols");
-    var loadDylibs = /* @__PURE__ */ __name(() => {
-      if (!dynamicLibraries.length) {
-        reportUndefinedSymbols();
-        return;
-      }
-      addRunDependency("loadDylibs");
-      dynamicLibraries.reduce((chain, lib) => chain.then(() => loadDynamicLibrary(lib, {
-        loadAsync: true,
-        global: true,
-        nodelete: true,
-        allowUndefined: true
-      })), Promise.resolve()).then(() => {
-        reportUndefinedSymbols();
-        removeRunDependency("loadDylibs");
-      });
-    }, "loadDylibs");
-    var noExitRuntime = Module["noExitRuntime"] || true;
-    function setValue(ptr, value, type = "i8") {
-      if (type.endsWith("*")) type = "*";
-      switch (type) {
-        case "i1":
-          HEAP8[ptr] = value;
-          break;
-        case "i8":
-          HEAP8[ptr] = value;
-          break;
-        case "i16":
-          LE_HEAP_STORE_I16((ptr >> 1) * 2, value);
-          break;
-        case "i32":
-          LE_HEAP_STORE_I32((ptr >> 2) * 4, value);
-          break;
-        case "i64":
-          HEAP64[ptr >> 3] = BigInt(value);
-          break;
-        case "float":
-          LE_HEAP_STORE_F32((ptr >> 2) * 4, value);
-          break;
-        case "double":
-          LE_HEAP_STORE_F64((ptr >> 3) * 8, value);
-          break;
-        case "*":
-          LE_HEAP_STORE_U32((ptr >> 2) * 4, value);
-          break;
-        default:
-          abort(`invalid type for setValue: ${type}`);
-      }
-    }
-    __name(setValue, "setValue");
-    var ___memory_base = new WebAssembly.Global({
-      "value": "i32",
-      "mutable": false
-    }, 1024);
-    var ___stack_pointer = new WebAssembly.Global({
-      "value": "i32",
-      "mutable": true
-    }, 78224);
-    var ___table_base = new WebAssembly.Global({
-      "value": "i32",
-      "mutable": false
-    }, 1);
-    var __abort_js = /* @__PURE__ */ __name(() => abort(""), "__abort_js");
-    __abort_js.sig = "v";
-    var _emscripten_get_now = /* @__PURE__ */ __name(() => performance.now(), "_emscripten_get_now");
-    _emscripten_get_now.sig = "d";
-    var _emscripten_date_now = /* @__PURE__ */ __name(() => Date.now(), "_emscripten_date_now");
-    _emscripten_date_now.sig = "d";
-    var nowIsMonotonic = 1;
-    var checkWasiClock = /* @__PURE__ */ __name((clock_id) => clock_id >= 0 && clock_id <= 3, "checkWasiClock");
-    var INT53_MAX = 9007199254740992;
-    var INT53_MIN = -9007199254740992;
-    var bigintToI53Checked = /* @__PURE__ */ __name((num) => num < INT53_MIN || num > INT53_MAX ? NaN : Number(num), "bigintToI53Checked");
-    function _clock_time_get(clk_id, ignored_precision, ptime) {
-      ignored_precision = bigintToI53Checked(ignored_precision);
-      if (!checkWasiClock(clk_id)) {
-        return 28;
-      }
-      var now;
-      if (clk_id === 0) {
-        now = _emscripten_date_now();
-      } else if (nowIsMonotonic) {
-        now = _emscripten_get_now();
-      } else {
-        return 52;
-      }
-      var nsec = Math.round(now * 1e3 * 1e3);
-      HEAP64[ptime >> 3] = BigInt(nsec);
-      return 0;
-    }
-    __name(_clock_time_get, "_clock_time_get");
-    _clock_time_get.sig = "iijp";
-    var getHeapMax = /* @__PURE__ */ __name(() => (
-      // Stay one Wasm page short of 4GB: while e.g. Chrome is able to allocate
-      // full 4GB Wasm memories, the size will wrap back to 0 bytes in Wasm side
-      // for any code that deals with heap sizes, which would require special
-      // casing all heap size related code to treat 0 specially.
-      2147483648
-    ), "getHeapMax");
-    var growMemory = /* @__PURE__ */ __name((size) => {
-      var b = wasmMemory.buffer;
-      var pages = (size - b.byteLength + 65535) / 65536 | 0;
-      try {
-        wasmMemory.grow(pages);
-        updateMemoryViews();
-        return 1;
-      } catch (e) {
-      }
-    }, "growMemory");
-    var _emscripten_resize_heap = /* @__PURE__ */ __name((requestedSize) => {
-      var oldSize = HEAPU8.length;
-      requestedSize >>>= 0;
-      var maxHeapSize = getHeapMax();
-      if (requestedSize > maxHeapSize) {
-        return false;
-      }
-      for (var cutDown = 1; cutDown <= 4; cutDown *= 2) {
-        var overGrownHeapSize = oldSize * (1 + 0.2 / cutDown);
-        overGrownHeapSize = Math.min(overGrownHeapSize, requestedSize + 100663296);
-        var newSize = Math.min(maxHeapSize, alignMemory(Math.max(requestedSize, overGrownHeapSize), 65536));
-        var replacement = growMemory(newSize);
-        if (replacement) {
-          return true;
-        }
-      }
-      return false;
-    }, "_emscripten_resize_heap");
-    _emscripten_resize_heap.sig = "ip";
-    var _fd_close = /* @__PURE__ */ __name((fd) => 52, "_fd_close");
-    _fd_close.sig = "ii";
-    function _fd_seek(fd, offset, whence, newOffset) {
-      offset = bigintToI53Checked(offset);
-      return 70;
-    }
-    __name(_fd_seek, "_fd_seek");
-    _fd_seek.sig = "iijip";
-    var printCharBuffers = [null, [], []];
-    var printChar = /* @__PURE__ */ __name((stream, curr) => {
-      var buffer = printCharBuffers[stream];
-      if (curr === 0 || curr === 10) {
-        (stream === 1 ? out : err)(UTF8ArrayToString(buffer));
-        buffer.length = 0;
-      } else {
-        buffer.push(curr);
-      }
-    }, "printChar");
-    var flush_NO_FILESYSTEM = /* @__PURE__ */ __name(() => {
-      if (printCharBuffers[1].length) printChar(1, 10);
-      if (printCharBuffers[2].length) printChar(2, 10);
-    }, "flush_NO_FILESYSTEM");
-    var SYSCALLS = {
-      varargs: void 0,
-      getStr(ptr) {
-        var ret = UTF8ToString(ptr);
-        return ret;
-      }
-    };
-    var _fd_write = /* @__PURE__ */ __name((fd, iov, iovcnt, pnum) => {
-      var num = 0;
-      for (var i2 = 0; i2 < iovcnt; i2++) {
-        var ptr = LE_HEAP_LOAD_U32((iov >> 2) * 4);
-        var len = LE_HEAP_LOAD_U32((iov + 4 >> 2) * 4);
-        iov += 8;
-        for (var j = 0; j < len; j++) {
-          printChar(fd, HEAPU8[ptr + j]);
-        }
-        num += len;
-      }
-      LE_HEAP_STORE_U32((pnum >> 2) * 4, num);
-      return 0;
-    }, "_fd_write");
-    _fd_write.sig = "iippp";
-    function _tree_sitter_log_callback(isLexMessage, messageAddress) {
-      if (Module.currentLogCallback) {
-        const message = UTF8ToString(messageAddress);
-        Module.currentLogCallback(message, isLexMessage !== 0);
-      }
-    }
-    __name(_tree_sitter_log_callback, "_tree_sitter_log_callback");
-    function _tree_sitter_parse_callback(inputBufferAddress, index, row, column, lengthAddress) {
-      const INPUT_BUFFER_SIZE = 10 * 1024;
-      const string = Module.currentParseCallback(index, {
-        row,
-        column
-      });
-      if (typeof string === "string") {
-        setValue(lengthAddress, string.length, "i32");
-        stringToUTF16(string, inputBufferAddress, INPUT_BUFFER_SIZE);
-      } else {
-        setValue(lengthAddress, 0, "i32");
-      }
-    }
-    __name(_tree_sitter_parse_callback, "_tree_sitter_parse_callback");
-    function _tree_sitter_progress_callback(currentOffset, hasError) {
-      if (Module.currentProgressCallback) {
-        return Module.currentProgressCallback({
-          currentOffset,
-          hasError
-        });
-      }
-      return false;
-    }
-    __name(_tree_sitter_progress_callback, "_tree_sitter_progress_callback");
-    function _tree_sitter_query_progress_callback(currentOffset) {
-      if (Module.currentQueryProgressCallback) {
-        return Module.currentQueryProgressCallback({
-          currentOffset
-        });
-      }
-      return false;
-    }
-    __name(_tree_sitter_query_progress_callback, "_tree_sitter_query_progress_callback");
-    var runtimeKeepaliveCounter = 0;
-    var keepRuntimeAlive = /* @__PURE__ */ __name(() => noExitRuntime || runtimeKeepaliveCounter > 0, "keepRuntimeAlive");
-    var _proc_exit = /* @__PURE__ */ __name((code) => {
-      EXITSTATUS = code;
-      if (!keepRuntimeAlive()) {
-        Module["onExit"]?.(code);
-        ABORT = true;
-      }
-      quit_(code, new ExitStatus(code));
-    }, "_proc_exit");
-    _proc_exit.sig = "vi";
-    var exitJS = /* @__PURE__ */ __name((status, implicit) => {
-      EXITSTATUS = status;
-      _proc_exit(status);
-    }, "exitJS");
-    var handleException = /* @__PURE__ */ __name((e) => {
-      if (e instanceof ExitStatus || e == "unwind") {
-        return EXITSTATUS;
-      }
-      quit_(1, e);
-    }, "handleException");
-    var lengthBytesUTF8 = /* @__PURE__ */ __name((str) => {
-      var len = 0;
-      for (var i2 = 0; i2 < str.length; ++i2) {
-        var c = str.charCodeAt(i2);
-        if (c <= 127) {
-          len++;
-        } else if (c <= 2047) {
-          len += 2;
-        } else if (c >= 55296 && c <= 57343) {
-          len += 4;
-          ++i2;
-        } else {
-          len += 3;
-        }
-      }
-      return len;
-    }, "lengthBytesUTF8");
-    var stringToUTF8Array = /* @__PURE__ */ __name((str, heap, outIdx, maxBytesToWrite) => {
-      if (!(maxBytesToWrite > 0)) return 0;
-      var startIdx = outIdx;
-      var endIdx = outIdx + maxBytesToWrite - 1;
-      for (var i2 = 0; i2 < str.length; ++i2) {
-        var u = str.charCodeAt(i2);
-        if (u >= 55296 && u <= 57343) {
-          var u1 = str.charCodeAt(++i2);
-          u = 65536 + ((u & 1023) << 10) | u1 & 1023;
-        }
-        if (u <= 127) {
-          if (outIdx >= endIdx) break;
-          heap[outIdx++] = u;
-        } else if (u <= 2047) {
-          if (outIdx + 1 >= endIdx) break;
-          heap[outIdx++] = 192 | u >> 6;
-          heap[outIdx++] = 128 | u & 63;
-        } else if (u <= 65535) {
-          if (outIdx + 2 >= endIdx) break;
-          heap[outIdx++] = 224 | u >> 12;
-          heap[outIdx++] = 128 | u >> 6 & 63;
-          heap[outIdx++] = 128 | u & 63;
-        } else {
-          if (outIdx + 3 >= endIdx) break;
-          heap[outIdx++] = 240 | u >> 18;
-          heap[outIdx++] = 128 | u >> 12 & 63;
-          heap[outIdx++] = 128 | u >> 6 & 63;
-          heap[outIdx++] = 128 | u & 63;
-        }
-      }
-      heap[outIdx] = 0;
-      return outIdx - startIdx;
-    }, "stringToUTF8Array");
-    var stringToUTF8 = /* @__PURE__ */ __name((str, outPtr, maxBytesToWrite) => stringToUTF8Array(str, HEAPU8, outPtr, maxBytesToWrite), "stringToUTF8");
-    var stackAlloc = /* @__PURE__ */ __name((sz) => __emscripten_stack_alloc(sz), "stackAlloc");
-    var stringToUTF8OnStack = /* @__PURE__ */ __name((str) => {
-      var size = lengthBytesUTF8(str) + 1;
-      var ret = stackAlloc(size);
-      stringToUTF8(str, ret, size);
-      return ret;
-    }, "stringToUTF8OnStack");
-    var AsciiToString = /* @__PURE__ */ __name((ptr) => {
-      var str = "";
-      while (1) {
-        var ch = HEAPU8[ptr++];
-        if (!ch) return str;
-        str += String.fromCharCode(ch);
-      }
-    }, "AsciiToString");
-    var stringToUTF16 = /* @__PURE__ */ __name((str, outPtr, maxBytesToWrite) => {
-      maxBytesToWrite ??= 2147483647;
-      if (maxBytesToWrite < 2) return 0;
-      maxBytesToWrite -= 2;
-      var startPtr = outPtr;
-      var numCharsToWrite = maxBytesToWrite < str.length * 2 ? maxBytesToWrite / 2 : str.length;
-      for (var i2 = 0; i2 < numCharsToWrite; ++i2) {
-        var codeUnit = str.charCodeAt(i2);
-        LE_HEAP_STORE_I16((outPtr >> 1) * 2, codeUnit);
-        outPtr += 2;
-      }
-      LE_HEAP_STORE_I16((outPtr >> 1) * 2, 0);
-      return outPtr - startPtr;
-    }, "stringToUTF16");
-    var wasmImports = {
-      /** @export */
-      __heap_base: ___heap_base,
-      /** @export */
-      __indirect_function_table: wasmTable,
-      /** @export */
-      __memory_base: ___memory_base,
-      /** @export */
-      __stack_pointer: ___stack_pointer,
-      /** @export */
-      __table_base: ___table_base,
-      /** @export */
-      _abort_js: __abort_js,
-      /** @export */
-      clock_time_get: _clock_time_get,
-      /** @export */
-      emscripten_resize_heap: _emscripten_resize_heap,
-      /** @export */
-      fd_close: _fd_close,
-      /** @export */
-      fd_seek: _fd_seek,
-      /** @export */
-      fd_write: _fd_write,
-      /** @export */
-      memory: wasmMemory,
-      /** @export */
-      tree_sitter_log_callback: _tree_sitter_log_callback,
-      /** @export */
-      tree_sitter_parse_callback: _tree_sitter_parse_callback,
-      /** @export */
-      tree_sitter_progress_callback: _tree_sitter_progress_callback,
-      /** @export */
-      tree_sitter_query_progress_callback: _tree_sitter_query_progress_callback
-    };
-    var wasmExports = await createWasm();
-    var ___wasm_call_ctors = wasmExports["__wasm_call_ctors"];
-    var _malloc = Module["_malloc"] = wasmExports["malloc"];
-    var _calloc = Module["_calloc"] = wasmExports["calloc"];
-    var _realloc = Module["_realloc"] = wasmExports["realloc"];
-    var _free = Module["_free"] = wasmExports["free"];
-    var _memcmp = Module["_memcmp"] = wasmExports["memcmp"];
-    var _ts_language_symbol_count = Module["_ts_language_symbol_count"] = wasmExports["ts_language_symbol_count"];
-    var _ts_language_state_count = Module["_ts_language_state_count"] = wasmExports["ts_language_state_count"];
-    var _ts_language_version = Module["_ts_language_version"] = wasmExports["ts_language_version"];
-    var _ts_language_abi_version = Module["_ts_language_abi_version"] = wasmExports["ts_language_abi_version"];
-    var _ts_language_metadata = Module["_ts_language_metadata"] = wasmExports["ts_language_metadata"];
-    var _ts_language_name = Module["_ts_language_name"] = wasmExports["ts_language_name"];
-    var _ts_language_field_count = Module["_ts_language_field_count"] = wasmExports["ts_language_field_count"];
-    var _ts_language_next_state = Module["_ts_language_next_state"] = wasmExports["ts_language_next_state"];
-    var _ts_language_symbol_name = Module["_ts_language_symbol_name"] = wasmExports["ts_language_symbol_name"];
-    var _ts_language_symbol_for_name = Module["_ts_language_symbol_for_name"] = wasmExports["ts_language_symbol_for_name"];
-    var _strncmp = Module["_strncmp"] = wasmExports["strncmp"];
-    var _ts_language_symbol_type = Module["_ts_language_symbol_type"] = wasmExports["ts_language_symbol_type"];
-    var _ts_language_field_name_for_id = Module["_ts_language_field_name_for_id"] = wasmExports["ts_language_field_name_for_id"];
-    var _ts_lookahead_iterator_new = Module["_ts_lookahead_iterator_new"] = wasmExports["ts_lookahead_iterator_new"];
-    var _ts_lookahead_iterator_delete = Module["_ts_lookahead_iterator_delete"] = wasmExports["ts_lookahead_iterator_delete"];
-    var _ts_lookahead_iterator_reset_state = Module["_ts_lookahead_iterator_reset_state"] = wasmExports["ts_lookahead_iterator_reset_state"];
-    var _ts_lookahead_iterator_reset = Module["_ts_lookahead_iterator_reset"] = wasmExports["ts_lookahead_iterator_reset"];
-    var _ts_lookahead_iterator_next = Module["_ts_lookahead_iterator_next"] = wasmExports["ts_lookahead_iterator_next"];
-    var _ts_lookahead_iterator_current_symbol = Module["_ts_lookahead_iterator_current_symbol"] = wasmExports["ts_lookahead_iterator_current_symbol"];
-    var _ts_parser_delete = Module["_ts_parser_delete"] = wasmExports["ts_parser_delete"];
-    var _ts_parser_reset = Module["_ts_parser_reset"] = wasmExports["ts_parser_reset"];
-    var _ts_parser_set_language = Module["_ts_parser_set_language"] = wasmExports["ts_parser_set_language"];
-    var _ts_parser_timeout_micros = Module["_ts_parser_timeout_micros"] = wasmExports["ts_parser_timeout_micros"];
-    var _ts_parser_set_timeout_micros = Module["_ts_parser_set_timeout_micros"] = wasmExports["ts_parser_set_timeout_micros"];
-    var _ts_parser_set_included_ranges = Module["_ts_parser_set_included_ranges"] = wasmExports["ts_parser_set_included_ranges"];
-    var _ts_query_new = Module["_ts_query_new"] = wasmExports["ts_query_new"];
-    var _ts_query_delete = Module["_ts_query_delete"] = wasmExports["ts_query_delete"];
-    var _iswspace = Module["_iswspace"] = wasmExports["iswspace"];
-    var _iswalnum = Module["_iswalnum"] = wasmExports["iswalnum"];
-    var _ts_query_pattern_count = Module["_ts_query_pattern_count"] = wasmExports["ts_query_pattern_count"];
-    var _ts_query_capture_count = Module["_ts_query_capture_count"] = wasmExports["ts_query_capture_count"];
-    var _ts_query_string_count = Module["_ts_query_string_count"] = wasmExports["ts_query_string_count"];
-    var _ts_query_capture_name_for_id = Module["_ts_query_capture_name_for_id"] = wasmExports["ts_query_capture_name_for_id"];
-    var _ts_query_capture_quantifier_for_id = Module["_ts_query_capture_quantifier_for_id"] = wasmExports["ts_query_capture_quantifier_for_id"];
-    var _ts_query_string_value_for_id = Module["_ts_query_string_value_for_id"] = wasmExports["ts_query_string_value_for_id"];
-    var _ts_query_predicates_for_pattern = Module["_ts_query_predicates_for_pattern"] = wasmExports["ts_query_predicates_for_pattern"];
-    var _ts_query_start_byte_for_pattern = Module["_ts_query_start_byte_for_pattern"] = wasmExports["ts_query_start_byte_for_pattern"];
-    var _ts_query_end_byte_for_pattern = Module["_ts_query_end_byte_for_pattern"] = wasmExports["ts_query_end_byte_for_pattern"];
-    var _ts_query_is_pattern_rooted = Module["_ts_query_is_pattern_rooted"] = wasmExports["ts_query_is_pattern_rooted"];
-    var _ts_query_is_pattern_non_local = Module["_ts_query_is_pattern_non_local"] = wasmExports["ts_query_is_pattern_non_local"];
-    var _ts_query_is_pattern_guaranteed_at_step = Module["_ts_query_is_pattern_guaranteed_at_step"] = wasmExports["ts_query_is_pattern_guaranteed_at_step"];
-    var _ts_query_disable_capture = Module["_ts_query_disable_capture"] = wasmExports["ts_query_disable_capture"];
-    var _ts_query_disable_pattern = Module["_ts_query_disable_pattern"] = wasmExports["ts_query_disable_pattern"];
-    var _ts_tree_copy = Module["_ts_tree_copy"] = wasmExports["ts_tree_copy"];
-    var _ts_tree_delete = Module["_ts_tree_delete"] = wasmExports["ts_tree_delete"];
-    var _ts_init = Module["_ts_init"] = wasmExports["ts_init"];
-    var _ts_parser_new_wasm = Module["_ts_parser_new_wasm"] = wasmExports["ts_parser_new_wasm"];
-    var _ts_parser_enable_logger_wasm = Module["_ts_parser_enable_logger_wasm"] = wasmExports["ts_parser_enable_logger_wasm"];
-    var _ts_parser_parse_wasm = Module["_ts_parser_parse_wasm"] = wasmExports["ts_parser_parse_wasm"];
-    var _ts_parser_included_ranges_wasm = Module["_ts_parser_included_ranges_wasm"] = wasmExports["ts_parser_included_ranges_wasm"];
-    var _ts_language_type_is_named_wasm = Module["_ts_language_type_is_named_wasm"] = wasmExports["ts_language_type_is_named_wasm"];
-    var _ts_language_type_is_visible_wasm = Module["_ts_language_type_is_visible_wasm"] = wasmExports["ts_language_type_is_visible_wasm"];
-    var _ts_language_supertypes_wasm = Module["_ts_language_supertypes_wasm"] = wasmExports["ts_language_supertypes_wasm"];
-    var _ts_language_subtypes_wasm = Module["_ts_language_subtypes_wasm"] = wasmExports["ts_language_subtypes_wasm"];
-    var _ts_tree_root_node_wasm = Module["_ts_tree_root_node_wasm"] = wasmExports["ts_tree_root_node_wasm"];
-    var _ts_tree_root_node_with_offset_wasm = Module["_ts_tree_root_node_with_offset_wasm"] = wasmExports["ts_tree_root_node_with_offset_wasm"];
-    var _ts_tree_edit_wasm = Module["_ts_tree_edit_wasm"] = wasmExports["ts_tree_edit_wasm"];
-    var _ts_tree_included_ranges_wasm = Module["_ts_tree_included_ranges_wasm"] = wasmExports["ts_tree_included_ranges_wasm"];
-    var _ts_tree_get_changed_ranges_wasm = Module["_ts_tree_get_changed_ranges_wasm"] = wasmExports["ts_tree_get_changed_ranges_wasm"];
-    var _ts_tree_cursor_new_wasm = Module["_ts_tree_cursor_new_wasm"] = wasmExports["ts_tree_cursor_new_wasm"];
-    var _ts_tree_cursor_copy_wasm = Module["_ts_tree_cursor_copy_wasm"] = wasmExports["ts_tree_cursor_copy_wasm"];
-    var _ts_tree_cursor_delete_wasm = Module["_ts_tree_cursor_delete_wasm"] = wasmExports["ts_tree_cursor_delete_wasm"];
-    var _ts_tree_cursor_reset_wasm = Module["_ts_tree_cursor_reset_wasm"] = wasmExports["ts_tree_cursor_reset_wasm"];
-    var _ts_tree_cursor_reset_to_wasm = Module["_ts_tree_cursor_reset_to_wasm"] = wasmExports["ts_tree_cursor_reset_to_wasm"];
-    var _ts_tree_cursor_goto_first_child_wasm = Module["_ts_tree_cursor_goto_first_child_wasm"] = wasmExports["ts_tree_cursor_goto_first_child_wasm"];
-    var _ts_tree_cursor_goto_last_child_wasm = Module["_ts_tree_cursor_goto_last_child_wasm"] = wasmExports["ts_tree_cursor_goto_last_child_wasm"];
-    var _ts_tree_cursor_goto_first_child_for_index_wasm = Module["_ts_tree_cursor_goto_first_child_for_index_wasm"] = wasmExports["ts_tree_cursor_goto_first_child_for_index_wasm"];
-    var _ts_tree_cursor_goto_first_child_for_position_wasm = Module["_ts_tree_cursor_goto_first_child_for_position_wasm"] = wasmExports["ts_tree_cursor_goto_first_child_for_position_wasm"];
-    var _ts_tree_cursor_goto_next_sibling_wasm = Module["_ts_tree_cursor_goto_next_sibling_wasm"] = wasmExports["ts_tree_cursor_goto_next_sibling_wasm"];
-    var _ts_tree_cursor_goto_previous_sibling_wasm = Module["_ts_tree_cursor_goto_previous_sibling_wasm"] = wasmExports["ts_tree_cursor_goto_previous_sibling_wasm"];
-    var _ts_tree_cursor_goto_descendant_wasm = Module["_ts_tree_cursor_goto_descendant_wasm"] = wasmExports["ts_tree_cursor_goto_descendant_wasm"];
-    var _ts_tree_cursor_goto_parent_wasm = Module["_ts_tree_cursor_goto_parent_wasm"] = wasmExports["ts_tree_cursor_goto_parent_wasm"];
-    var _ts_tree_cursor_current_node_type_id_wasm = Module["_ts_tree_cursor_current_node_type_id_wasm"] = wasmExports["ts_tree_cursor_current_node_type_id_wasm"];
-    var _ts_tree_cursor_current_node_state_id_wasm = Module["_ts_tree_cursor_current_node_state_id_wasm"] = wasmExports["ts_tree_cursor_current_node_state_id_wasm"];
-    var _ts_tree_cursor_current_node_is_named_wasm = Module["_ts_tree_cursor_current_node_is_named_wasm"] = wasmExports["ts_tree_cursor_current_node_is_named_wasm"];
-    var _ts_tree_cursor_current_node_is_missing_wasm = Module["_ts_tree_cursor_current_node_is_missing_wasm"] = wasmExports["ts_tree_cursor_current_node_is_missing_wasm"];
-    var _ts_tree_cursor_current_node_id_wasm = Module["_ts_tree_cursor_current_node_id_wasm"] = wasmExports["ts_tree_cursor_current_node_id_wasm"];
-    var _ts_tree_cursor_start_position_wasm = Module["_ts_tree_cursor_start_position_wasm"] = wasmExports["ts_tree_cursor_start_position_wasm"];
-    var _ts_tree_cursor_end_position_wasm = Module["_ts_tree_cursor_end_position_wasm"] = wasmExports["ts_tree_cursor_end_position_wasm"];
-    var _ts_tree_cursor_start_index_wasm = Module["_ts_tree_cursor_start_index_wasm"] = wasmExports["ts_tree_cursor_start_index_wasm"];
-    var _ts_tree_cursor_end_index_wasm = Module["_ts_tree_cursor_end_index_wasm"] = wasmExports["ts_tree_cursor_end_index_wasm"];
-    var _ts_tree_cursor_current_field_id_wasm = Module["_ts_tree_cursor_current_field_id_wasm"] = wasmExports["ts_tree_cursor_current_field_id_wasm"];
-    var _ts_tree_cursor_current_depth_wasm = Module["_ts_tree_cursor_current_depth_wasm"] = wasmExports["ts_tree_cursor_current_depth_wasm"];
-    var _ts_tree_cursor_current_descendant_index_wasm = Module["_ts_tree_cursor_current_descendant_index_wasm"] = wasmExports["ts_tree_cursor_current_descendant_index_wasm"];
-    var _ts_tree_cursor_current_node_wasm = Module["_ts_tree_cursor_current_node_wasm"] = wasmExports["ts_tree_cursor_current_node_wasm"];
-    var _ts_node_symbol_wasm = Module["_ts_node_symbol_wasm"] = wasmExports["ts_node_symbol_wasm"];
-    var _ts_node_field_name_for_child_wasm = Module["_ts_node_field_name_for_child_wasm"] = wasmExports["ts_node_field_name_for_child_wasm"];
-    var _ts_node_field_name_for_named_child_wasm = Module["_ts_node_field_name_for_named_child_wasm"] = wasmExports["ts_node_field_name_for_named_child_wasm"];
-    var _ts_node_children_by_field_id_wasm = Module["_ts_node_children_by_field_id_wasm"] = wasmExports["ts_node_children_by_field_id_wasm"];
-    var _ts_node_first_child_for_byte_wasm = Module["_ts_node_first_child_for_byte_wasm"] = wasmExports["ts_node_first_child_for_byte_wasm"];
-    var _ts_node_first_named_child_for_byte_wasm = Module["_ts_node_first_named_child_for_byte_wasm"] = wasmExports["ts_node_first_named_child_for_byte_wasm"];
-    var _ts_node_grammar_symbol_wasm = Module["_ts_node_grammar_symbol_wasm"] = wasmExports["ts_node_grammar_symbol_wasm"];
-    var _ts_node_child_count_wasm = Module["_ts_node_child_count_wasm"] = wasmExports["ts_node_child_count_wasm"];
-    var _ts_node_named_child_count_wasm = Module["_ts_node_named_child_count_wasm"] = wasmExports["ts_node_named_child_count_wasm"];
-    var _ts_node_child_wasm = Module["_ts_node_child_wasm"] = wasmExports["ts_node_child_wasm"];
-    var _ts_node_named_child_wasm = Module["_ts_node_named_child_wasm"] = wasmExports["ts_node_named_child_wasm"];
-    var _ts_node_child_by_field_id_wasm = Module["_ts_node_child_by_field_id_wasm"] = wasmExports["ts_node_child_by_field_id_wasm"];
-    var _ts_node_next_sibling_wasm = Module["_ts_node_next_sibling_wasm"] = wasmExports["ts_node_next_sibling_wasm"];
-    var _ts_node_prev_sibling_wasm = Module["_ts_node_prev_sibling_wasm"] = wasmExports["ts_node_prev_sibling_wasm"];
-    var _ts_node_next_named_sibling_wasm = Module["_ts_node_next_named_sibling_wasm"] = wasmExports["ts_node_next_named_sibling_wasm"];
-    var _ts_node_prev_named_sibling_wasm = Module["_ts_node_prev_named_sibling_wasm"] = wasmExports["ts_node_prev_named_sibling_wasm"];
-    var _ts_node_descendant_count_wasm = Module["_ts_node_descendant_count_wasm"] = wasmExports["ts_node_descendant_count_wasm"];
-    var _ts_node_parent_wasm = Module["_ts_node_parent_wasm"] = wasmExports["ts_node_parent_wasm"];
-    var _ts_node_child_with_descendant_wasm = Module["_ts_node_child_with_descendant_wasm"] = wasmExports["ts_node_child_with_descendant_wasm"];
-    var _ts_node_descendant_for_index_wasm = Module["_ts_node_descendant_for_index_wasm"] = wasmExports["ts_node_descendant_for_index_wasm"];
-    var _ts_node_named_descendant_for_index_wasm = Module["_ts_node_named_descendant_for_index_wasm"] = wasmExports["ts_node_named_descendant_for_index_wasm"];
-    var _ts_node_descendant_for_position_wasm = Module["_ts_node_descendant_for_position_wasm"] = wasmExports["ts_node_descendant_for_position_wasm"];
-    var _ts_node_named_descendant_for_position_wasm = Module["_ts_node_named_descendant_for_position_wasm"] = wasmExports["ts_node_named_descendant_for_position_wasm"];
-    var _ts_node_start_point_wasm = Module["_ts_node_start_point_wasm"] = wasmExports["ts_node_start_point_wasm"];
-    var _ts_node_end_point_wasm = Module["_ts_node_end_point_wasm"] = wasmExports["ts_node_end_point_wasm"];
-    var _ts_node_start_index_wasm = Module["_ts_node_start_index_wasm"] = wasmExports["ts_node_start_index_wasm"];
-    var _ts_node_end_index_wasm = Module["_ts_node_end_index_wasm"] = wasmExports["ts_node_end_index_wasm"];
-    var _ts_node_to_string_wasm = Module["_ts_node_to_string_wasm"] = wasmExports["ts_node_to_string_wasm"];
-    var _ts_node_children_wasm = Module["_ts_node_children_wasm"] = wasmExports["ts_node_children_wasm"];
-    var _ts_node_named_children_wasm = Module["_ts_node_named_children_wasm"] = wasmExports["ts_node_named_children_wasm"];
-    var _ts_node_descendants_of_type_wasm = Module["_ts_node_descendants_of_type_wasm"] = wasmExports["ts_node_descendants_of_type_wasm"];
-    var _ts_node_is_named_wasm = Module["_ts_node_is_named_wasm"] = wasmExports["ts_node_is_named_wasm"];
-    var _ts_node_has_changes_wasm = Module["_ts_node_has_changes_wasm"] = wasmExports["ts_node_has_changes_wasm"];
-    var _ts_node_has_error_wasm = Module["_ts_node_has_error_wasm"] = wasmExports["ts_node_has_error_wasm"];
-    var _ts_node_is_error_wasm = Module["_ts_node_is_error_wasm"] = wasmExports["ts_node_is_error_wasm"];
-    var _ts_node_is_missing_wasm = Module["_ts_node_is_missing_wasm"] = wasmExports["ts_node_is_missing_wasm"];
-    var _ts_node_is_extra_wasm = Module["_ts_node_is_extra_wasm"] = wasmExports["ts_node_is_extra_wasm"];
-    var _ts_node_parse_state_wasm = Module["_ts_node_parse_state_wasm"] = wasmExports["ts_node_parse_state_wasm"];
-    var _ts_node_next_parse_state_wasm = Module["_ts_node_next_parse_state_wasm"] = wasmExports["ts_node_next_parse_state_wasm"];
-    var _ts_query_matches_wasm = Module["_ts_query_matches_wasm"] = wasmExports["ts_query_matches_wasm"];
-    var _ts_query_captures_wasm = Module["_ts_query_captures_wasm"] = wasmExports["ts_query_captures_wasm"];
-    var _memset = Module["_memset"] = wasmExports["memset"];
-    var _memcpy = Module["_memcpy"] = wasmExports["memcpy"];
-    var _memmove = Module["_memmove"] = wasmExports["memmove"];
-    var _iswalpha = Module["_iswalpha"] = wasmExports["iswalpha"];
-    var _iswblank = Module["_iswblank"] = wasmExports["iswblank"];
-    var _iswdigit = Module["_iswdigit"] = wasmExports["iswdigit"];
-    var _iswlower = Module["_iswlower"] = wasmExports["iswlower"];
-    var _iswupper = Module["_iswupper"] = wasmExports["iswupper"];
-    var _iswxdigit = Module["_iswxdigit"] = wasmExports["iswxdigit"];
-    var _memchr = Module["_memchr"] = wasmExports["memchr"];
-    var _strlen = Module["_strlen"] = wasmExports["strlen"];
-    var _strcmp = Module["_strcmp"] = wasmExports["strcmp"];
-    var _strncat = Module["_strncat"] = wasmExports["strncat"];
-    var _strncpy = Module["_strncpy"] = wasmExports["strncpy"];
-    var _towlower = Module["_towlower"] = wasmExports["towlower"];
-    var _towupper = Module["_towupper"] = wasmExports["towupper"];
-    var _setThrew = wasmExports["setThrew"];
-    var __emscripten_stack_restore = wasmExports["_emscripten_stack_restore"];
-    var __emscripten_stack_alloc = wasmExports["_emscripten_stack_alloc"];
-    var _emscripten_stack_get_current = wasmExports["emscripten_stack_get_current"];
-    var ___wasm_apply_data_relocs = wasmExports["__wasm_apply_data_relocs"];
-    Module["setValue"] = setValue;
-    Module["getValue"] = getValue;
-    Module["UTF8ToString"] = UTF8ToString;
-    Module["stringToUTF8"] = stringToUTF8;
-    Module["lengthBytesUTF8"] = lengthBytesUTF8;
-    Module["AsciiToString"] = AsciiToString;
-    Module["stringToUTF16"] = stringToUTF16;
-    Module["loadWebAssemblyModule"] = loadWebAssemblyModule;
-    function callMain(args2 = []) {
-      var entryFunction = resolveGlobalSymbol("main").sym;
-      if (!entryFunction) return;
-      args2.unshift(thisProgram);
-      var argc = args2.length;
-      var argv = stackAlloc((argc + 1) * 4);
-      var argv_ptr = argv;
-      args2.forEach((arg) => {
-        LE_HEAP_STORE_U32((argv_ptr >> 2) * 4, stringToUTF8OnStack(arg));
-        argv_ptr += 4;
-      });
-      LE_HEAP_STORE_U32((argv_ptr >> 2) * 4, 0);
-      try {
-        var ret = entryFunction(argc, argv);
-        exitJS(
-          ret,
-          /* implicit = */
-          true
-        );
-        return ret;
-      } catch (e) {
-        return handleException(e);
-      }
-    }
-    __name(callMain, "callMain");
-    function run(args2 = arguments_) {
-      if (runDependencies > 0) {
-        dependenciesFulfilled = run;
-        return;
-      }
-      preRun();
-      if (runDependencies > 0) {
-        dependenciesFulfilled = run;
-        return;
-      }
-      function doRun() {
-        Module["calledRun"] = true;
-        if (ABORT) return;
-        initRuntime();
-        preMain();
-        readyPromiseResolve(Module);
-        Module["onRuntimeInitialized"]?.();
-        var noInitialRun = Module["noInitialRun"];
-        if (!noInitialRun) callMain(args2);
-        postRun();
-      }
-      __name(doRun, "doRun");
-      if (Module["setStatus"]) {
-        Module["setStatus"]("Running...");
-        setTimeout(() => {
-          setTimeout(() => Module["setStatus"](""), 1);
-          doRun();
-        }, 1);
-      } else {
-        doRun();
-      }
-    }
-    __name(run, "run");
-    if (Module["preInit"]) {
-      if (typeof Module["preInit"] == "function") Module["preInit"] = [Module["preInit"]];
-      while (Module["preInit"].length > 0) {
-        Module["preInit"].pop()();
-      }
-    }
-    run();
-    moduleRtn = readyPromise;
-    return moduleRtn;
-  };
-})();
-var tree_sitter_default = Module2;
-var Module3 = null;
-async function initializeBinding(moduleOptions) {
-  if (!Module3) {
-    Module3 = await tree_sitter_default(moduleOptions);
-  }
-  return Module3;
-}
-__name(initializeBinding, "initializeBinding");
-function checkModule() {
-  return !!Module3;
-}
-__name(checkModule, "checkModule");
-var TRANSFER_BUFFER;
-var LANGUAGE_VERSION;
-var MIN_COMPATIBLE_VERSION;
-var Parser = class {
-  static {
-    __name(this, "Parser");
-  }
-  /** @internal */
-  [0] = 0;
-  // Internal handle for WASM
-  /** @internal */
-  [1] = 0;
-  // Internal handle for WASM
-  /** @internal */
-  logCallback = null;
-  /** The parser's current language. */
-  language = null;
-  /**
-   * This must always be called before creating a Parser.
-   *
-   * You can optionally pass in options to configure the WASM module, the most common
-   * one being `locateFile` to help the module find the `.wasm` file.
-   */
-  static async init(moduleOptions) {
-    setModule(await initializeBinding(moduleOptions));
-    TRANSFER_BUFFER = C._ts_init();
-    LANGUAGE_VERSION = C.getValue(TRANSFER_BUFFER, "i32");
-    MIN_COMPATIBLE_VERSION = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-  }
-  /**
-   * Create a new parser.
-   */
-  constructor() {
-    this.initialize();
-  }
-  /** @internal */
-  initialize() {
-    if (!checkModule()) {
-      throw new Error("cannot construct a Parser before calling `init()`");
-    }
-    C._ts_parser_new_wasm();
-    this[0] = C.getValue(TRANSFER_BUFFER, "i32");
-    this[1] = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-  }
-  /** Delete the parser, freeing its resources. */
-  delete() {
-    C._ts_parser_delete(this[0]);
-    C._free(this[1]);
-    this[0] = 0;
-    this[1] = 0;
-  }
-  /**
-   * Set the language that the parser should use for parsing.
-   *
-   * If the language was not successfully assigned, an error will be thrown.
-   * This happens if the language was generated with an incompatible
-   * version of the Tree-sitter CLI. Check the language's version using
-   * {@link Language#version} and compare it to this library's
-   * {@link LANGUAGE_VERSION} and {@link MIN_COMPATIBLE_VERSION} constants.
-   */
-  setLanguage(language) {
-    let address;
-    if (!language) {
-      address = 0;
-      this.language = null;
-    } else if (language.constructor === Language) {
-      address = language[0];
-      const version = C._ts_language_version(address);
-      if (version < MIN_COMPATIBLE_VERSION || LANGUAGE_VERSION < version) {
-        throw new Error(
-          `Incompatible language version ${version}. Compatibility range ${MIN_COMPATIBLE_VERSION} through ${LANGUAGE_VERSION}.`
-        );
-      }
-      this.language = language;
-    } else {
-      throw new Error("Argument must be a Language");
-    }
-    C._ts_parser_set_language(this[0], address);
-    return this;
-  }
-  /**
-   * Parse a slice of UTF8 text.
-   *
-   * @param {string | ParseCallback} callback - The UTF8-encoded text to parse or a callback function.
-   *
-   * @param {Tree | null} [oldTree] - A previous syntax tree parsed from the same document. If the text of the
-   *   document has changed since `oldTree` was created, then you must edit `oldTree` to match
-   *   the new text using {@link Tree#edit}.
-   *
-   * @param {ParseOptions} [options] - Options for parsing the text.
-   *  This can be used to set the included ranges, or a progress callback.
-   *
-   * @returns {Tree | null} A {@link Tree} if parsing succeeded, or `null` if:
-   *  - The parser has not yet had a language assigned with {@link Parser#setLanguage}.
-   *  - The progress callback returned true.
-   */
-  parse(callback, oldTree, options) {
-    if (typeof callback === "string") {
-      C.currentParseCallback = (index) => callback.slice(index);
-    } else if (typeof callback === "function") {
-      C.currentParseCallback = callback;
-    } else {
-      throw new Error("Argument must be a string or a function");
-    }
-    if (options?.progressCallback) {
-      C.currentProgressCallback = options.progressCallback;
-    } else {
-      C.currentProgressCallback = null;
-    }
-    if (this.logCallback) {
-      C.currentLogCallback = this.logCallback;
-      C._ts_parser_enable_logger_wasm(this[0], 1);
-    } else {
-      C.currentLogCallback = null;
-      C._ts_parser_enable_logger_wasm(this[0], 0);
-    }
-    let rangeCount = 0;
-    let rangeAddress = 0;
-    if (options?.includedRanges) {
-      rangeCount = options.includedRanges.length;
-      rangeAddress = C._calloc(rangeCount, SIZE_OF_RANGE);
-      let address = rangeAddress;
-      for (let i2 = 0; i2 < rangeCount; i2++) {
-        marshalRange(address, options.includedRanges[i2]);
-        address += SIZE_OF_RANGE;
-      }
-    }
-    const treeAddress = C._ts_parser_parse_wasm(
-      this[0],
-      this[1],
-      oldTree ? oldTree[0] : 0,
-      rangeAddress,
-      rangeCount
-    );
-    if (!treeAddress) {
-      C.currentParseCallback = null;
-      C.currentLogCallback = null;
-      C.currentProgressCallback = null;
-      return null;
-    }
-    if (!this.language) {
-      throw new Error("Parser must have a language to parse");
-    }
-    const result = new Tree(INTERNAL, treeAddress, this.language, C.currentParseCallback);
-    C.currentParseCallback = null;
-    C.currentLogCallback = null;
-    C.currentProgressCallback = null;
-    return result;
-  }
-  /**
-   * Instruct the parser to start the next parse from the beginning.
-   *
-   * If the parser previously failed because of a timeout, cancellation,
-   * or callback, then by default, it will resume where it left off on the
-   * next call to {@link Parser#parse} or other parsing functions.
-   * If you don't want to resume, and instead intend to use this parser to
-   * parse some other document, you must call `reset` first.
-   */
-  reset() {
-    C._ts_parser_reset(this[0]);
-  }
-  /** Get the ranges of text that the parser will include when parsing. */
-  getIncludedRanges() {
-    C._ts_parser_included_ranges_wasm(this[0]);
-    const count = C.getValue(TRANSFER_BUFFER, "i32");
-    const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
-    const result = new Array(count);
-    if (count > 0) {
-      let address = buffer;
-      for (let i2 = 0; i2 < count; i2++) {
-        result[i2] = unmarshalRange(address);
-        address += SIZE_OF_RANGE;
-      }
-      C._free(buffer);
-    }
-    return result;
-  }
-  /**
-   * @deprecated since version 0.25.0, prefer passing a progress callback to {@link Parser#parse}
-   *
-   * Get the duration in microseconds that parsing is allowed to take.
-   *
-   * This is set via {@link Parser#setTimeoutMicros}.
-   */
-  getTimeoutMicros() {
-    return C._ts_parser_timeout_micros(this[0]);
-  }
-  /**
-   * @deprecated since version 0.25.0, prefer passing a progress callback to {@link Parser#parse}
-   *
-   * Set the maximum duration in microseconds that parsing should be allowed
-   * to take before halting.
-   *
-   * If parsing takes longer than this, it will halt early, returning `null`.
-   * See {@link Parser#parse} for more information.
-   */
-  setTimeoutMicros(timeout) {
-    C._ts_parser_set_timeout_micros(this[0], 0, timeout);
-  }
-  /** Set the logging callback that a parser should use during parsing. */
-  setLogger(callback) {
-    if (!callback) {
-      this.logCallback = null;
-    } else if (typeof callback !== "function") {
-      throw new Error("Logger callback must be a function");
-    } else {
-      this.logCallback = callback;
-    }
-    return this;
-  }
-  /** Get the parser's current logger. */
-  getLogger() {
-    return this.logCallback;
-  }
-};
+// src/detect/adapters/query-helpers.ts
+import { Query } from "web-tree-sitter";
+
+// src/detect/adapters/tree-sitter-loader.ts
+import { Language, Parser } from "web-tree-sitter";
 
 // src/detect/adapters/python-fastapi.ts
 init_parse_guard();
 
 // src/detect/adapters/python-django.ts
+import { Parser as Parser3 } from "web-tree-sitter";
 init_parse_guard();
 
 // src/detect/adapters/nextjs-trpc.ts
+import { Parser as Parser4 } from "web-tree-sitter";
 init_parse_guard();
 
 // src/detect/adapters/swift-swiftui.ts
+import { Parser as Parser5 } from "web-tree-sitter";
 init_parse_guard();
 
 // src/detect/adapters/python-flask.ts
+import { Parser as Parser6 } from "web-tree-sitter";
 init_parse_guard();
 
-// src/detect/adapters/go-chi.ts
-init_parse_guard();
+// ../adapter-go-chi/dist/index.js
+import { Parser as Parser8 } from "web-tree-sitter";
 
-// src/detect/adapters/rails.ts
-init_parse_guard();
+// dist/adapter.js
+import { Query as Query2 } from "web-tree-sitter";
+import { Language as Language2, Parser as Parser7 } from "web-tree-sitter";
+var MAX_AST_FILE_BYTES2 = 1 * 1024 * 1024;
 
-// src/detect/adapters/phoenix.ts
-init_parse_guard();
+// ../adapter-rails/dist/index.js
+import { Parser as Parser9 } from "web-tree-sitter";
 
-// src/detect/adapters/aspnet.ts
-init_parse_guard();
+// ../adapter-phoenix/dist/index.js
+import { Parser as Parser10 } from "web-tree-sitter";
 
-// src/detect/adapters/spring.ts
-init_parse_guard();
+// ../adapter-aspnet/dist/index.js
+import { Parser as Parser11 } from "web-tree-sitter";
+
+// ../adapter-spring/dist/index.js
+import { Parser as Parser12 } from "web-tree-sitter";
 
 // src/detect/codebase-introspector.ts
 function introspect(detection, projectRoot) {
-  const out2 = {};
+  const out = {};
   const languages = Array.from(
     new Set(detection.manifests.map((m) => m.language))
   );
   if (languages.includes("python")) {
     const python = introspectPython(detection, projectRoot);
-    if (python !== null) out2.python = python;
+    if (python !== null) out.python = python;
   }
   if (languages.includes("swift")) {
     const swift = introspectSwift(detection, projectRoot);
-    if (swift !== null) out2.swift = swift;
+    if (swift !== null) out.swift = swift;
   }
   if (languages.includes("typescript") || languages.includes("javascript")) {
     const ts = introspectTypeScript(detection, projectRoot);
-    if (ts !== null) out2.typescript = ts;
+    if (ts !== null) out.typescript = ts;
   }
-  return out2;
+  return out;
 }
 
 // src/detect/index.ts
 function dominantDir(lang, sourceDirs, monorepo) {
-  const info2 = sourceDirs[lang];
-  if (info2 && info2.source_dirs.length > 0) return info2.source_dirs[0];
+  const info = sourceDirs[lang];
+  if (info && info.source_dirs.length > 0) return info.source_dirs[0];
   if (monorepo.packages.length > 0) return monorepo.packages[0].path;
   return ".";
 }
@@ -13412,8 +8795,8 @@ function summarizeDetection(det) {
   }
   const sourceDirs = {};
   for (const lang of languages) {
-    const info2 = det.sourceDirs[lang];
-    sourceDirs[lang] = [...info2?.source_dirs ?? []].sort();
+    const info = det.sourceDirs[lang];
+    sourceDirs[lang] = [...info?.source_dirs ?? []].sort();
   }
   const manifests = [...det.manifests.map((m) => m.relativePath)].sort();
   const workspaces = [...det.monorepo.packages.map((p) => p.path)].sort();
@@ -13450,8 +8833,8 @@ function checkPosix(pid, killOverride) {
       process.kill(pid, 0);
     }
     return true;
-  } catch (err2) {
-    const code = err2.code;
+  } catch (err) {
+    const code = err.code;
     if (code === "EPERM") return true;
     return false;
   }
@@ -13841,41 +9224,4 @@ queue-microtask/index.js:
 
 run-parallel/index.js:
   (*! run-parallel. MIT License. Feross Aboukhadijeh <https://feross.org/opensource> *)
-
-smol-toml/dist/error.js:
-smol-toml/dist/util.js:
-smol-toml/dist/date.js:
-smol-toml/dist/primitive.js:
-smol-toml/dist/extract.js:
-smol-toml/dist/struct.js:
-smol-toml/dist/parse.js:
-smol-toml/dist/stringify.js:
-smol-toml/dist/index.js:
-  (*!
-   * Copyright (c) Squirrel Chat et al., All rights reserved.
-   * SPDX-License-Identifier: BSD-3-Clause
-   *
-   * Redistribution and use in source and binary forms, with or without
-   * modification, are permitted provided that the following conditions are met:
-   *
-   * 1. Redistributions of source code must retain the above copyright notice, this
-   *    list of conditions and the following disclaimer.
-   * 2. Redistributions in binary form must reproduce the above copyright notice,
-   *    this list of conditions and the following disclaimer in the
-   *    documentation and/or other materials provided with the distribution.
-   * 3. Neither the name of the copyright holder nor the names of its contributors
-   *    may be used to endorse or promote products derived from this software without
-   *    specific prior written permission.
-   *
-   * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-   * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-   * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-   * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-   * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-   * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-   * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-   * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-   * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-   * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-   *)
 */

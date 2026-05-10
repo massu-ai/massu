@@ -7,9 +7,21 @@
     "packages/adapter-*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=packages/core",
+    "build": "npm run build:adapters && npm run build:core",
+    "build:core": "npm run build --workspace=packages/core",
+    "build:adapters": "npm run build --workspace=packages/adapter-rails --workspace=packages/adapter-phoenix --workspace=packages/adapter-aspnet --workspace=packages/adapter-spring --workspace=packages/adapter-go-chi",
     "test": "npm test --workspace=packages/core",
     "start": "npm start --workspace=packages/core"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-darwin-arm64": "4.59.0",
+    "@rollup/rollup-darwin-x64": "4.59.0",
+    "@rollup/rollup-linux-arm64-gnu": "4.59.0",
+    "@rollup/rollup-linux-arm64-musl": "4.59.0",
+    "@rollup/rollup-linux-x64-gnu": "4.59.0",
+    "@rollup/rollup-linux-x64-musl": "4.59.0",
+    "@rollup/rollup-win32-arm64-msvc": "4.59.0",
+    "@rollup/rollup-win32-x64-msvc": "4.59.0"
   },
   "author": "Massu Contributors",
   "license": "SEE LICENSE IN LICENSE",

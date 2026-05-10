@@ -36,6 +36,11 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+      - name: Build Adapters (required for Phase 9b workspace tests)
+        # After Plan 3c Phase 9b, packages/core/src/detect/adapters/*.ts re-exports
+        # from @massu/adapter-{rails,phoenix,aspnet,spring,go-chi} workspace packages.
+        # vitest needs adapter dist/ artifacts; npm ci does NOT run workspace builds.
+        run: npm run build:adapters
       - name: Test (Core)
         run: npm test
 

@@ -8690,25 +8690,20 @@ init_parse_guard();
 import { Parser as Parser6 } from "web-tree-sitter";
 init_parse_guard();
 
-// ../adapter-go-chi/dist/index.js
-import { Parser as Parser8 } from "web-tree-sitter";
+// src/detect/adapters/go-chi.ts
+import { goChiAdapter } from "@massu/adapter-go-chi";
 
-// dist/adapter.js
-import { Query as Query2 } from "web-tree-sitter";
-import { Language as Language2, Parser as Parser7 } from "web-tree-sitter";
-var MAX_AST_FILE_BYTES2 = 1 * 1024 * 1024;
+// src/detect/adapters/rails.ts
+import { railsAdapter } from "@massu/adapter-rails";
 
-// ../adapter-rails/dist/index.js
-import { Parser as Parser9 } from "web-tree-sitter";
+// src/detect/adapters/phoenix.ts
+import { phoenixAdapter } from "@massu/adapter-phoenix";
 
-// ../adapter-phoenix/dist/index.js
-import { Parser as Parser10 } from "web-tree-sitter";
+// src/detect/adapters/aspnet.ts
+import { aspnetAdapter } from "@massu/adapter-aspnet";
 
-// ../adapter-aspnet/dist/index.js
-import { Parser as Parser11 } from "web-tree-sitter";
-
-// ../adapter-spring/dist/index.js
-import { Parser as Parser12 } from "web-tree-sitter";
+// src/detect/adapters/spring.ts
+import { springAdapter } from "@massu/adapter-spring";
 
 // src/detect/codebase-introspector.ts
 function introspect(detection, projectRoot) {

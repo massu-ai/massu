@@ -21,6 +21,10 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+      - name: Build Adapters (required for Phase 9b workspace tsc resolution)
+        # src/detect/adapters/*.ts re-exports from @massu/adapter-* workspace
+        # packages; tsc needs dist/index.d.ts to resolve them.
+        run: npm run build:adapters
       - name: Type Check (Core)
         run: cd packages/core && npx tsc --noEmit
       - name: Pattern Scanner

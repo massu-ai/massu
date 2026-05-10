@@ -41,7 +41,20 @@ set -euo pipefail
 MODE="${MASSU_LEAK_GUARD_MODE:-staged}"
 case "$MODE" in
   staged|tree) ;;
-  *) echo "ERROR: invalid MASSU_LEAK_GUARD_MODE=$MODE (expected 'staged' or 'tree')" >&2; exit 2 ;;
+  commit)
+    # Per-commit scan mode for CI workflows (`.github/workflows/leak-guard.yml`).
+    # Requires MASSU_LEAK_GUARD_SHA to identify the commit. File list =
+    # `git diff-tree $SHA~1 $SHA --diff-filter=ACMR`; content reader =
+    # `git show $SHA:$path`. Replaces the prior staged-mode CI invocation
+    # which had a HEAD-comparison bug (see synthetic-leak-test PR
+    # massu-ai/massu#2 / runs 25621197800 false-PASS vs 25621197769 +
+    # 25621197780 correct FAIL). Added 2026-05-10.
+    if [ -z "${MASSU_LEAK_GUARD_SHA:-}" ]; then
+      echo "ERROR: MASSU_LEAK_GUARD_MODE=commit requires MASSU_LEAK_GUARD_SHA" >&2
+      exit 2
+    fi
+    ;;
+  *) echo "ERROR: invalid MASSU_LEAK_GUARD_MODE=$MODE (expected 'staged', 'tree', or 'commit')" >&2; exit 2 ;;
 esac
 
 # Per PUBLIC_MANIFEST.md sections "Directories", "Root Files", ".public Variant",
@@ -109,27 +122,57 @@ DENIED_PATTERNS=(
 
 # ----- mode-dependent file-list discovery -----
 get_file_list() {
-  if [ "$MODE" = "staged" ]; then
-    git diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true
-  else
-    # tree mode — scan every tracked file
-    git ls-files 2>/dev/null || true
-  fi
+  case "$MODE" in
+    staged)
+      git diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true
+      ;;
+    commit)
+      # Files added/modified/renamed in $SHA vs its parent. Handles root commit
+      # via empty-tree fallback (4b825dc... is the SHA of the empty tree).
+      local parent
+      parent=$(git rev-parse "$MASSU_LEAK_GUARD_SHA^" 2>/dev/null || echo "4b825dc642cb6eb9a060e54bf8d69288fbee4904")
+      git diff-tree --no-commit-id --name-only --diff-filter=ACMR -r "$parent" "$MASSU_LEAK_GUARD_SHA" 2>/dev/null || true
+      ;;
+    tree)
+      git ls-files 2>/dev/null || true
+      ;;
+  esac
 }
 
 # ----- mode-dependent content reader -----
-# In staged mode: only the LINES BEING ADDED in the diff (matches what the
-# committer is introducing). In tree mode: the full current file contents.
-# `|| true` suffix on each branch prevents grep's no-match exit-1 from
-# tripping `set -e` and silently killing the scan mid-loop on empty files
-# (e.g. an empty Python __init__.py).
+# In staged mode: the full content of the file as it exists in the index
+# (about-to-be-committed state). In tree mode: the full current file contents.
+#
+# Why full content not just added lines: we want to catch a content trigger
+# regardless of whether it was just-added or was already present in a file
+# being modified for an unrelated reason. The previous implementation
+# `git diff --cached <path> | grep '^+'` had a subtle bug — when the CI
+# workflow at `.github/workflows/leak-guard.yml` set GIT_INDEX_FILE to a
+# specific commit's tree via `git read-tree $sha`, `git diff --cached` then
+# compared that index against HEAD (which actions/checkout@v4 set to the
+# PR merge commit, equal to $sha). The diff was empty → the grep matched
+# nothing → false PASS on PR #2 (synthetic-leak-test 2026-05-09; runs
+# 25621197800 PASS vs 25621197769/25621197780 FAIL on the same trigger).
+# Using `git show :$path` reads from the index directly without HEAD
+# comparison, so the reader returns actual content regardless of CI vs
+# local-pre-commit context.
+#
+# `|| true` suffix on each branch prevents non-zero exit codes (grep
+# no-match, missing file) from tripping `set -e` and silently killing the
+# scan mid-loop on empty files (e.g. an empty Python __init__.py).
 get_file_content() {
   local path="$1"
-  if [ "$MODE" = "staged" ]; then
-    git diff --cached "$path" 2>/dev/null | grep -E '^\+' || true
-  else
-    cat "$path" 2>/dev/null || true
-  fi
+  case "$MODE" in
+    staged)
+      git show ":$path" 2>/dev/null || true
+      ;;
+    commit)
+      git show "$MASSU_LEAK_GUARD_SHA:$path" 2>/dev/null || true
+      ;;
+    tree)
+      cat "$path" 2>/dev/null || true
+      ;;
+  esac
 }
 
 FILE_LIST=$(get_file_list)

@@ -9,6 +9,7 @@
   "scripts": {
     "build": "npm run build:adapters && npm run build:core",
     "build:core": "npm run build --workspace=packages/core",
+    "prebuild:adapters": "npm run build:adapter-types --workspace=packages/core && npm run build:adapter-subpath --workspace=packages/core",
     "build:adapters": "npm run build --workspace=packages/adapter-rails --workspace=packages/adapter-phoenix --workspace=packages/adapter-aspnet --workspace=packages/adapter-spring --workspace=packages/adapter-go-chi",
     "test": "npm test --workspace=packages/core",
     "start": "npm start --workspace=packages/core"

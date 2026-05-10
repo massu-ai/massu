@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.1] - 2026-05-10
+
+Plan `plan-changelog-sot` — Website changelog now renders from `CHANGELOG.md` source-of-truth at build time. The hardcoded `ChangelogEntry[]` array on `website/src/app/changelog/page.tsx` (stale by 5+ major releases, last entry `0.6.3`, mismatched `0.x` scheme vs npm's `1.x`) and the orphaned `website/content/changelog/` directory are deleted. A vitest drift-guard test asserts every `## [X.Y.Z]` heading produces exactly one rendered entry; structurally impossible for the rendered page to drift from `CHANGELOG.md` after this release. CR-46 / Rule 0 — replaces a recurring "rendered changelog goes stale" loop with a structural CI gate. Website-only patch; daemon code unchanged from 1.6.0.
+
+### Added
+
+- **`website/src/lib/changelog.ts`** — hand-rolled Keep-a-Changelog 1.1.0 parser (`parseChangelog`, `readChangelog`, `getChangelog`, `renderInlineMarkdown`, `KNOWN_SECTION_HEADINGS`). No new npm dependency — the format is tightly constrained and a regex-driven parser keeps the drift-guard surface small. `getChangelog()` wraps read+parse with a version-less fallback (no embedded version literals — that would itself create a new drift surface).
+- **`scripts/copy-changelog-to-website.js`** — `__dirname`-relative copy script that runs from `predev` and `prebuild` hooks, copies repo-root `CHANGELOG.md` into `website/CHANGELOG.md` (gitignored). Resolves source path independent of `process.cwd()` so it works from any invocation context (Vercel CI, manual, dev). Gracefully exits 0 when source is missing (Vercel CLI deploys that upload only `website/`).
+- **`website/src/__tests__/changelog-parse.test.ts`** — 13-assertion drift-guard: `EXPECTED_COUNT = 18`, semver/ISO-date regex pins, no-duplicate-versions, latest-entry == `packages/core/package.json#version`, `KNOWN_SECTION_HEADINGS` whitelist coverage, historical `[0.3.0]` preserved per plan §1.4, and renderer fidelity (`renderInlineMarkdown` produces `<code>` for `` `@massu/adapter-rails@1.0.0` `` literal markdown).
+- **`renderInlineMarkdown` inline-markdown renderer** — dependency-free helper handling the four common inline forms in CHANGELOG bullets (` ``code`` `, `[text](url)`, `**bold**`, `*italic*`) so users see formatted output on `/changelog` instead of raw backtick + bracket syntax.
+
+### Changed
+
+- **`website/src/app/changelog/page.tsx`** — hardcoded `ChangelogEntry[]` array (legacy lines 31-264, frozen at `0.6.3`) replaced with `const changelog = getChangelog()`. Inline `ChangelogEntry` interface moved to `@/lib/changelog`. Each `<li>` wraps `{renderInlineMarkdown(item)}` so backticks and links render correctly.
+- **`website/package.json`** — `predev` and `prebuild` scripts added: `node ../scripts/copy-changelog-to-website.js`. Ensures `website/CHANGELOG.md` is in sync before `next dev` or `next build` reads it.
+- **`website/.gitignore`** — `/CHANGELOG.md` added (derived build artifact; canonical source lives at repo root).
+- **`website/tsconfig.json`** — `target: "ES2017"` → `target: "ES2020"`. Fixes pre-existing TS1501 error on `s` regex flag in `src/__tests__/integration/sso-validation.test.ts:31` per CR-9 (fix all encountered issues). Safe for Node 22 + Next.js 16 runtime.
+
+### Removed
+
+- **`website/content/changelog/`** — orphaned MDX directory deleted (`grep -rn "content/changelog" website/src/` returned 0 prior to deletion). The single file (`2026-04-19-config-migration.mdx`) had no consumer.
+
+### Verification
+
+- `cd website && npx tsc --noEmit`: 0 errors
+- `cd website && npm test`: 18 files / **115 tests PASS** (was 17/101 + 14 new after EXPECTED_COUNT bump)
+- `cd website && npm run build`: exit 0, `/changelog` prerendered as static (○)
+- Rendered HTML inspection: 18 distinct version headings (1.6.1 through 0.3.0 preserved), 0 occurrences of stale `0.6.3` legacy data, `1.6.1` appears in rendered output
+- `bash scripts/pre-push-light.sh` (Node 22): ALL 7 GATES PASS
+- `bash scripts/massu-plan-status-validator.sh`: PASS
+- `bash scripts/massu-plan-commit-drift.sh`: PASS
+
+### Closes
+
+- Plan `plan-changelog-sot` audit: converged at 0 gaps after 4 iterations (14 → 4 → 2 → 0).
+- Master plan row 4.10 drift-class — the "rendered changelog goes stale" loop that motivated the blog post review is now structurally impossible.
+
 ## [1.6.0] - 2026-05-09
 
 Plan 3c Phase 9b — workspace adapter publish (`plan-3c-phase9b`). Closes the 1.5.0 Infrastructure note ("5 workspace placeholder packages remain at `0.0.0-prework`") by shipping the 5 first-party AST adapters as standalone npm packages alongside `@massu/core@1.6.0`. Architecture is **Z+II**: workspace package source is canonical (`packages/adapter-<f>/src/index.ts`); `@massu/core` consumes those packages as workspace dependencies and bundles their built `dist/` into its own `dist/detect/adapters/<f>.js` via a build step (`packages/core/scripts/bundle-adapters.ts`). True single-source-of-truth: same source produces both the CORE-BUNDLED artifact and the standalone REGISTRY-VERIFIED tarball; sha256 reproducibility is structurally enforced.

@@ -395,6 +395,43 @@ for f in "${PLAN_FILES[@]}"; do
 done
 
 # ------------------------------------------------------------------
+# L3 retrospective integrity check (plan-1.6.3-website-feature-discoverability P-C-005 / CR-48)
+# For every plan whose Status is in the shipped subset AND whose plan-cited
+# SHIPPED commit modified files under website/, the plan body MUST contain
+# `/massu-deploy` (the canonical command) or `bash scripts/massu-deploy.sh`.
+# Missing → WARN (not FAIL — retrospective enforcement only). Going forward,
+# CLAUDE.md CR-48 mandates the deploy P-item in Stage D.
+# ------------------------------------------------------------------
+# Iterate again over plan files. (Cheap; <100 plans, <50ms total.)
+SHIPPED_SUBSET_RE='^(SHIPPED|IMPLEMENTED|COMPLETE|APPROVED|SUPERSEDED|HISTORICAL DRAFT)'
+for plan_file in "${PLAN_FILES[@]}"; do
+  rel_path="${plan_file#"$REPO_ROOT/"}"
+  status_line=$(massu_extract_status_line "$plan_file" 2>/dev/null || true)
+  [ -z "$status_line" ] && continue
+  # Only check shipped-subset plans.
+  if ! echo "$status_line" | grep -qE "$SHIPPED_SUBSET_RE"; then continue; fi
+  # Extract cited SHA(s) from status line (7-40 char hex).
+  shas=$(echo "$status_line" | grep -oE '\b[a-f0-9]{7,40}\b' | head -3)
+  [ -z "$shas" ] && continue
+  # For each SHA, check if its `git show --stat` mentions any website/ file.
+  touches_website=0
+  for sha in $shas; do
+    if git -C "$REPO_ROOT" show --stat "$sha" 2>/dev/null | grep -qE "^\s+website/"; then
+      touches_website=1
+      break
+    fi
+  done
+  [ "$touches_website" -eq 0 ] && continue
+  # Plan touches website/ in its SHIPPED commit. Body MUST document /massu-deploy.
+  if ! grep -qE "/massu-deploy|massu-deploy\.sh" "$plan_file"; then
+    if [ "$JSON_MODE" != "1" ]; then
+      echo -e "  ${YELLOW}WARN${NC}: $rel_path: plan shipped website/ changes (SHA cited) but body does not document /massu-deploy invocation (CR-48 retrospective integrity)"
+    fi
+    WARNINGS=$((WARNINGS + 1))
+  fi
+done
+
+# ------------------------------------------------------------------
 # Summary
 # ------------------------------------------------------------------
 if [ "$JSON_MODE" = "1" ]; then

@@ -37,19 +37,19 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 NODE_VERSION=$(node --version 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')
 if [ -n "$NODE_VERSION" ]; then
   if [ "$NODE_VERSION" -lt 20 ] || [ "$NODE_VERSION" -ge 26 ]; then
-    echo "[0/7] Node version pre-flight... FAIL"
+    echo "[0/8] Node version pre-flight... FAIL"
     echo "  Node v${NODE_VERSION}.x is incompatible with better-sqlite3."
     echo "  Required: Node >=20 <26 (per packages/core/package.json engines + .nvmrc)."
     echo "  Fix: brew install node@22 && export PATH=\"/opt/homebrew/opt/node@22/bin:\$PATH\""
     echo "       (or use nvm: nvm use \$(cat .nvmrc))"
     FAILED=1
   else
-    echo "[0/7] Node version pre-flight... PASS (v${NODE_VERSION}.x)"
+    echo "[0/8] Node version pre-flight... PASS (v${NODE_VERSION}.x)"
   fi
 fi
 
 # 1. Pattern Scanner (~5s)
-echo -n "[1/7] Pattern Scanner... "
+echo -n "[1/8] Pattern Scanner... "
 if bash "$SCRIPT_DIR/massu-pattern-scanner.sh" > /tmp/massu-pattern-scanner.log 2>&1; then
   echo "PASS"
 else
@@ -60,7 +60,7 @@ else
 fi
 
 # 2. Security Scanner (~5s)
-echo -n "[2/7] Security Scanner... "
+echo -n "[2/8] Security Scanner... "
 if bash "$SCRIPT_DIR/massu-security-scanner.sh" > /tmp/massu-security-scanner.log 2>&1; then
   echo "PASS"
 else
@@ -71,7 +71,7 @@ else
 fi
 
 # 3. Hook Build (~5s)
-echo -n "[3/7] Hook Build... "
+echo -n "[3/8] Hook Build... "
 if (cd "$PROJECT_ROOT/packages/core" && npm run build:hooks) > /tmp/massu-hook-build.log 2>&1; then
   echo "PASS"
 else
@@ -82,7 +82,7 @@ else
 fi
 
 # 4. TypeScript (~30s)
-echo -n "[4/7] TypeScript... "
+echo -n "[4/8] TypeScript... "
 # Wrap in `if !` so the post-loop block survives a tsc failure under
 # `set -uo pipefail` (no `set -e`); the pre-existing `$? -eq 0` form
 # silently broke when the `set -e` flag was removed in P3-002a.
@@ -95,7 +95,7 @@ else
 fi
 
 # 5. Tests (~50s)
-echo -n "[5/7] Tests... "
+echo -n "[5/8] Tests... "
 if (cd "$PROJECT_ROOT" && npm test) > /tmp/massu-tests.log 2>&1; then
   echo "PASS"
 else
@@ -106,7 +106,7 @@ else
 fi
 
 # 6. Plan Status Validator (~2s) — Plan 1.5.8 P3-002
-echo -n "[6/7] Plan Status Validator... "
+echo -n "[6/8] Plan Status Validator... "
 if bash "$SCRIPT_DIR/massu-plan-status-validator.sh" > /tmp/massu-plan-status.log 2>&1; then
   echo "PASS"
 else
@@ -117,13 +117,31 @@ else
 fi
 
 # 7. Plan Commit Drift (~2s) — Plan 1.5.8 P3-002
-echo -n "[7/7] Plan Commit Drift... "
+echo -n "[7/8] Plan Commit Drift... "
 if bash "$SCRIPT_DIR/massu-plan-commit-drift.sh" > /tmp/massu-plan-drift.log 2>&1; then
   echo "PASS"
 else
   echo "FAIL"
   echo "  See: /tmp/massu-plan-drift.log"
   grep -E "^\s*FAIL:" /tmp/massu-plan-drift.log | head -10
+  FAILED=1
+fi
+
+# 8. Deploy Staleness (~3s) — plan-1.6.3-website-feature-discoverability P-C-002
+# Catches the "shipped to npm but not deployed to Vercel" structural drift class.
+echo -n "[8/8] Deploy Staleness... "
+if bash "$SCRIPT_DIR/massu-deploy-staleness-check.sh" > /tmp/massu-deploy-staleness.log 2>&1; then
+  # Distinguish PASS / SKIP / WARN by parsing the log first line.
+  STATUS=$(head -1 /tmp/massu-deploy-staleness.log | awk '{print $1}' | tr -d ':')
+  case "$STATUS" in
+    PASS) echo "PASS" ;;
+    SKIP) echo "SKIP (Vercel CLI auth)" ;;
+    WARN) echo "WARN (non-main branch or non-fatal)" ;;
+    *)    echo "PASS" ;;  # Default to PASS if format unexpected (exit 0 is the contract)
+  esac
+else
+  echo "FAIL"
+  cat /tmp/massu-deploy-staleness.log
   FAILED=1
 fi
 

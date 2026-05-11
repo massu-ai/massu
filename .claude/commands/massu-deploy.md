@@ -29,7 +29,7 @@ name: massu-deploy
 2. Project target verification — must match projectId `prj_Io7AaGCM27cwRQerAj3BdihUur1Y`
 3. Local build verification — `npm run build` must succeed
 4. Deploy to production — `vercel --prod --yes`
-5. Smoke tests — GET `/` and `/docs` must return 200
+5. Smoke tests — GET `/`, `/docs`, `/changelog`, `/overview` must return 200 (the latter two added by plan-1.6.3-website-feature-discoverability after the 33-day-stale-changelog incident)
 6. Rollback guidance — if smoke tests fail, prints rollback command
 
 ---

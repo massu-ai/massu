@@ -4,6 +4,49 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.2] - 2026-05-10
+
+Plan `plan-1.6.2-server-lazy-db-deps` — Daemon-code patch eliminating the structural bug where every MCP tool/call eagerly opened both CodeGraph + Data SQLite DBs at the top-level dispatcher. In any repo without `.codegraph/codegraph.db`, ALL tools failed — even memory/audit/knowledge tools with no logical codegraph dependency. The error surfaced as JSON-RPC code `-32700` ("Parse error", spec-reserved for actual JSON parse failures) with `id:null`. Bug class is now structurally impossible via a typed per-tool DB-needs manifest + AST drift-guard + pattern-scanner Check 14. CR-46 / Rule 0 — replaces an implicit "every tool gets both DBs" coupling with explicit, typed, lazy resolution.
+
+End-users on 1.5.x / 1.6.0 / 1.6.1 are **unaffected** in repos where `.codegraph/codegraph.db` is present (the prior eager-load happened to find the file). Users in fresh installs without codegraph (which became more common as 1.5.0 → 1.6.0 expanded the user base) now see correct behavior: memory tools work; codegraph-dependent tools return a structured `-32001` error with remedy hint pointing at `npx @colbymchenry/codegraph init`.
+
+### Added
+
+- **`packages/core/src/tool-db-needs.ts`** — typed `TOOL_DB_NEEDS` manifest covering all ~70 MCP tools. `DbNeed = 'codegraph' | 'data' | 'memory' | 'knowledge'`. `getToolDbNeeds(toolName, prefix)` is the single source of truth; throws `UnknownToolError` for tools not in the manifest. `toolNeedsCodegraph()` convenience predicate.
+- **`packages/core/src/__tests__/server-lazy-db-deps.test.ts`** — 12-assertion behavior test: manifest shape, prefix-strip + `UnknownToolError`, `toolNeedsCodegraph` for codegraph-dependent vs codegraph-independent tools, `CodegraphDbNotInitializedError` class shape.
+- **`packages/core/src/__tests__/tool-db-needs-completeness.test.ts`** — 19-assertion drift-guard using TypeScript Compiler API (`ts.createSourceFile`). Walks every `*-tools.ts` and listed handler module, identifies which `getCodeGraphDb`/`getDataDb`/`getMemoryDb`/`getKnowledgeDb` references the module actually uses, cross-references against `TOOL_DB_NEEDS`. Aliasing/destructuring rename does NOT bypass an AST walk (the structural win over grep-based completeness checks). Uses `Map` (not plain object) for the DB-fn lookup to prevent `Object.prototype` identifier matches (`toLocaleString`, `hasOwnProperty`, etc.).
+- **`scripts/massu-pattern-scanner.sh` Check 14** — grep-level safety net before tests run. Every tool registered via `name: p('...')` or `name: \`${prefix}_...\`` in `packages/core/src/*.ts` MUST have a matching entry in `TOOL_DB_NEEDS`. Runs in `pre-push-light.sh` step 1.
+- **`CodegraphDbNotInitializedError`** in `packages/core/src/db.ts` — internal error class (not thrown to clients raw). Carries the resolved DB path for the dispatcher to relay.
+
+### Changed
+
+- **`packages/core/src/server.ts`** — eliminated module-level `codegraphDb`/`dataDb` singletons + `getDb()` helper. New `resolveDbsForTool(toolName)` opens ONLY the DBs the manifest declares. `tools/call` handler catches `CodegraphDbNotInitializedError` → structured `-32001` JSON-RPC error with `data.remedy` (verbatim `codegraph init` command), `data.codegraphDbPath`, `data.tool`. Catches `UnknownToolError` → `-32602` (Invalid params). Stdio handler is now two-phase try/catch: JSON-parse failures emit spec-correct `-32700 id:null`; request-processing failures emit `-32603 Internal error` **preserving the request `id`** (was incorrectly `null` in 1.6.1 and prior).
+- **`packages/core/src/tools.ts`**:
+  - `ensureIndexes(dataDb, codegraphDb?, force?)` — `codegraphDb` is now optional. JS-index section (imports, tRPC, pages, middleware) skipped when undefined; Python-index section still runs against `dataDb`. Supports both "Python tools need fresh Python indexes but no codegraph" and "memory tools need nothing" cases.
+  - `handleToolCall(name, args, dataDb?, codegraphDb?)` — widened signature with optional DBs. JSDoc documents the pre-dispatch ordering invariant: tier gate → per-family routing → ensureIndexes gated per-family.
+  - Unconditional `ensureIndexes(dataDb, codegraphDb)` call at line 279 REMOVED. Per-family routing now invokes `ensureIndexes` only in the Python branch (with `dataDb`, no codegraph) and core JS branches (`sync`, `context`, `impact`, `coupling_check`, `domains`, `trpc_map` — with both DBs). Memory/audit/knowledge/sentinel/etc. branches skip `ensureIndexes` entirely.
+  - `assertDataDb` + `assertCodegraphDb` defensive helpers — never silently pass `undefined` into handlers when the manifest declares a DB is needed.
+
+### Removed
+
+- Module-level eager-init of CodeGraph + Data DBs at server startup. Connections are cached lazily after first need.
+
+### Verification
+
+- `cd packages/core && PATH="/opt/homebrew/opt/node@22/bin:$PATH" npx tsc --noEmit`: 0 errors
+- `cd packages/core && npm test`: **2144 passed** / 12 skipped (was 2113 baseline; +31 new tests across the 2 new vitest files: 12 in `server-lazy-db-deps.test.ts` + 19 in `tool-db-needs-completeness.test.ts`)
+- `bash scripts/pre-push-light.sh` (Node 22): ALL 7 GATES PASS (including new Check 14 — Tool DB-needs manifest completeness)
+- End-to-end reproducer from `/tmp/repro-fixed/` (NO `.codegraph/codegraph.db`):
+  - `tools/call massu_memory_search id=2` → success result with `id:2` propagated ✓
+  - `tools/call massu_sync id=3` → `{error:{code:-32001, message:"Tool requires CodeGraph database which is not initialized for this repo", data:{remedy:"npx @colbymchenry/codegraph@0.7.4 init . && npx @colbymchenry/codegraph@0.7.4 index .", codegraphDbPath:"/private/tmp/repro-fixed/.codegraph/codegraph.db", tool:"massu_sync"}}, id:3}` ✓ (was `code:-32700, id:null` in 1.6.1)
+- `bash scripts/massu-plan-status-validator.sh`: PASS
+- `bash scripts/massu-plan-commit-drift.sh`: PASS
+
+### Closes
+
+- Plan `plan-1.6.2-server-lazy-db-deps` audit converged at 0 gaps after 3 iterations (16 → 2 → 0).
+- The root cause of the 2026-05-10 in-session "MCP tools hanging" investigation (see `feedback_mcp_pin_version_in_mcp_json.md`). The hang turned out to be a stale 1.4.0-soak.0 global install (separately fixed by .mcp.json pin in commit `f6fa6ff`), but THIS plan eliminates the underlying server bug that would have caused identical symptoms in any clean install without codegraph.
+
 ## [1.6.1] - 2026-05-10
 
 Plan `plan-changelog-sot` — Website changelog now renders from `CHANGELOG.md` source-of-truth at build time. The hardcoded `ChangelogEntry[]` array on `website/src/app/changelog/page.tsx` (stale by 5+ major releases, last entry `0.6.3`, mismatched `0.x` scheme vs npm's `1.x`) and the orphaned `website/content/changelog/` directory are deleted. A vitest drift-guard test asserts every `## [X.Y.Z]` heading produces exactly one rendered entry; structurally impossible for the rendered page to drift from `CHANGELOG.md` after this release. CR-46 / Rule 0 — replaces a recurring "rendered changelog goes stale" loop with a structural CI gate. Website-only patch; daemon code unchanged from 1.6.0.

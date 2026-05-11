@@ -75,14 +75,26 @@ function stripPrefix(name: string): string {
 
 /**
  * Ensure indexes are built and up-to-date.
+ *
  * Lazy initialization: only rebuilds if stale.
+ *
+ * **Codegraph-optional**: `codegraphDb` is now optional. When omitted, the
+ * JS index section (imports, tRPC, pages, middleware — all derived from
+ * CodeGraph AST data) is skipped. The Python index section (which only
+ * reads Python source files via tree-sitter into Data DB) still runs.
+ * This supports the lazy-per-tool-DB design from
+ * `plan-1.6.2-server-lazy-db-deps`: Python tools and any tool that needs
+ * fresh Python indexes can call `ensureIndexes(dataDb)` without requiring
+ * a CodeGraph DB.
  */
-function ensureIndexes(dataDb: Database.Database, codegraphDb: Database.Database, force: boolean = false): string {
+function ensureIndexes(dataDb: Database.Database, codegraphDb?: Database.Database, force: boolean = false): string {
   const results: string[] = [];
   const config = getConfig();
 
-  // JS indexes
-  if (force || isDataStale(dataDb, codegraphDb)) {
+  // JS indexes — require CodeGraph DB. Skipped when codegraphDb is undefined
+  // (e.g., a Python tool or memory tool triggered ensureIndexes for its
+  // own Python-index needs without needing JS indexes).
+  if (codegraphDb !== undefined && (force || isDataStale(dataDb, codegraphDb))) {
     const importCount = buildImportIndex(dataDb, codegraphDb);
     results.push(`Import edges: ${importCount}`);
 
@@ -260,23 +272,64 @@ export function getToolDefinitions(): ToolDefinition[] {
 }
 
 /**
+ * Defensive assertion: a routing branch that consumes Data DB requires it
+ * to have been resolved by the dispatcher. Should never fire — the manifest
+ * declares which tools need Data DB and `server.ts:resolveDbsForTool`
+ * resolves accordingly. A throw here indicates a manifest/code drift.
+ */
+function assertDataDb(dataDb: Database.Database | undefined, toolName: string): Database.Database {
+  if (!dataDb) {
+    throw new Error(`Internal: tool "${toolName}" routed to a Data-DB branch but dispatcher did not resolve Data DB. Check TOOL_DB_NEEDS manifest entry includes 'data'.`);
+  }
+  return dataDb;
+}
+
+/**
+ * Defensive assertion mirror of {@link assertDataDb} for CodeGraph DB.
+ */
+function assertCodegraphDb(codegraphDb: Database.Database | undefined, toolName: string): Database.Database {
+  if (!codegraphDb) {
+    throw new Error(`Internal: tool "${toolName}" routed to a CodeGraph branch but dispatcher did not resolve CodeGraph DB. Check TOOL_DB_NEEDS manifest entry includes 'codegraph'.`);
+  }
+  return codegraphDb;
+}
+
+/**
  * Handle a tool call and return the result.
+ *
+ * **Pre-dispatch ordering invariant (P-A-002c, plan-1.6.2-server-lazy-db-deps)**:
+ *   1. Tier gate (`isToolAllowed`) — checked BEFORE any DB access so
+ *      free-tier users cannot provoke DB errors on paid tools.
+ *   2. Per-family routing (memory/observability/sentinel/knowledge/...) —
+ *      each family opens ONLY the DB connections its handler needs.
+ *   3. Code-intel families (Python, core JS) invoke `ensureIndexes` at
+ *      the top of their branch with the DBs they have. ensureIndexes is
+ *      NEVER called unconditionally for memory/audit/knowledge/etc.
+ *
+ * **DB params**: `dataDb` and `codegraphDb` are OPTIONAL — the dispatcher
+ * (`server.ts:resolveDbsForTool`) resolves them based on the tool's entry
+ * in `TOOL_DB_NEEDS`. Memory/Knowledge DBs are opened per-call inside
+ * their routing branches (existing pattern, unchanged).
+ *
+ * **Defensive checks**: branches that require a DB call `assertDataDb`
+ * or `assertCodegraphDb` first. These should never fire — `TOOL_DB_NEEDS`
+ * guarantees the dispatcher resolved the right DBs — but the runtime
+ * check catches manifest/code drift loudly instead of silently passing
+ * `undefined` into handlers.
  */
 export async function handleToolCall(
   name: string,
   args: Record<string, unknown>,
-  dataDb: Database.Database,
-  codegraphDb: Database.Database
+  dataDb?: Database.Database,
+  codegraphDb?: Database.Database
 ): Promise<ToolResult> {
-  // P3-017: Tier gate — check before any routing
+  // P3-017: Tier gate — check before any routing (ordering invariant step 1)
   const userTier = await getCurrentTier();
   const requiredTier = getToolTier(name);
   if (!isToolAllowed(name, userTier)) {
     return text(`This tool requires ${requiredTier} tier. Current tier: ${userTier}. Upgrade at https://massu.ai/pricing`);
   }
 
-  // Ensure indexes are built before any tool call
-  const syncMessage = ensureIndexes(dataDb, codegraphDb);
   const pfx = prefix();
 
   try {
@@ -307,7 +360,7 @@ export async function handleToolCall(
 
     // Route sentinel tools to sentinel handler
     if (name.startsWith(pfx + '_sentinel_')) {
-      return handleSentinelToolCall(name, args, dataDb);
+      return handleSentinelToolCall(name, args, assertDataDb(dataDb, name));
     }
 
     // Route analytics layer tools
@@ -375,9 +428,13 @@ export async function handleToolCall(
       finally { knowledgeDb.close(); }
     }
 
-    // Route Python tools (uses dataDb, not memDb)
+    // Route Python tools (uses dataDb only; codegraphDb not required).
+    // ensureIndexes runs WITHOUT codegraphDb — only the Python-index section
+    // rebuilds (against dataDb). JS-index section is skipped (no codegraph).
     if (isPythonTool(name)) {
-      return handlePythonToolCall(name, args, dataDb);
+      const pyDataDb = assertDataDb(dataDb, name);
+      ensureIndexes(pyDataDb);
+      return handlePythonToolCall(name, args, pyDataDb);
     }
 
     // Route license tools
@@ -387,22 +444,51 @@ export async function handleToolCall(
       finally { memDb.close(); }
     }
 
-    // Match core tools by base name
+    // Match core tools by base name. Each codegraph-dependent core tool
+    // asserts both DBs and runs ensureIndexes (full JS + Python rebuild
+    // when stale).
     const baseName = stripPrefix(name);
     switch (baseName) {
-      case 'sync':
-        return handleSync(dataDb, codegraphDb);
-      case 'context':
-        return handleContext(args.file as string, dataDb, codegraphDb);
-      case 'trpc_map':
-        return handleTrpcMap(args, dataDb);
-      case 'coupling_check':
-        return handleCouplingCheck(args, dataDb, codegraphDb);
-      case 'impact':
-        return handleImpact(args.file as string, dataDb, codegraphDb);
-      case 'domains':
-        return handleDomains(args, dataDb, codegraphDb);
+      case 'sync': {
+        const d = assertDataDb(dataDb, name);
+        const c = assertCodegraphDb(codegraphDb, name);
+        return handleSync(d, c);
+      }
+      case 'context': {
+        const d = assertDataDb(dataDb, name);
+        const c = assertCodegraphDb(codegraphDb, name);
+        ensureIndexes(d, c);
+        return handleContext(args.file as string, d, c);
+      }
+      case 'trpc_map': {
+        const d = assertDataDb(dataDb, name);
+        // trpc_map needs the tRPC index in Data DB. The index is built by
+        // ensureIndexes' JS section, which requires CodeGraph DB. If
+        // codegraphDb is provided (manifest declares 'codegraph'), rebuild
+        // the index; otherwise read whatever stale index exists.
+        ensureIndexes(d, codegraphDb);
+        return handleTrpcMap(args, d);
+      }
+      case 'coupling_check': {
+        const d = assertDataDb(dataDb, name);
+        const c = assertCodegraphDb(codegraphDb, name);
+        ensureIndexes(d, c);
+        return handleCouplingCheck(args, d, c);
+      }
+      case 'impact': {
+        const d = assertDataDb(dataDb, name);
+        const c = assertCodegraphDb(codegraphDb, name);
+        ensureIndexes(d, c);
+        return handleImpact(args.file as string, d, c);
+      }
+      case 'domains': {
+        const d = assertDataDb(dataDb, name);
+        const c = assertCodegraphDb(codegraphDb, name);
+        ensureIndexes(d, c);
+        return handleDomains(args, d, c);
+      }
       case 'schema':
+        // Filesystem-only; no DB access.
         return handleSchema(args);
       default:
         return text(`Unknown tool: ${name}`);

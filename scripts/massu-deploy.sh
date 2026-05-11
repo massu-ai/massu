@@ -136,7 +136,7 @@ echo ""
 echo "--- Step 5: Smoke Tests ---"
 SMOKE_FAILED=0
 
-for ROUTE in "/" "/docs"; do
+for ROUTE in "/" "/docs" "/changelog" "/overview"; do
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOY_URL}${ROUTE}" 2>/dev/null || echo "000")
   if [ "$STATUS" = "200" ]; then
     pass "GET ${ROUTE} -> ${STATUS}"

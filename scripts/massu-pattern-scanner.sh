@@ -415,6 +415,94 @@ else
 fi
 
 # -------------------------------------------------------
+# Check 15: Public page nav-link coverage (plan-1.6.3-website-feature-discoverability P-B-001)
+# Every public page under website/src/app/ that is NOT under a hidden-prefix
+# (dashboard, etc.) AND is not in the auth/checkout flow AND is not a
+# dynamic [slug] route AND is not in WEBSITE_NAV_EXEMPT MUST be linked from
+# either Navbar.mainNav or Footer.linkGroups. Eliminates the orphan-page
+# bug class (CR-39 inverse: a feature with no nav link is not shipped).
+#
+# Override per-page via website/src/data/nav-exempt.ts:WEBSITE_NAV_EXEMPT
+# (each entry requires a JSDoc explaining the intentional exemption).
+# -------------------------------------------------------
+echo "Check 15: Public page nav-link coverage"
+NAV_EXEMPT_FILE="$REPO_ROOT/website/src/data/nav-exempt.ts"
+NAVIGATION_FILE="$REPO_ROOT/website/src/data/navigation.ts"
+FOOTER_FILE="$REPO_ROOT/website/src/components/layout/Footer.tsx"
+APP_DIR="${MASSU_TEST_ORPHAN_DIR:-$REPO_ROOT/website/src/app}"
+
+if [ ! -f "$NAV_EXEMPT_FILE" ] || [ ! -f "$NAVIGATION_FILE" ] || [ ! -f "$FOOTER_FILE" ]; then
+  warn "Check 15 skipped: required file(s) missing (nav-exempt.ts, navigation.ts, or Footer.tsx)"
+elif [ ! -d "$APP_DIR" ]; then
+  warn "Check 15 skipped: app dir not found at $APP_DIR"
+else
+  # Extract hidden prefixes from nav-exempt.ts. Greps `'/foo'` literal entries
+  # in the WEBSITE_NAV_HIDDEN_PREFIXES block; falls back to the canonical
+  # default '/dashboard' if the parse returns nothing.
+  HIDDEN_PREFIXES=$(awk '/WEBSITE_NAV_HIDDEN_PREFIXES/,/\] as const/' "$NAV_EXEMPT_FILE" \
+    | grep -oE "'/[a-z][a-z0-9_-]*'" | tr -d "'" | sort -u)
+  if [ -z "$HIDDEN_PREFIXES" ]; then
+    HIDDEN_PREFIXES="/dashboard"
+  fi
+  # Extract WEBSITE_NAV_EXEMPT exact-match path list.
+  EXEMPT_PATHS=$(awk '/WEBSITE_NAV_EXEMPT/,/\] as const/' "$NAV_EXEMPT_FILE" \
+    | grep -oE "'/[a-z][a-z0-9_/-]*'" | tr -d "'" | sort -u)
+  # Auth + checkout literal allowlist (intentionally not in main nav).
+  AUTH_CHECKOUT_PATTERN='^/(login|signup|forgot-password|activate|invite|checkout)(/|$)'
+  # Collect ALL nav hrefs from navigation.ts + Footer.tsx (union).
+  NAV_HREFS=$( ( grep -hoE "href: '[^']+'" "$NAVIGATION_FILE" "$FOOTER_FILE" 2>/dev/null \
+                  | sed -E "s/href: '([^']+)'/\1/" ; \
+                  grep -hoE "href=\"[^\"]+\"" "$FOOTER_FILE" 2>/dev/null \
+                  | sed -E 's/href="([^"]+)"/\1/' ) \
+              | grep -vE '^https?://|^mailto:|^#' | sort -u)
+  # Enumerate every public page route.
+  ROUTES=$(find "$APP_DIR" -type f \( -name "page.tsx" -o -name "page.mdx" \) 2>/dev/null \
+    | sed "s|$APP_DIR||" | sed -E 's#/page\.(tsx|mdx)$##' | sort -u)
+  ORPHANS=""
+  ORPHAN_COUNT=0
+  while IFS= read -r route; do
+    [ -z "$route" ] && continue
+    [ "$route" = "" ] && continue
+    # Normalize empty (root) → "/"
+    norm="$route"
+    [ -z "$norm" ] && norm="/"
+    # Skip root (linked by Navbar logo).
+    [ "$norm" = "/" ] && continue
+    # Skip if matches any hidden prefix.
+    skip=0
+    while IFS= read -r prefix; do
+      [ -z "$prefix" ] && continue
+      case "$norm" in
+        "$prefix"|"$prefix"/*) skip=1; break ;;
+      esac
+    done <<< "$HIDDEN_PREFIXES"
+    [ "$skip" -eq 1 ] && continue
+    # Skip auth/checkout literal allowlist.
+    if echo "$norm" | grep -qE "$AUTH_CHECKOUT_PATTERN"; then continue; fi
+    # Skip dynamic routes ([slug] / [...catchall] / [id]).
+    if echo "$norm" | grep -qE '\['; then continue; fi
+    # Skip WEBSITE_NAV_EXEMPT entries.
+    skip=0
+    while IFS= read -r exempt; do
+      [ -z "$exempt" ] && continue
+      [ "$norm" = "$exempt" ] && { skip=1; break; }
+    done <<< "$EXEMPT_PATHS"
+    [ "$skip" -eq 1 ] && continue
+    # Must appear in NAV_HREFS.
+    if ! echo "$NAV_HREFS" | grep -qxF "$norm"; then
+      ORPHAN_COUNT=$((ORPHAN_COUNT + 1))
+      ORPHANS="$ORPHANS $norm"
+    fi
+  done <<< "$ROUTES"
+  if [ "$ORPHAN_COUNT" -eq 0 ]; then
+    pass "All public pages have nav links or are explicitly exempt"
+  else
+    fail "$ORPHAN_COUNT public page(s) missing nav link:$ORPHANS"
+    info "Add to website/src/data/navigation.ts mainNav OR website/src/components/layout/Footer.tsx OR website/src/data/nav-exempt.ts WEBSITE_NAV_EXEMPT (with JSDoc)"
+  fi
+fi
+
+# -------------------------------------------------------
 # Summary
 # -------------------------------------------------------
 echo ""

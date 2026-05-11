@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.3] - 2026-05-11
+
+Plan `plan-1.6.3-website-feature-discoverability` — Website + scanner patch eliminating two structural drift classes surfaced 2026-05-11 when the user asked "where do these changelogs show up on the website?": (a) public page added without nav link discoverable only via direct URL; (b) website code shipped to npm + git but never deployed to Vercel. Live evidence pre-fix: `massu.ai/changelog` showed 5-entry stale `0.x` array (the pre-`plan-changelog-sot` hardcoded data) because the last production Vercel deploy was 33 days old, even though the build-time parser landed in 1.6.1. After this release, both bug classes are structurally impossible: Pattern Scanner Check 15 enforces nav-link coverage with an explicit `WEBSITE_NAV_EXEMPT` allowlist; pre-push-light step 8 deploy-staleness gate enforces lockstep between website commits and Vercel deploys; CR-48 mandates `/massu-deploy` in Stage D for any website-touching plan. Backfill deploy in this release ships 33 days of accumulated website changes (1.6.1 changelog parser + 1.6.2 EXPECTED_COUNT bump + this plan's nav links) to production.
+
+### Added
+
+- **`website/src/data/nav-exempt.ts`** — shared constants `WEBSITE_NAV_HIDDEN_PREFIXES` (currently `['/dashboard']`) and `WEBSITE_NAV_EXEMPT` (currently `[]`). Sole source of truth for "page intentionally has its own shell" (consumed by `Navbar.tsx`) AND "page intentionally not in public nav" (consumed by Pattern Scanner Check 15). Each `WEBSITE_NAV_EXEMPT` entry requires a JSDoc explaining the intentional exemption.
+- **`scripts/massu-deploy-staleness-check.sh`** — compares last `website/`-touching commit on `origin/main` vs last production Vercel deploy timestamp. FAILs if lag exceeds `MASSU_MAX_DEPLOY_LAG_SECS` (default 86400 = 24h) on main branch. SKIP+WARN on Vercel CLI auth mismatch (`vercel whoami` + `teams list` pre-flight against `ethans-projects-22aee2ce`). Bypass via `MASSU_SKIP_DEPLOY_STALENESS_CHECK=1` (logged to stderr for audit-trail).
+- **`scripts/pre-push-light.sh` step 8** — invokes the staleness check. Renumbered 9 existing `[N/7]` labels to `[N/8]`.
+- **`scripts/massu-pattern-scanner.sh` Check 15** — public page nav-link coverage guard. Enumerates every `page.tsx`/`page.mdx` under `website/src/app/`, excludes hidden-prefix routes + auth/checkout + dynamic `[slug]` + root + `WEBSITE_NAV_EXEMPT`, cross-references against the union of `href:` values in `navigation.ts` + `Footer.tsx`. Synthetic regression VERIFIED: temporary `test-orphan-DELETE-ME/page.tsx` triggers `FAIL: /test-orphan-DELETE-ME has no nav link`.
+- **`scripts/massu-plan-status-validator.sh` L3 retrospective check** — for every shipped-subset plan whose cited SHA modified files under `website/`, emits WARN if plan body lacks `/massu-deploy` reference. Non-blocking (retrospective enforcement only); forward-going gate is CR-48 in CLAUDE.md.
+- **CR-48 / VR-DEPLOY-STALENESS** in `.claude/CLAUDE.md`. Full definition section between CR-40 and CR-39. Release ceremony template for website-touching plans documented as 10-step Stage D in `## Deployment` section.
+- **`Changelog` link** in `Footer.tsx` Resources group, between Quick Start and GitHub.
+- **`Overview` link** in `navigation.ts` `mainNav` array, between How It Works and Articles (`mainNav.length` 6 → 7).
+
+### Changed
+
+- **`website/src/components/layout/Navbar.tsx:25`** — replaced inline `pathname.startsWith('/dashboard')` with `WEBSITE_NAV_HIDDEN_PREFIXES.some((prefix) => pathname.startsWith(prefix))`. Eliminates the duplication between Navbar's `isDashboard` literal and the future scanner's "what counts as a dashboard page" knowledge. Both now read from `nav-exempt.ts` as the single source of truth.
+- **`scripts/massu-deploy.sh`** + **`.claude/commands/massu-deploy.md`** — smoke test list extended from `["/", "/docs"]` to `["/", "/docs", "/changelog", "/overview"]`. Future regressions on either new page fail the deploy gate.
+
+### Verification
+
+- `cd packages/core && npx tsc --noEmit`: 0 errors
+- `cd website && npx tsc --noEmit`: 0 errors
+- `cd packages/core && npm test`: 2144 passed / 12 skipped (baseline preserved — no daemon code changes)
+- `cd website && npm test`: 114 passed (drift-guard `EXPECTED_COUNT` bumped 19 → 20)
+- `bash scripts/pre-push-light.sh` (Node 22): 7/8 PASS pre-deploy; step 8 (Deploy Staleness) intentionally FAILed against 33-day lag pre-P-D-009; PASSes after backfill deploy
+- Pattern Scanner Check 15: PASS with synthetic regression evidence
+- `bash scripts/massu-plan-status-validator.sh`: PASS 0 violations
+- Live post-deploy: `curl -s https://massu.ai/changelog | grep -cE '\bv?1\.6\.3\b'` ≥ 1; `curl -s https://massu.ai/ | grep -cE 'href="/overview"'` ≥ 1; `curl -s https://massu.ai/ | grep -cE 'href="/changelog"'` ≥ 1; 20 distinct version headings on `/changelog` (was 5 pre-deploy)
+
+### Closes
+
+- Plan `plan-1.6.3-website-feature-discoverability` audit converged at 0 gaps after 2 iterations (11 → 0).
+- 33-day Vercel-deploy lag — closed by P-D-009 backfill deploy in this release.
+- User report 2026-05-11 ("where do these changelogs show up on the website?") — structurally answered via three forward-going gates (Check 15 + step 8 + CR-48).
+
 ## [1.6.2] - 2026-05-10
 
 Plan `plan-1.6.2-server-lazy-db-deps` — Daemon-code patch eliminating the structural bug where every MCP tool/call eagerly opened both CodeGraph + Data SQLite DBs at the top-level dispatcher. In any repo without `.codegraph/codegraph.db`, ALL tools failed — even memory/audit/knowledge tools with no logical codegraph dependency. The error surfaced as JSON-RPC code `-32700` ("Parse error", spec-reserved for actual JSON parse failures) with `id:null`. Bug class is now structurally impossible via a typed per-tool DB-needs manifest + AST drift-guard + pattern-scanner Check 14. CR-46 / Rule 0 — replaces an implicit "every tool gets both DBs" coupling with explicit, typed, lazy resolution.

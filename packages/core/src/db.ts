@@ -7,13 +7,36 @@ import { existsSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { getResolvedPaths } from './config.ts';
 
 /**
+ * Thrown by `getCodeGraphDb()` when `.codegraph/codegraph.db` is missing.
+ *
+ * Caught at the JSON-RPC dispatch layer (server.ts) and translated to a
+ * structured `-32001` error response carrying a remedy hint and the resolved
+ * DB path. The thrown error is INTERNAL; user-facing copy lives in the
+ * dispatcher's error envelope.
+ *
+ * @see `docs/plans/2026-05-10-server-lazy-db-deps.md` P-C-001 + P-A-004
+ */
+export class CodegraphDbNotInitializedError extends Error {
+  readonly dbPath: string;
+  constructor(dbPath: string) {
+    super(`CodeGraph database not found at ${dbPath}`);
+    this.name = 'CodegraphDbNotInitializedError';
+    this.dbPath = dbPath;
+  }
+}
+
+/**
  * Connection to CodeGraph's read-only SQLite database.
  * We NEVER write to this DB - it belongs to vanilla CodeGraph.
+ *
+ * Throws `CodegraphDbNotInitializedError` (internal signal) when the DB is
+ * missing. The MCP dispatcher catches and translates to a structured
+ * JSON-RPC error pointing at `npx @colbymchenry/codegraph init`.
  */
 export function getCodeGraphDb(): Database.Database {
   const dbPath = getResolvedPaths().codegraphDbPath;
   if (!existsSync(dbPath)) {
-    throw new Error(`CodeGraph database not found at ${dbPath}. Run 'npx @colbymchenry/codegraph sync' first.`);
+    throw new CodegraphDbNotInitializedError(dbPath);
   }
   const db = new Database(dbPath, { readonly: true });
   db.pragma('journal_mode = WAL');

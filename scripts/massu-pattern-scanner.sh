@@ -369,6 +369,52 @@ else
 fi
 
 # -------------------------------------------------------
+# Check 14: Tool DB-needs manifest completeness (plan-1.6.2-server-lazy-db-deps P-B-004)
+# Every tool registered via `name: p('...')` or `name: \`${pfx}_...\``
+# in packages/core/src/*.ts MUST have a corresponding entry in
+# packages/core/src/tool-db-needs.ts. Grep-level safety net before the
+# AST completeness test (tool-db-needs-completeness.test.ts) runs.
+# -------------------------------------------------------
+echo "Check 14: Tool DB-needs manifest completeness"
+MANIFEST="$REPO_ROOT/packages/core/src/tool-db-needs.ts"
+if [ -f "$MANIFEST" ]; then
+  MISSING=0
+  MISSING_TOOLS=""
+  # Extract tool short-names from all *-tools.ts and listed handler modules.
+  # Pattern 1: `name: p('<short>'),` — used in tools.ts
+  # Pattern 2: `name: \`${prefix}_<short>\`,` — used in module *-tools.ts files
+  TOOL_NAMES=$(grep -rE "name: \`?\\\$\{(prefix|pfx)\}_[a-z_]+\`?|name: p\('[a-z_]+'\)" \
+    "$REPO_ROOT/packages/core/src/"*.ts 2>/dev/null \
+    | grep -v "__tests__\|tool-db-needs.ts\|test-" \
+    | sed -nE "s/.*[\`']([a-z_]+)[\`'].*/\1/p" \
+    | sed -nE "s/.*\\\$\{(prefix|pfx)\}_([a-z_]+).*/\2/p" \
+    | sort -u)
+  # Fallback: use a simpler grep pipeline if the complex one returned nothing
+  if [ -z "$TOOL_NAMES" ]; then
+    TOOL_NAMES=$(grep -hoE "name: \`?\\\$\{(prefix|pfx)\}_[a-z_]+\`?|name: p\('[a-z_]+'\)" \
+      "$REPO_ROOT/packages/core/src/"*.ts 2>/dev/null \
+      | sed -E "s/name: p\('([a-z_]+)'\)/\1/; s/name: \`?\\\$\{(prefix|pfx)\}_([a-z_]+)\`?/\2/" \
+      | grep -E "^[a-z_]+$" \
+      | sort -u)
+  fi
+  while IFS= read -r tool; do
+    [ -z "$tool" ] && continue
+    if ! grep -q "^  ${tool}:" "$MANIFEST"; then
+      MISSING=$((MISSING + 1))
+      MISSING_TOOLS="$MISSING_TOOLS $tool"
+    fi
+  done <<< "$TOOL_NAMES"
+  if [ "$MISSING" -eq 0 ]; then
+    pass "All registered tools have a TOOL_DB_NEEDS manifest entry"
+  else
+    fail "$MISSING tool(s) missing from TOOL_DB_NEEDS manifest:$MISSING_TOOLS"
+    info "Add entries to packages/core/src/tool-db-needs.ts"
+  fi
+else
+  warn "TOOL_DB_NEEDS manifest not found: $MANIFEST"
+fi
+
+# -------------------------------------------------------
 # Summary
 # -------------------------------------------------------
 echo ""

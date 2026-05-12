@@ -217,97 +217,21 @@ done <<< "$FILE_LIST"
 # accidentally containing a trade-secret comment, customer name, internal
 # project codename, etc.
 #
-# Each pattern below is ERE-compatible. To add a new denied pattern,
-# append a line. Patterns are case-insensitive (egrep -i). False
-# positives can be silenced by inserting a `# leak-guard-allow: <reason>`
-# comment on the same line as the match.
+# CONTENT_PATTERNS + CONTENT_SCAN_SELF_REFERENCE_FILES_PUBLIC_REPO are
+# sourced from scripts/lib/leak-patterns.sh (plan-public-content-leak-guard
+# CR-49 / P-A-001 + P-A-002) — single source of truth shared with
+# scripts/massu-website-content-leak-guard.sh. Adding a new pattern or
+# allowlist entry: edit scripts/lib/leak-patterns.sh, not this file.
 
-CONTENT_PATTERNS=(
-  # Internal project markers
-  'TRADE[ -]?SECRET'
-  'CONFIDENTIAL'
-  'INTERNAL[ -]?ONLY'
-  'NOT[ -]FOR[ -]PUBLIC'
-  'DO[ -]NOT[ -]SHIP'
-  'PROPRIETARY'
-  # Internal-doc references the manifest forbids
-  'docs/internal/'
-  'docs/strategy/'
-  'docs/security/'
-  'docs/incidents/'
-  'reports/gap-analysis/'
-  # Internal-only command prefix
-  'massu-internal-'
-  # User-machine paths (a leaked /Users/operator/... discloses the
-  # contributor username + local layout)
-  '/Users/operator/'
-  # Customer / downstream-consumer name leaks. `example-project` is a private
-  # trading project that was the original test bed for many massu
-  # features — its name should NEVER appear in public source. Word-
-  # boundary anchors avoid false positives like "hedged" or "hedgehog".
-  '\bhedge\b'
-  '\bexample_svc\b'
-  '\bexample-svc\b'
-  '\bexample-api\b'
-)
+source "$(dirname "$0")/lib/leak-patterns.sh"
 
-# Files that DEFINE or DOCUMENT the leak-guard patterns themselves —
-# these legitimately need to mention the strings without triggering.
-# Adding paths here is a structural choice, not an escape hatch — these
-# are the files whose JOB it is to enumerate the patterns. Any other
-# legitimate-looking content match should use the per-line
-# `# leak-guard-allow:` trailer instead.
-CONTENT_SCAN_SELF_REFERENCE_FILES=(
-  # Guard infrastructure — these enumerate the patterns by definition.
-  'scripts/massu-public-leak-guard.sh'
-  'scripts/install-hooks.sh'
-  '.github/workflows/leak-guard.yml'
-  '.github/workflows/leak-guard-retro.yml'
-  '.github/workflows/leak-guard-source-of-truth.yml'
-  '.github/workflows/leak-guard-scheduled.yml'
-  '.claude/CLAUDE.md'
-  # Workflow / command boundary documentation — their JOB is to point
-  # users at private workflows when public ones don't apply, OR to
-  # document a user-side path convention (e.g. reports/gap-analysis/
-  # where the user saves THEIR own gap reports, not where massu-
-  # internal stores them).
-  'docs/features/workflow-commands.mdx'
-  '.claude/commands/massu-gap-enhancement-analyzer.md'
-  '.claude/commands/massu-refactor.md'
-  'packages/core/commands/massu-gap-enhancement-analyzer.md'
-  'packages/core/commands/massu-refactor.md'
-  # Code whose contract IS the user-side path (the incident-pipeline
-  # hook fires on writes to the user's docs/incidents/ directory; that
-  # path is part of the public API, not an internal secret).
-  'packages/core/src/hooks/incident-pipeline.ts'
-  # Internal-command-aware scanners — their comments enumerate
-  # known internal command filenames as part of their pattern catalog.
-  'scripts/massu-generalization-scanner.sh'
-  'scripts/massu-security-scanner.sh'
-  # Release documentation — CHANGELOG.md legitimately enumerates the
-  # `massu-internal-*` exclusion convention as part of release notes
-  # describing what slash commands are shipped publicly. Public-facing
-  # documentation MUST be able to disclose the public/internal split.
-  # (plan-1.7.0-cohesive-cleanup P-A-005)
-  'CHANGELOG.md'
-  # CLI Reference doc legitimately enumerates the `massu-internal-`
-  # exclusion convention as part of explaining the 59 external slash
-  # commands ship publicly and internal ones are operator-only.
-  'docs/reference/cli-reference.mdx'
-  # Leak-guard test fixtures + their test file — these intentionally
-  # contain the trigger patterns to validate the guard catches them.
-  # Adding them here lets the public-sync verifier accept the test
-  # corpus while preserving real-content blocking.
-  # (plan-leak-guard-range-mode-verify Stage B+C fixtures)
-  'packages/core/src/__tests__/fixtures/leak-guard-commit-mode/expected-leak.md'
-  'packages/core/src/__tests__/fixtures/leak-guard-commit-mode/expected-mixed.md'
-  'packages/core/src/__tests__/fixtures/leak-guard-commit-mode/expected-clean.md'
-  'packages/core/src/__tests__/leak-guard-commit-mode.test.ts'
-)
+# CONTENT_SCAN_SELF_REFERENCE_FILES_PUBLIC_REPO is sourced from
+# scripts/lib/leak-patterns.sh above (plan-public-content-leak-guard
+# P-A-002). To add a new self-reference allowlist entry, edit that file.
 
 is_self_reference_file() {
   local path="$1"
-  for self in "${CONTENT_SCAN_SELF_REFERENCE_FILES[@]}"; do
+  for self in "${CONTENT_SCAN_SELF_REFERENCE_FILES_PUBLIC_REPO[@]}"; do
     if [ "$path" = "$self" ]; then
       return 0
     fi

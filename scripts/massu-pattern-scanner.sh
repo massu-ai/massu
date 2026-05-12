@@ -503,6 +503,28 @@ else
 fi
 
 # -------------------------------------------------------
+# Check 16: Public website content leak guard (plan-public-content-leak-guard)
+# Forbidden patterns (private-repo refs, internal commands prefix,
+# contributor machine paths, raw 7-40 hex SHAs) MUST NOT appear in any
+# file under website/content/** unless the file is in
+# WEBSITE_CONTENT_LEAK_GUARD_EXEMPT. CR-49 enforcement. Pattern catalog
+# is enumerated in scripts/lib/leak-patterns.sh:CONTENT_PATTERNS — never
+# duplicate the literal pattern list here (sync-block trigger).
+# -------------------------------------------------------
+echo "Check 16: Public website content leak guard"
+WEBSITE_CONTENT_GUARD="$REPO_ROOT/scripts/massu-website-content-leak-guard.sh"
+if [ ! -f "$WEBSITE_CONTENT_GUARD" ]; then
+  warn "Check 16 skipped: $WEBSITE_CONTENT_GUARD not found"
+else
+  if bash "$WEBSITE_CONTENT_GUARD" > /tmp/massu-website-content-leak-guard.log 2>&1; then
+    pass "No leaks in website/content/**"
+  else
+    fail "Public-content leak detected (see /tmp/massu-website-content-leak-guard.log)"
+    tail -10 /tmp/massu-website-content-leak-guard.log
+  fi
+fi
+
+# -------------------------------------------------------
 # Summary
 # -------------------------------------------------------
 echo ""

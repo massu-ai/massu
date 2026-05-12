@@ -12,6 +12,7 @@
 # 7. Plan Commit Drift     - Plan 1.5.8 commit drift scanner
 # 8. Deploy Staleness      - plan-1.6.3 CR-48 enforcement
 # 9. Dist-Tag Pre-Release  - plan-1.7.0 P-C-003 (no `next`/`beta`/etc. without ADR)
+# 10. Public Content Leak  - plan-public-content-leak-guard CR-49 enforcement
 #
 # Usage: ./scripts/pre-push-light.sh
 #
@@ -39,19 +40,19 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 NODE_VERSION=$(node --version 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')
 if [ -n "$NODE_VERSION" ]; then
   if [ "$NODE_VERSION" -lt 20 ] || [ "$NODE_VERSION" -ge 26 ]; then
-    echo "[0/8] Node version pre-flight... FAIL"
+    echo "[0/10] Node version pre-flight... FAIL"
     echo "  Node v${NODE_VERSION}.x is incompatible with better-sqlite3."
     echo "  Required: Node >=20 <26 (per packages/core/package.json engines + .nvmrc)."
     echo "  Fix: brew install node@22 && export PATH=\"/opt/homebrew/opt/node@22/bin:\$PATH\""
     echo "       (or use nvm: nvm use \$(cat .nvmrc))"
     FAILED=1
   else
-    echo "[0/8] Node version pre-flight... PASS (v${NODE_VERSION}.x)"
+    echo "[0/10] Node version pre-flight... PASS (v${NODE_VERSION}.x)"
   fi
 fi
 
 # 1. Pattern Scanner (~5s)
-echo -n "[1/8] Pattern Scanner... "
+echo -n "[1/10] Pattern Scanner... "
 if bash "$SCRIPT_DIR/massu-pattern-scanner.sh" > /tmp/massu-pattern-scanner.log 2>&1; then
   echo "PASS"
 else
@@ -62,7 +63,7 @@ else
 fi
 
 # 2. Security Scanner (~5s)
-echo -n "[2/8] Security Scanner... "
+echo -n "[2/10] Security Scanner... "
 if bash "$SCRIPT_DIR/massu-security-scanner.sh" > /tmp/massu-security-scanner.log 2>&1; then
   echo "PASS"
 else
@@ -73,7 +74,7 @@ else
 fi
 
 # 3. Hook Build (~5s)
-echo -n "[3/8] Hook Build... "
+echo -n "[3/10] Hook Build... "
 if (cd "$PROJECT_ROOT/packages/core" && npm run build:hooks) > /tmp/massu-hook-build.log 2>&1; then
   echo "PASS"
 else
@@ -84,7 +85,7 @@ else
 fi
 
 # 4. TypeScript (~30s)
-echo -n "[4/8] TypeScript... "
+echo -n "[4/10] TypeScript... "
 # Wrap in `if !` so the post-loop block survives a tsc failure under
 # `set -uo pipefail` (no `set -e`); the pre-existing `$? -eq 0` form
 # silently broke when the `set -e` flag was removed in P3-002a.
@@ -97,7 +98,7 @@ else
 fi
 
 # 5. Tests (~50s)
-echo -n "[5/8] Tests... "
+echo -n "[5/10] Tests... "
 if (cd "$PROJECT_ROOT" && npm test) > /tmp/massu-tests.log 2>&1; then
   echo "PASS"
 else
@@ -108,7 +109,7 @@ else
 fi
 
 # 6. Plan Status Validator (~2s) — Plan 1.5.8 P3-002
-echo -n "[6/8] Plan Status Validator... "
+echo -n "[6/10] Plan Status Validator... "
 if bash "$SCRIPT_DIR/massu-plan-status-validator.sh" > /tmp/massu-plan-status.log 2>&1; then
   echo "PASS"
 else
@@ -119,7 +120,7 @@ else
 fi
 
 # 7. Plan Commit Drift (~2s) — Plan 1.5.8 P3-002
-echo -n "[7/8] Plan Commit Drift... "
+echo -n "[7/10] Plan Commit Drift... "
 if bash "$SCRIPT_DIR/massu-plan-commit-drift.sh" > /tmp/massu-plan-drift.log 2>&1; then
   echo "PASS"
 else
@@ -131,7 +132,7 @@ fi
 
 # 8. Deploy Staleness (~3s) — plan-1.6.3-website-feature-discoverability P-C-002
 # Catches the "shipped to npm but not deployed to Vercel" structural drift class.
-echo -n "[8/8] Deploy Staleness... "
+echo -n "[8/10] Deploy Staleness... "
 if bash "$SCRIPT_DIR/massu-deploy-staleness-check.sh" > /tmp/massu-deploy-staleness.log 2>&1; then
   # Distinguish PASS / SKIP / WARN by parsing the log first line.
   STATUS=$(head -1 /tmp/massu-deploy-staleness.log | awk '{print $1}' | tr -d ':')
@@ -153,7 +154,7 @@ fi
 # section opt-in. Re-establishing a stale channel is a CR-46 violation
 # (alias-map proliferation) and a release-discipline drift class. Skips
 # silently when npm registry is unreachable.
-echo -n "[9/9] Dist-Tag Pre-Release... "
+echo -n "[9/10] Dist-Tag Pre-Release... "
 DIST_TAG_OUTPUT=$(npm view @massu/core dist-tags 2>&1)
 DIST_TAG_EXIT=$?
 if [ "$DIST_TAG_EXIT" -ne 0 ]; then
@@ -173,6 +174,20 @@ else
   else
     echo "PASS"
   fi
+fi
+
+# 10. Public Content Leak Guard (~2s) — plan-public-content-leak-guard CR-49
+# Eliminates the structural leak class caught at P-D-003 of
+# plan-blog-1.5-1.6-publish (private-repo references + internal commit SHAs
+# in website/content/releases/1.5-to-1.6.mdx).
+echo -n "[10/10] Public Content Leak Guard... "
+if bash "$SCRIPT_DIR/massu-website-content-leak-guard.sh" > /tmp/massu-website-content-leak-guard.log 2>&1; then
+  echo "PASS"
+else
+  echo "FAIL"
+  echo "  See: /tmp/massu-website-content-leak-guard.log"
+  tail -20 /tmp/massu-website-content-leak-guard.log
+  FAILED=1
 fi
 
 END_TIME=$(date +%s)

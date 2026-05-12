@@ -34,7 +34,11 @@ const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const SCANNER_PATH = resolve(REPO_ROOT, 'scripts', 'massu-pattern-scanner.sh');
 
 describe('pattern-scanner self-test (Plan 2026-05-07 drift-guard)', () => {
-  it('massu-pattern-scanner.sh exits 0 against current source tree', () => {
+  // Timeout bumped 30s post plan-public-content-leak-guard Check 16
+  // (scans 129 MDX files in website/content/; adds ~2-13s depending on
+  // CI vs local). Default 5s was already tight pre-Check-16; new check
+  // pushes it past the default reliably.
+  it('massu-pattern-scanner.sh exits 0 against current source tree', { timeout: 30000 }, () => {
     let stdout = '';
     let stderr = '';
     let exitCode = 0;

@@ -22,7 +22,7 @@ paths:
     "@": .
 toolPrefix: massu
 domains:
-  - name: Swift
+  - name: App
 rules: []
 verification:
   swift:

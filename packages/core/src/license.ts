@@ -204,6 +204,26 @@ export function annotateToolDefinitions(defs: ToolDefinition[]): ToolDefinition[
 }
 
 // ============================================================
+// plan-1.7.0-cohesive-cleanup P-A-003: Cloud feature availability gate
+// ============================================================
+
+/**
+ * Whether cloud-gated tool surfaces (team knowledge, etc.) are exposed.
+ *
+ * Returns true ONLY when `massu.config.yaml` opts the workspace into the
+ * cloud feature surface via `cloud.enabled: true`. Defaults to false for
+ * fresh installs (the schema's `enabled` default is `false`).
+ *
+ * This is distinct from {@link isLicenseTool} (which matches tool NAMES);
+ * `isCloudFeatureAvailable` is a runtime feature-availability check used
+ * by `tools.ts` to gate team-tool registration and routing at the
+ * tools-list and dispatch boundaries.
+ */
+export function isCloudFeatureAvailable(): boolean {
+  return getConfig().cloud?.enabled === true;
+}
+
+// ============================================================
 // P3-005/P3-006/P3-007/P3-013: License validation & caching
 // ============================================================
 

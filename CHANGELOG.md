@@ -4,6 +4,56 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.7.0] - 2026-05-11
+
+Plan `plan-1.7.0-cohesive-cleanup` — Cohesive minor release that simultaneously closes three structural-quality gaps across the codebase: (1) the Feb-2026 `plan-website-audit` (never shipped) is revalidated against current sources and SUPERSEDED — stats values on `massu.ai/` are now drift-guarded by a vitest test that asserts each stat equals a static derivation from its source-of-truth (`packages/core/src/license.ts` `TOOL_TIER_MAP` for MCP Tools, `.claude/commands/massu-*.md` files for Workflow Commands, etc.); the CLI Reference doc is expanded from 5 CLI commands to 5 CLI + 59 slash commands with a completeness drift-guard test; the team-tool surface gains a runtime cloud-gate via new `isCloudFeatureAvailable()` helper wired at `tools.ts:175` (registration) and `tools.ts:413` (dispatch); (2) P6-004 from `plan-fresh-install-monorepo-paths` — `topLevelSrcSubdirs` in `packages/core/src/detect/domain-inferrer.ts:71` no longer hardcodes `join(root, 'src')` and now consumes the detected source-dir pipeline; new `monorepo-apps-no-root-src` fixture + 4 new domain-inferrer test cases exercise both single-repo non-`src/` layouts and workspaces-driven monorepos; generalization-scanner Check 5 prevents the bug class from recurring; (3) the stale `next: 1.2.1` npm dist-tag (4 minors behind, zero documented consumers) is removed; CLAUDE.md `### npm dist-tags policy` section codifies that only `latest` is maintained going forward; pre-push step 9 enforces the policy with `npm view @massu/core dist-tags` parse.
+
+### Added
+
+- **`website/src/__tests__/stats-numbers-against-source-truth.test.ts`** — 5-assertion vitest drift-guard. Each stat in `website/src/data/stats.ts` is asserted to equal a static derivation from its canonical source (MCP Tools ← `name: p('xxx')` + `\`${pfx}_xxx\`` patterns across `packages/core/src/**/*.ts`; Workflow Commands ← `.claude/commands/massu-*.md` minus `massu-internal-*`; Feature Entries ← `tier:` lines in `features.ts`; Database Tables ← `CREATE TABLE` in `website/supabase/migrations/`; Lines of Code (K+) ← `packages/core/src/**/*.ts` total / 1000 within ±2K tolerance). Adding a new tool/command/migration without updating `stats.ts` FAILs the test.
+- **`website/scripts/regen-stats.mjs`** — companion regeneration script that emits `website/src/__tests__/fixtures/stats-expected-values.json` from the same derivation logic. Manual rerun documents intended values for ops + future audit.
+- **`website/src/__tests__/cli-reference-doc-completeness.test.ts`** — 3-assertion drift-guard: file exists; every external `.claude/commands/massu-*.md` (excluding `massu-internal-*`) has a matching `## /<command-name>` H2 in the doc; doc is registered in `docs-nav.ts`. Adding a new slash command without updating `cli-reference.mdx` FAILs CI.
+- **`isCloudFeatureAvailable()`** in `packages/core/src/license.ts` — returns `getConfig().cloud?.enabled === true`. Wired at `tools.ts:175` (`...(isCloudFeatureAvailable() ? getTeamToolDefinitions() : [])`) and `tools.ts:413` (`if (isTeamTool(name) && isCloudFeatureAvailable())`). Team-tool surface (team_search/team_expertise/team_conflicts) is now correctly hidden + non-routable for workspaces without explicit `cloud.enabled: true` opt-in. Distinct mechanism from name-matcher `isLicenseTool` (which gates by tool name pattern, not feature availability).
+- **`packages/core/src/detect/__tests__/fixtures/monorepo-apps-no-root-src/`** — new fixture: `package.json` with `workspaces: ["apps/*"]`, `apps/web/{src/index.ts,package.json}`, `apps/api/{src/index.ts,package.json}`, NO root `src/` directory. Drives the new monorepo-apps test case in `detect.domain-inferrer.test.ts`.
+- **4 new test cases** in `packages/core/src/__tests__/detect.domain-inferrer.test.ts` — (a) `topLevelSrcSubdirs` consumes detected source dirs (no hardcoded `src`); (b) unions subdirs across multiple detected source dirs; (c) fixture has expected layout; (d) `inferDomains` returns BOTH `web` and `api` as domains for monorepo-apps-no-root-src fixture.
+- **`scripts/massu-generalization-scanner.sh` Check 5** — flags `join(<ident>, '<bare-dir-literal>')` patterns in `packages/core/src/detect/`. Manifest allowlist exempts dotless filenames (WORKSPACE, Gemfile, Dockerfile, Makefile, Rakefile, Procfile, MODULE, BUILD). Synthetic regression VERIFIED: re-introducing `join(root, 'src')` in a fixture file triggers `FAIL`.
+- **`scripts/pre-push-light.sh` step 9** — `Dist-Tag Pre-Release` gate. FAILs the push when `npm view @massu/core dist-tags` returns any `next:|beta:|alpha:|rc:` channel without an ADR + CLAUDE.md `## Deployment` policy section opt-in. SKIPs silently when npm registry is unreachable. Renumbered existing `[N/8]` labels to `[N/9]`.
+- **`### npm dist-tags policy`** section in `.claude/CLAUDE.md` `## Deployment` — codifies that only `latest` is maintained on `@massu/core`. Pre-release channels (next/beta/alpha/rc) require both an ADR and explicit operator approval before tag creation. Stale `next: 1.2.1` removal recorded with rationale (4 minors behind, zero documented consumers).
+- **59 slash command H2 entries** appended to `website/content/docs/reference/cli-reference.mdx` under a new `# Slash Commands` section. Existing `## massu init / doctor / install-hooks / install-commands / validate-config` CLI command sections preserved as-is. Doc description updated to reflect dual coverage (CLI + slash commands).
+- **`flattenSourceDirs()`** helper in `packages/core/src/detect/domain-inferrer.ts` — flattens a `SourceDirMap` into a unique list of relative source paths across all detected languages. Drops `.` and `''` root sentinels so root-source repos (Django's `manage.py`, Swift's `Package.swift`) continue to use the language-fallback domain (`Python`, `Swift`) rather than spuriously enumerating root subdirectories.
+
+### Changed
+
+- **`packages/core/src/detect/domain-inferrer.ts:71`** — `topLevelSrcSubdirs(root: string)` → `topLevelSrcSubdirs(root: string, sourceDirs: readonly string[])`. Loops over each source dir (e.g. `lib`, `apps/web/src`), enumerates subdirectories, unions deduplicated results sorted alphabetically. Empty `sourceDirs` falls back to legacy `['src']` lookup for backward compatibility with hand-wired callers. Hardcoded `join(root, 'src')` literal removed.
+- **`website/src/data/stats.ts`** — values reconciled with source-of-truth derivation: MCP Tools 84 → 73, Lines of Code 21 → 40 (K+), Database Tables 51 → 41, Feature Entries 140 → 167. Workflow Commands 59 preserved (matches derivation).
+- **`packages/core/src/detect/__tests__/fixtures/swift-ios/expected.massu.config.yaml`** — `domains: [{name: Swift}]` → `domains: [{name: App}]`. Reflects the more accurate inference under the refactored `topLevelSrcSubdirs` (Sources/App → App domain) for Swift package layouts. Backward-compatible: `npx massu init` continues to produce a parseable config; domain names are user-editable suggestions.
+- **`website/content/docs/reference/cli-reference.mdx`** description frontmatter — broadened to "Complete reference for all Massu CLI commands … and 59 workflow slash commands (/massu-*)".
+
+### Removed
+
+- **Stale `next: 1.2.1` npm dist-tag** on `@massu/core` — removed in P-C-001 of Stage D ceremony. Was 4 minors behind `latest`, with zero documented consumers in code, README, install instructions, or `.sh` invocations. Future pre-release channels gated by CR-48-style ADR + CLAUDE.md policy section.
+- **Hardcoded `'src'` literal** at `domain-inferrer.ts:71` — replaced with detected-source-dir consumption per P-B-002.
+
+### Verification
+
+- `cd packages/core && npx tsc --noEmit`: 0 errors
+- `cd packages/core && npm test`: 2167 passed / 12 skipped (baseline 2153 + 14 new from Stages A/B = +6 new domain-inferrer + flattenSourceDirs adjustments to keep python-django/swift-ios passing)
+- `cd website && npm test`: 125 passed (baseline 114 + 8 new from P-A-002 5-assertion stats test + P-A-005 3-assertion cli-reference test)
+- `bash scripts/massu-pattern-scanner.sh`: PASS (15 checks, including Check 14 TOOL_DB_NEEDS + Check 15 public-page nav-link coverage)
+- `bash scripts/massu-generalization-scanner.sh`: PASS (5 checks; new Check 5 verified with synthetic regression)
+- `bash scripts/pre-push-light.sh` (Node 22): 8/9 PASS pre-Stage-D (step 9 `Dist-Tag Pre-Release` FAILs against stale `next: 1.2.1` — gate-fires-once that closes when P-C-001 runs `npm dist-tag rm @massu/core next`); ALL 9 PASS post-cleanup.
+- `npm view @massu/core dist-tags` post-rm: returns `{ latest: '1.7.0' }` (no `next`).
+- `grep -c "join(root, 'src')" packages/core/src/detect/domain-inferrer.ts`: 0 (P-B-002 acceptance).
+- Synthetic regression: re-adding `next: 1.6.3` tag → pre-push step 9 FAILs as expected.
+- Synthetic regression: re-introducing `join(root, 'src')` in detect/ → generalization-scanner Check 5 FAILs as expected.
+- Live post-deploy: `curl -s https://massu.ai/` stats values match source-of-truth derivation; `curl -s https://massu.ai/docs/reference/cli-reference | grep -cE '^## /'` ≥ 59.
+
+### Closes
+
+- **`plan-website-audit`** (`docs/plans/2026-02-17-website-audit.md`) — marked SUPERSEDED with successor pointer to `plan-1.7.0-cohesive-cleanup`. Drop reason: original plan's Phase 2/3/4/5 items invalidated by 3+ months of in-flight drift; cli-reference doc + team-tool cloud-gate items are preserved here as P-A-003/P-A-004; tier-reassignment + duplicate-Onboarding-Guide items were verified DROPPED in iter-1 audit (already correct in `features.ts`).
+- **P6-004** of `plan-fresh-install-monorepo-paths` (`docs/plans/2026-04-20-fresh-install-monorepo-paths.md`) — marked SHIPPED with successor pointer to `plan-1.7.0-cohesive-cleanup`. Hardcoded `join(root, 'src')` literal at `domain-inferrer.ts:71` is gone; structural drift-guard Check 5 prevents recurrence.
+- **Stale `next` dist-tag** — removed in P-C-001; pre-push step 9 + CLAUDE.md policy section codify the policy going forward.
+
 ## [1.6.3] - 2026-05-11
 
 Plan `plan-1.6.3-website-feature-discoverability` — Website + scanner patch eliminating two structural drift classes surfaced 2026-05-11 when the user asked "where do these changelogs show up on the website?": (a) public page added without nav link discoverable only via direct URL; (b) website code shipped to npm + git but never deployed to Vercel. Live evidence pre-fix: `massu.ai/changelog` showed 5-entry stale `0.x` array (the pre-`plan-changelog-sot` hardcoded data) because the last production Vercel deploy was 33 days old, even though the build-time parser landed in 1.6.1. After this release, both bug classes are structurally impossible: Pattern Scanner Check 15 enforces nav-link coverage with an explicit `WEBSITE_NAV_EXEMPT` allowlist; pre-push-light step 8 deploy-staleness gate enforces lockstep between website commits and Vercel deploys; CR-48 mandates `/massu-deploy` in Stage D for any website-touching plan. Backfill deploy in this release ships 33 days of accumulated website changes (1.6.1 changelog parser + 1.6.2 EXPECTED_COUNT bump + this plan's nav links) to production.

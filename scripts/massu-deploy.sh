@@ -71,7 +71,13 @@ if [ -f "$VERCEL_PROJECT_FILE" ]; then
     fail "Project ID mismatch! Expected: $EXPECTED_PROJECT_ID, Got: $ACTUAL_PROJECT_ID"
   fi
 
-  if [ "$ACTUAL_PROJECT_NAME" = "$EXPECTED_PROJECT_NAME" ]; then
+  # Vercel CLI's .vercel/project.json does NOT include projectName by default
+  # (only projectId + orgId). projectName is informational only. Skip the strict
+  # match if absent; warn if present and mismatched. The projectId match above
+  # is the canonical identity check.
+  if [ -z "$ACTUAL_PROJECT_NAME" ]; then
+    info "Project name not present in .vercel/project.json (expected — only projectId is canonical)"
+  elif [ "$ACTUAL_PROJECT_NAME" = "$EXPECTED_PROJECT_NAME" ]; then
     pass "Project name matches: $EXPECTED_PROJECT_NAME"
   else
     fail "Project name mismatch! Expected: $EXPECTED_PROJECT_NAME, Got: $ACTUAL_PROJECT_NAME"

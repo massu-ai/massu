@@ -10,6 +10,8 @@
 # 5. Tests                 - Full vitest suite
 # 6. Plan Status Validator - Plan 1.5.8 schema validator
 # 7. Plan Commit Drift     - Plan 1.5.8 commit drift scanner
+# 8. Deploy Staleness      - plan-1.6.3 CR-48 enforcement
+# 9. Dist-Tag Pre-Release  - plan-1.7.0 P-C-003 (no `next`/`beta`/etc. without ADR)
 #
 # Usage: ./scripts/pre-push-light.sh
 #
@@ -143,6 +145,34 @@ else
   echo "FAIL"
   cat /tmp/massu-deploy-staleness.log
   FAILED=1
+fi
+
+# 9. Dist-Tag Pre-Release (~3s) — plan-1.7.0-cohesive-cleanup P-C-003
+# Pre-release channels (`next`/`beta`/`alpha`/`rc`) must NOT exist on
+# @massu/core without an explicit ADR + CLAUDE.md `## Deployment` policy
+# section opt-in. Re-establishing a stale channel is a CR-46 violation
+# (alias-map proliferation) and a release-discipline drift class. Skips
+# silently when npm registry is unreachable.
+echo -n "[9/9] Dist-Tag Pre-Release... "
+DIST_TAG_OUTPUT=$(npm view @massu/core dist-tags 2>&1)
+DIST_TAG_EXIT=$?
+if [ "$DIST_TAG_EXIT" -ne 0 ]; then
+  echo "SKIP (npm registry unreachable)"
+else
+  # Check for any pre-release channel string (next:|beta:|alpha:|rc:).
+  PRERELEASE_FOUND=$(echo "$DIST_TAG_OUTPUT" | grep -ciE "(^|[^a-zA-Z])(next|beta|alpha|rc)\s*:" || true)
+  if [ "$PRERELEASE_FOUND" -gt 0 ]; then
+    echo "FAIL"
+    echo "  Pre-release dist-tag(s) detected on @massu/core:"
+    echo "$DIST_TAG_OUTPUT" | grep -iE "(^|[^a-zA-Z])(next|beta|alpha|rc)\s*:" | head -5
+    echo "  Policy: only 'latest' is maintained. Pre-release channels require"
+    echo "          an ADR + CLAUDE.md ## Deployment policy section opt-in."
+    echo "          See .claude/CLAUDE.md ### npm dist-tags policy."
+    echo "          Remove with: npm dist-tag rm @massu/core <channel>"
+    FAILED=1
+  else
+    echo "PASS"
+  fi
 fi
 
 END_TIME=$(date +%s)

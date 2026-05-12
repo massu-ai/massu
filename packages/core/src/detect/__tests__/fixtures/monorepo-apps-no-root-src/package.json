@@ -1,0 +1,10 @@
+{
+  "name": "monorepo-apps-no-root-src-fixture",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

@@ -233,11 +233,61 @@ else
 fi
 
 # -------------------------------------------------------
+# Check 5: No hardcoded source-dir literals in packages/core/src/detect/
+# (plan-1.7.0-cohesive-cleanup P-B-004)
+# -------------------------------------------------------
+# Detection-pipeline code MUST consume the upstream `sourceDirs` it was
+# handed rather than hardcoding `src`/`lib`/`app`/etc. The old
+# `join(root, 'src')` bug (P6-004 / topLevelSrcSubdirs) silently
+# dropped domains for monorepos whose source lives at non-`src/` paths.
+#
+# Allowlist: manifest filenames (anything containing `.` or starting
+# with `__` or `.`) is permitted — those are legitimate fixture/config
+# lookups, not source-dir guesses.
+echo "Check 5: No hardcoded source-dir literals in packages/core/src/detect/ (plan-1.7.0-cohesive-cleanup P-B-004)"
+
+DETECT_DIR="$REPO_ROOT/packages/core/src/detect"
+if [ -d "$DETECT_DIR" ]; then
+  # Match `join(<ident>, '<bare-dir-name>')` where bare-dir-name starts with
+  # a letter and contains only letters/digits/underscores (i.e., NO dot —
+  # so filenames like 'package.json' are naturally excluded).
+  # Allowlist of dotless manifest filenames that are legitimately joined
+  # without a path-from-config (build tools, container manifests, etc.).
+  MANIFEST_ALLOWLIST="WORKSPACE|Gemfile|Dockerfile|Makefile|Rakefile|Procfile|MODULE|BUILD"
+  HARDCODE_COUNT=$(grep -rnE "join\([A-Za-z_][A-Za-z0-9_]*,\s*'[A-Za-z][A-Za-z0-9_]*'\)" "$DETECT_DIR" \
+    --include="*.ts" \
+    $COMMON_EXCLUDES \
+    2>/dev/null \
+    | grep -v '__tests__' \
+    | grep -v '\.test\.ts:' \
+    | grep -vE "'(${MANIFEST_ALLOWLIST})'" \
+    | wc -l | tr -d ' ')
+  if [ "$HARDCODE_COUNT" -gt 0 ]; then
+    fail "Found $HARDCODE_COUNT hardcoded directory literal(s) in packages/core/src/detect/"
+    grep -rnE "join\([A-Za-z_][A-Za-z0-9_]*,\s*'[A-Za-z][A-Za-z0-9_]*'\)" "$DETECT_DIR" \
+      --include="*.ts" \
+      $COMMON_EXCLUDES \
+      2>/dev/null \
+      | grep -v '__tests__' \
+      | grep -v '\.test\.ts:' \
+      | grep -vE "'(${MANIFEST_ALLOWLIST})'" \
+      | head -10
+    echo "    Hint: detection code must consume the upstream sourceDirs/monorepo pipeline output,"
+    echo "          not hardcoded directory names. See plan-1.7.0-cohesive-cleanup P-B-002."
+  else
+    pass "No hardcoded directory literals found in packages/core/src/detect/"
+  fi
+else
+  warn "Detection directory not found: $DETECT_DIR"
+fi
+
+# -------------------------------------------------------
 # Summary
 # -------------------------------------------------------
 echo ""
 echo "=== Generalization Scanner Summary ==="
-echo "  Checked: 'limn' refs, /Users/ paths, Supabase IDs, API endpoints"
+echo "  Checked: 'limn' refs, /Users/ paths, Supabase IDs, API endpoints,"
+echo "           hardcoded source-dir literals in detect/"
 echo "  Excluded: docs/plans/, session-state/, node_modules/, dist/, .git/"
 echo "            internal-feature-parity, massu-parity, limn-parity-port"
 if [ "$VIOLATIONS" -gt 0 ]; then

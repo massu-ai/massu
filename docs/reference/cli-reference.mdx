@@ -1,12 +1,15 @@
 ---
 title: "CLI Reference"
-description: "Complete reference for all Massu CLI commands — init, doctor, install-hooks, install-commands, validate-config"
+description: "Complete reference for all Massu CLI commands (npx massu init/doctor/...) and 59 workflow slash commands (/massu-*)"
 order: 2
 ---
 
 # CLI Reference
 
-Massu AI provides five CLI commands for project setup and maintenance. All commands are run via `npx massu <command>`.
+Massu AI ships with **five CLI commands** for project setup and maintenance plus **59 workflow slash commands** that activate inside a Claude Code session.
+
+- CLI commands run via `npx massu <command>` from your shell.
+- Slash commands run via `/massu-<name>` inside a Claude Code session after `npx massu init` deploys them.
 
 ## massu init
 
@@ -218,3 +221,250 @@ npx @massu/core
 ```
 
 This is handled automatically by Claude Code via `.mcp.json` — you don't need to run this manually.
+
+---
+
+# Slash Commands
+
+The following 59 slash commands ship with `@massu/core` and are deployed into `.claude/commands/` by `npx massu init` and `npx massu install-commands`. Each command activates inside a Claude Code session by typing `/<command-name>`. Internal commands (`massu-internal-*`) are operator-only and intentionally excluded.
+
+## /massu-article-review
+
+When user shares a URL, article, tweet, or post and wants analysis of how it applies to the project -- 'review this', 'what do you think of this'
+
+## /massu-audit-deps
+
+Comprehensive dependency audit (vulnerabilities, outdated, licenses, unused, bundle size)
+
+## /massu-autoresearch
+
+When user wants autonomous command optimization, says 'autoresearch', 'optimize this command', 'run overnight improvement loop', or wants Karpathy-style iterative prompt optimization
+
+## /massu-batch
+
+When user wants to apply the same code-only change across multiple files in parallel — 'batch update', 'apply to all', 'migrate these files'
+
+## /massu-bearings
+
+When user starts a new session, says 'good morning', asks 'where was I', 'what should I work on', or needs session orientation after being away
+
+## /massu-changelog
+
+Generate changelog entries from conventional commits
+
+## /massu-checkpoint
+
+When user wants mid-implementation verification, says 'checkpoint', 'check progress', or needs a quality gate during a multi-phase plan
+
+## /massu-ci-fix
+
+When CI fails after push — auto-diagnoses failures, fixes, commits, and re-pushes. 'ci fix', 'fix ci', 'ci failed', 'workflow failed'
+
+## /massu-cleanup
+
+Dead code removal — unused imports, orphaned files, dead exports, and stale references
+
+## /massu-command-health
+
+When user asks about command quality, says 'how are my commands', 'command health', or wants to see which slash commands have quality issues
+
+## /massu-command-improve
+
+When user wants to improve a specific command's quality score, says 'improve this command', 'fix command issues', or after command-health shows weak commands
+
+## /massu-commit
+
+When user says 'commit', 'ready to commit', 'save my work', or has completed implementation and wants to commit changes
+
+## /massu-create-plan
+
+When user wants to plan a feature, fix, or change before implementing -- 'create a plan', 'plan this', or describes requirements that need scoping
+
+## /massu-data
+
+When user asks about data trends, metrics, analytics, funnel analysis, cohort comparison, entity counts, storage usage, or 'what happened' questions about the database
+
+## /massu-dead-code
+
+When user asks about unused code, says 'find dead code', 'clean up unused', or wants to reduce codebase size by removing unreferenced exports
+
+## /massu-debug
+
+When user reports a bug, error, 500, crash, unexpected behavior, broken feature, or pastes error logs/stack traces
+
+## /massu-deploy
+
+Deploy the current project to Vercel
+
+## /massu-deps
+
+Dependency audit covering security vulnerabilities, updates, and compatibility analysis
+
+## /massu-doc-gen
+
+Generate JSDoc comments, README sections, and API docs for undocumented code
+
+## /massu-docs
+
+Documentation sync protocol ensuring docs align with code changes and features
+
+## /massu-estimate
+
+Effort estimation with complexity scoring, codebase impact analysis, and historical comparison
+
+## /massu-full-audit
+
+(See command file for details.)
+
+## /massu-gap-enhancement-analyzer
+
+When user says 'analyze gaps', 'find enhancements', 'gap analysis', or has completed a massu-loop implementation and needs to identify remaining gaps and enhancement opportunities
+
+## /massu-golden-path
+
+When user wants full autonomous implementation: 'build this', 'implement this feature', 'golden path', or provides a plan file to execute end-to-end
+
+## /massu-guide
+
+When a new user or contributor asks 'how does this work', 'give me a tour', 'onboarding', or needs an interactive walkthrough of the codebase
+
+## /massu-hooks
+
+EXECUTION
+
+## /massu-hotfix
+
+When user needs an urgent fix -- 'hotfix', 'emergency fix', 'broken and needs immediate patch'
+
+## /massu-incident
+
+When a bug is confirmed, a production issue is found, or user reports 'this broke', 'incident', 'production error' — triggers incident documentation protocol
+
+## /massu-infra-audit
+
+When user asks about .claude/ infrastructure health, says 'audit infra', 'check claude setup', or needs to verify references, staleness, and format compliance
+
+## /massu-learning-audit
+
+When user says 'learning audit', 'check auto-learning', 'memory coverage', or needs to validate that incidents are being learned from and patterns are being captured
+
+## /massu-loop-playwright
+
+When user wants browser-based testing, says 'test in browser', 'playwright audit', or needs visual/functional verification with Playwright
+
+## /massu-loop
+
+When user wants to implement a plan autonomously — 'implement this plan', 'start the loop', 'execute', or provides a plan file to implement end-to-end
+
+## /massu-new-feature
+
+Feature scaffolding with correct patterns pre-applied and verification gates
+
+## /massu-new-pattern
+
+When user discovers a new pattern, says 'add this pattern', 'new pattern', or needs to formalize a recurring solution into the patterns library with approval
+
+## /massu-parity
+
+Generic feature parity check between two systems or components
+
+## /massu-perf
+
+When user says 'performance audit', 'slow queries', 'bundle too large', 'page is slow', or needs to identify performance bottlenecks in queries, bundle size, or render cycles
+
+## /massu-plan-audit
+
+When user wants to create a plan AND audit it to zero gaps in one flow, says 'plan audit', 'create and audit plan', or needs the combined create-then-audit workflow
+
+## /massu-plan
+
+When user wants to audit an existing plan for gaps -- 'audit this plan', 'review the plan', or references a plan file that needs verification
+
+## /massu-production-verify
+
+When user says 'verify production', 'is it working', 'production check', or after a deploy to verify features are actually working in production — not just deployed
+
+## /massu-push-light
+
+Fast pre-push verification (~90s) - patterns, security, types, hooks, tests, build
+
+## /massu-push
+
+When user says 'push', 'push to remote', 'deploy', or wants to push committed changes to the remote repository
+
+## /massu-recap
+
+When user says 'done for today', 'wrapping up', 'end session', 'handoff', or is about to close the terminal
+
+## /massu-refactor
+
+Safe refactoring with behavioral equivalence, incremental transforms, and automatic rollback
+
+## /massu-release
+
+Release preparation — version bump, changelog, full verification, tagging
+
+## /massu-review
+
+Automated code review across 7 dimensions (patterns, security, architecture, website, AI-specific, performance, accessibility)
+
+## /massu-rollback
+
+When user says 'rollback', 'revert this', 'undo changes', 'go back', or needs to safely undo code or database changes with state preservation
+
+## /massu-scaffold-hook
+
+When user wants to create a new Claude Code hook — scaffolds the hook script, adds to settings.json, sets up profile gating
+
+## /massu-scaffold-page
+
+When user wants to create a new page, route, or section in the app — scaffolds the page component, layout, loading/error states, and tRPC integration
+
+## /massu-scaffold-router
+
+When user wants to create a new tRPC router, API endpoint, or backend procedure — scaffolds router file, registers in root.ts, adds Zod schemas
+
+## /massu-security
+
+When user says 'security audit', 'check security', 'RLS audit', 'XSS check', or needs a focused security review covering auth, secrets, injection, and OWASP top 10
+
+## /massu-simplify
+
+When user says 'simplify', 'review my code', 'clean this up', or has finished implementation and wants quality review before commit
+
+## /massu-squirrels
+
+When user has a tangential idea mid-task that should be parked — 'squirrel this', 'park this idea', 'remind me later about'
+
+## /massu-status
+
+Read-only project health dashboard with 14 health checks
+
+## /massu-tdd
+
+When user wants test-driven development, says 'TDD', 'write tests first', 'red green refactor', or needs the RED-GREEN-IMPROVE cycle
+
+## /massu-test
+
+Intelligent test runner with failure analysis, coverage gaps, and test generation
+
+## /massu-type-mismatch-audit
+
+When user says 'type audit', 'type mismatch', 'check types', or suspects type inconsistencies between frontend, backend, and database columns
+
+## /massu-ui-audit
+
+When user says 'UI audit', 'UX review', 'accessibility check', 'check responsiveness', or needs a deep review of UI consistency, accessibility, and user flows
+
+## /massu-verify-playwright
+
+When user says 'check pages', 'scan for console errors', 'verify playwright', or needs to browser-test pages for console errors and generate a fix plan
+
+## /massu-verify
+
+When user says 'verify', 'run verification', 'check everything', or needs to run all VR-* verification checks with mandatory proof output before claiming work is complete
+
+
+---
+
+**Source-of-truth**: command files live under [.claude/commands/massu-*.md](https://github.com/massu-ai/massu) in the public repo. The [plan-1.7.0-cohesive-cleanup P-A-005 drift-guard test](https://github.com/massu-ai/massu) fails CI when a new external command is added without a matching H2 entry above.

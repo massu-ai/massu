@@ -67,17 +67,69 @@ function domainFromWorkspace(pkg: WorkspacePackage): DomainConfig {
   };
 }
 
-function topLevelSrcSubdirs(root: string): string[] {
-  const srcDir = join(root, 'src');
-  if (!existsSync(srcDir)) return [];
-  try {
-    return readdirSync(srcDir, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !IGNORED_SUBDIRS.has(e.name))
-      .map((e) => e.name)
-      .sort();
-  } catch {
-    return [];
+/**
+ * Enumerate domain candidates under each detected source directory.
+ *
+ * The `sourceDirs` argument is the flattened, unique list of relative
+ * source paths produced upstream by the source-dir detector
+ * (`detectSourceDirs` in `source-dir-detector.ts`). For each path that
+ * exists under `root`, this function lists immediate subdirectories as
+ * candidate domain names. Hardcoded `src/` lookup was removed (plan
+ * `plan-1.7.0-cohesive-cleanup` P-B-002) — the function now consumes
+ * the detection pipeline's output verbatim, so projects whose source
+ * lives at non-`src/` paths (e.g. `lib/`, `apps/<x>/src/`) are no
+ * longer silently dropped.
+ *
+ * Empty `sourceDirs` is treated as a legacy single-repo `src/` lookup
+ * to preserve behavior for callers that pre-date the source-dir
+ * pipeline (CLI / test harnesses that hand-wire `inferDomains`).
+ *
+ * Returns deduplicated subdir names sorted alphabetically.
+ */
+function topLevelSrcSubdirs(root: string, sourceDirs: readonly string[]): string[] {
+  const effective = sourceDirs.length > 0 ? sourceDirs : ['src'];
+  const seen = new Set<string>();
+  for (const rel of effective) {
+    const abs = join(root, rel);
+    if (!existsSync(abs)) continue;
+    try {
+      for (const e of readdirSync(abs, { withFileTypes: true })) {
+        if (!e.isDirectory()) continue;
+        if (IGNORED_SUBDIRS.has(e.name)) continue;
+        seen.add(e.name);
+      }
+    } catch {
+      // skip directories that cannot be read; do not throw.
+    }
   }
+  return Array.from(seen).sort();
+}
+
+/**
+ * Flatten a `SourceDirMap` into a unique, deduplicated list of relative
+ * source paths across all detected languages.
+ *
+ * Drops the root sentinels `.` and `''` — those are emitted by the
+ * source-dir-detector when source files live directly at the project
+ * root (e.g. Django's `manage.py` or Swift's `Package.swift`). Treating
+ * them as enumerable source dirs causes spurious top-level directory
+ * inclusion (Tests/, Sources/, etc.), which collides with the
+ * language-fallback path in `inferDomains`. Root-source repos rely on
+ * the language-fallback path to emit `{Python}` / `{Swift}` domains,
+ * NOT a fan-out of every root subdirectory.
+ *
+ * Order is not guaranteed — callers that need determinism must sort.
+ */
+function flattenSourceDirs(sourceDirs: SourceDirMap): string[] {
+  const flat = new Set<string>();
+  for (const entry of Object.values(sourceDirs)) {
+    if (!entry) continue;
+    for (const dir of entry.source_dirs) {
+      if (dir === '.' || dir === '') continue;
+      flat.add(dir);
+    }
+  }
+  return Array.from(flat);
 }
 
 /**
@@ -100,8 +152,11 @@ export function inferDomains(
       domains.push(domainFromWorkspace(pkg));
     }
   } else {
-    // Single repo: suggest one domain per top-level src/<subdir>/ if src/ exists.
-    const subdirs = topLevelSrcSubdirs(projectRoot);
+    // Single repo: suggest one domain per top-level <sourceDir>/<subdir>/ for
+    // every detected source dir (formerly hardcoded to `src/` only — see
+    // P-B-002 in plan-1.7.0-cohesive-cleanup).
+    const flat = flattenSourceDirs(sourceDirs);
+    const subdirs = topLevelSrcSubdirs(projectRoot, flat);
     for (const s of subdirs) {
       domains.push({
         name: titleCase(s),

@@ -8360,14 +8360,33 @@ function domainFromWorkspace(pkg) {
     allowedImportsFrom: []
   };
 }
-function topLevelSrcSubdirs(root) {
-  const srcDir = join3(root, "src");
-  if (!existsSync5(srcDir)) return [];
-  try {
-    return readdirSync3(srcDir, { withFileTypes: true }).filter((e) => e.isDirectory() && !IGNORED_SUBDIRS.has(e.name)).map((e) => e.name).sort();
-  } catch {
-    return [];
+function topLevelSrcSubdirs(root, sourceDirs) {
+  const effective = sourceDirs.length > 0 ? sourceDirs : ["src"];
+  const seen = /* @__PURE__ */ new Set();
+  for (const rel of effective) {
+    const abs = join3(root, rel);
+    if (!existsSync5(abs)) continue;
+    try {
+      for (const e of readdirSync3(abs, { withFileTypes: true })) {
+        if (!e.isDirectory()) continue;
+        if (IGNORED_SUBDIRS.has(e.name)) continue;
+        seen.add(e.name);
+      }
+    } catch {
+    }
   }
+  return Array.from(seen).sort();
+}
+function flattenSourceDirs(sourceDirs) {
+  const flat = /* @__PURE__ */ new Set();
+  for (const entry of Object.values(sourceDirs)) {
+    if (!entry) continue;
+    for (const dir of entry.source_dirs) {
+      if (dir === "." || dir === "") continue;
+      flat.add(dir);
+    }
+  }
+  return Array.from(flat);
 }
 function inferDomains(projectRoot, monorepo, sourceDirs) {
   const domains = [];
@@ -8376,7 +8395,8 @@ function inferDomains(projectRoot, monorepo, sourceDirs) {
       domains.push(domainFromWorkspace(pkg));
     }
   } else {
-    const subdirs = topLevelSrcSubdirs(projectRoot);
+    const flat = flattenSourceDirs(sourceDirs);
+    const subdirs = topLevelSrcSubdirs(projectRoot, flat);
     for (const s of subdirs) {
       domains.push({
         name: titleCase(s),

@@ -38,7 +38,7 @@ import { getKnowledgeToolDefinitions, isKnowledgeTool, handleKnowledgeToolCall }
 import { getKnowledgeDb } from './knowledge-db.ts';
 import { getPythonToolDefinitions, isPythonTool, handlePythonToolCall } from './python-tools.ts';
 import { getConfig, getProjectRoot, getResolvedPaths } from './config.ts';
-import { getCurrentTier, getToolTier, isToolAllowed, annotateToolDefinitions, getLicenseToolDefinitions, isLicenseTool, handleLicenseToolCall } from './license.ts';
+import { getCurrentTier, getToolTier, isToolAllowed, annotateToolDefinitions, getLicenseToolDefinitions, isLicenseTool, handleLicenseToolCall, isCloudFeatureAvailable } from './license.ts';
 
 export interface ToolDefinition {
   name: string;
@@ -172,7 +172,8 @@ export function getToolDefinitions(): ToolDefinition[] {
     ...getSecurityToolDefinitions(),
     ...getDependencyToolDefinitions(),
     // Enterprise layer (team knowledge, regression detection)
-    ...getTeamToolDefinitions(),
+    // P-A-003: team tools are cloud-gated — only listed when cloud.enabled is true.
+    ...(isCloudFeatureAvailable() ? getTeamToolDefinitions() : []),
     ...getRegressionToolDefinitions(),
     // Knowledge layer (indexed .claude/ knowledge — rules, patterns, incidents)
     ...getKnowledgeToolDefinitions(),
@@ -410,7 +411,9 @@ export async function handleToolCall(
     }
 
     // Route enterprise layer tools
-    if (isTeamTool(name)) {
+    // P-A-003: team-tool dispatch gated on cloud availability; if a stale client
+    // still has the tool name cached, fall through to the unknown-tool branch.
+    if (isTeamTool(name) && isCloudFeatureAvailable()) {
       const memDb = getMemoryDb();
       try { return handleTeamToolCall(name, args, memDb); }
       finally { memDb.close(); }

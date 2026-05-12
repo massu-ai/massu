@@ -284,6 +284,25 @@ CONTENT_SCAN_SELF_REFERENCE_FILES=(
   # known internal command filenames as part of their pattern catalog.
   'scripts/massu-generalization-scanner.sh'
   'scripts/massu-security-scanner.sh'
+  # Release documentation — CHANGELOG.md legitimately enumerates the
+  # `massu-internal-*` exclusion convention as part of release notes
+  # describing what slash commands are shipped publicly. Public-facing
+  # documentation MUST be able to disclose the public/internal split.
+  # (plan-1.7.0-cohesive-cleanup P-A-005)
+  'CHANGELOG.md'
+  # CLI Reference doc legitimately enumerates the `massu-internal-`
+  # exclusion convention as part of explaining the 59 external slash
+  # commands ship publicly and internal ones are operator-only.
+  'docs/reference/cli-reference.mdx'
+  # Leak-guard test fixtures + their test file — these intentionally
+  # contain the trigger patterns to validate the guard catches them.
+  # Adding them here lets the public-sync verifier accept the test
+  # corpus while preserving real-content blocking.
+  # (plan-leak-guard-range-mode-verify Stage B+C fixtures)
+  'packages/core/src/__tests__/fixtures/leak-guard-commit-mode/expected-leak.md'
+  'packages/core/src/__tests__/fixtures/leak-guard-commit-mode/expected-mixed.md'
+  'packages/core/src/__tests__/fixtures/leak-guard-commit-mode/expected-clean.md'
+  'packages/core/src/__tests__/leak-guard-commit-mode.test.ts'
 )
 
 is_self_reference_file() {

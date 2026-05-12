@@ -248,7 +248,12 @@ describe('plan-status-drift-guard (Plan 1.5.8 P2-002)', () => {
 
   // ----- Live HEAD assertion (unconditional after Phase 4 backfill) -----
 
-  it('case 8: live HEAD — validator + scanner exit 0 against real docs/plans/*.md', () => {
+  it('case 8: live HEAD — validator + scanner exit 0 against real docs/plans/*.md', { timeout: 30_000 }, () => {
+    // Timeout bumped from default 5s to 30s 2026-05-11: plan-1.6.3 P-C-005
+    // added an L3 retrospective check that runs `git show --stat` per shipped-
+    // subset plan with cited SHA. With ~60 plans, this can take 5-15s on
+    // first run (no git cache warm). The validator + scanner are both fast
+    // individually; the test invocation overhead dominates.
     const v = runScript(VALIDATOR_PATH);
     if (v.exitCode !== 0) {
       throw new Error(

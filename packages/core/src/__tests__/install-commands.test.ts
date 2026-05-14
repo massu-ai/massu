@@ -490,9 +490,14 @@ describe('manifest — MANIFEST-01..08', () => {
       expect(parsed.version).toBe(1);
       expect(parsed.entries).toBeTypeOf('object');
 
-      // Every entry MUST be keyed under `commands/...`
+      // Every file-namespaced entry MUST be keyed under `commands/...`.
+      // Synthetic non-file entries (e.g. `__settings__/permissions` from the
+      // installPermissions seed) live alongside per CLAUDE.md `### Permission Seeding`.
       for (const key of Object.keys(parsed.entries)) {
-        expect(key.startsWith('commands/')).toBe(true);
+        const isFileEntry = !key.startsWith('__settings__/');
+        if (isFileEntry) {
+          expect(key.startsWith('commands/')).toBe(true);
+        }
         expect(parsed.entries[key]).toMatch(/^[0-9a-f]{64}$/);
       }
     } finally {
@@ -914,6 +919,106 @@ describe('two-axis variant resolution — Plan #2 P2-003', () => {
       expect(stderrText).toMatch(/framework\.primary is undefined/);
     } finally {
       stderrSpy.mockRestore();
+    }
+  });
+});
+
+// ============================================================
+// ICP-01..03 — install-commands permission seeding (Phase C v3)
+//
+// Validates that the legacy `installCommands(projectRoot, opts)` entry point
+// honors `--skip-permissions` semantics and that default behavior seeds
+// the canonical mcp__massu__* glob into permissions.allow.
+// ============================================================
+
+describe('install-commands permission seeding — ICP-01..03', () => {
+  function setupProject(prefix: string): string {
+    const projectRoot = mkTmp(prefix);
+    writeFileSync(
+      resolve(projectRoot, 'massu.config.yaml'),
+      [
+        'schema_version: 2',
+        'project:',
+        `  name: ${prefix}`,
+        '  root: auto',
+        'framework:',
+        '  type: typescript',
+        '  primary: typescript',
+        '  router: none',
+        '  orm: none',
+        '  ui: none',
+      ].join('\n'),
+    );
+    mkdirSync(resolve(projectRoot, '.claude', 'commands'), { recursive: true });
+    resetConfig();
+    return projectRoot;
+  }
+
+  function settingsLocalPath(projectRoot: string): string {
+    return resolve(projectRoot, '.claude', 'settings.local.json');
+  }
+
+  it('ICP-01: default `installCommands(root)` seeds permissions.allow with mcp__massu__*', () => {
+    const projectRoot = setupProject('icp-01');
+    const prevCwd = process.cwd();
+    try {
+      process.chdir(projectRoot);
+      installCommands(projectRoot); // default opts → seed enabled
+      const path = settingsLocalPath(projectRoot);
+      expect(existsSync(path)).toBe(true);
+      const parsed = JSON.parse(readFileSync(path, 'utf-8'));
+      const allow = parsed?.permissions?.allow as string[];
+      expect(Array.isArray(allow)).toBe(true);
+      expect(allow).toContain('mcp__massu__*');
+    } finally {
+      try { process.chdir(prevCwd); } catch { /* ignore */ }
+      resetConfig();
+    }
+  });
+
+  it('ICP-02: `installCommands(root, {skipPermissions: true})` does NOT seed', () => {
+    const projectRoot = setupProject('icp-02');
+    const prevCwd = process.cwd();
+    try {
+      process.chdir(projectRoot);
+      installCommands(projectRoot, { skipPermissions: true });
+      const path = settingsLocalPath(projectRoot);
+      // settings.local.json may or may not exist; if it does, allow must NOT contain the canonical entry
+      if (existsSync(path)) {
+        const parsed = JSON.parse(readFileSync(path, 'utf-8'));
+        const allow = parsed?.permissions?.allow ?? [];
+        expect(allow).not.toContain('mcp__massu__*');
+      }
+    } finally {
+      try { process.chdir(prevCwd); } catch { /* ignore */ }
+      resetConfig();
+    }
+  });
+
+  it('ICP-03: `runInstallCommands` with `--skip-permissions` argv does NOT seed', async () => {
+    const projectRoot = setupProject('icp-03');
+    const prevCwd = process.cwd();
+    const prevArgv = process.argv;
+    // Silence the console.log output from runInstallCommands
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      process.chdir(projectRoot);
+      process.argv = ['node', 'massu', 'install-commands', '--skip-permissions'];
+      // Re-import the runInstallCommands fresh since module-level argv won't matter;
+      // runInstallCommands reads process.argv at call time
+      const { runInstallCommands } = await import('../commands/install-commands.ts');
+      await runInstallCommands();
+      const path = settingsLocalPath(projectRoot);
+      if (existsSync(path)) {
+        const parsed = JSON.parse(readFileSync(path, 'utf-8'));
+        const allow = parsed?.permissions?.allow ?? [];
+        expect(allow).not.toContain('mcp__massu__*');
+      }
+    } finally {
+      logSpy.mockRestore();
+      process.argv = prevArgv;
+      try { process.chdir(prevCwd); } catch { /* ignore */ }
+      resetConfig();
     }
   });
 });

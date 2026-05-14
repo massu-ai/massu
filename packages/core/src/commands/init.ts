@@ -34,6 +34,7 @@ import { stringify as yamlStringify, parse as yamlParse } from 'yaml';
 import { backfillMemoryFiles } from '../memory-file-ingest.ts';
 import { getConfig, resetConfig } from '../config.ts';
 import { installAll } from './install-commands.ts';
+import { readSettingsLocal, writeSettingsLocalAtomic } from '../lib/settings-local.ts';
 import {
   runDetection,
   type DetectionResult,
@@ -1107,20 +1108,12 @@ export function installHooks(projectRoot: string): { installed: boolean; count: 
     claudeDirName = '.claude';
   }
   const claudeDir = resolve(projectRoot, claudeDirName);
-  const settingsPath = resolve(claudeDir, 'settings.local.json');
 
   if (!existsSync(claudeDir)) {
     mkdirSync(claudeDir, { recursive: true });
   }
 
-  let settings: Record<string, unknown> = {};
-  if (existsSync(settingsPath)) {
-    try {
-      settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-    } catch {
-      settings = {};
-    }
-  }
+  const settings = readSettingsLocal(claudeDir);
 
   const hooksDir = resolveHooksDir();
   const hooksConfig = buildHooksConfig(hooksDir);
@@ -1134,7 +1127,7 @@ export function installHooks(projectRoot: string): { installed: boolean; count: 
 
   settings.hooks = hooksConfig;
 
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
+  writeSettingsLocalAtomic(claudeDir, settings);
 
   return { installed: true, count: hookCount };
 }

@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.8.0] - 2026-05-14
+
+Plan `plan-1.8.0-mcp-permission-seeding` — MCP permission seeding suite. Closes a structural gap where every fresh `npx @massu/core install-commands` adopter hit per-tool permission dialogs on each of the 73+ `mcp__massu__*` MCP tool calls until they hand-curated `.claude/settings.local.json`. Also closes the empirically-observed merge-replacement trap where a project-local `permissions` object without `defaultMode` silently strips the user-global `defaultMode` during settings merge (undocumented at code.claude.com/docs/en/permissions; reproduced 2026-05-14). The new writer reads `~/.claude/settings.json`, computes the full merged `permissions` block (allow union with canonical entries; defaultMode = local override OR global OR omit; deny/ask preserved), atomic-writes the complete block, and fail-loud-asserts post-write that the merge survived.
+
+### Added
+
+- **`packages/core/src/permissions.ts`** — SSOT for MCP permission seeding/verification/drift detection. Exports `MASSU_PERMISSION_ENTRIES` (`['mcp__massu__*']`), `LAUNCH_FLAG_REQUIRED_MODES` (`['bypassPermissions', 'auto', 'dontAsk']` per code.claude.com/docs/en/permission-modes), `findMissingEntries`, `detectInvalidDefaultMode`, `readGlobalSettings`, `mergedPermissionState`, `installPermissions`, `verifyPermissions`, `checkPermissionsDrift`, and the fail-loud `InstallPermissionsAssertionError` class.
+- **`massu permissions <sub>` CLI subcommand cluster** at `packages/core/src/commands/permissions.ts` — three subcommands: `install` (seeds canonical entries + propagates global defaultMode; idempotent), `verify` (read-only check, exit 0 if clean else 1), `check-drift` (extended diagnostic, severity-mapped exit codes 1/2/3/4 for `missing-allow`/`invalid-default-mode`/`unknown-key`/`strips-global-defaultmode`).
+- **`--skip-permissions` flag** on `install-commands` — escape hatch for enterprise-policy-managed allowlists.
+- **`packages/core/src/lib/settings-local.ts`** — shared atomic IO helper (SSOT for `.claude/settings.local.json` AND `~/.claude/settings.json` reads). Exports `readSettingsLocal`, `writeSettingsLocalAtomic`, `readSettingsAtPath`, and the `atomicWriteFile` primitive (moved from `install-commands.ts`).
+- **`packages/core/src/__tests__/permissions.test.ts`** — 19 drift-guard test cases (PERM-DRIFT-01..19) including snapshot tests for `global=auto` and `global=bypassPermissions` scenarios; PERM-DRIFT-17 specifically reproduces the merge-replacement trap detection.
+- **`packages/core/src/__tests__/settings-local.test.ts`** — 7 IO tests (SLOC-01..06 + defensive shape check).
+- **`packages/core/src/__tests__/permissions-cli.test.ts`** — 10 CLI dispatcher tests (VPC-01..08 + help + unknown subcommand).
+- **`### Permission Seeding` and `### Permissions trap (settings merge)` sections** in `packages/core/README.md` documenting the writer behavior, the `defaultMode` validity table, and the before/after JSON snippet showing the trap.
+- **`## massu permissions` section** in `website/content/docs/reference/cli-reference.mdx` with the exit code matrix and an example check-drift run.
+
+### Changed
+
+- **`packages/core/src/commands/install-commands.ts`** — `installAll(projectRoot, opts?: {skipPermissions})` and `installCommands(projectRoot, opts?: {skipPermissions})` now call `installPermissions` inside the existing `runWithManifest` block (single atomic manifest write covers both file syncs and permission seeding). `runInstallCommands` parses `--skip-permissions` from argv. `atomicWriteFile` moved to `lib/settings-local.ts`.
+- **`packages/core/src/commands/init.ts:1099-1140` `installHooks`** — refactored to consume the shared `readSettingsLocal` + `writeSettingsLocalAtomic` helpers. Closes a pre-existing non-atomic-write bug at `init.ts:1137` (was `writeFileSync` — vulnerable to SIGINT-between-truncate-and-write leaving a corrupt settings.local.json).
+- **`packages/core/src/commands/doctor.ts:106,241`** — consolidated through the new `readSettingsAtPath` helper (per CR-9 — same SSOT).
+- **`packages/core/src/cli.ts`** — new `case 'permissions':` switch + `--skip-permissions` documentation in `printHelp`.
+
+### Verification
+
+- `cd packages/core && npx tsc --noEmit` — 0 errors.
+- In-scope tests pass: 19 PERM-DRIFT + 7 SLOC + 10 VPC + 38 install-commands (3 new ICP-01..03) + 23 init (refactor verified clean) = 114 tests.
+- `cd packages/core && npm run build:cli` exits 0; `dist/cli.js` bundle contains 4 references to `handlePermissionsSubcommand`.
+
 ## [1.7.0] - 2026-05-11
 
 Plan `plan-1.7.0-cohesive-cleanup` — Cohesive minor release that simultaneously closes three structural-quality gaps across the codebase: (1) the Feb-2026 `plan-website-audit` (never shipped) is revalidated against current sources and SUPERSEDED — stats values on `massu.ai/` are now drift-guarded by a vitest test that asserts each stat equals a static derivation from its source-of-truth (`packages/core/src/license.ts` `TOOL_TIER_MAP` for MCP Tools, `.claude/commands/massu-*.md` files for Workflow Commands, etc.); the CLI Reference doc is expanded from 5 CLI commands to 5 CLI + 59 slash commands with a completeness drift-guard test; the team-tool surface gains a runtime cloud-gate via new `isCloudFeatureAvailable()` helper wired at `tools.ts:175` (registration) and `tools.ts:413` (dispatch); (2) P6-004 from `plan-fresh-install-monorepo-paths` — `topLevelSrcSubdirs` in `packages/core/src/detect/domain-inferrer.ts:71` no longer hardcodes `join(root, 'src')` and now consumes the detected source-dir pipeline; new `monorepo-apps-no-root-src` fixture + 4 new domain-inferrer test cases exercise both single-repo non-`src/` layouts and workspaces-driven monorepos; generalization-scanner Check 5 prevents the bug class from recurring; (3) the stale `next: 1.2.1` npm dist-tag (4 minors behind, zero documented consumers) is removed; CLAUDE.md `### npm dist-tags policy` section codifies that only `latest` is maintained going forward; pre-push step 9 enforces the policy with `npm view @massu/core dist-tags` parse.

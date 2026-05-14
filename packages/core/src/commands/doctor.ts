@@ -23,6 +23,7 @@ import { fileURLToPath } from 'url';
 import { parse as parseYaml } from 'yaml';
 import { getConfig, getResolvedPaths } from '../config.ts';
 import { getCurrentTier, getLicenseInfo, daysUntilExpiry } from '../license.ts';
+import { readSettingsAtPath } from '../lib/settings-local.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -103,7 +104,7 @@ function checkHooksConfig(projectRoot: string): CheckResult {
   }
 
   try {
-    const content = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    const content = readSettingsAtPath(settingsPath);
     if (!content.hooks) {
       return { name: 'Hooks Config', status: 'fail', detail: 'No hooks configured. Run: npx massu install-hooks' };
     }
@@ -238,8 +239,8 @@ function checkShellHooksWired(_projectRoot: string): CheckResult {
   }
 
   try {
-    const content = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-    const hooks = content.hooks ?? {};
+    const content = readSettingsAtPath(settingsPath);
+    const hooks = (content.hooks ?? {}) as Record<string, unknown>;
     const hasSessionStart = Array.isArray(hooks.SessionStart) && hooks.SessionStart.length > 0;
     const hasPreToolUse = Array.isArray(hooks.PreToolUse) && hooks.PreToolUse.length > 0;
     if (!hasSessionStart && !hasPreToolUse) {

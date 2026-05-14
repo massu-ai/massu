@@ -47,6 +47,12 @@ async function main(): Promise<void> {
       await runInstallCommands();
       break;
     }
+    case 'permissions': {
+      const { handlePermissionsSubcommand } = await import('./commands/permissions.ts');
+      const result = await handlePermissionsSubcommand(args.slice(1));
+      process.exit(result.exitCode);
+      return;
+    }
     case 'show-template': {
       const { runShowTemplate } = await import('./commands/show-template.ts');
       await runShowTemplate(args.slice(1));
@@ -162,12 +168,13 @@ Commands:
   init              Set up Massu AI in your project (one command, full setup)
   doctor            Check installation health
   install-hooks     Install/update Claude Code hooks
-  install-commands  Install/update slash commands
+  install-commands  Install/update slash commands (use --skip-permissions to opt out of MCP allowlist seeding)
   show-template     Print the resolved variant of a bundled template (e.g. for diffs)
   watch             Run the file-watcher daemon (auto-refresh on stack changes)
   refresh-log [N]   Show the last N watcher auto-refresh events
   validate-config   Validate massu.config.yaml (alias: config validate)
   config <sub>      Config lifecycle: refresh | validate | upgrade | doctor | check-drift
+  permissions <sub> MCP permission lifecycle: install | verify | check-drift
   adapters <sub>    Third-party adapter registry: list | refresh | search | add-local | remove-local | install | resign
 
 Options:

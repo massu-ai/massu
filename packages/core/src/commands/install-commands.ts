@@ -20,17 +20,11 @@
  */
 
 import {
-  closeSync,
   existsSync,
-  fsyncSync,
-  openSync,
   readFileSync,
-  rmSync,
-  writeSync,
   mkdirSync,
   readdirSync,
   statSync,
-  renameSync,
 } from 'fs';
 import { resolve, dirname, relative, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -38,6 +32,8 @@ import { createHash } from 'crypto';
 import { getConfig } from '../config.ts';
 import type { Config } from '../config.ts';
 import { renderTemplate, MissingVariableError, TemplateParseError } from './template-engine.ts';
+import { atomicWriteFile } from '../lib/settings-local.ts';
+import { installPermissions } from '../permissions.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -131,47 +127,7 @@ export function loadManifest(claudeDir: string): Manifest {
   }
 }
 
-/**
- * Iter-7 fix: atomic file write — tmp + fsync + rename.
- *
- * Plan 3a §3 Risk #4 ("Watcher writes to .claude/ while editor has it open:
- * editors can lose changes. Mitigation: write to .massu-tmp then atomic rename")
- * AND the watcher spec doc §3 Shutdown Semantics claim ("every file op the
- * refresh issues is already atomic-rename-safe... installAll writes <path>.tmp
- * then renameSync") both demand this. Previously installAll's per-file writes
- * (lines 463/467) and saveManifest were direct `writeFileSync` calls — a
- * SIGINT/power-loss between truncate and complete-write left a partial file.
- * Now both go through this helper so the watcher's iter-6 "we don't await
- * fireRefresh because atomic-rename covers everything" decision is sound.
- *
- * Writes via openSync + writeSync + fsyncSync + closeSync + renameSync so the
- * data hits the platter before the rename. On any error, removes the tmp file.
- * Tmp filename includes process.pid to avoid clashes with concurrent installs
- * from sibling processes (e.g. a manual `npx massu config refresh` racing the
- * watcher daemon — the install-lock should prevent this, but the file-level
- * tmp name disambiguates if it ever happens).
- */
-function atomicWriteFile(targetPath: string, content: string, mode = 0o644): void {
-  const tmpPath = `${targetPath}.${process.pid}.tmp`;
-  try {
-    const fd = openSync(tmpPath, 'w', mode);
-    try {
-      const buf = Buffer.from(content, 'utf-8');
-      writeSync(fd, buf, 0, buf.length, 0);
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-    renameSync(tmpPath, targetPath);
-  } catch (err) {
-    if (existsSync(tmpPath)) {
-      try { rmSync(tmpPath, { force: true }); } catch { /* ignore */ }
-    }
-    throw err;
-  }
-}
-
-/** Write the manifest atomically: tempfile + fsync + renameSync. */
+/** Write the manifest atomically: tempfile + fsync + renameSync (uses shared lib/settings-local.ts:atomicWriteFile). */
 export function saveManifest(claudeDir: string, manifest: Manifest): void {
   const dir = resolve(claudeDir, '.massu');
   if (!existsSync(dir)) {
@@ -541,7 +497,15 @@ export function buildTemplateVars(): Record<string, unknown> {
   };
 }
 
-export function installCommands(projectRoot: string): InstallCommandsResult {
+export interface InstallCommandsOptions {
+  /** When true, skip seeding `mcp__massu__*` into permissions.allow. */
+  skipPermissions?: boolean;
+}
+
+export function installCommands(
+  projectRoot: string,
+  opts: InstallCommandsOptions = {},
+): InstallCommandsResult {
   const claudeDirName = getConfig().conventions?.claudeDirName ?? '.claude';
   const claudeDir = resolve(projectRoot, claudeDirName);
   const targetDir = resolve(claudeDir, 'commands');
@@ -559,9 +523,21 @@ export function installCommands(projectRoot: string): InstallCommandsResult {
 
   const framework = getConfig().framework;
   const templateVars = buildTemplateVars();
-  const stats = runWithManifest(claudeDir, (manifest) =>
-    syncDirectory(sourceDir, targetDir, framework, manifest, 'commands', true, templateVars),
-  );
+  const stats = runWithManifest(claudeDir, (manifest) => {
+    const syncStats = syncDirectory(
+      sourceDir,
+      targetDir,
+      framework,
+      manifest,
+      'commands',
+      true,
+      templateVars,
+    );
+    if (!opts.skipPermissions) {
+      installPermissions(claudeDir, manifest, { silent: true });
+    }
+    return syncStats;
+  });
   return { ...stats, commandsDir: targetDir };
 }
 
@@ -576,9 +552,19 @@ export interface InstallAllResult {
   totalSkipped: number;
   totalKept: number;
   claudeDir: string;
+  /** Permission-seeding outcome (undefined when --skip-permissions). */
+  permissions?: { installed: number; kept: number; skipped: number };
 }
 
-export function installAll(projectRoot: string): InstallAllResult {
+export interface InstallAllOptions {
+  /** When true, skip seeding `mcp__massu__*` into permissions.allow. */
+  skipPermissions?: boolean;
+}
+
+export function installAll(
+  projectRoot: string,
+  opts: InstallAllOptions = {},
+): InstallAllResult {
   const claudeDirName = getConfig().conventions?.claudeDirName ?? '.claude';
   const claudeDir = resolve(projectRoot, claudeDirName);
 
@@ -587,6 +573,7 @@ export function installAll(projectRoot: string): InstallAllResult {
   let totalUpdated = 0;
   let totalSkipped = 0;
   let totalKept = 0;
+  let permissionsResult: { installed: number; kept: number; skipped: number } | undefined;
 
   const framework = getConfig().framework;
   const templateVars = buildTemplateVars();
@@ -613,6 +600,9 @@ export function installAll(projectRoot: string): InstallAllResult {
       totalSkipped += stats.skipped;
       totalKept += stats.kept;
     }
+    if (!opts.skipPermissions) {
+      permissionsResult = installPermissions(claudeDir, manifest, { silent: true });
+    }
   });
 
   return {
@@ -622,6 +612,7 @@ export function installAll(projectRoot: string): InstallAllResult {
     totalSkipped,
     totalKept,
     claudeDir,
+    permissions: permissionsResult,
   };
 }
 
@@ -631,13 +622,14 @@ export function installAll(projectRoot: string): InstallAllResult {
 
 export async function runInstallCommands(): Promise<void> {
   const projectRoot = process.cwd();
+  const skipPermissions = process.argv.slice(2).includes('--skip-permissions');
 
   console.log('');
   console.log('Massu AI - Install Project Assets');
   console.log('==================================');
   console.log('');
 
-  const result = installAll(projectRoot);
+  const result = installAll(projectRoot, { skipPermissions });
 
   // Report per-asset-type
   for (const assetType of ASSET_TYPES) {
@@ -667,6 +659,23 @@ export async function runInstallCommands(): Promise<void> {
       `  ${result.totalKept} file(s) had local edits and were preserved (see stderr above).`,
     );
   }
+
+  // Permission seeding outcome line
+  if (skipPermissions) {
+    console.log('  Permission seeding skipped (--skip-permissions).');
+  } else if (result.permissions) {
+    if (result.permissions.installed > 0) {
+      console.log(
+        `  Wrote merged permissions block to .claude/settings.local.json (use --skip-permissions to opt out).`,
+      );
+    } else if (result.permissions.kept > 0) {
+      console.log(
+        `  MCP allowlist entry was edited by operator; preserved. Use \`npx massu permissions check-drift\` to inspect.`,
+      );
+    }
+    // skipped:1 → silent (already in sync, no operator-visible change)
+  }
+
   console.log('');
   console.log('  Restart your Claude Code session to use them.');
   console.log('');

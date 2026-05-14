@@ -156,7 +156,7 @@ npx massu install-hooks
 npx massu install-commands
 ```
 
-Re-deploys all 59 slash commands into `.claude/commands/` without running the full init process. Useful after updating `@massu/core` to get the latest command definitions.
+Re-deploys all 59 slash commands into `.claude/commands/` without running the full init process. Useful after updating `@massu/core` to get the latest command definitions. Also seeds `mcp__massu__*` into `.claude/settings.local.json`'s `permissions.allow` so MCP tool calls skip the per-tool permission dialog — pass `--skip-permissions` to opt out, or run `npx massu permissions verify` to audit the allowlist state.
 
 ### Validate your configuration
 

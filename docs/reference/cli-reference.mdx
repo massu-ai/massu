@@ -137,19 +137,27 @@ Hooks will activate on your next Claude Code session.
 
 ## massu install-commands
 
-Install or update all 59 slash commands without running the full init process.
+Install or update all 59 slash commands without running the full init process. By default also seeds `mcp__massu__*` into `.claude/settings.local.json` so MCP tool calls skip the per-tool permission dialog.
 
 ### Usage
 
 ```bash
 npx massu install-commands
+npx massu install-commands --skip-permissions
 ```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--skip-permissions` | Skip seeding the canonical `mcp__massu__*` glob into `.claude/settings.local.json`'s `permissions.allow`. Use when permissions are managed by enterprise policy. |
 
 ### When to Use
 
 - After updating `@massu/core` to a new version (to get the latest command definitions)
 - If command files were accidentally deleted from `.claude/commands/`
 - To re-install commands without regenerating config, MCP registration, or hooks
+- To seed `mcp__massu__*` into `permissions.allow` on a fresh install (default) — eliminates the per-tool permission dialog and propagates global `defaultMode` to prevent the merge-replacement trap
 
 ### Output
 
@@ -158,8 +166,58 @@ Massu AI - Command Installation
 ================================
 
   Installed 59 slash commands in .claude/commands/
+  Wrote merged permissions block to .claude/settings.local.json (use --skip-permissions to opt out).
 
 Commands will be available in your next Claude Code session.
+```
+
+---
+
+## massu permissions
+
+Three subcommands managing the MCP allowlist lifecycle in `.claude/settings.local.json`.
+
+### Usage
+
+```bash
+npx massu permissions install
+npx massu permissions verify
+npx massu permissions check-drift
+```
+
+### Subcommands
+
+| Subcommand | Effect | Exit codes |
+|------------|--------|------------|
+| `install` | Seeds `mcp__massu__*` into `permissions.allow` AND propagates user-global `defaultMode` (`~/.claude/settings.json`) into the project-local file. Idempotent. Preserves operator-edited values. | 0 |
+| `verify` | Read-only check that all canonical MCP allowlist entries are present. | 0 if clean; 1 with `missing: <entry>` per missing entry on stderr |
+| `check-drift` | Extended diagnostic surfacing 4 drift kinds. | See exit code matrix below |
+
+### `check-drift` exit code matrix
+
+Highest-severity kind wins when multiple kinds are present:
+
+| Exit code | Drift kind | Meaning |
+|-----------|------------|---------|
+| 0 | (clean) | No drift detected |
+| 1 | `missing-allow` | Canonical massu entries missing from `permissions.allow` |
+| 2 | `invalid-default-mode` | `defaultMode` set to a value that requires `--permission-mode` launch flag (`bypassPermissions`, `auto`, `dontAsk`) — silently inert without the flag |
+| 3 | `unknown-key` | Top-level setting key is not documented at `code.claude.com/docs/en/settings` (e.g., common typo `skipAutoPermissionPrompt`) — silently ignored by Claude Code |
+| 4 | `strips-global-defaultmode` | Project-local `permissions` object would strip the global `defaultMode` during settings merge (empirically observed; undocumented behavior). |
+
+### When to Use
+
+- Run `install` once per fresh project clone (or rely on automatic seeding via `install-commands`)
+- Run `verify` as a quick pre-flight sanity check
+- Run `check-drift` when MCP calls auto-deny silently OR when migrating between Claude Code versions
+
+### Example: detecting the merge-replacement trap
+
+```bash
+$ npx massu permissions check-drift
+drift[strips-global-defaultmode]: Project-local permissions object omits defaultMode while global ~/.claude/settings.json has defaultMode="auto". Per empirical observation (2026-05-14) the merge unit is the entire permissions object, so the global defaultMode is silently stripped. — remediation: Run `npx massu permissions install` to write the full merged permissions block (auto-propagates global defaultMode).
+$ echo $?
+4
 ```
 
 ---

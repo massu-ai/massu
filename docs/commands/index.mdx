@@ -19,6 +19,8 @@ The command definitions ship inside the `@massu/core` npm package. When you upda
 npx massu install-commands
 ```
 
+`install-commands` also seeds the canonical `mcp__massu__*` allowlist entry into `.claude/settings.local.json` so MCP tool calls skip the per-tool permission dialog. See the [Permissions trap](/docs/reference/cli-reference#massu-permissions) section for what the writer does and why.
+
 ## Implementation Workflow
 
 The core pipeline for structured development:

@@ -5,3 +5,7 @@
 **Status**: ✅ SHIPPED 2026-05-08 — commit `abc1234`, npm shasum verified
 
 This fixture cites a SHA in the Status line; validator must PASS.
+
+## Changelog Summary
+
+Plan `plan-test-shipped` — fixture for plan-status-drift-guard test. Shipped behavior is "validator PASS path with proper SHA citation."

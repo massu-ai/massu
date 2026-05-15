@@ -222,6 +222,75 @@ $ echo $?
 
 ---
 
+## massu changelog
+
+Two subcommands managing release-boundary CHANGELOG generation. Shipped in 1.9.0 (`plan-1.9.0-plan-token-aware-changelog-batcher`).
+
+### Usage
+
+```bash
+npx massu changelog generate
+npx massu changelog verify
+```
+
+### Subcommands
+
+| Subcommand | Effect | Exit codes |
+|------------|--------|------------|
+| `generate` | Reads commit subjects since `git describe --tags --abbrev=0`, groups by `(plan-<token>)` paren-notation, pulls each plan file's `## Changelog Summary` section, and emits a Keep-a-Changelog 1.1.0-compliant entry to stdout. Operator pipes/copies into CHANGELOG.md (no forced overwrite). | 0 (clean) / 2 (missing plan file or missing `## Changelog Summary` section for a referenced token) |
+| `verify` | Read-only check that the latest CHANGELOG.md entry references every plan-token in commits since the last tag. | 0 (all referenced) / 1 (`gap: <token>` per missing, on stderr) |
+
+### Plan-file `## Changelog Summary` contract
+
+Any plan with Status in the shipped subset (SHIPPED, IMPLEMENTED, COMPLETE, SUPERSEDED, APPROVED) MUST contain a `## Changelog Summary` heading. The plan-status validator at `scripts/massu-plan-status-validator.sh` enforces this. The generator reads this section verbatim into the CHANGELOG entry body, so plan authors describe shipped behavior in one place — the plan file.
+
+Example plan structure:
+
+```markdown
+# Plan: Feature X
+
+**Plan Token**: `plan-1.9.0-feature-x`
+**Status**: SHIPPED 2026-05-14 (SHA abc1234)
+
+---
+
+## Changelog Summary
+
+Plan `plan-1.9.0-feature-x` — Brief description of shipped behavior. Concrete benefit to operators + key file:line refs + structural drift-prevention notes.
+
+---
+
+## Other sections (Problem statement, P-items, etc.)
+```
+
+### Pre-tag gate
+
+`scripts/pre-push-light.sh` step `[11/11] Plan-Token Changelog Currency` fires when `packages/core/package.json#version` drifts from the latest git tag (release in progress). The gate BLOCKS the push if CHANGELOG.md doesn't have a matching `## [X.Y.Z]` heading AND doesn't reference every plan-token in the commit range. CI mirrors this check (3-layer: pre-push + CI + drift-guard vitest).
+
+### When to Use
+
+- Run `generate` during `/massu-release` Stage D to auto-draft the CHANGELOG entry (skill integration enabled in 1.9.0)
+- Run `verify` post-edit to confirm completeness before tagging
+- The pre-tag gate runs automatically — no manual invocation needed
+
+### Example: generating + verifying a release entry
+
+```bash
+$ npx massu changelog generate > /tmp/draft.md
+$ head -3 /tmp/draft.md
+## [1.9.0] - 2026-05-14
+
+Plan `plan-1.9.0-plan-token-aware-changelog-batcher` — Release-boundary CHANGELOG batcher...
+
+# Operator prepends draft to CHANGELOG.md, then:
+$ npx massu changelog verify
+All plan-tokens referenced.
+$ echo $?
+0
+```
+
+---
+
 ## massu validate-config
 
 Validate your `massu.config.yaml` without running the full health check.

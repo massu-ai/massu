@@ -22,6 +22,11 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Source the shared plan-token regex SoT (plan-1.9.0-plan-token-aware-changelog-batcher P-A-002).
+# Provides PLAN_TOKEN_REGEX + extract_plan_tokens_from_range().
+# shellcheck source=lib/plan-token-regex.sh
+source "$REPO_ROOT/scripts/lib/plan-token-regex.sh"
 PLAN_DIR="${MASSU_PLAN_DIR:-$REPO_ROOT/docs/plans}"
 EXTRA_DIR="${MASSU_PLAN_EXTRA_DIR:-}"
 SINCE="${MASSU_DRIFT_SINCE:-2026-04-01}"
@@ -257,7 +262,7 @@ while IFS=$'\t' read -r sha subject; do
         fi
       fi
     fi
-  done < <(printf '%s' "$subject" | LC_ALL=C grep -oE '(feat|fix|chore|docs)\(plan-[a-z0-9._-]+\)' || true)
+  done < <(printf '%s' "$subject" | LC_ALL=C grep -oE "$PLAN_TOKEN_REGEX" || true)
 done <<< "$COMMITS"
 
 # Summary

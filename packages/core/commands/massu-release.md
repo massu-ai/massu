@@ -179,7 +179,29 @@ fi
 
 ## STEP 3: CHANGELOG GENERATION
 
-### 3.1 Parse Conventional Commits
+### 3.0 Auto-Generate Draft Entry (PREFERRED, plan-1.9.0+)
+
+The `npx massu changelog generate` subcommand auto-drafts an entry by reading
+commit subjects since the last tag, grouping by `(plan-<token>)` paren-notation,
+and pulling the prose from each plan file's `## Changelog Summary` section. This
+makes "fewer changelog entries, more meaningful" the default workflow.
+
+```bash
+# Generate draft into a tmp file for operator review
+npx massu changelog generate > /tmp/draft-changelog-entry.md
+cat /tmp/draft-changelog-entry.md
+
+# Operator reviews; edit inline if needed; then prepend to CHANGELOG.md.
+# Stage D pre-tag gate (scripts/pre-push-light.sh step 11) BLOCKS the push
+# if package.json#version drifts from the last tag but CHANGELOG.md does
+# not have a matching `## [X.Y.Z]` heading AND references every plan-token
+# in the commit range since the last tag.
+
+# Sanity-check completeness post-edit
+npx massu changelog verify  # exit 0 = all plan-tokens referenced
+```
+
+### 3.1 Parse Conventional Commits (legacy / fallback when no plan-token paren-notation)
 
 ```bash
 LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")

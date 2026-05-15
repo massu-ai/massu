@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.0] - 2026-05-14
+
+
+Plan `plan-1.9.0-plan-token-aware-changelog-batcher` — Release-boundary CHANGELOG generation that gathers commits by `(plan-<token>)` subject grouping into one structured entry per release at tag time. Closes the "version bumped without CHANGELOG entry" class structurally and replaces per-commit changelog noise with "fewer entries, more meaningful." New `npx massu changelog generate|verify` CLI cluster reads commit subjects since the last tag, looks up each plan file's new `## Changelog Summary` section, and emits a Keep-a-Changelog 1.1.0-compliant entry. New pre-push-light step `[11/11] Plan-Token Changelog Currency` fires when `package.json#version` drifts from the latest git tag and BLOCKS the push unless CHANGELOG.md has the matching `[X.Y.Z]` heading AND references every plan-token in the commit range. CI mirrors the check (3-layer enforcement per CR-49 precedent). The plan-status validator is extended to require `## Changelog Summary` on all shipped plans; 19 existing shipped plans were backfilled. Generator + 21 tests (15 CHG-GEN + 6 CHG-CLI) + drift-guard vitest (4 PTCC) + `/massu-release` skill integration shipped together.
+
+### Added
+
+- **`packages/core/src/changelog-generator.ts`** — SSOT module exporting `parseCommitsForPlanTokens`, `loadPlanSummaries`, `generateChangelogEntry`, `findCoverageGaps`, and error classes `MissingPlanFileError` + `MissingChangelogSummaryError`. JSDoc + tests at `packages/core/src/__tests__/changelog-generator.test.ts` (15 cases CHG-GEN-01..15 incl. self-application byte-equivalence regression).
+- **`massu changelog <sub>` CLI cluster** at `packages/core/src/commands/changelog.ts` — two subcommands: `generate` (auto-drafts entry to stdout for operator review) and `verify` (exit 0 if clean, exit 1 with `gap: <token>` per missing plan-token). Mirrors the `permissions <sub>` precedent shipped in 1.8.0.
+- **`scripts/lib/plan-token-regex.sh`** — single source of truth for the `(feat|fix|chore|docs)(plan-<token>)` regex. Exports `PLAN_TOKEN_REGEX` + `extract_plan_tokens_from_range()` shell function. Consumed by `massu-plan-commit-drift.sh` (refactored to source from lib), `massu-changelog-coverage.sh` (new), and `changelog-generator.ts` (via TS literal).
+- **`scripts/massu-changelog-coverage.sh`** — pre-tag gate. Reads `packages/core/package.json#version` and `git describe --tags --abbrev=0`; skips silently when versions match (no release in progress); else asserts CHANGELOG.md has `## [X.Y.Z]` heading at top AND every plan-token in commit range appears in entry body. Exit 0/1 with one `gap: <token>` per missing.
+- **`scripts/pre-push-light.sh` step `[11/11]`** — Plan-Token Changelog Currency. Invokes `massu-changelog-coverage.sh`. All existing steps renumbered from `[N/10]` to `[N/11]`.
+- **`.github/workflows/ci.yml`** — type-check job adds `bash scripts/massu-changelog-coverage.sh` step (3-layer CI gate mirroring CR-49 leak-guard precedent).
+- **`website/src/__tests__/plan-token-changelog-coverage.test.ts`** — 4-case drift-guard (PTCC-01..04) asserting latest CHANGELOG entry references every plan-token in `git log $(prev-tag)..$(latest-tag)` modulo a documented divergence allowlist for cross-release infrastructure tokens.
+- **`packages/core/src/__tests__/changelog-cli.test.ts`** — 6 CLI dispatcher tests (CHG-CLI-01..06).
+- **`### Changelog Generation` section** in `packages/core/README.md` documenting the workflow + plan-file contract.
+- **`## massu changelog` section** in `website/content/docs/reference/cli-reference.mdx` with subcommand table + example output.
+- **`## Changelog Summary` section** backfilled into 19 existing shipped plan files (auto-extracted from corresponding CHANGELOG.md entries via a one-shot node script using `parseChangelog` + `readChangelog` from `website/src/lib/changelog.ts`).
+
+### Changed
+
+- **`scripts/massu-plan-status-validator.sh`** — extended to require `## Changelog Summary` heading for plans whose Status is in the shipped subset (SHIPPED, IMPLEMENTED, COMPLETE, SUPERSEDED, APPROVED). HISTORICAL DRAFT exempt. The validator's `head -n 30` window was widened to `head -n 60` to accommodate the new section without pushing existing `**Status**:` headers out of scope.
+- **`scripts/massu-plan-commit-drift.sh`** — replaced inline regex with `source scripts/lib/plan-token-regex.sh`. Existing exit-0 behavior preserved (verified: 79 plan refs in 163 commits, 0 violations, 28 warnings).
+- **`.claude/commands/massu-release.md`** (+ `packages/core/commands/massu-release.md` public-sync mirror) — Step 3 CHANGELOG GENERATION now leads with auto-draft via `npx massu changelog generate`; the legacy conventional-commits parse remains as fallback.
+
+### Verification
+
+- `cd packages/core && npx tsc --noEmit` — 0 errors.
+- In-scope tests pass: 15 CHG-GEN + 6 CHG-CLI + 4 PTCC + 8 plan-status-drift-guard (fixture update) = 33 tests.
+- `cd packages/core && npm run build:cli` exits 0; `dist/cli.js` contains 4 references to `handleChangelogSubcommand`.
+- `bash scripts/massu-plan-status-validator.sh` exits 0 (0 violations, 10 warnings — all pre-existing CR-48 retrospective WARNs).
+- `bash scripts/pre-push-light.sh` on Node 22 — all 11 gates PASS.
+
 ## [1.8.0] - 2026-05-14
 
 Plan `plan-1.8.0-mcp-permission-seeding` — MCP permission seeding suite. Closes a structural gap where every fresh `npx @massu/core install-commands` adopter hit per-tool permission dialogs on each of the 73+ `mcp__massu__*` MCP tool calls until they hand-curated `.claude/settings.local.json`. Also closes the empirically-observed merge-replacement trap where a project-local `permissions` object without `defaultMode` silently strips the user-global `defaultMode` during settings merge (undocumented at code.claude.com/docs/en/permissions; reproduced 2026-05-14). The new writer reads `~/.claude/settings.json`, computes the full merged `permissions` block (allow union with canonical entries; defaultMode = local override OR global OR omit; deny/ask preserved), atomic-writes the complete block, and fail-loud-asserts post-write that the merge survived.

@@ -53,6 +53,12 @@ async function main(): Promise<void> {
       process.exit(result.exitCode);
       return;
     }
+    case 'changelog': {
+      const { handleChangelogSubcommand } = await import('./commands/changelog.ts');
+      const result = await handleChangelogSubcommand(args.slice(1));
+      process.exit(result.exitCode);
+      return;
+    }
     case 'show-template': {
       const { runShowTemplate } = await import('./commands/show-template.ts');
       await runShowTemplate(args.slice(1));
@@ -175,6 +181,7 @@ Commands:
   validate-config   Validate massu.config.yaml (alias: config validate)
   config <sub>      Config lifecycle: refresh | validate | upgrade | doctor | check-drift
   permissions <sub> MCP permission lifecycle: install | verify | check-drift
+  changelog <sub>   CHANGELOG generation / verification: generate | verify
   adapters <sub>    Third-party adapter registry: list | refresh | search | add-local | remove-local | install | resign
 
 Options:

@@ -106,7 +106,7 @@ json_record() {
 massu_extract_status_line() {
   local file="$1"
   # Pull first 30 lines, find the first **Status**: line, strip prefix.
-  head -n 30 "$file" 2>/dev/null \
+  head -n 60 "$file" 2>/dev/null \
     | grep -m 1 -E '^\*\*Status\*\*:' \
     | LC_ALL=C sed -E 's/^\*\*Status\*\*:[[:space:]]*//'
 }
@@ -117,7 +117,7 @@ massu_extract_plan_tokens() {
   # Strip prefix, optional leading/trailing whitespace, optional surrounding
   # backticks, and any trailing free-text annotation after the first
   # whitespace-separated token (so `plan-foo (alias — note)` -> `plan-foo`).
-  head -n 30 "$file" 2>/dev/null \
+  head -n 60 "$file" 2>/dev/null \
     | grep -E '^\*\*Plan Token\*\*:' \
     | LC_ALL=C sed -E '
         s/^\*\*Plan Token\*\*:[[:space:]]*//;
@@ -371,8 +371,27 @@ for f in "${PLAN_FILES[@]}"; do
       ;;
   esac
 
+  # --- ## Changelog Summary section requirement (plan-1.9.0-plan-token-aware-changelog-batcher P-A-003) ---
+  # Plans whose Status is in the shipped subset MUST have a `## Changelog Summary`
+  # heading near the top of the plan file. The generator at
+  # packages/core/src/changelog-generator.ts reads this section verbatim to emit
+  # the corresponding CHANGELOG.md entry. HISTORICAL DRAFT exempt (research artifact).
+  case "$status_canon" in
+    SHIPPED|IMPLEMENTED|COMPLETE|SUPERSEDED|APPROVED)
+      if ! LC_ALL=C grep -qE '^## Changelog Summary\s*$' "$f" 2>/dev/null; then
+        msg="$rel_path: Status '$status_canon' requires '## Changelog Summary' section (plan-1.9.0 P-A-003)"
+        if [ "$JSON_MODE" = "1" ]; then
+          json_record "$rel_path" "FAIL" "$msg"
+        else
+          fail_msg "$msg"
+        fi
+        file_violations=$((file_violations + 1))
+      fi
+      ;;
+  esac
+
   # --- Deprecated Doc ID / Plan ID fields ---
-  if head -n 30 "$f" 2>/dev/null | LC_ALL=C grep -qE '^\*\*Doc ID\*\*:'; then
+  if head -n 60 "$f" 2>/dev/null | LC_ALL=C grep -qE '^\*\*Doc ID\*\*:'; then
     msg="$rel_path: **Doc ID**: is deprecated — use **Plan Token**: as authoritative key (Doc ID preserved for backward compatibility)"
     if [ "$JSON_MODE" = "1" ]; then
       json_record "$rel_path" "WARN" "$msg"
@@ -380,7 +399,7 @@ for f in "${PLAN_FILES[@]}"; do
       warn_msg "$msg"
     fi
   fi
-  if head -n 30 "$f" 2>/dev/null | LC_ALL=C grep -qE '^\*\*Plan ID\*\*:'; then
+  if head -n 60 "$f" 2>/dev/null | LC_ALL=C grep -qE '^\*\*Plan ID\*\*:'; then
     msg="$rel_path: **Plan ID**: is deprecated — use **Plan Token**: as authoritative key (Plan ID preserved for backward compatibility)"
     if [ "$JSON_MODE" = "1" ]; then
       json_record "$rel_path" "WARN" "$msg"

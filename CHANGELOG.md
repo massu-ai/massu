@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.1] - 2026-05-15
+
+Bug-fix release. Closes the structural rendering bug discovered 2026-05-15 in the auto-derived `/releases/<version>` path shipped in 1.9.0 (CR-46 consolidation). Each section's bullet items were pushed as separate elements of the `parts` array and joined with `\n\n`, so the blank lines between consecutive `- foo` markdown lines terminated each list — every bullet rendered as its own single-item `<ul>` instead of one `<ul>` per section. Affected all 17 auto-derived release pages on production (1.6.x, 1.5.x, 1.4.x, ...); MDX-override pages (1.5-to-1.6, 1.7.0, 1.8.0, 1.9.0) were unaffected. Bug was visually verified live pre-fix: `/releases/1.6.3` had 4 headings + 21 single-item `<ul>` elements; `/releases/1.5.7` had 3 headings + 8 single-item `<ul>` elements. Fix builds each section as one `### heading\n\n- a\n- b\n- c` block; new RCC-05 drift-guard asserts `bulletBlockCount === sectionCount` for every auto-derived release, making the regression class structurally impossible.
+
+### Fixed
+
+- **`website/src/lib/releases.ts:135-138` `getReleaseContent()`** — replaced the per-bullet `parts.push('- ' + item)` loop with `const bullets = sec.items.map(i => '- ' + i).join('\n'); parts.push('### ' + sec.heading + '\n\n' + bullets)`. Final `parts.join('\n\n')` now only inserts blank lines between sections, never between bullets within a section. Visual result post-fix: each section renders as one `<ul>` with N `<li>` children (correct markdown semantics + correct accessibility tree + correct keyboard navigation).
+
+### Added
+
+- **`website/src/__tests__/releases-changelog-coverage.test.ts` RCC-05** — drift-guard asserting `content.split(/\n{2,}/).filter(b => b.trim().startsWith('- ')).length === entry.sections.filter(s => s.items.length > 0).length` for every `source==='changelog'` release. Also asserts every line inside a bullet block starts with `- ` (no contaminating prose). Structural drift-prevention per CR-46 — the regression class cannot reappear without test failure.
+
+### Verification
+
+- `cd website && npx vitest run releases-changelog-coverage.test.ts` — 5/5 pass (incl. new RCC-05 against all 17 auto-derived releases).
+- `cd website && npx tsc --noEmit` — 0 errors.
+- `cd website && npm test` — 323/323 pass (baseline preserved).
+- Pre-fix live evidence: `/releases/1.6.3` → 21 single-item `<ul>`s; `/releases/1.5.7` → 8 single-item `<ul>`s. Post-fix shape verified at the markdown layer via RCC-05 invariant.
+
 ## [1.9.0] - 2026-05-14
 
 

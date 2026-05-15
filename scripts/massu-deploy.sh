@@ -7,7 +7,8 @@
 #   2. Project target verification (correct Vercel project)
 #   3. Build dry-run (catch errors before deploying)
 #   4. Deploy to Vercel production
-#   5. Smoke test critical routes
+#   4.5. Alias propagation poll (fail-with-bypass; mirrors CR-48 staleness gate pattern)
+#   5. Smoke test critical routes against PRODUCTION_HOST
 #   6. Rollback guidance if smoke tests fail
 
 set -euo pipefail
@@ -26,6 +27,17 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null |
 WEBSITE_DIR="$PROJECT_DIR/website"
 EXPECTED_PROJECT_ID="prj_Io7AaGCM27cwRQerAj3BdihUur1Y"
 EXPECTED_PROJECT_NAME="massu"
+PRODUCTION_HOST="${MASSU_PRODUCTION_HOST:-https://massu.ai}"
+PRODUCTION_HOST="${PRODUCTION_HOST%/}"  # strip trailing slash to keep $PRODUCTION_HOST/$ROUTE clean
+if [[ ! "$PRODUCTION_HOST" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?$ ]]; then
+  echo "ERROR: MASSU_PRODUCTION_HOST is not a clean http(s)://host URL: $PRODUCTION_HOST" >&2
+  exit 1
+fi
+ALIAS_PROPAGATION_TIMEOUT_SECS="${MASSU_ALIAS_PROPAGATION_TIMEOUT_SECS:-120}"
+if [[ ! "$ALIAS_PROPAGATION_TIMEOUT_SECS" =~ ^[0-9]+$ ]] || [ "$ALIAS_PROPAGATION_TIMEOUT_SECS" -gt 600 ]; then
+  echo "ERROR: MASSU_ALIAS_PROPAGATION_TIMEOUT_SECS must be a non-negative integer ≤ 600: $ALIAS_PROPAGATION_TIMEOUT_SECS" >&2
+  exit 1
+fi
 
 PASSED=0
 FAILED=0
@@ -136,6 +148,52 @@ else
     exit 1
   fi
 fi
+unset DEPLOY_OUTPUT  # release buffered vercel CLI stdout/stderr (may contain build-time data)
+
+# Step 4.5: Alias propagation poll
+# After `vercel --prod --yes` returns, the new deployment may not yet be the target
+# of the production alias (e.g., https://massu.ai). Smoke testing PRODUCTION_HOST
+# before the alias propagates would hit the PREVIOUS deploy. Poll `vercel ls --prod`
+# until the new deploy's hostname prefix appears as the active production target.
+#
+# Why `vercel ls --prod` and not `x-vercel-deployment-url` header polling:
+# verified 2026-05-15 — `curl -sI https://massu.ai/` returns `x-vercel-id` but
+# does NOT return `x-vercel-deployment-url`. The header approach is unavailable
+# on this Vercel project. The CLI uses already-authenticated state from Step 4.
+echo ""
+echo "--- Step 4.5: Alias Propagation ---"
+DEPLOY_HOST_PREFIX=$(echo "$DEPLOY_URL" | sed -E 's|^https?://([^.]+)\..*|\1|')
+SECS_WAITED=0
+SLEEP_SECS=3
+PROPAGATED=false
+info "Polling Vercel for alias propagation: ${PRODUCTION_HOST} -> ${DEPLOY_HOST_PREFIX}"
+while [ "$SECS_WAITED" -lt "$ALIAS_PROPAGATION_TIMEOUT_SECS" ]; do
+  ALIAS_TARGET=$(cd "$WEBSITE_DIR" && npx vercel ls --prod 2>/dev/null | grep -oE "https://${DEPLOY_HOST_PREFIX}[a-zA-Z0-9.-]*\.vercel\.app" | head -1)
+  if [ -n "$ALIAS_TARGET" ]; then
+    pass "Alias propagated: ${PRODUCTION_HOST} now serving deploy ${DEPLOY_HOST_PREFIX}"
+    PROPAGATED=true
+    break
+  fi
+  info "Waiting for alias propagation (${SECS_WAITED}s elapsed)..."
+  sleep "$SLEEP_SECS"
+  SECS_WAITED=$((SECS_WAITED + SLEEP_SECS))
+done
+if [ "$PROPAGATED" = false ]; then
+  # Fail-with-bypass on timeout (mirrors CR-48 staleness gate pattern in pre-push-light.sh
+  # step 8). An earlier draft used warn-not-fail but that creates operator-acclimation
+  # risk identical to the bug class CR-48 was created to eliminate. Bypass via
+  # MASSU_SKIP_ALIAS_PROPAGATION_CHECK=1 logged to stderr for audit-trail visibility.
+  if [ "${MASSU_SKIP_ALIAS_PROPAGATION_CHECK:-0}" = "1" ]; then
+    warn "Alias propagation NOT confirmed within ${ALIAS_PROPAGATION_TIMEOUT_SECS}s; BYPASSED via MASSU_SKIP_ALIAS_PROPAGATION_CHECK=1."
+    echo "AUDIT: MASSU_SKIP_ALIAS_PROPAGATION_CHECK=1 used at $(date -u +%Y-%m-%dT%H:%M:%SZ) for deploy ${DEPLOY_HOST_PREFIX}" >&2
+  else
+    fail "Alias propagation NOT confirmed within ${ALIAS_PROPAGATION_TIMEOUT_SECS}s via 'vercel ls'."
+    echo "If 'vercel ls --prod' is genuinely broken (CLI auth lost, rate-limit, network),"
+    echo "bypass via: MASSU_SKIP_ALIAS_PROPAGATION_CHECK=1 bash scripts/massu-deploy.sh"
+    echo "Otherwise the new deploy may be stranded — investigate with: npx vercel ls --prod"
+    exit 1
+  fi
+fi
 
 # Step 5: Smoke tests
 echo ""
@@ -143,22 +201,16 @@ echo "--- Step 5: Smoke Tests ---"
 SMOKE_FAILED=0
 
 for ROUTE in "/" "/docs" "/changelog" "/overview"; do
-  STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOY_URL}${ROUTE}" 2>/dev/null || echo "000")
+  # -L follows redirects (e.g., /docs → /docs/getting-started 307→200) so we
+  # assert end-state reachability, not literal initial-response 200.
+  STATUS=$(curl -sL -o /dev/null -w "%{http_code}" "${PRODUCTION_HOST}${ROUTE}" 2>/dev/null || echo "000")
   if [ "$STATUS" = "200" ]; then
-    pass "GET ${ROUTE} -> ${STATUS}"
+    pass "GET ${PRODUCTION_HOST}${ROUTE} -> ${STATUS}"
   else
-    fail "GET ${ROUTE} -> ${STATUS} (expected 200)"
+    fail "GET ${PRODUCTION_HOST}${ROUTE} -> ${STATUS} (expected 200)"
     SMOKE_FAILED=$((SMOKE_FAILED + 1))
   fi
 done
-
-# Check massu.ai as well
-PROD_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://massu.ai" 2>/dev/null || echo "000")
-if [ "$PROD_STATUS" = "200" ]; then
-  pass "GET https://massu.ai -> ${PROD_STATUS}"
-else
-  warn "GET https://massu.ai -> ${PROD_STATUS} (may need DNS propagation)"
-fi
 
 # Step 6: Final report
 echo ""
@@ -172,6 +224,6 @@ if [ "$SMOKE_FAILED" -gt 0 ]; then
 else
   echo -e "${GREEN}DEPLOY COMPLETE — ALL CHECKS PASSED${NC}"
   echo "Production URL: $DEPLOY_URL"
-  echo "Custom domain: https://massu.ai"
+  echo "Production target: $PRODUCTION_HOST"
 fi
 echo "========================================"

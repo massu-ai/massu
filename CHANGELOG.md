@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.2] - 2026-05-15
+
+Plan `plan-1.9.2-deploy-smoke-test-production-host` — `/massu-deploy` smoke tests now target the canonical production host (`https://massu.ai`) instead of the per-deploy Vercel preview URL. Closes the structural bug discovered 2026-05-15 during the 1.9.1 ceremony where every smoke test on `/`, `/docs`, `/changelog`, `/overview` returned HTTP 401 against the auth-gated preview URL — making the gate enshrined in CR-48 Stage D unable to actually verify production. Adds alias-propagation poll (Vercel CLI `vercel ls --prod` matches the new deploy's hostname prefix) so smoke tests only run after the production alias has been updated to point to the new deploy; FAIL-with-bypass on timeout (`MASSU_SKIP_ALIAS_PROPAGATION_CHECK=1`) mirroring CR-48 staleness gate pattern. Structural drift-prevention: vitest `massu-deploy-script-shape.test.ts` (4 DEPLOY-SHAPE assertions including a slash-command doc drift-guard) parses `scripts/massu-deploy.sh` and asserts smoke tests target `PRODUCTION_HOST`, not `DEPLOY_URL`. The bug class — "deploy script silently 401s its own smoke tests" — becomes structurally impossible to reintroduce without test failure.
+
+### Fixed
+
+- **`scripts/massu-deploy.sh` Step 5 smoke-test target** — was `${DEPLOY_URL}${ROUTE}` (auth-gated preview URL, always 401); now `${PRODUCTION_HOST}${ROUTE}` (canonical production domain, returns real HTTP status). Uses `curl -sL` to follow redirects so `/docs` (307 → `/docs/getting-started` → 200) passes correctly.
+- **Final-report honesty**: was hardcoded `Custom domain: https://massu.ai`; now `Production target: $PRODUCTION_HOST` (reflects env-overrides for staging dry-runs).
+
+### Added
+
+- **`scripts/massu-deploy.sh` Step 4.5 Alias Propagation poll** — uses `vercel ls --prod` (already-authenticated CLI) to detect when the new deploy is the production-alias target. FAIL-with-bypass on timeout (`MASSU_SKIP_ALIAS_PROPAGATION_CHECK=1` env-bypass logged to stderr). The header-polling approach (`x-vercel-deployment-url`) was empirically ruled out: live `curl -sI https://massu.ai/` returns `x-vercel-id` but not `x-vercel-deployment-url`.
+- **`PRODUCTION_HOST` + `ALIAS_PROPAGATION_TIMEOUT_SECS` constants** in `scripts/massu-deploy.sh` with env-var overrides (`MASSU_PRODUCTION_HOST`, `MASSU_ALIAS_PROPAGATION_TIMEOUT_SECS`). Input validation: URL regex + integer ≤600 cap.
+- **`website/src/__tests__/massu-deploy-script-shape.test.ts`** — 4 drift-guard assertions (DEPLOY-SHAPE-01..04) parsing the bash script + slash-command doc via `readFileSync`. Asserts smoke loop uses `${PRODUCTION_HOST}` not `${DEPLOY_URL}`, propagation block precedes smoke block, and doc cites the same default + env-var names. Empty-body and curl-line-count guards prevent silent-pass on delimiter rename.
+- **`.claude/commands/massu-deploy.md`** — env-var override table; Step 4.5 added to pre-flight checks list.
+
+### Verification
+
+- `bash -n scripts/massu-deploy.sh` — exit 0.
+- `cd website && npx vitest run src/__tests__/massu-deploy-script-shape.test.ts` — 4/4 pass.
+- `cd packages/core && npx tsc --noEmit` — 0 errors.
+- `cd website && npx tsc --noEmit` — 0 errors.
+- `bash scripts/massu-pattern-scanner.sh` — all 16 checks PASS.
+- `bash scripts/massu-plan-status-validator.sh` — PASS.
+- `bash scripts/massu-plan-commit-drift.sh` — PASS.
+- Live pre-deploy baseline (2026-05-15): `https://massu.ai/` → 200; `/docs` → 307 → 200 (handled via `-L`); `/changelog` → 200; `/overview` → 200.
+
 ## [1.9.1] - 2026-05-15
 
 Bug-fix release. Closes the structural rendering bug discovered 2026-05-15 in the auto-derived `/releases/<version>` path shipped in 1.9.0 (CR-46 consolidation). Each section's bullet items were pushed as separate elements of the `parts` array and joined with `\n\n`, so the blank lines between consecutive `- foo` markdown lines terminated each list — every bullet rendered as its own single-item `<ul>` instead of one `<ul>` per section. Affected all 17 auto-derived release pages on production (1.6.x, 1.5.x, 1.4.x, ...); MDX-override pages (1.5-to-1.6, 1.7.0, 1.8.0, 1.9.0) were unaffected. Bug was visually verified live pre-fix: `/releases/1.6.3` had 4 headings + 21 single-item `<ul>` elements; `/releases/1.5.7` had 3 headings + 8 single-item `<ul>` elements. Fix builds each section as one `### heading\n\n- a\n- b\n- c` block; new RCC-05 drift-guard asserts `bulletBlockCount === sectionCount` for every auto-derived release, making the regression class structurally impossible.

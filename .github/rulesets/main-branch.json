@@ -1,0 +1,35 @@
+{
+  "name": "main-branch-protection",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/heads/main"],
+      "exclude": []
+    }
+  },
+  "bypass_actors": [
+    {"actor_id": 261639734, "actor_type": "User", "bypass_mode": "always"}
+  ],
+  "rules": [
+    {"type": "deletion"},
+    {"type": "non_fast_forward"},
+    {"type": "required_linear_history"},
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {"context": "Type Check"},
+          {"context": "Test"},
+          {"context": "Build"},
+          {"context": "Public Repo Leak Guard"},
+          {"context": "Public Repo Leak Guard (full-tree)"},
+          {"context": "Source-of-Truth Discipline"},
+          {"context": "Ruleset Drift Guard"}
+        ],
+        "strict_required_status_checks_policy": true
+      }
+    }
+  ]
+}

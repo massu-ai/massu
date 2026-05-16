@@ -48,6 +48,22 @@ jobs:
       - name: Test (Core)
         run: npm test
 
+  ruleset-drift-guard:
+    name: Ruleset Drift Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Drift check
+        # plan-rulesets-as-code P-C-007: forward + reverse coverage between
+        # .github/rulesets/main-branch.json and .github/workflows/*.yml. Same
+        # script as the internal repo (synced via PUBLIC_MANIFEST.md). Job
+        # name "Ruleset Drift Guard" is a required-status-check context in
+        # .github/rulesets/main-branch.json — rule self-applies.
+        run: node scripts/ruleset-context-coverage.mjs
+
   build:
     name: Build
     runs-on: ubuntu-latest

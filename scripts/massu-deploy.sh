@@ -39,6 +39,17 @@ if [[ ! "$ALIAS_PROPAGATION_TIMEOUT_SECS" =~ ^[0-9]+$ ]] || [ "$ALIAS_PROPAGATIO
   exit 1
 fi
 
+# Smoke-test config — list of routes asserted via `curl -sL` against PRODUCTION_HOST after
+# alias propagation. Hardcoded inline (Arch-M-4 known limitation, plan §7.5: future plan
+# can derive from sitemap). Bounded curl timeout prevents a hung TCP connection from
+# stalling the deploy script indefinitely (gap-analysis-iter1 finding).
+SMOKE_ROUTES=("/" "/docs" "/changelog" "/overview")
+SMOKE_CURL_MAX_TIME_SECS="${MASSU_SMOKE_CURL_MAX_TIME_SECS:-15}"
+if [[ ! "$SMOKE_CURL_MAX_TIME_SECS" =~ ^[0-9]+$ ]] || [ "$SMOKE_CURL_MAX_TIME_SECS" -lt 1 ] || [ "$SMOKE_CURL_MAX_TIME_SECS" -gt 120 ]; then
+  echo "ERROR: MASSU_SMOKE_CURL_MAX_TIME_SECS must be a positive integer ≤ 120: $SMOKE_CURL_MAX_TIME_SECS" >&2
+  exit 1
+fi
+
 PASSED=0
 FAILED=0
 
@@ -167,8 +178,17 @@ SECS_WAITED=0
 SLEEP_SECS=3
 PROPAGATED=false
 info "Polling Vercel for alias propagation: ${PRODUCTION_HOST} -> ${DEPLOY_HOST_PREFIX}"
+ALIAS_POLL_STDERR_LOG=$(mktemp -t massu-alias-poll.XXXXXX.log)
+# Cover EXIT (normal), INT (operator Ctrl-C mid-poll), TERM (process killed) so the
+# tmpfile is always cleaned up. Without INT/TERM, a Ctrl-C during the propagation
+# poll leaves orphan tmpfiles in $TMPDIR (gap-analysis-iter2 finding).
+trap 'rm -f "$ALIAS_POLL_STDERR_LOG"' EXIT INT TERM
 while [ "$SECS_WAITED" -lt "$ALIAS_PROPAGATION_TIMEOUT_SECS" ]; do
-  ALIAS_TARGET=$(cd "$WEBSITE_DIR" && npx vercel ls --prod 2>/dev/null | grep -oE "https://${DEPLOY_HOST_PREFIX}[a-zA-Z0-9.-]*\.vercel\.app" | head -1)
+  # Capture stderr to a tmpfile (instead of /dev/null) so genuine `vercel ls` errors
+  # (auth-expired, rate-limit, network) can be surfaced to the operator on timeout
+  # — silently swallowing stderr makes the failure mode "alias never propagated"
+  # indistinguishable from "Vercel CLI lost auth" for the operator.
+  ALIAS_TARGET=$(cd "$WEBSITE_DIR" && npx vercel ls --prod 2>"$ALIAS_POLL_STDERR_LOG" | grep -oE "https://${DEPLOY_HOST_PREFIX}[a-zA-Z0-9.-]*\.vercel\.app" | head -1)
   if [ -n "$ALIAS_TARGET" ]; then
     pass "Alias propagated: ${PRODUCTION_HOST} now serving deploy ${DEPLOY_HOST_PREFIX}"
     PROPAGATED=true
@@ -188,6 +208,11 @@ if [ "$PROPAGATED" = false ]; then
     echo "AUDIT: MASSU_SKIP_ALIAS_PROPAGATION_CHECK=1 used at $(date -u +%Y-%m-%dT%H:%M:%SZ) for deploy ${DEPLOY_HOST_PREFIX}" >&2
   else
     fail "Alias propagation NOT confirmed within ${ALIAS_PROPAGATION_TIMEOUT_SECS}s via 'vercel ls'."
+    if [ -s "$ALIAS_POLL_STDERR_LOG" ]; then
+      echo "--- vercel ls --prod stderr (last 20 lines) ---"
+      tail -20 "$ALIAS_POLL_STDERR_LOG"
+      echo "--- end vercel ls stderr ---"
+    fi
     echo "If 'vercel ls --prod' is genuinely broken (CLI auth lost, rate-limit, network),"
     echo "bypass via: MASSU_SKIP_ALIAS_PROPAGATION_CHECK=1 bash scripts/massu-deploy.sh"
     echo "Otherwise the new deploy may be stranded — investigate with: npx vercel ls --prod"
@@ -200,14 +225,30 @@ echo ""
 echo "--- Step 5: Smoke Tests ---"
 SMOKE_FAILED=0
 
-for ROUTE in "/" "/docs" "/changelog" "/overview"; do
+for ROUTE in "${SMOKE_ROUTES[@]}"; do
   # -L follows redirects (e.g., /docs → /docs/getting-started 307→200) so we
   # assert end-state reachability, not literal initial-response 200.
-  STATUS=$(curl -sL -o /dev/null -w "%{http_code}" "${PRODUCTION_HOST}${ROUTE}" 2>/dev/null || echo "000")
+  # --max-time bounds total wall-clock; --connect-timeout bounds TCP-handshake.
+  # Without these a hung connection would stall the deploy script indefinitely.
+  #
+  # Capture BOTH the HTTP status AND curl's exit code so the operator can
+  # distinguish HTTP-non-200 from transport-layer failures (DNS, TCP, TLS, etc.)
+  # instead of collapsing everything to `000` (gap-analysis-iter2 finding).
+  # `|| CURL_EXIT=$?` pattern preserves curl's exit code under `set -e` without
+  # killing the script. STATUS gets the partial output when curl errors mid-flight.
+  CURL_EXIT=0
+  STATUS=$(curl -sL --max-time "$SMOKE_CURL_MAX_TIME_SECS" --connect-timeout 5 -o /dev/null -w "%{http_code}" "${PRODUCTION_HOST}${ROUTE}" 2>/dev/null) || CURL_EXIT=$?
+  if [ "$CURL_EXIT" -ne 0 ]; then
+    STATUS="000"
+  fi
   if [ "$STATUS" = "200" ]; then
     pass "GET ${PRODUCTION_HOST}${ROUTE} -> ${STATUS}"
   else
-    fail "GET ${PRODUCTION_HOST}${ROUTE} -> ${STATUS} (expected 200)"
+    if [ "$CURL_EXIT" -ne 0 ]; then
+      fail "GET ${PRODUCTION_HOST}${ROUTE} -> curl exit=${CURL_EXIT} (transport failure: see 'man curl' EXIT CODES; 6=DNS, 7=TCP, 28=timeout>${SMOKE_CURL_MAX_TIME_SECS}s, 35=TLS)"
+    else
+      fail "GET ${PRODUCTION_HOST}${ROUTE} -> ${STATUS} (expected 200)"
+    fi
     SMOKE_FAILED=$((SMOKE_FAILED + 1))
   fi
 done

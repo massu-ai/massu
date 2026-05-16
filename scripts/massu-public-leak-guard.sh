@@ -96,6 +96,10 @@ ALLOWED_PATTERNS=(
   '^\.claude/commands/'
   # CI (when added)
   '^\.github/workflows/'
+  # Rulesets (plan-rulesets-as-code P-A-002 / P-C-005 — main-branch.json
+  # synced from internal main-branch.public.json via sync-public.sh
+  # `.public.<ext>` rename pattern).
+  '^\.github/rulesets/'
 )
 
 # Explicitly DENIED — these are the paths that leaked. Belt-and-suspenders.

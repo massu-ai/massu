@@ -1,0 +1,81 @@
+name: Branch Protection Audit
+
+# Layer 4 of plan-rulesets-as-code: daily read-only audit that diffs the live
+# GitHub Ruleset against the committed JSON. Fails loudly on any drift (e.g.,
+# someone edited the rule via UI). Notification is GitHub Actions' built-in
+# email-on-workflow-failure path (no extra notifier surface).
+#
+# GitHub Actions cron runs on GitHub-side infrastructure (REMOTE scheduling),
+# NOT on the operator's machine — CR-47 governs LOCAL scheduling only.
+#
+# Reference: docs/plans/2026-05-15-rulesets-as-code.md §3 Layer 4
+
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: branch-protection-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Branch Protection Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate App token (primary path)
+        id: app-token
+        if: ${{ vars.RULESET_APPLY_AUTH_MODE != 'pat' }}
+        # Pinned to v1.12.0 SHA per security-review LOW-2. Resolved via
+        # `gh api repos/actions/create-github-app-token/git/refs/tags/v1`.
+        # Bump SHA + version comment together when updating.
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ secrets.RULESET_APPLY_APP_ID }}
+          private-key: ${{ secrets.RULESET_APPLY_APP_PRIVATE_KEY }}
+
+      - name: Mask + export token to job env (security-review HIGH-1)
+        # HIGH-1: $GITHUB_OUTPUT persists in workflow run records; later
+        # steps and composite actions can read steps.<id>.outputs.token.
+        # $GITHUB_ENV is only available to subsequent steps in this job and
+        # is NOT persisted in the run record.
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          PAT_TOKEN: ${{ secrets.RULESET_APPLY_PAT }}
+          AUTH_MODE: ${{ vars.RULESET_APPLY_AUTH_MODE }}
+        run: |
+          set -euo pipefail
+          # Identical validation to apply-ruleset.yml: an empty token here
+          # would cause `gh api` to run unauthenticated, succeed against
+          # public data (or 401 with the error swallowed mid-pipe), and the
+          # audit script to exit 1 with "No live ruleset" — which an
+          # operator would misdiagnose as drift, not as a missing-credentials
+          # class. Fail loudly instead.
+          if [ "$AUTH_MODE" = "pat" ]; then
+            if [ -z "${PAT_TOKEN}" ]; then
+              echo "::error::AUTH_MODE=pat but RULESET_APPLY_PAT secret is empty"
+              exit 1
+            fi
+            echo "Using PAT fallback (RULESET_APPLY_PAT)"
+            TOKEN_VALUE="$PAT_TOKEN"
+          else
+            if [ -z "${APP_TOKEN}" ]; then
+              echo "::error::App token generation failed (RULESET_APPLY_APP_ID / RULESET_APPLY_APP_PRIVATE_KEY)"
+              exit 1
+            fi
+            echo "Using App token (massu-ruleset-apply)"
+            TOKEN_VALUE="$APP_TOKEN"
+          fi
+          echo "::add-mask::$TOKEN_VALUE"
+          printf 'GH_AUTH_TOKEN<<__EOF__\n%s\n__EOF__\n' "$TOKEN_VALUE" >> "$GITHUB_ENV"
+
+      - name: Compare live ruleset vs committed JSON
+        env:
+          GH_TOKEN: ${{ env.GH_AUTH_TOKEN }}
+        run: bash scripts/audit-ruleset-state.sh

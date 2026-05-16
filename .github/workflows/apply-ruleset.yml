@@ -1,0 +1,130 @@
+name: Apply Ruleset
+
+# Layer 3 of plan-rulesets-as-code: reconciles the JSON SoT
+# (.github/rulesets/main-branch.json) to the live GitHub Rulesets API on every
+# change to the JSON file. POST-or-PUT branching: creates the ruleset on first
+# run; updates on every subsequent change.
+#
+# Reference: docs/plans/2026-05-15-rulesets-as-code.md §3 Layer 3
+# ADR: docs/adr/0002-rulesets-as-code-and-bypass-actors.md
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/rulesets/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Reconciler semantics: only the latest committed state matters. If two
+  # rapid pushes both touch .github/rulesets/**, run B can supersede run A
+  # without correctness loss (each PUT writes the LATEST committed file).
+  # cancel-in-progress: true avoids the queue-ordering inversion risk where
+  # an older PUT lands after a newer one due to GitHub Actions queue ordering.
+  group: apply-ruleset-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    name: Apply Ruleset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate App token (primary path)
+        id: app-token
+        if: ${{ vars.RULESET_APPLY_AUTH_MODE != 'pat' }}
+        # Pinned to v1.12.0 SHA per security-review LOW-2. Resolved via
+        # `gh api repos/actions/create-github-app-token/git/refs/tags/v1`.
+        # Bump SHA + version comment together when updating.
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ secrets.RULESET_APPLY_APP_ID }}
+          private-key: ${{ secrets.RULESET_APPLY_APP_PRIVATE_KEY }}
+
+      - name: Mask + export token to job env (security-review HIGH-1)
+        # HIGH-1: $GITHUB_OUTPUT persists in workflow run records; later
+        # steps and composite actions can read steps.<id>.outputs.token.
+        # $GITHUB_ENV is only available to subsequent steps in this job and
+        # is NOT persisted in the run record. Combined with explicit
+        # ::add-mask:: (no-op if already masked, defensive otherwise), the
+        # token cannot leak via outputs.
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          PAT_TOKEN: ${{ secrets.RULESET_APPLY_PAT }}
+          AUTH_MODE: ${{ vars.RULESET_APPLY_AUTH_MODE }}
+        run: |
+          set -euo pipefail
+          if [ "$AUTH_MODE" = "pat" ]; then
+            if [ -z "${PAT_TOKEN}" ]; then
+              echo "::error::AUTH_MODE=pat but RULESET_APPLY_PAT secret is empty"
+              exit 1
+            fi
+            echo "Using PAT fallback (RULESET_APPLY_PAT)"
+            TOKEN_VALUE="$PAT_TOKEN"
+          else
+            if [ -z "${APP_TOKEN}" ]; then
+              echo "::error::App token generation failed (RULESET_APPLY_APP_ID / RULESET_APPLY_APP_PRIVATE_KEY)"
+              exit 1
+            fi
+            echo "Using App token (massu-ruleset-apply)"
+            TOKEN_VALUE="$APP_TOKEN"
+          fi
+          # Defensive mask (the action's token output is auto-masked, the
+          # PAT comes from `secrets.*` which is also auto-masked — but
+          # explicit beats implicit on a token write path).
+          echo "::add-mask::$TOKEN_VALUE"
+          # Heredoc form is safe against token values containing literal
+          # newlines (security-review MED-2 — theoretical for App tokens
+          # and PATs but cheap to defend against).
+          printf 'GH_AUTH_TOKEN<<__EOF__\n%s\n__EOF__\n' "$TOKEN_VALUE" >> "$GITHUB_ENV"
+
+      - name: Apply ruleset (create or update)
+        env:
+          GH_TOKEN: ${{ env.GH_AUTH_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          RULESET_FILE=".github/rulesets/main-branch.json"
+          if [ ! -f "$RULESET_FILE" ]; then
+            echo "::error::$RULESET_FILE does not exist"
+            exit 1
+          fi
+
+          # Validate JSON shape locally before sending to API
+          if ! jq -e 'type == "object"' "$RULESET_FILE" >/dev/null; then
+            echo "::error::$RULESET_FILE is not a valid JSON object"
+            exit 1
+          fi
+
+          RULESET_NAME=$(jq -r '.name' "$RULESET_FILE")
+          if [ -z "$RULESET_NAME" ] || [ "$RULESET_NAME" = "null" ]; then
+            echo "::error::$RULESET_FILE missing top-level .name field"
+            exit 1
+          fi
+
+          # Look up existing ruleset by name. RULESET_NAME passed via
+          # jq --arg (NOT shell-interpolated into the filter) to remove the
+          # jq-injection class (security-review MED-1). Two-step gh api
+          # | jq pipeline because `gh api --jq` does not accept --arg.
+          RULESET_ID=$(gh api "repos/$REPO/rulesets" \
+            | jq --arg name "$RULESET_NAME" -r '.[] | select(.name==$name) | .id' || true)
+
+          if [ -z "$RULESET_ID" ]; then
+            echo "Creating new ruleset '$RULESET_NAME' on $REPO"
+            gh api "repos/$REPO/rulesets" \
+              --method POST \
+              --input "$RULESET_FILE"
+          else
+            echo "Updating ruleset id=$RULESET_ID name='$RULESET_NAME' on $REPO"
+            gh api "repos/$REPO/rulesets/$RULESET_ID" \
+              --method PUT \
+              --input "$RULESET_FILE"
+          fi
+
+          echo "Apply complete. Current ruleset state:"
+          gh api "repos/$REPO/rulesets" \
+            | jq --arg name "$RULESET_NAME" '.[] | select(.name==$name)'

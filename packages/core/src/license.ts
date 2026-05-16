@@ -188,7 +188,10 @@ const TIER_LABELS: Record<ToolTier, string> = {
 
 /**
  * Annotate tool definitions with tier labels in descriptions.
- * Also sets the `tier` field on each definition.
+ * Stores the structured tier under `annotations.tier` (MCP-spec-sanctioned
+ * extension point) — never as a top-level field, which violates the
+ * canonical Tool schema (schema/2025-11-25/schema.ts line 1251) and is
+ * silently rejected by Claude Code 2.1.143+ (massu-ai/massu#4).
  * Free tools get no label prefix.
  */
 export function annotateToolDefinitions(defs: ToolDefinition[]): ToolDefinition[] {
@@ -197,7 +200,7 @@ export function annotateToolDefinitions(defs: ToolDefinition[]): ToolDefinition[
     const label = TIER_LABELS[tier];
     return {
       ...def,
-      tier,
+      annotations: { ...(def.annotations ?? {}), tier },
       description: label ? `${label}${def.description}` : def.description,
     };
   });

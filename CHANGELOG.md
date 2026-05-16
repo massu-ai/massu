@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.3] - 2026-05-15
+
+Bug-fix release. Closes upstream issue [massu-ai/massu#4](https://github.com/massu-ai/massu/issues/4) — `tools/list` emitted a non-standard top-level `tier` field on every Tool object, which Claude Code 2.1.143 (released 2026-05-15) silently rejects, causing all 67 `mcp__massu__*` tools to disappear from the deferred-tool registry on session start. The canonical MCP Tool schema ([`schema/2025-11-25/schema.ts` line 1251](https://github.com/modelcontextprotocol/specification/blob/main/schema/2025-11-25/schema.ts#L1251)) permits only `name`, `title`, `description`, `inputSchema`, `execution`, `outputSchema`, `annotations`, `_meta`, `icons` — `tier` is not in the schema. Structured tier metadata now lives under `annotations.tier` (the spec-sanctioned extension point for tool metadata); the visible `[PRO] ` / `[TEAM] ` / `[ENTERPRISE] ` description-prefix labelling is unchanged. Internal license enforcement at `tools.ts:323-331` is unaffected because it reads `getToolTier(name)` from the static server-side `TOOL_TIER_MAP`, never from the wire-emitted field — no license-bypass risk. Structural drift-prevention: new vitest assertion (`license.test.ts` "emits only MCP-spec-permitted top-level fields") parses the annotated definitions against the canonical permitted set; the regression class becomes structurally impossible to reintroduce without test failure.
+
+### Fixed
+
+- **`packages/core/src/license.ts:194-203` `annotateToolDefinitions()`** — replaced the top-level `tier,` spread with `annotations: { ...(def.annotations ?? {}), tier },`. Wire-format Tool objects now conform to MCP spec 2025-11-25 §`Tool` (extends `BaseMetadata, Icons`). Caller-supplied annotations (e.g. `readOnlyHint`, `title`) are preserved via shallow-merge before tier is added.
+- **`packages/core/src/tools.ts:43-48` `ToolDefinition` interface** — dropped top-level `tier?: 'free' | 'pro' | 'team' | 'enterprise'`; added `annotations?: Record<string, unknown>` to mirror the MCP spec extension point. The local interface remains permissive (`Record<string, unknown>` vs. the spec's strictly-typed `ToolAnnotations`) so that `tier` can co-exist with caller-supplied annotation fields without a circular `ToolTier` type import.
+
+### Added
+
+- **`packages/core/src/__tests__/license.test.ts` two new regression tests** under the existing P3-029 `annotateToolDefinitions()` describe block:
+  - `"emits only MCP-spec-permitted top-level fields on every Tool (regression: #4)"` — iterates every annotated def and asserts `Object.keys(def) ⊆ SPEC_PERMITTED` where `SPEC_PERMITTED = { name, title, description, inputSchema, execution, outputSchema, annotations, _meta, icons }` (the canonical MCP 2025-11-25 Tool field set). Quotes the spec citation inline. The bug class — wire-format Tool objects with non-spec top-level fields — is now structurally impossible to reintroduce.
+  - `"preserves caller-supplied annotations when adding tier (regression: #4)"` — asserts that `annotateToolDefinitions` shallow-merges incoming `annotations.readOnlyHint` + `annotations.title` with the new `annotations.tier`, never clobbers them.
+- Existing 9 `annotated[N].tier` assertions in the same describe block migrated to `annotated[N].annotations?.tier` to track the wire-format relocation.
+
+### Verification
+
+- `cd packages/core && npm test` — ALL pass (see commit message body for count).
+- `cd packages/core && npx tsc --noEmit` — 0 errors.
+- `bash scripts/massu-pattern-scanner.sh` — exit 0 (all 16 checks).
+- Diagnostic confirmation: stripping `tier` via a stdio wrapper restored all 67 `mcp__massu__*` tools in Claude Code 2.1.143 (proves the fix root-cause-correct).
+- Spec citation: [`schema/2025-11-25/schema.ts` line 1251](https://github.com/modelcontextprotocol/specification/blob/main/schema/2025-11-25/schema.ts#L1251) — `interface Tool extends BaseMetadata, Icons` with no `tier` field.
+
 ## [1.9.2] - 2026-05-15
 
 Plan `plan-1.9.2-deploy-smoke-test-production-host` — `/massu-deploy` smoke tests now target the canonical production host (`https://massu.ai`) instead of the per-deploy Vercel preview URL. Closes the structural bug discovered 2026-05-15 during the 1.9.1 ceremony where every smoke test on `/`, `/docs`, `/changelog`, `/overview` returned HTTP 401 against the auth-gated preview URL — making the gate enshrined in CR-48 Stage D unable to actually verify production. Adds alias-propagation poll (Vercel CLI `vercel ls --prod` matches the new deploy's hostname prefix) so smoke tests only run after the production alias has been updated to point to the new deploy; FAIL-with-bypass on timeout (`MASSU_SKIP_ALIAS_PROPAGATION_CHECK=1`) mirroring CR-48 staleness gate pattern. Structural drift-prevention: vitest `massu-deploy-script-shape.test.ts` (4 DEPLOY-SHAPE assertions including a slash-command doc drift-guard) parses `scripts/massu-deploy.sh` and asserts smoke tests target `PRODUCTION_HOST`, not `DEPLOY_URL`. The bug class — "deploy script silently 401s its own smoke tests" — becomes structurally impossible to reintroduce without test failure.

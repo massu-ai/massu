@@ -44,7 +44,7 @@ export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  tier?: 'free' | 'pro' | 'team' | 'enterprise';
+  annotations?: Record<string, unknown>;
 }
 
 export interface ToolResult {

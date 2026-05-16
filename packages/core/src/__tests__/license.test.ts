@@ -492,7 +492,7 @@ describe('P3-029: annotateToolDefinitions()', () => {
     ];
     const annotated = annotateToolDefinitions(defs);
     expect(annotated[0].description).toBe('[PRO] Compute quality score');
-    expect(annotated[0].tier).toBe('pro');
+    expect(annotated[0].annotations?.tier).toBe('pro');
   });
 
   it('adds [TEAM] prefix to team tool descriptions', () => {
@@ -501,7 +501,7 @@ describe('P3-029: annotateToolDefinitions()', () => {
     ];
     const annotated = annotateToolDefinitions(defs);
     expect(annotated[0].description).toBe('[TEAM] Register a feature');
-    expect(annotated[0].tier).toBe('team');
+    expect(annotated[0].annotations?.tier).toBe('team');
   });
 
   it('adds [ENTERPRISE] prefix to enterprise tool descriptions', () => {
@@ -510,7 +510,7 @@ describe('P3-029: annotateToolDefinitions()', () => {
     ];
     const annotated = annotateToolDefinitions(defs);
     expect(annotated[0].description).toBe('[ENTERPRISE] Log an audit event');
-    expect(annotated[0].tier).toBe('enterprise');
+    expect(annotated[0].annotations?.tier).toBe('enterprise');
   });
 
   it('does NOT add prefix to free tool descriptions', () => {
@@ -519,10 +519,10 @@ describe('P3-029: annotateToolDefinitions()', () => {
     ];
     const annotated = annotateToolDefinitions(defs);
     expect(annotated[0].description).toBe('Synchronize indexes');
-    expect(annotated[0].tier).toBe('free');
+    expect(annotated[0].annotations?.tier).toBe('free');
   });
 
-  it('sets tier field correctly on each definition', () => {
+  it('sets annotations.tier correctly on each definition', () => {
     const defs = [
       { name: 'massu_sync', description: 'Free tool', inputSchema: { type: 'object' } },
       { name: 'massu_cost_session', description: 'Pro tool', inputSchema: { type: 'object' } },
@@ -530,10 +530,10 @@ describe('P3-029: annotateToolDefinitions()', () => {
       { name: 'massu_security_score', description: 'Enterprise tool', inputSchema: { type: 'object' } },
     ];
     const annotated = annotateToolDefinitions(defs);
-    expect(annotated[0].tier).toBe('free');
-    expect(annotated[1].tier).toBe('pro');
-    expect(annotated[2].tier).toBe('team');
-    expect(annotated[3].tier).toBe('enterprise');
+    expect(annotated[0].annotations?.tier).toBe('free');
+    expect(annotated[1].annotations?.tier).toBe('pro');
+    expect(annotated[2].annotations?.tier).toBe('team');
+    expect(annotated[3].annotations?.tier).toBe('enterprise');
   });
 
   it('preserves other properties of tool definitions', () => {
@@ -563,7 +563,58 @@ describe('P3-029: annotateToolDefinitions()', () => {
     ];
     const annotated = annotateToolDefinitions(defs);
     expect(annotated[0].description).toBe('New tool');
-    expect(annotated[0].tier).toBe('free');
+    expect(annotated[0].annotations?.tier).toBe('free');
+  });
+
+  // ============================================================
+  // Regression: massu-ai/massu#4 — wire-format MCP spec compliance
+  // ============================================================
+  //
+  // Claude Code 2.1.143 (2026-05-15) silently rejects any toolset whose
+  // Tool objects contain top-level fields outside the MCP-spec-permitted
+  // set (canonical schema: schema/2025-11-25/schema.ts line 1251). Prior
+  // to this regression test, annotateToolDefinitions() spread a
+  // non-spec top-level `tier` field onto every emitted Tool, causing all
+  // 67 mcp__massu__* tools to disappear from clients on session start.
+  // Structural drift-prevention per CR-46: this assertion makes the
+  // bug class impossible to reintroduce without test failure.
+  it('emits only MCP-spec-permitted top-level fields on every Tool (regression: #4)', () => {
+    const defs = [
+      { name: 'massu_sync', description: 'free tool', inputSchema: { type: 'object' } },
+      { name: 'massu_quality_score', description: 'pro tool', inputSchema: { type: 'object' } },
+      { name: 'massu_sentinel_register', description: 'team tool', inputSchema: { type: 'object' } },
+      { name: 'massu_audit_log', description: 'enterprise tool', inputSchema: { type: 'object' } },
+    ];
+    const annotated = annotateToolDefinitions(defs);
+    // Per MCP spec 2025-11-25 (schema.ts line 1251 — `Tool extends
+    // BaseMetadata, Icons`), permitted top-level fields are:
+    //   BaseMetadata: name, title
+    //   Icons:        icons
+    //   Tool:         description, inputSchema, execution, outputSchema,
+    //                 annotations, _meta
+    const SPEC_PERMITTED = new Set([
+      'name', 'title', 'description', 'inputSchema',
+      'execution', 'outputSchema', 'annotations', '_meta', 'icons',
+    ]);
+    for (const def of annotated) {
+      const extra = Object.keys(def).filter(k => !SPEC_PERMITTED.has(k));
+      expect(extra, `tool ${def.name} has non-spec top-level fields: ${extra.join(', ')}`).toEqual([]);
+    }
+  });
+
+  it('preserves caller-supplied annotations when adding tier (regression: #4)', () => {
+    const defs = [
+      {
+        name: 'massu_quality_score',
+        description: 'Compute quality score',
+        inputSchema: { type: 'object' },
+        annotations: { readOnlyHint: true, title: 'Quality Score' },
+      },
+    ];
+    const annotated = annotateToolDefinitions(defs);
+    expect(annotated[0].annotations?.readOnlyHint).toBe(true);
+    expect(annotated[0].annotations?.title).toBe('Quality Score');
+    expect(annotated[0].annotations?.tier).toBe('pro');
   });
 });
 

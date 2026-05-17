@@ -16,11 +16,17 @@
 // the pipeline steps.
 // ============================================================
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { existsSync, readFileSync, unlinkSync, readdirSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
+
+// P-H002 (plan-stage-c-high-batch): bound git-diff reads so monorepos with
+// 10MB+ working trees don't trigger Stop-hook timeout. Short-stat first,
+// only read full diff body when estimated bytes <= cap. execFileSync argv
+// form is defense-in-depth (P-001 pattern).
+const MAX_FULL_DIFF_BYTES = 2 * 1024 * 1024; // 2MB; ~25k lines at 80 bytes/line
 
 interface HookInput {
   session_id: string;
@@ -67,19 +73,46 @@ async function main(): Promise<void> {
       } catch { /* ignore parse errors */ }
     }
 
-    // Source 2: Scan uncommitted git diff for fix patterns (language-agnostic)
+    // Source 2: Scan uncommitted git diff for fix patterns (language-agnostic).
+    // Two-stage: (1) name-only to confirm any changes, (2) shortstat to estimate
+    // bytes, (3) full diff body ONLY if estimate <= MAX_FULL_DIFF_BYTES.
     let uncommittedFix = false;
     try {
-      const diff = execSync('git diff --name-only', { cwd: root, timeout: 3000, encoding: 'utf-8' });
-      if (diff.trim()) {
-        const fullDiff = execSync('git diff', { cwd: root, timeout: 5000, encoding: 'utf-8' });
-        const fixPatterns = (fullDiff.match(/^\+.*(try|except|catch|guard|throw|raise|assert|validate|if.*null|if.*nil|if.*None|if.*undefined)/gm) || []).length;
-        const removedBroken = (fullDiff.match(/^-.*(bug|broken|crash|wrong|incorrect|typo|fail|error|miss|stale)/gm) || []).length;
-        if (fixPatterns > 3 || removedBroken > 1) {
-          uncommittedFix = true;
+      const nameOnly = execFileSync('git', ['diff', '--name-only'], {
+        cwd: root,
+        timeout: 3000,
+        encoding: 'utf-8',
+        maxBuffer: 1024 * 1024,
+      });
+      if (nameOnly.trim()) {
+        const shortstat = execFileSync('git', ['diff', '--shortstat'], {
+          cwd: root,
+          timeout: 2000,
+          encoding: 'utf-8',
+          maxBuffer: 64 * 1024,
+        });
+        const insertions = parseInt(shortstat.match(/(\d+) insertion/)?.[1] ?? '0', 10);
+        const deletions = parseInt(shortstat.match(/(\d+) deletion/)?.[1] ?? '0', 10);
+        const estimatedBytes = (insertions + deletions) * 80; // ~80 bytes/line avg
+        if (estimatedBytes <= MAX_FULL_DIFF_BYTES) {
+          const fullDiff = execFileSync('git', ['diff'], {
+            cwd: root,
+            timeout: 5000,
+            encoding: 'utf-8',
+            maxBuffer: MAX_FULL_DIFF_BYTES,
+          });
+          const fixPatterns = (fullDiff.match(/^\+.*(try|except|catch|guard|throw|raise|assert|validate|if.*null|if.*nil|if.*None|if.*undefined)/gm) || []).length;
+          const removedBroken = (fullDiff.match(/^-.*(bug|broken|crash|wrong|incorrect|typo|fail|error|miss|stale)/gm) || []).length;
+          if (fixPatterns > 3 || removedBroken > 1) {
+            uncommittedFix = true;
+          }
         }
+        // else: diff exceeds cap — skip pattern scan rather than risk timeout.
+        // The fix-detector hook fires on per-Edit/Write and already populates
+        // sessionFixes for the realistic case; full-diff fallback is a safety
+        // net that we can correctly skip for huge trees.
       }
-    } catch { /* git not available or no changes */ }
+    } catch { /* git not available or no changes or buffer overflow */ }
 
     if (sessionFixes.length === 0 && !uncommittedFix) {
       // Clean up flag file

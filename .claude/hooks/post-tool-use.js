@@ -1455,6 +1455,32 @@ function trackModification(db, featureKey) {
     `).run(featureKey);
   }
 }
+function recordTestResult(db, featureKey, passing, failing) {
+  const existing = db.prepare(
+    "SELECT * FROM feature_health WHERE feature_key = ?"
+  ).get(featureKey);
+  const healthScore = calculateHealthScore(passing, failing, 0, (/* @__PURE__ */ new Date()).toISOString(), existing?.last_modified);
+  db.prepare(`
+    INSERT INTO feature_health
+    (feature_key, last_tested, test_coverage_pct, health_score, tests_passing, tests_failing, modifications_since_test)
+    VALUES (?, datetime('now'), ?, ?, ?, ?, 0)
+    ON CONFLICT(feature_key) DO UPDATE SET
+      last_tested = datetime('now'),
+      health_score = ?,
+      tests_passing = ?,
+      tests_failing = ?,
+      modifications_since_test = 0
+  `).run(
+    featureKey,
+    passing > 0 ? passing / (passing + failing) * 100 : 0,
+    healthScore,
+    passing,
+    failing,
+    healthScore,
+    passing,
+    failing
+  );
+}
 
 // src/import-resolver.ts
 import { readFileSync as readFileSync2, existsSync as existsSync3, statSync } from "fs";
@@ -1960,6 +1986,26 @@ async function main() {
       } catch (_securityErr) {
       }
       try {
+        if (tool_name === "Bash") {
+          const command = tool_input.command ?? "";
+          if (isTestRunnerCommand(command)) {
+            const counts = parseTestRunOutput(tool_response ?? "");
+            if (counts) {
+              const modifiedFeatures = db.prepare(
+                "SELECT feature_key FROM feature_health WHERE modifications_since_test > 0"
+              ).all();
+              for (const row of modifiedFeatures) {
+                recordTestResult(db, row.feature_key, counts.passing, counts.failing);
+              }
+              if (modifiedFeatures.length === 0) {
+                recordTestResult(db, "_session_test_run", counts.passing, counts.failing);
+              }
+            }
+          }
+        }
+      } catch (_testResultErr) {
+      }
+      try {
         if (tool_name === "Edit" || tool_name === "Write") {
           const filePath = tool_input.file_path ?? "";
           if (filePath && filePath.endsWith("MEMORY.md") && filePath.includes("/memory/")) {
@@ -2033,6 +2079,50 @@ function updatePlanProgress(db, sessionId, progress) {
     }
     addSummary(db, sessionId, { planProgress: progressMap });
   }
+}
+function isTestRunnerCommand(command) {
+  const trimmed = command.trim().toLowerCase();
+  const stripped = trimmed.replace(/^cd\s+\S+\s*(&&|;)\s*/, "").replace(/^\(\s*cd\s+\S+\s*(&&|;)\s*/, "");
+  const testRunnerPrefixes = [
+    "npm test",
+    "npm run test",
+    "npx vitest",
+    "npx jest",
+    "vitest",
+    "jest",
+    "pnpm test",
+    "pnpm run test",
+    "yarn test",
+    "pytest",
+    "go test",
+    "cargo test"
+  ];
+  return testRunnerPrefixes.some((prefix) => stripped.startsWith(prefix));
+}
+function parseTestRunOutput(output) {
+  const vitestSplit = output.match(/Tests?\s+(?:(\d+)\s+failed\s+\|\s+)?(\d+)\s+passed/);
+  if (vitestSplit) {
+    return {
+      passing: parseInt(vitestSplit[2], 10),
+      failing: vitestSplit[1] ? parseInt(vitestSplit[1], 10) : 0
+    };
+  }
+  const jest = output.match(/Tests?:\s+(?:(\d+)\s+failed,\s+)?(\d+)\s+passed/);
+  if (jest) {
+    return {
+      passing: parseInt(jest[2], 10),
+      failing: jest[1] ? parseInt(jest[1], 10) : 0
+    };
+  }
+  const pytestPassed = output.match(/(\d+)\s+passed/);
+  const pytestFailed = output.match(/(\d+)\s+failed/);
+  if (pytestPassed) {
+    return {
+      passing: parseInt(pytestPassed[1], 10),
+      failing: pytestFailed ? parseInt(pytestFailed[1], 10) : 0
+    };
+  }
+  return null;
 }
 function readStdin() {
   return new Promise((resolve5) => {

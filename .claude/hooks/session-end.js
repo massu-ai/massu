@@ -1418,6 +1418,7 @@ function estimateTokens(text) {
 // src/cloud-sync.ts
 var MAX_RETRIES = 3;
 var RETRY_DELAYS = [1e3, 2e3, 4e3];
+var DEFAULT_CLOUD_REQUEST_TIMEOUT_MS = 2e3;
 async function syncToCloud(db, payload) {
   const config = getConfig();
   const cloud = config.cloud;
@@ -1443,6 +1444,7 @@ async function syncToCloud(db, payload) {
     filteredPayload.audit = payload.audit;
   }
   let lastError = "";
+  const requestTimeoutMs = cloud.requestTimeoutMs ?? DEFAULT_CLOUD_REQUEST_TIMEOUT_MS;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       const response = await fetch(endpoint, {
@@ -1451,7 +1453,11 @@ async function syncToCloud(db, payload) {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${cloud.apiKey}`
         },
-        body: JSON.stringify(filteredPayload)
+        body: JSON.stringify(filteredPayload),
+        // P-H003: bounded request — AbortSignal.timeout fires AbortError when
+        // the request stalls (DNS failure, TCP unreachable, slow server). Cleans
+        // up before hook timeout kills the whole process.
+        signal: AbortSignal.timeout(requestTimeoutMs)
       });
       if (!response.ok) {
         lastError = `HTTP ${response.status}: ${response.statusText}`;
@@ -1476,6 +1482,9 @@ async function syncToCloud(db, payload) {
       };
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
+      if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
+        break;
+      }
       if (attempt < MAX_RETRIES - 1) {
         await sleep(RETRY_DELAYS[attempt]);
         continue;

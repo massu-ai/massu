@@ -858,13 +858,29 @@ function handleTrpcMap(args: Record<string, unknown>, dataDb: Database.Database)
     const coupled = dataDb.prepare('SELECT COUNT(*) as count FROM massu_trpc_procedures WHERE has_ui_caller = 1').get() as { count: number };
     const uncoupled = total.count - coupled.count;
 
-    lines.push('## tRPC Procedure Summary');
-    lines.push(`- Total procedures: ${total.count}`);
-    lines.push(`- With UI callers: ${coupled.count}`);
-    lines.push(`- Without UI callers: ${uncoupled}`);
-    lines.push('');
-    lines.push('Use { router: "name" } to see details for a specific router.');
-    lines.push('Use { uncoupled: true } to see all procedures without UI callers.');
+    // P-H009 (plan-stage-c-high-batch): when the index is empty, return an
+    // actionable remedy hint instead of bare "0" — previously fresh installs
+    // saw "Total procedures: 0" and assumed the flagship tool was broken.
+    if (total.count === 0) {
+      lines.push('## tRPC Index Empty');
+      lines.push('');
+      lines.push('No tRPC procedures indexed yet. Either this repo has no tRPC');
+      lines.push('routers, or the CodeGraph index has not been built. To rebuild:');
+      lines.push('');
+      lines.push('  npx massu sync');
+      lines.push('');
+      lines.push('If `massu sync` completes successfully but `trpc_map` still');
+      lines.push('returns 0, the repo likely has no tRPC procedures (this is');
+      lines.push('expected for non-tRPC stacks — try `schema` or `domains` tools).');
+    } else {
+      lines.push('## tRPC Procedure Summary');
+      lines.push(`- Total procedures: ${total.count}`);
+      lines.push(`- With UI callers: ${coupled.count}`);
+      lines.push(`- Without UI callers: ${uncoupled}`);
+      lines.push('');
+      lines.push('Use { router: "name" } to see details for a specific router.');
+      lines.push('Use { uncoupled: true } to see all procedures without UI callers.');
+    }
   }
 
   return text(lines.join('\n'));

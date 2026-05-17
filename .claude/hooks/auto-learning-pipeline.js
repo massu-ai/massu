@@ -2,7 +2,7 @@
 import{createRequire as __cr}from"module";const require=__cr(import.meta.url);
 
 // src/hooks/auto-learning-pipeline.ts
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { existsSync as existsSync2, readFileSync as readFileSync2, unlinkSync, readdirSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -490,6 +490,7 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
 }
 
 // src/hooks/auto-learning-pipeline.ts
+var MAX_FULL_DIFF_BYTES = 2 * 1024 * 1024;
 function getSessionFlagPath(sessionId) {
   return join(tmpdir(), "massu-auto-learning", `fixes-${sessionId.slice(0, 12)}.jsonl`);
 }
@@ -516,13 +517,34 @@ async function main() {
     }
     let uncommittedFix = false;
     try {
-      const diff = execSync("git diff --name-only", { cwd: root, timeout: 3e3, encoding: "utf-8" });
-      if (diff.trim()) {
-        const fullDiff = execSync("git diff", { cwd: root, timeout: 5e3, encoding: "utf-8" });
-        const fixPatterns = (fullDiff.match(/^\+.*(try|except|catch|guard|throw|raise|assert|validate|if.*null|if.*nil|if.*None|if.*undefined)/gm) || []).length;
-        const removedBroken = (fullDiff.match(/^-.*(bug|broken|crash|wrong|incorrect|typo|fail|error|miss|stale)/gm) || []).length;
-        if (fixPatterns > 3 || removedBroken > 1) {
-          uncommittedFix = true;
+      const nameOnly = execFileSync("git", ["diff", "--name-only"], {
+        cwd: root,
+        timeout: 3e3,
+        encoding: "utf-8",
+        maxBuffer: 1024 * 1024
+      });
+      if (nameOnly.trim()) {
+        const shortstat = execFileSync("git", ["diff", "--shortstat"], {
+          cwd: root,
+          timeout: 2e3,
+          encoding: "utf-8",
+          maxBuffer: 64 * 1024
+        });
+        const insertions = parseInt(shortstat.match(/(\d+) insertion/)?.[1] ?? "0", 10);
+        const deletions = parseInt(shortstat.match(/(\d+) deletion/)?.[1] ?? "0", 10);
+        const estimatedBytes = (insertions + deletions) * 80;
+        if (estimatedBytes <= MAX_FULL_DIFF_BYTES) {
+          const fullDiff = execFileSync("git", ["diff"], {
+            cwd: root,
+            timeout: 5e3,
+            encoding: "utf-8",
+            maxBuffer: MAX_FULL_DIFF_BYTES
+          });
+          const fixPatterns = (fullDiff.match(/^\+.*(try|except|catch|guard|throw|raise|assert|validate|if.*null|if.*nil|if.*None|if.*undefined)/gm) || []).length;
+          const removedBroken = (fullDiff.match(/^-.*(bug|broken|crash|wrong|incorrect|typo|fail|error|miss|stale)/gm) || []).length;
+          if (fixPatterns > 3 || removedBroken > 1) {
+            uncommittedFix = true;
+          }
         }
       }
     } catch {

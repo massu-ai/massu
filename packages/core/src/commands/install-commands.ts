@@ -494,6 +494,16 @@ export function buildTemplateVars(): Record<string, unknown> {
     paths: config.paths,
     detected: config.detected ?? {},
     config,
+    // P-H006 (plan-stage-c-high-batch): RESERVED CLAUDE CODE PLACEHOLDER.
+    // Claude Code reads `{{ARGUMENTS}}` as a runtime placeholder inside
+    // slash-command files. The Massu template engine has no native concept
+    // of reserved literals; we model the placeholder as a variable whose
+    // value IS the literal `{{ARGUMENTS}}` string. Because the engine never
+    // re-renders output, this passes through verbatim. Closes the bug class
+    // where `/massu-article-review`, `/massu-autoresearch`, etc. silently
+    // failed to install because the engine threw MissingVariableError on
+    // their {{ARGUMENTS}} usage.
+    ARGUMENTS: '{{ARGUMENTS}}',
   };
 }
 

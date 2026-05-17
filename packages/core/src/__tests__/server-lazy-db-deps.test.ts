@@ -102,6 +102,10 @@ describe('toolNeedsCodegraph()', () => {
     expect(toolNeedsCodegraph('massu_impact', 'massu')).toBe(true);
     expect(toolNeedsCodegraph('massu_coupling_check', 'massu')).toBe(true);
     expect(toolNeedsCodegraph('massu_domains', 'massu')).toBe(true);
+    // P-H009 (plan-stage-c-high-batch): trpc_map's tRPC index is rebuilt by
+    // ensureIndexes() which requires codegraph; previously the manifest
+    // omitted codegraph, leaving fresh installs with silent "0 procedures".
+    expect(toolNeedsCodegraph('massu_trpc_map', 'massu')).toBe(true);
   });
 
   it('returns false for codegraph-independent tools', () => {
@@ -118,7 +122,7 @@ describe('toolNeedsCodegraph()', () => {
     expect(toolNeedsCodegraph('massu_regression_risk', 'massu')).toBe(false);
     expect(toolNeedsCodegraph('massu_docs_audit', 'massu')).toBe(false);
     expect(toolNeedsCodegraph('massu_schema', 'massu')).toBe(false);
-    expect(toolNeedsCodegraph('massu_trpc_map', 'massu')).toBe(false);
+    // NOTE: massu_trpc_map moved to codegraph-dependent set (P-H009 fix above).
   });
 
   it('Python tools do not need CodeGraph (Data DB only)', () => {

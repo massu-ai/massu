@@ -8,7 +8,7 @@
  * 1. massu.config.yaml exists and parses correctly
  * 2. .mcp.json has massu entry
  * 3. .claude/settings.local.json has hooks config
- * 4. All 11 compiled hook files exist
+ * 4. All compiled hook files exist (count sourced from lib/hook-registry.ts SoT)
  * 5. Knowledge DB exists (.massu/memory.db)
  * 6. Memory directory exists (~/.claude/projects/.../memory/)
  * 7. Shell hooks wired in settings.local.json
@@ -24,6 +24,7 @@ import { parse as parseYaml } from 'yaml';
 import { getConfig, getResolvedPaths } from '../config.ts';
 import { getCurrentTier, getLicenseInfo, daysUntilExpiry } from '../license.ts';
 import { readSettingsAtPath } from '../lib/settings-local.ts';
+import { getExpectedHookFiles } from '../lib/hook-registry.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -42,19 +43,13 @@ interface CheckResult {
 // Hook Files
 // ============================================================
 
-const EXPECTED_HOOKS = [
-  'session-start.js',
-  'session-end.js',
-  'post-tool-use.js',
-  'user-prompt.js',
-  'pre-compact.js',
-  'pre-delete-check.js',
-  'post-edit-context.js',
-  'security-gate.js',
-  'cost-tracker.js',
-  'quality-event.js',
-  'intent-suggester.js',
-];
+// P-H001 (plan-stage-c-high-batch): drift-fix. EXPECTED_HOOKS now consumes
+// the lib/hook-registry.ts SoT; the registry-parity drift-guard test asserts
+// this list matches `src/hooks/*.ts` AND `buildHooksConfig()`. Previously
+// a hand-maintained list of 11 entries silently drifted from the 16 hooks
+// actually registered by installHooks(), letting hook files go missing
+// without doctor noticing.
+const EXPECTED_HOOKS: readonly string[] = getExpectedHookFiles();
 
 // ============================================================
 // Individual Checks

@@ -60,6 +60,12 @@ export interface SyncResult {
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [1000, 2000, 4000]; // exponential backoff
 
+// P-H003 (plan-stage-c-high-batch): bound each HTTP request so offline
+// customers don't burn the entire Stop-hook 15s budget on a single
+// unreachable endpoint. Default 2_000ms is well under hook timeout while
+// still tolerating typical latency. Override via config.cloud.requestTimeoutMs.
+const DEFAULT_CLOUD_REQUEST_TIMEOUT_MS = 2_000;
+
 /**
  * Sync data to the cloud endpoint.
  * Respects config flags for selective sync.
@@ -103,6 +109,8 @@ export async function syncToCloud(
 
   // Attempt sync with retry
   let lastError = '';
+  const requestTimeoutMs = (cloud as { requestTimeoutMs?: number }).requestTimeoutMs
+    ?? DEFAULT_CLOUD_REQUEST_TIMEOUT_MS;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       const response = await fetch(endpoint, {
@@ -112,6 +120,10 @@ export async function syncToCloud(
           'Authorization': `Bearer ${cloud.apiKey}`,
         },
         body: JSON.stringify(filteredPayload),
+        // P-H003: bounded request — AbortSignal.timeout fires AbortError when
+        // the request stalls (DNS failure, TCP unreachable, slow server). Cleans
+        // up before hook timeout kills the whole process.
+        signal: AbortSignal.timeout(requestTimeoutMs),
       });
 
       if (!response.ok) {
@@ -140,6 +152,12 @@ export async function syncToCloud(
       };
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
+      // P-H003: AbortError from AbortSignal.timeout means the request stalled
+      // (customer offline / DNS failure / unreachable). Don't burn the remaining
+      // hook budget retrying; queue for later and bail.
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
+        break;
+      }
       if (attempt < MAX_RETRIES - 1) {
         await sleep(RETRY_DELAYS[attempt]);
         continue;

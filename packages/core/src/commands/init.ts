@@ -438,6 +438,22 @@ export function buildConfigFromDetection(
     }
   }
 
+  // P-H004 (plan-stage-c-high-batch): App Router / Pages Router fallback.
+  // When pathsSource would default to 'src' but src/ doesn't exist, check
+  // recognized framework conventions before failing validation. Fixes
+  // `massu init` outright failure on fresh Next.js 14+ App Router repos
+  // (have `app/` + `package.json`, no `src/`) and Pages Router (`pages/`).
+  // Final fallback to '.' makes flat-layout projects work too.
+  if (pathsSource === 'src' && !existsSync(resolve(projectRoot, 'src'))) {
+    const fallbacks = ['app', 'pages', '.'];
+    for (const fallback of fallbacks) {
+      if (fallback === '.' || existsSync(resolve(projectRoot, fallback))) {
+        pathsSource = fallback;
+        break;
+      }
+    }
+  }
+
   // P1-005: emit `paths.monorepo_roots` as the distinct parent directories of
   // every workspace package when this is a monorepo. Optional + additive;
   // v1 consumers ignore it. When detection identified a monorepo type

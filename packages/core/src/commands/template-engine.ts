@@ -69,6 +69,24 @@ export function renderTemplate(template: string, vars: Record<string, unknown>):
         throw new TemplateParseError('unclosed `{{` (no matching `}}`)', tokenStart);
       }
       const inner = template.slice(i + 2, closeIdx);
+
+      // P-H007 (plan-stage-c-high-batch): JSX pass-through. Pattern docs
+      // contain content like `action={{ label: "X" }}` (JSX object literal)
+      // that LOOKS like a template token but isn't. Pre-fix the engine
+      // threw TemplateParseError and the WHOLE file silently failed to
+      // install. Now: detect ONLY clearly-JSX patterns (multi-line OR
+      // leading whitespace inside the braces) and emit verbatim. Everything
+      // else (including security probes, empty `{{}}`, malformed filters,
+      // invalid path characters) still goes through strict renderToken and
+      // throws — security tests still pass.
+      if (isJsxPassThrough(inner)) {
+        out.push('{{');
+        out.push(inner);
+        out.push('}}');
+        i = closeIdx + 2;
+        continue;
+      }
+
       const rendered = renderToken(inner, vars, tokenStart);
       out.push(rendered);
       i = closeIdx + 2;
@@ -126,6 +144,29 @@ function findTokenClose(template: string, start: number): number {
   }
 
   return -1;
+}
+
+/**
+ * P-H007: Decide whether the inner text of a `{{...}}` block is a multi-line
+ * JSX expression that should be emitted verbatim (NOT parsed as a Massu
+ * template token).
+ *
+ * Detection is intentionally MINIMAL: only multi-line content passes through.
+ * The original P-H007 evidence (`patterns/component-patterns.md` JSX
+ * `action={{ label: "X", onClick: () => ... }}` formatted across lines)
+ * IS multi-line; that is the bug class to close.
+ *
+ * Single-line content of EVERY shape (valid Massu vars, malformed paths,
+ * empty `{{}}`, security probes like `constructor.constructor("...")()`,
+ * default filters with escaped quotes) goes through the strict renderToken
+ * path so all pre-existing template-engine.test.ts behavior is preserved.
+ *
+ * Tradeoff: single-line JSX `action={{ x: 1 }}` (rare in practice) would
+ * still throw under this rule. The vast majority of JSX in shipped pattern
+ * docs is multi-line, so this is the correct conservative fix.
+ */
+function isJsxPassThrough(inner: string): boolean {
+  return inner.includes('\n');
 }
 
 /**

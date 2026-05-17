@@ -4,7 +4,8 @@
 /**
  * `massu install-hooks` — Standalone hook installation.
  *
- * Installs or updates all 11 Claude Code hooks in .claude/settings.local.json.
+ * Installs or updates the canonical Massu hook set in .claude/settings.local.json.
+ * Count is sourced from lib/hook-registry.ts SoT; see REGISTERED_HOOKS there.
  * Uses the same logic as `massu init` but only handles hooks.
  */
 

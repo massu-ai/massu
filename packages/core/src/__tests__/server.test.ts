@@ -240,14 +240,18 @@ describe('Server JSON-RPC 2.0 — lazy per-tool DB resolution', () => {
     expect(vi.mocked(getDataDb)).toHaveBeenCalledTimes(1);
   });
 
-  it('opens ONLY data DB for trpc_map (no codegraph need)', async () => {
+  it('opens BOTH data and codegraph DBs for trpc_map (P-H009 fix)', async () => {
+    // P-H009 (plan-stage-c-high-batch): trpc_map declares 'codegraph' in
+    // TOOL_DB_NEEDS so the JS-side ensureIndexes section runs on fresh
+    // installs. Previously it declared only 'data' and silently returned
+    // "0 procedures" because the index never built.
     await dispatcher.handleRequest({
       jsonrpc: '2.0',
       id: 7,
       method: 'tools/call',
       params: { name: 'massu_trpc_map' },
     });
-    expect(vi.mocked(getCodeGraphDb)).not.toHaveBeenCalled();
+    expect(vi.mocked(getCodeGraphDb)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(getDataDb)).toHaveBeenCalledTimes(1);
   });
 

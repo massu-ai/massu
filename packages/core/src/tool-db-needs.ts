@@ -70,8 +70,14 @@ export const TOOL_DB_NEEDS = {
   impact: ['codegraph', 'data'],
   domains: ['codegraph', 'data'],
 
-  // `trpc_map` reads only Data DB (tRPC index lives there); no CodeGraph access.
-  trpc_map: ['data'],
+  // P-H009 (plan-stage-c-high-batch): `trpc_map` queries Data DB tables
+  // populated by `ensureIndexes(d, codegraphDb)` — without CodeGraph the
+  // index never builds and the flagship code-intel tool silently returns
+  // "0 procedures" on fresh installs. Declaring `codegraph` here makes the
+  // dispatcher open the CodeGraph DB so `buildTrpcIndex` can run; the
+  // handler also surfaces an actionable hint when no procedures + no
+  // codegraph (covered by `trpc-map-empty-codegraph-hint.test.ts`).
+  trpc_map: ['codegraph', 'data'],
 
   // `schema` reads filesystem (Prisma schema files); no DB access at all.
   schema: [],

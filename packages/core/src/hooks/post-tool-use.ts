@@ -11,7 +11,7 @@
 import { getMemoryDb, addObservation, createSession, deduplicateFailedAttempt, addSummary } from '../memory-db.ts';
 import { classifyRealTimeToolCall, detectPlanProgress } from '../observation-extractor.ts';
 import { logAuditEntry } from '../audit-trail.ts';
-import { trackModification } from '../regression-detector.ts';
+import { trackModification, recordTestResult } from '../regression-detector.ts';
 import { validateFile, storeValidationResult } from '../validation-engine.ts';
 import { scoreFileSecurity, storeSecurityScore } from '../security-scorer.ts';
 import { readFileSync, existsSync } from 'fs';
@@ -131,6 +131,42 @@ async function main(): Promise<void> {
         // Best-effort: never block post-tool-use
       }
 
+      // P-H029 (plan-stage-c-high-batch): wire recordTestResult() into the
+      // post-tool-use hook so `feature_health` dashboard reflects real test
+      // deltas. Pre-fix: `trackModification` fired but `recordTestResult` was
+      // unit-tested yet never called; dashboard showed tests_passing=0 for
+      // every feature.
+      //
+      // Strategy: when a Bash tool call runs a test runner AND the output
+      // includes parseable pass/fail counts, call recordTestResult for every
+      // feature with `modifications_since_test > 0`. This resets their counter
+      // and updates pass/fail tallies based on the run.
+      try {
+        if (tool_name === 'Bash') {
+          const command = (tool_input.command as string) ?? '';
+          if (isTestRunnerCommand(command)) {
+            const counts = parseTestRunOutput(tool_response ?? '');
+            if (counts) {
+              const modifiedFeatures = db
+                .prepare(
+                  'SELECT feature_key FROM feature_health WHERE modifications_since_test > 0',
+                )
+                .all() as Array<{ feature_key: string }>;
+              for (const row of modifiedFeatures) {
+                recordTestResult(db, row.feature_key, counts.passing, counts.failing);
+              }
+              // Also record a session-level aggregate so the dashboard has at
+              // least one row even when no features were modified.
+              if (modifiedFeatures.length === 0) {
+                recordTestResult(db, '_session_test_run', counts.passing, counts.failing);
+              }
+            }
+          }
+        }
+      } catch (_testResultErr) {
+        // Best-effort: never block post-tool-use
+      }
+
       // MEMORY.md integrity check on write
       try {
         if (tool_name === 'Edit' || tool_name === 'Write') {
@@ -215,6 +251,60 @@ function updatePlanProgress(db: import('better-sqlite3').Database, sessionId: st
     }
     addSummary(db, sessionId, { planProgress: progressMap });
   }
+}
+
+/**
+ * P-H029: Detect test-runner commands. Conservative match — only commands that
+ * START with a recognized test runner so a build script invoking `npm run test`
+ * is included but a script that merely mentions "test" in a filename is not.
+ */
+function isTestRunnerCommand(command: string): boolean {
+  const trimmed = command.trim().toLowerCase();
+  // Strip leading `cd <dir> && ` or `(cd <dir> && ...)` prefix so we match
+  // the actual test command.
+  const stripped = trimmed
+    .replace(/^cd\s+\S+\s*(&&|;)\s*/, '')
+    .replace(/^\(\s*cd\s+\S+\s*(&&|;)\s*/, '');
+  const testRunnerPrefixes = [
+    'npm test', 'npm run test', 'npx vitest', 'npx jest', 'vitest', 'jest',
+    'pnpm test', 'pnpm run test', 'yarn test', 'pytest', 'go test', 'cargo test',
+  ];
+  return testRunnerPrefixes.some((prefix) => stripped.startsWith(prefix));
+}
+
+/**
+ * P-H029: Parse test-run output for pass/fail counts. Supports vitest
+ * (`Tests  N passed (N)`, `Tests  X failed | Y passed (Z)`), jest
+ * (`Tests: X failed, Y passed, Z total`), and pytest (`X passed, Y failed`).
+ * Returns null if no parseable summary line found.
+ */
+function parseTestRunOutput(output: string): { passing: number; failing: number } | null {
+  // vitest: " Tests  439 passed (439)" or " Tests  3 failed | 436 passed (439)"
+  const vitestSplit = output.match(/Tests?\s+(?:(\d+)\s+failed\s+\|\s+)?(\d+)\s+passed/);
+  if (vitestSplit) {
+    return {
+      passing: parseInt(vitestSplit[2], 10),
+      failing: vitestSplit[1] ? parseInt(vitestSplit[1], 10) : 0,
+    };
+  }
+  // jest: "Tests:       1 failed, 5 passed, 6 total"
+  const jest = output.match(/Tests?:\s+(?:(\d+)\s+failed,\s+)?(\d+)\s+passed/);
+  if (jest) {
+    return {
+      passing: parseInt(jest[2], 10),
+      failing: jest[1] ? parseInt(jest[1], 10) : 0,
+    };
+  }
+  // pytest: "5 passed, 2 failed in 1.23s" or "5 passed in 1.23s"
+  const pytestPassed = output.match(/(\d+)\s+passed/);
+  const pytestFailed = output.match(/(\d+)\s+failed/);
+  if (pytestPassed) {
+    return {
+      passing: parseInt(pytestPassed[1], 10),
+      failing: pytestFailed ? parseInt(pytestFailed[1], 10) : 0,
+    };
+  }
+  return null;
 }
 
 function readStdin(): Promise<string> {

@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.0] - 2026-05-18
+
+Stage C Release 1 — pre-launch audit HIGH-severity sub-stages C.1 (hooks + doctor parity, 8 items) and C.2 (MCP tools, 2 items) per `docs/plans/2026-05-18-stage-c-high-batch.md` (plan token `plan-stage-c-high-batch`). 10 P-H items shipped; 28 remain across 1.10.1 / 1.10.2 / 1.10.3 per the operator-revised release plan. 4 of 7 planned drift-guards land here (DG-1..DG-4); DG-5..DG-7 ship with their respective P-items in subsequent releases. Every fix is structural — paired with a vitest drift-guard that makes the bug class impossible to reintroduce (CR-46).
+
+### Added
+
+- **`packages/core/src/lib/hook-registry.ts`** — single source of truth for the canonical Massu hook set (`REGISTERED_HOOKS` constant + `getExpectedHookFiles()`). Doctor, installer, and `build:hooks` all consume from this module. Closes the 11-vs-16 hook-count drift class structurally — adding a new hook now requires touching `src/hooks/X.ts` + `REGISTERED_HOOKS` + `buildHooksConfig`, and the parity drift-guard fails if any one is missed. P-H001.
+- **`packages/core/src/__tests__/hook-registry-parity.test.ts`** — 4-case drift-guard DG-1 asserting 3-way parity (src/hooks filenames vs REGISTERED_HOOKS vs buildHooksConfig refs vs dist/hooks/*.js after build).
+- **`packages/core/src/__tests__/auto-learning-bounded-diff.test.ts`** — drift-guard DG-2: fabricates ~5MB working tree and asserts auto-learning Stop hook completes <5s.
+- **`packages/core/src/__tests__/cloud-sync-abort-controller.test.ts`** — 3-case drift-guard DG-3: aborts hanging fetch <1s, AbortSignal passed to every fetch, custom timeout honored.
+- **`packages/core/src/__tests__/init-app-router-fallback.test.ts`** — 4-case `massu init` paths.source fallback test (app/ → pages/ → . fallback; src+app preserves src).
+- **`packages/core/src/__tests__/template-engine-reserved-and-jsx.test.ts`** — drift-guard for P-H006 (`{{ARGUMENTS}}` reserved literal) + P-H007 (multi-line JSX pass-through).
+- **`packages/core/src/__tests__/trpc-map-empty-codegraph-hint.test.ts`** — drift-guard DG-4 asserting TOOL_DB_NEEDS includes codegraph + tools.ts source contains actionable remedy hint.
+- **`packages/core/src/hooks/post-tool-use.ts`** — `recordTestResult` now wired on Bash test-runner commands (`npm test`, `npx vitest`, `pnpm test`, `pytest`, `go test`, `cargo test`) with vitest/jest/pytest output parsing. P-H029.
+
+### Fixed
+
+- **`packages/core/src/commands/doctor.ts:45`** — `EXPECTED_HOOKS` was a hand-maintained 11-entry list while `installHooks()` registered 16. Doctor reported `11/11 PASS` even when 5 hooks were missing from `dist/hooks/`. Now sourced from `getExpectedHookFiles()` in the new SoT. P-H001.
+- **`packages/core/src/hooks/auto-learning-pipeline.ts:73,75`** — replaced bare `execSync('git diff')` (unbounded read of entire working tree, 10s timeout) with two-stage probe: `git diff --shortstat` first to estimate byte count, then `git diff` ONLY if estimated ≤ 2MB. Also switched to `execFileSync` argv form (defense-in-depth). P-H002.
+- **`packages/core/src/cloud-sync.ts:108`** — bare `fetch()` had no AbortSignal; offline customers burned the entire Stop-hook 15s budget on unreachable endpoint. Now uses `AbortSignal.timeout(requestTimeoutMs)` (default 2000ms, configurable) and short-circuits retry on AbortError/TimeoutError. P-H003.
+- **`packages/core/src/commands/init.ts:428`** — `paths.source` defaulted to `'src'` even when only `app/` (Next.js App Router) or `pages/` existed. Validator rejected the config and rolled init back. Now falls back through `src/` → `app/` → `pages/` → `.` (root). P-H004.
+- **`packages/core/src/commands/install-commands.ts:490`** — `buildTemplateVars()` now exposes `ARGUMENTS: '{{ARGUMENTS}}'` reserved literal. P-H006 — `/massu-article-review`, `/massu-autoresearch`, `/massu-command-improve`, `/massu-squirrels` silently failed to install because the template engine threw `MissingVariableError` on their `{{ARGUMENTS}}` usage.
+- **`packages/core/src/commands/template-engine.ts:81`** — multi-line content inside `{{...}}` now passes through verbatim (clearly JSX). P-H007 — `patterns/component-patterns.md` silently failed to install because the engine misparsed JSX `action={{...}}` formatted across lines. Single-line content of every shape still goes through strict renderToken — all pre-existing security tests preserved.
+- **`packages/core/src/tool-db-needs.ts:73`** — `trpc_map` now declares `['codegraph', 'data']`. P-H009 — on fresh installs without a built codegraph the JS-side tRPC index never built and the flagship code-intel tool silently returned "0 procedures". Handler also emits actionable remedy hint (`npx massu sync`) when the index is empty.
+- **`packages/core/src/commands/install-hooks.ts:7`** — stale "all 11 Claude Code hooks" docstring updated to reference the canonical hook-registry SoT (count sourced from `REGISTERED_HOOKS`).
+
+### Changed
+
+- **`website/content/docs/getting-started/installation.mdx`** — hook count synced from drifted 11 to actual 16. Hook table appended with the 5 missing rows: `fix-detector`, `classify-failure`, `incident-pipeline`, `rule-enforcement-pipeline`, `auto-learning-pipeline`. P-H008.
+- **`website/src/data/stats.ts`** — `Lifecycle Hooks` count updated 11 → 16 to match `lib/hook-registry.ts` SoT. P-H008.
+- **`packages/core/src/__tests__/server-lazy-db-deps.test.ts:99-122`** and **`packages/core/src/__tests__/server.test.ts:243`** — updated to assert the new P-H009 behavior (`trpc_map` opens both `codegraph` and `data` DBs). Previously these tests asserted the bug.
+- **`docs/plans/2026-05-16-prelaunch-audit-remediation.md`** — added `## Changelog Summary` section retrospectively to comply with plan-1.9.0 P-A-003 SHIPPED-status requirement (CR-9 cleanup of pre-existing parent-plan validator FAIL).
+
 ## [1.9.5] - 2026-05-16
 
 Pre-launch comprehensive audit remediation — combined Stage A + Stage B release covering all 22 CRITICAL findings from the 14-agent adversarial audit fleet (`docs/plans/2026-05-16-prelaunch-audit-remediation.md`, plan token `plan-2026-05-16-prelaunch-audit`). Every fix is structural — paired with a vitest drift-guard that makes the bug class impossible to reintroduce (CR-46 compliant). 12 of 22 CRITICALs are security-critical (RCE, SSO bypass, license-takeover, schema drift causing 500s in production), addressed before book launch. The 1.9.4 hotfix slot was rolled into this combined release to ship Stage A + Stage B atomically. Also bundles the previously-shipped `plan-rulesets-as-code` Branch Protection rulesets-as-code migration (SHA b184d3f, drift-guarded by `branch-protection-audit.yml`).

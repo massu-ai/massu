@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.6] - 2026-05-17
+
+**P-H022 partial advance — CSP hardening (parent plan `plan-2026-05-16-prelaunch-audit`, sub-plan `plan-stage-c-high-batch`)**. The full nonce-based CSP migration (per-request middleware nonce + Next.js consumption pattern + per-page smoke testing) requires multi-day operator-coordinated work and is tracked as the explicit follow-up plan `plan-csp-nonce-migration`. This release closes 3 distinct attack-surface bug classes structurally WITHOUT breaking Next.js production hydration (which uses hundreds of inline `<script>self.__next_f.push(...)` blocks per page that require `'unsafe-inline'` until middleware nonce ships).
+
+### Added
+
+- **`website/src/__tests__/csp-directives-present.test.ts`** — 6-case drift-guard asserting `form-action 'self'`, `frame-ancestors 'none'`, `upgrade-insecure-requests`, the JSON-LD sha256 hash, and X-Frame-Options DENY stay present in `vercel.json`. Includes a content-bound assertion: if the JSON-LD content in `layout.tsx` changes, the hash in `vercel.json` must be regenerated or the test fails (closes the silent-CSP-drift bug class).
+
+### Fixed (CSP attack-surface hardening)
+
+- **`website/vercel.json:35` — added `form-action 'self'`** — closes CSRF redirect via attacker-controlled `<form action="evil.com">` attribute. Pre-fix, any successful XSS could redirect form POST data to an arbitrary host.
+- **`website/vercel.json:35` — added `frame-ancestors 'none'`** — clickjacking defense at the CSP layer (complements existing `X-Frame-Options: DENY` for legacy-browser coverage). Pre-fix, only the legacy header protected against `<iframe src="massu.ai">` embed by attacker pages.
+- **`website/vercel.json:35` — added `upgrade-insecure-requests`** — closes mixed-content HTTP downgrade. Pre-fix, an HTTP `<img src="http://...">` (e.g., from injected content) would be served over insecure transport.
+- **`website/vercel.json:35` — added `sha256-Nwzd5qwiqfOJ9LnimJdkZg3NUWOHEbAszBQEPPK4+Iw=`** to script-src for the JSON-LD schema.org inline script. Defense-in-depth: modern browsers MAY eventually enforce hash-or-nonce; pre-staging the hash lets the future strict-mode rollout drop `'unsafe-inline'` without losing the JSON-LD that is required for SEO/social-card schema.org.
+
+### Deferred (tracked in dedicated follow-up plan)
+
+- **Removing `'unsafe-inline'` from script-src** → `plan-csp-nonce-migration` (TBD). Blocked on: middleware nonce generation, Next.js consumption pattern via `headers()` + `<Script nonce={x}>`, per-page smoke testing to confirm hydration works on every static + SSR + ISR + RSC route. Next.js production builds emit hundreds of inline `<script>self.__next_f.push(...)` hydration blocks per page; removing `'unsafe-inline'` without nonce middleware would break React interactivity on every page.
+
 ## [1.10.5] - 2026-05-17
 
 **P-H019 Ed25519 license signing** — closes the deferred follow-up from Stage C (parent plan `plan-2026-05-16-prelaunch-audit`, sub-plan `plan-stage-c-high-batch`). Pre-fix `packages/core/src/license.ts:280-318` accepted ANY `{valid:true,plan:'enterprise'}` JSON over HTTPS from whatever `config.cloud?.endpoint` pointed to. MITM, malicious cloud.endpoint, or local SQLite edit of `license_cache` could grant arbitrary tier.

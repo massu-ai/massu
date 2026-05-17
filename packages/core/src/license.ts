@@ -17,6 +17,21 @@ import { createHash } from 'crypto';
 import type { ToolDefinition, ToolResult } from './tools.ts';
 import { getConfig } from './config.ts';
 import { getMemoryDb } from './memory-db.ts';
+import { verifyLicenseResponse, isLicenseSignatureRequired } from './security/license-response-verifier.ts';
+
+// P-H019 one-shot warning gate. We emit the stderr warning at most once
+// per process lifetime so the customer's terminal isn't spammed every
+// session-start until the operator provisions the Edge Function signing key.
+let _warnedLicenseSig = false;
+function warnLicenseSigOnce(reason: string): void {
+  if (_warnedLicenseSig) return;
+  _warnedLicenseSig = true;
+  process.stderr.write(
+    `[massu] WARNING: license-validate response is unsigned or signature invalid (${reason}). ` +
+    `Acceptance permitted under transition mode. Operator: provision Supabase Edge Function ` +
+    `LICENSE_RESPONSE_SIGNING_PRIVATE_KEY_B64 then set MASSU_REQUIRE_SIGNED_LICENSE=true to enforce strict mode.\n`,
+  );
+}
 
 // ============================================================
 // Types
@@ -294,7 +309,34 @@ export async function validateLicense(apiKey: string): Promise<LicenseInfo> {
             validUntil?: string;
             features?: string[];
             reason?: string;
+            _signature?: string;
+            _signature_alg?: string;
+            _signature_payload_keys?: readonly string[];
+            _signature_pubkey_fingerprint?: string;
           };
+
+          // P-H019 (plan-stage-c-high-batch / 1.10.5): verify Ed25519
+          // signature on the validate-key response. Closes the bug class
+          // where MITM / malicious-cloud-endpoint / local SQLite edit
+          // could grant arbitrary tier.
+          //
+          // Transition mode (default): unsigned/invalid-sig responses are
+          // accepted with a one-shot stderr warning. Lets existing customers
+          // keep working while operators provision the Edge Function signing
+          // key.
+          //
+          // Strict mode (MASSU_REQUIRE_SIGNED_LICENSE=true, post-cutover):
+          // unsigned/invalid-sig responses are rejected; caller falls
+          // through to the grace-period cache or free tier.
+          const sigResult = verifyLicenseResponse(data);
+          if (sigResult.kind !== 'valid') {
+            if (isLicenseSignatureRequired()) {
+              // Strict mode — reject. Caller falls through to grace period.
+              throw new Error(`License response signature invalid: ${sigResult.kind}`);
+            }
+            // Transition mode — one-shot stderr warning per session.
+            warnLicenseSigOnce(sigResult.kind);
+          }
 
           if (data.valid) {
             // Map plan name to tier using PLAN_TO_TIER_MAP

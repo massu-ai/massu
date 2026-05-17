@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.5] - 2026-05-17
+
+**P-H019 Ed25519 license signing** — closes the deferred follow-up from Stage C (parent plan `plan-2026-05-16-prelaunch-audit`, sub-plan `plan-stage-c-high-batch`). Pre-fix `packages/core/src/license.ts:280-318` accepted ANY `{valid:true,plan:'enterprise'}` JSON over HTTPS from whatever `config.cloud?.endpoint` pointed to. MITM, malicious cloud.endpoint, or local SQLite edit of `license_cache` could grant arbitrary tier.
+
+### Added
+
+- **`packages/core/security/license-pubkey.pem`** — Ed25519 public key (fingerprint `18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475`) for verifying signed validate-key responses. Counterpart private key is operator-provisioned in the Supabase Edge Function env var `LICENSE_RESPONSE_SIGNING_PRIVATE_KEY_B64` (NEVER in repo).
+- **`scripts/bundle-license-pubkey.mjs`** — bundler that writes `packages/core/src/security/license-pubkey.generated.ts` from the on-disk pem. Mirrors `scripts/bundle-pubkey.mjs` pattern for the adapter-registry key. Wired into `packages/core/package.json` `prepublishOnly` so every npm publish ships the bundled key in lockstep.
+- **`packages/core/src/security/license-response-verifier.ts`** — Ed25519 verifier with strict/transition mode gate (`MASSU_REQUIRE_SIGNED_LICENSE=true|unset`). Returns tagged union `valid | missing_signature | bad_signature | unknown_pubkey | error`. Pubkey fingerprint allowlist check rejects bundled keys that don't appear in `KNOWN_LICENSE_PUBKEY_FINGERPRINTS`.
+- **`packages/core/src/security/license-pubkey.generated.ts`** — bundled `LICENSE_PUBKEY_ED25519` Uint8Array + `LICENSE_PUBKEY_FINGERPRINT_HEX` + `KNOWN_LICENSE_PUBKEY_FINGERPRINTS` Set, all consumed by the verifier.
+- **`packages/core/src/__tests__/license-response-signature.test.ts`** — 6-case drift-guard: bundled-fingerprint allowlist, missing-signature rejection, unsupported-algorithm rejection, garbage-signature rejection, unknown-pubkey rejection, strict-mode env-var read.
+- **`docs/runbooks/license-response-signing-key-rotation.md`** — operator runbook for initial provisioning, smoke-test, strict-mode cutover, and rotation procedure.
+
+### Fixed
+
+- **`packages/core/src/license.ts:280-318`** — `validateLicense` now calls `verifyLicenseResponse(data)` after the fetch returns. Under strict mode (`MASSU_REQUIRE_SIGNED_LICENSE=true`), unsigned/invalid responses throw (caller drops to grace-period cache or free tier). Under transition mode (default), responses are accepted with a one-shot stderr warning per process lifetime so the customer's terminal isn't spammed every session.
+- **`website/supabase/functions/validate-key/index.ts:7-67`** — Edge Function now wraps every successful response with `_signature` / `_signature_alg` / `_signature_payload_keys` / `_signature_pubkey_fingerprint` fields. Canonical-serialization: top-level non-`_`-prefixed keys are sorted; `JSON.stringify(obj, keysSorted)` produces the deterministic input to Ed25519. Signing key is cached per Edge-Function instance for performance. If `LICENSE_RESPONSE_SIGNING_PRIVATE_KEY_B64` env var unset, responses go out UNSIGNED (transition mode) so the deploy can ship before operator provisions the key.
+- **`packages/core/package.json:27`** — `prepublishOnly` extended to also run `bundle-license-pubkey.mjs` alongside the existing registry-pubkey bundler, ensuring every npm publish ships the freshly-bundled license pubkey.
+
+### Operator action required
+
+Per `docs/runbooks/license-response-signing-key-rotation.md`:
+
+1. Set Supabase Edge Function secret `LICENSE_RESPONSE_SIGNING_PRIVATE_KEY_B64` with the base64-encoded PKCS#8 private key generated 2026-05-18 (or generate fresh per rotation procedure if no longer available).
+2. Smoke-test that `validate-key` responses now include `_signature` fields.
+3. After 24-48h transition window with no client-side warnings, flip strict mode via `MASSU_REQUIRE_SIGNED_LICENSE=true` in client environments OR ship a 1.11.x release that defaults strict mode on.
+
 ## [1.10.4] - 2026-05-18
 
 **Stage C FINAL RELEASE** — pre-launch audit HIGH-severity sub-stages C.7 (architecture, 1 of 3 items) + C.8 (production-live, 2 of 2 items) + C.9 (UX consistency, 4 of 4 items) per `docs/plans/2026-05-18-stage-c-high-batch.md` (plan token `plan-stage-c-high-batch`). 7 items shipped this release; 2 C.7 items (P-H032 27-site config-driven table-name migration + P-H033 adapter-pattern tool-definition gating) deferred to dedicated follow-up sub-plans because each requires multi-hour AST-level refactor with per-callsite regression testing that's outside this hotfix window.

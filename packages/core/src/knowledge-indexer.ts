@@ -349,7 +349,7 @@ export function buildCrossReferences(db: Database.Database): number {
   );
 
   // CR -> VR edges (from knowledge_rules)
-  const rules = db.prepare('SELECT rule_id, vr_type, reference_path FROM knowledge_rules').all() as CRRule[];
+  const rules = db.prepare('SELECT rule_id, vr_type, reference_path FROM knowledge_rules LIMIT 10000').all() as CRRule[];
   for (const rule of rules) {
     if (rule.vr_type && rule.vr_type !== 'VR-*') {
       // Split compound VR types (e.g., "VR-SCHEMA" or "VR-*")
@@ -367,7 +367,7 @@ export function buildCrossReferences(db: Database.Database): number {
   }
 
   // Incident -> CR edges (from knowledge_incidents)
-  const incidents = db.prepare('SELECT incident_num, cr_added FROM knowledge_incidents WHERE cr_added IS NOT NULL').all() as { incident_num: number; cr_added: string }[];
+  const incidents = db.prepare('SELECT incident_num, cr_added FROM knowledge_incidents WHERE cr_added IS NOT NULL LIMIT 10000').all() as { incident_num: number; cr_added: string }[];
   for (const inc of incidents) {
     if (inc.cr_added) {
       const crIds = inc.cr_added.match(/CR-\d+/g) || [];
@@ -379,7 +379,7 @@ export function buildCrossReferences(db: Database.Database): number {
   }
 
   // Scan all chunks for cross-references
-  const chunks = db.prepare('SELECT id, content, metadata FROM knowledge_chunks').all() as { id: number; content: string; metadata: string }[];
+  const chunks = db.prepare('SELECT id, content, metadata FROM knowledge_chunks LIMIT 100000').all() as { id: number; content: string; metadata: string }[];
   for (const chunk of chunks) {
     const text = chunk.content;
 

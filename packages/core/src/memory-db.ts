@@ -1497,7 +1497,7 @@ export function addFailureClass(db: Database.Database, opts: AddFailureClassOpts
  * Get all failure classes from the taxonomy.
  */
 export function getFailureClasses(db: Database.Database): FailureClass[] {
-  const rows = db.prepare('SELECT * FROM failure_classes ORDER BY name').all() as Array<Record<string, unknown>>;
+  const rows = db.prepare('SELECT * FROM failure_classes ORDER BY name LIMIT 10000').all() as Array<Record<string, unknown>>;
   return rows.map(row => ({
     id: row.id as number,
     name: row.name as string,

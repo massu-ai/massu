@@ -1059,7 +1059,7 @@ function addFailureClass(db, opts) {
   return Number(result.lastInsertRowid);
 }
 function getFailureClasses(db) {
-  const rows = db.prepare("SELECT * FROM failure_classes ORDER BY name").all();
+  const rows = db.prepare("SELECT * FROM failure_classes ORDER BY name LIMIT 10000").all();
   return rows.map((row) => ({
     id: row.id,
     name: row.name,

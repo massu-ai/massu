@@ -462,7 +462,7 @@ function handleRule(db: Database.Database, args: Record<string, unknown>): ToolR
     }
   } else {
     // List all rules
-    const rules = db.prepare('SELECT * FROM knowledge_rules ORDER BY rule_id').all() as {
+    const rules = db.prepare('SELECT * FROM knowledge_rules ORDER BY rule_id LIMIT 10000').all() as {
       rule_id: string; rule_text: string; vr_type: string;
     }[];
 
@@ -614,7 +614,7 @@ function handleSchemaCheck(db: Database.Database, args: Record<string, unknown>)
 
   if (!table && !column) {
     // Show all mismatches
-    const all = db.prepare('SELECT * FROM knowledge_schema_mismatches ORDER BY table_name').all() as {
+    const all = db.prepare('SELECT * FROM knowledge_schema_mismatches ORDER BY table_name LIMIT 10000').all() as {
       table_name: string; wrong_column: string; correct_column: string;
     }[];
 
@@ -804,7 +804,7 @@ function handleVerification(db: Database.Database, args: Record<string, unknown>
     }
   } else {
     // List all
-    const all = db.prepare('SELECT vr_type, command, use_when FROM knowledge_verifications ORDER BY vr_type').all() as {
+    const all = db.prepare('SELECT vr_type, command, use_when FROM knowledge_verifications ORDER BY vr_type LIMIT 10000').all() as {
       vr_type: string; command: string; use_when: string;
     }[];
 
@@ -1319,7 +1319,7 @@ function handleEffectiveness(db: Database.Database, args: Record<string, unknown
   const lines: string[] = [];
 
   // Get all CR rules from knowledge DB
-  const allRules = db.prepare('SELECT rule_id, rule_text FROM knowledge_rules ORDER BY rule_id').all() as {
+  const allRules = db.prepare('SELECT rule_id, rule_text FROM knowledge_rules ORDER BY rule_id LIMIT 10000').all() as {
     rule_id: string; rule_text: string;
   }[];
 

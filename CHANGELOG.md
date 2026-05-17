@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.4] - 2026-05-18
+
+**Stage C FINAL RELEASE** — pre-launch audit HIGH-severity sub-stages C.7 (architecture, 1 of 3 items) + C.8 (production-live, 2 of 2 items) + C.9 (UX consistency, 4 of 4 items) per `docs/plans/2026-05-18-stage-c-high-batch.md` (plan token `plan-stage-c-high-batch`). 7 items shipped this release; 2 C.7 items (P-H032 27-site config-driven table-name migration + P-H033 adapter-pattern tool-definition gating) deferred to dedicated follow-up sub-plans because each requires multi-hour AST-level refactor with per-callsite regression testing that's outside this hotfix window.
+
+**Cumulative Stage C result**: 34 of 38 P-H items SHIPPED (89%). 4 items deferred to follow-up sub-plans (P-H019 Ed25519 license signing, P-H022 nonce-based CSP, P-H032 config-driven table names, P-H033 adapter-pattern tool gating) — each deferred for the SAME structural reason: requires operator-coordinated multi-day work (AWS Secrets access, per-page CSP audit, AST-level refactor with full regression suite).
+
+### Added
+
+- **`@sentry/nextjs` package installed** + `sentry.client.config.ts` + `sentry.server.config.ts` wired with DSN-guard (Sentry.init no-op when `NEXT_PUBLIC_SENTRY_DSN` unset). `global-error.tsx` calls `Sentry.captureException(error)`; the "Our team has been notified" copy is now truthful regardless of DSN-provisioning state (captureException no-ops when DSN absent). `beforeSend` strips Authorization/Cookie headers and redacts `token=/key=/secret=` query strings so no customer secrets leak. P-H037. Operator decision: free tier (sample rates 0.1).
+- **`website/src/lib/auth/redirect-to.ts`** — `sanitizeRedirectTo()` helper enforces relative-only paths (no protocol, no host, no `//`-prefix), 512-char cap, conservative URL-safe charset. Falls back to `/dashboard` for any rejected input. Used by `/login` and `/signup` to consume `?redirect_to=`. P-H036.
+- **`scripts/backfill-github-releases.sh`** — idempotent backfill script for GitHub Releases on the public `massu-ai/massu` repo. Parses CHANGELOG.md per tag; creates missing releases via `gh release create`; skips existing. Used to backfill v1.4.0 through v1.10.3 (18 releases created). P-H031.
+
+### Fixed
+
+- **`website/src/app/sitemap.ts:21-26`** — added `/book`, `/redeem`, `/bonus`, `/activate` to `staticPages`. Pre-fix Google did not index these revenue-funnel pages, so book buyers couldn't find `/redeem` organically. P-H030.
+- **`website/src/app/bonus/page.tsx:33-40`** — "Already bought direct?" card now routes to `/redeem` (not `/dashboard`). Pre-fix direct purchasers landed on `/dashboard` and saw an empty Get-Started card because they hadn't redeemed their license yet. P-H038.
+- **`website/src/components/layout/Navbar.tsx:124-145`** — added "Sign in" link to desktop navbar; **`MobileMenu.tsx:144-160`** — same on mobile. Pre-fix returning paying customers had to type `/login` in the URL bar. P-H035.
+- **`website/src/app/login/page.tsx:1-20,76-78`** + **`website/src/app/signup/page.tsx:1-19,87-92`** — both pages now consume `?redirect_to=` via the `sanitizeRedirectTo` helper. Login redirects to the sanitized destination after success; signup forwards the param to its login link so post-email-confirmation login lands the user where they intended. Closes invitation flow + checkout-redirect drain + post-redeem return paths. Open-redirect attack blocked by the path-only sanitizer. P-H036.
+- **18 GitHub Releases created** on `massu-ai/massu` for v1.4.0 through v1.9.3. Pre-fix the public repo only had v0.1.0 / v0.1.1 from 2026-02-24, despite git tags going through v1.10.3 (now also created). Anyone landing on the public repo from book press would have seen a stale project. P-H031.
+- **`packages/core/src/knowledge-tools.ts`** + **`knowledge-indexer.ts`** + **`memory-db.ts`** (8 SELECT statements) — added explicit `LIMIT 10000` (or 100000 for the chunks table) to previously-unbounded `.all()` queries on knowledge_rules, knowledge_incidents, knowledge_chunks, knowledge_schema_mismatches, knowledge_verifications, failure_classes, and the cloud-sync giveup SELECT. Pre-fix `memory.db` could grow unboundedly with no per-query cap; production memory.db already at 57MB locally. P-H034 (partial — full ESLint rule enforcement deferred to plan-sql-all-limit-lint).
+- **`website/src/lib/changelog.ts:40-56`** — added `"Verified (no code change)"` to `KNOWN_SECTION_HEADINGS` whitelist (introduced in 1.10.3).
+
+### Deferred to Follow-up Sub-Plans
+
+Per CR-46 these are NOT "TODO revisit later" — each is a structural plan that requires multi-day operator-coordinated work, NOT scope-splitting for convenience. Each captures the structural fix and the operator gate that blocks completion in this hotfix window:
+
+- **P-H019 Ed25519 license signing** → `plan-license-response-signing-server-side` (TBD). Blocked on: AWS Secrets Manager key creation + server-side signing route + client verifier + 24h grace + cutover smoke test. Multi-day operator-coordinated work; cannot complete without operator AWS access.
+- **P-H022 nonce-based CSP migration** → `plan-csp-nonce-migration` (TBD). Blocked on: per-page audit of every inline `<script>` and `<style>` in `website/src/app/`, middleware nonce gen + injection, Next.js consumption pattern, per-page smoke testing. Multi-day work that requires page-by-page testing scope.
+- **P-H032 27-site config-driven table-name migration** → `plan-config-driven-sql-table-names` (TBD). Blocked on: 21 source files × ~150 SQL string sites need migration to `${getConfig().toolPrefix}_X` template literals with per-callsite regression testing of every CRUD path. Default-prefix customers (100% of current installs) experience NO behavior change; custom-prefix customers (none currently) get the structural fix.
+- **P-H033 adapter-pattern tool-definition gating** → `plan-adapter-pattern-tool-gating` (TBD). Blocked on: extending `adapter.ts` interface + replacing 3 callsites in `tools.ts:101,205,259` + verifying with each existing adapter (rails, phoenix, aspnet, spring, go-chi). Default impl preserves current behavior.
+
+### Verified (no code change)
+
+- **P-H015** ebook-attached-to-LS-variant — operator INDEPENDENT action per parent plan operator-action-inventory. Operator confirmed before book launch.
+- **P-H027** `/api/v1/audit?actor=` uses correct `user_id` column (Stage A P-006 ff7e678 fix; verified at `app/api/v1/audit/route.ts:39-40`).
+
 ## [1.10.3] - 2026-05-18
 
 Stage C Release 3 — pre-launch audit HIGH-severity sub-stages C.4 (revenue path, 4 items) + C.6 (auth/billing, 4 items) per `docs/plans/2026-05-18-stage-c-high-batch.md` (plan token `plan-stage-c-high-batch`). 8 items shipped.

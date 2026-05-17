@@ -440,9 +440,13 @@ export function indexAllKnowledge(db: Database.Database): IndexStats {
   const insertIncident = db.prepare(
     'INSERT OR IGNORE INTO knowledge_incidents (incident_num, date, type, gap_found, prevention) VALUES (?, ?, ?, ?, ?)'
   );
+  // P-H013 (plan-stage-c-high-batch): source column now bound at insert time
+  // (was a SQL-DEFAULT template-literal interpolation baked into the customer's
+  // SQLite at schema creation time, ignoring later config changes).
   const insertMismatch = db.prepare(
-    'INSERT INTO knowledge_schema_mismatches (table_name, wrong_column, correct_column) VALUES (?, ?, ?)'
+    'INSERT INTO knowledge_schema_mismatches (table_name, wrong_column, correct_column, source) VALUES (?, ?, ?, ?)'
   );
+  const defaultSource = getConfig().conventions?.knowledgeSourceFiles?.[0] ?? 'CLAUDE.md';
 
   // Discover all .claude/ markdown files
   const files = discoverMarkdownFiles(paths.claudeDir);
@@ -567,7 +571,7 @@ export function indexAllKnowledge(db: Database.Database): IndexStats {
         // Extract schema mismatches
         const mismatches = parseSchemaMismatches(content);
         for (const m of mismatches) {
-          insertMismatch.run(m.table_name, m.wrong_column, m.correct_column);
+          insertMismatch.run(m.table_name, m.wrong_column, m.correct_column, defaultSource);
           insertChunk.run(docId, 'mismatch', m.table_name, `${m.table_name}: ${m.wrong_column} -> ${m.correct_column}`, null, null, JSON.stringify({ table: m.table_name }));
           stats.chunksCreated++;
         }

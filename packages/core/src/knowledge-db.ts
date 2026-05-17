@@ -104,12 +104,19 @@ export function initKnowledgeSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_ki_cr ON knowledge_incidents(cr_added);
 
     -- Schema mismatch quick lookup
+    -- P-H013 (plan-stage-c-high-batch): the source column no longer has a
+    -- SQL DEFAULT. Previously the value was a JS template-literal
+    -- interpolation baked into the customer SQLite at schema creation
+    -- time, so later config changes were ignored. Default is now applied
+    -- at INSERT time via getConfig().conventions.knowledgeSourceFiles[0]
+    -- in knowledge-indexer.ts -- a runtime config lookup that reflects
+    -- the customers current config.
     CREATE TABLE IF NOT EXISTS knowledge_schema_mismatches (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       table_name TEXT NOT NULL,
       wrong_column TEXT NOT NULL,
       correct_column TEXT NOT NULL,
-      source TEXT DEFAULT '${getConfig().conventions?.knowledgeSourceFiles?.[0] ?? 'CLAUDE.md'}'
+      source TEXT NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_ksm_table ON knowledge_schema_mismatches(table_name);

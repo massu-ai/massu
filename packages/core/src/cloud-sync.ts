@@ -9,6 +9,7 @@ import {
   removePendingSync,
   incrementRetryCount,
 } from './memory-db.ts';
+import { classifyVisibility } from './observation-extractor.ts';
 
 // ============================================================
 // Cloud Sync Module
@@ -98,7 +99,32 @@ export async function syncToCloud(
   const filteredPayload: SyncPayload = {};
   if (cloud.sync?.memory !== false) {
     filteredPayload.sessions = payload.sessions;
-    filteredPayload.observations = payload.observations;
+    // P-H020 (plan-stage-c-high-batch): consume classifyVisibility() to drop
+    // observations whose title/detail matches PRIVATE_PATTERNS (Stripe keys,
+    // env var names, file paths, Bearer tokens, etc.). Pre-fix: cloud-sync
+    // transmitted EVERY observation to Massu's Supabase, leaking customer
+    // secrets and absolute file paths.
+    if (payload.observations) {
+      let droppedPrivate = 0;
+      filteredPayload.observations = payload.observations.filter((obs) => {
+        if (classifyVisibility(obs.content ?? '', obs.content ?? '') === 'private') {
+          droppedPrivate += 1;
+          return false;
+        }
+        // Belt-and-suspenders: also drop if file_path matches private patterns.
+        if (obs.file_path && classifyVisibility(obs.file_path, obs.file_path) === 'private') {
+          droppedPrivate += 1;
+          return false;
+        }
+        return true;
+      });
+      if (droppedPrivate > 0) {
+        // Surface to the customer's stderr so they can audit what got filtered.
+        process.stderr.write(
+          `[massu] cloud-sync: dropped ${droppedPrivate} private observation(s) (PRIVATE_PATTERNS match)\n`,
+        );
+      }
+    }
   }
   if (cloud.sync?.analytics !== false) {
     filteredPayload.analytics = payload.analytics;

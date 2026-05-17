@@ -214,7 +214,7 @@ export function initMemorySchema(db: Database.Database): void {
       response_tokens INTEGER,
       created_at TEXT DEFAULT (datetime('now')),
       created_at_epoch INTEGER DEFAULT (unixepoch()),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
 
     CREATE INDEX IF NOT EXISTS idx_ct_session ON conversation_turns(session_id);
@@ -237,7 +237,7 @@ export function initMemorySchema(db: Database.Database): void {
       files_involved TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       created_at_epoch INTEGER DEFAULT (unixepoch()),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
 
     CREATE INDEX IF NOT EXISTS idx_tcd_session ON tool_call_details(session_id);
@@ -302,7 +302,7 @@ export function initMemorySchema(db: Database.Database): void {
       vr_checks_failed INTEGER NOT NULL DEFAULT 0,
       incidents_triggered INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_sqs_session ON session_quality_scores(session_id);
     CREATE INDEX IF NOT EXISTS idx_sqs_project ON session_quality_scores(project);
@@ -324,7 +324,7 @@ export function initMemorySchema(db: Database.Database): void {
       duration_minutes REAL NOT NULL DEFAULT 0.0,
       tool_calls INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_sc_session ON session_costs(session_id);
   `);
@@ -339,7 +339,7 @@ export function initMemorySchema(db: Database.Database): void {
       estimated_cost_usd REAL NOT NULL DEFAULT 0.0,
       commit_hash TEXT,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_fc_feature ON feature_costs(feature_key);
     CREATE INDEX IF NOT EXISTS idx_fc_session ON feature_costs(session_id);
@@ -358,7 +358,7 @@ export function initMemorySchema(db: Database.Database): void {
       corrections_needed INTEGER NOT NULL DEFAULT 0,
       follow_up_prompts INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_po_session ON prompt_outcomes(session_id);
     CREATE INDEX IF NOT EXISTS idx_po_category ON prompt_outcomes(prompt_category);
@@ -379,7 +379,7 @@ export function initMemorySchema(db: Database.Database): void {
       approval_status TEXT CHECK(approval_status IN ('auto_approved', 'human_approved', 'pending', 'denied')),
       evidence TEXT,
       metadata TEXT,
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_al_session ON audit_log(session_id);
     CREATE INDEX IF NOT EXISTS idx_al_file ON audit_log(file_path);
@@ -398,7 +398,7 @@ export function initMemorySchema(db: Database.Database): void {
       details TEXT,
       rules_violated TEXT,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_vr_session ON validation_results(session_id);
     CREATE INDEX IF NOT EXISTS idx_vr_file ON validation_results(file_path);
@@ -418,7 +418,7 @@ export function initMemorySchema(db: Database.Database): void {
       affected_files TEXT,
       commit_hash TEXT,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_ad_session ON architecture_decisions(session_id);
     CREATE INDEX IF NOT EXISTS idx_ad_status ON architecture_decisions(status);
@@ -433,7 +433,7 @@ export function initMemorySchema(db: Database.Database): void {
       risk_score INTEGER NOT NULL DEFAULT 0,
       findings TEXT,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_ss_session ON security_scores(session_id);
     CREATE INDEX IF NOT EXISTS idx_ss_file ON security_scores(file_path);
@@ -625,7 +625,13 @@ export function enqueueSyncPayload(db: Database.Database, payload: string): void
 
 /**
  * Dequeue pending sync items (oldest first).
- * Items with retry_count >= 10 are silently discarded to prevent infinite accumulation.
+ *
+ * P-H012 (plan-stage-c-high-batch): when items exceed retry_count >= 10
+ * they are discarded — but the discard now emits a stderr warning AND
+ * inserts an analytics_events telemetry row so the customer can detect
+ * silent cloud-sync failure (e.g., invalid API key for >10 sync cycles).
+ * Previously this was a silent DELETE; customers lost all queued
+ * observations with no visibility.
  */
 export function dequeuePendingSync(
   db: Database.Database,
@@ -633,11 +639,34 @@ export function dequeuePendingSync(
 ): Array<{ id: number; payload: string; retry_count: number }> {
   // First, discard items that have exceeded max retries
   const stale = db.prepare(
-    'SELECT id FROM pending_sync WHERE retry_count >= 10'
-  ).all() as Array<{ id: number }>;
+    'SELECT id, retry_count, last_error FROM pending_sync WHERE retry_count >= 10'
+  ).all() as Array<{ id: number; retry_count: number; last_error: string | null }>;
   if (stale.length > 0) {
     const ids = stale.map(s => s.id);
     db.prepare(`DELETE FROM pending_sync WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+    // P-H012: stderr warning so the customer's terminal sees what happened.
+    const lastErrors = [...new Set(stale.map(s => s.last_error).filter(Boolean))];
+    process.stderr.write(
+      `[massu] WARNING: ${stale.length} cloud-sync queue item(s) discarded after 10+ retries. ` +
+      `Likely cause: invalid API key or unreachable endpoint. ` +
+      `Recent errors: ${lastErrors.slice(0, 3).join('; ') || '(none recorded)'}\n`,
+    );
+    // P-H012: telemetry event for dashboard surfacing. Use the analytics_events
+    // sink that already exists in memory-db (see addObservation pattern).
+    try {
+      db.prepare(`
+        INSERT INTO analytics_events (event_type, event_data, created_at)
+        VALUES (?, ?, datetime('now'))
+      `).run(
+        'cloud_sync_giveup',
+        JSON.stringify({
+          discarded_count: stale.length,
+          recent_errors: lastErrors.slice(0, 3),
+        }),
+      );
+    } catch {
+      // analytics_events may not exist in older schemas — best-effort.
+    }
   }
 
   return db.prepare(

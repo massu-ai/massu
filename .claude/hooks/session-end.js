@@ -698,7 +698,7 @@ function initMemorySchema(db) {
       response_tokens INTEGER,
       created_at TEXT DEFAULT (datetime('now')),
       created_at_epoch INTEGER DEFAULT (unixepoch()),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
 
     CREATE INDEX IF NOT EXISTS idx_ct_session ON conversation_turns(session_id);
@@ -719,7 +719,7 @@ function initMemorySchema(db) {
       files_involved TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       created_at_epoch INTEGER DEFAULT (unixepoch()),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
 
     CREATE INDEX IF NOT EXISTS idx_tcd_session ON tool_call_details(session_id);
@@ -773,7 +773,7 @@ function initMemorySchema(db) {
       vr_checks_failed INTEGER NOT NULL DEFAULT 0,
       incidents_triggered INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_sqs_session ON session_quality_scores(session_id);
     CREATE INDEX IF NOT EXISTS idx_sqs_project ON session_quality_scores(project);
@@ -793,7 +793,7 @@ function initMemorySchema(db) {
       duration_minutes REAL NOT NULL DEFAULT 0.0,
       tool_calls INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_sc_session ON session_costs(session_id);
   `);
@@ -806,7 +806,7 @@ function initMemorySchema(db) {
       estimated_cost_usd REAL NOT NULL DEFAULT 0.0,
       commit_hash TEXT,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_fc_feature ON feature_costs(feature_key);
     CREATE INDEX IF NOT EXISTS idx_fc_session ON feature_costs(session_id);
@@ -823,7 +823,7 @@ function initMemorySchema(db) {
       corrections_needed INTEGER NOT NULL DEFAULT 0,
       follow_up_prompts INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_po_session ON prompt_outcomes(session_id);
     CREATE INDEX IF NOT EXISTS idx_po_category ON prompt_outcomes(prompt_category);
@@ -842,7 +842,7 @@ function initMemorySchema(db) {
       approval_status TEXT CHECK(approval_status IN ('auto_approved', 'human_approved', 'pending', 'denied')),
       evidence TEXT,
       metadata TEXT,
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_al_session ON audit_log(session_id);
     CREATE INDEX IF NOT EXISTS idx_al_file ON audit_log(file_path);
@@ -859,7 +859,7 @@ function initMemorySchema(db) {
       details TEXT,
       rules_violated TEXT,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_vr_session ON validation_results(session_id);
     CREATE INDEX IF NOT EXISTS idx_vr_file ON validation_results(file_path);
@@ -877,7 +877,7 @@ function initMemorySchema(db) {
       affected_files TEXT,
       commit_hash TEXT,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_ad_session ON architecture_decisions(session_id);
     CREATE INDEX IF NOT EXISTS idx_ad_status ON architecture_decisions(status);
@@ -890,7 +890,7 @@ function initMemorySchema(db) {
       risk_score INTEGER NOT NULL DEFAULT 0,
       findings TEXT,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_ss_session ON security_scores(session_id);
     CREATE INDEX IF NOT EXISTS idx_ss_file ON security_scores(file_path);
@@ -1043,11 +1043,29 @@ function enqueueSyncPayload(db, payload) {
 }
 function dequeuePendingSync(db, limit = 10) {
   const stale = db.prepare(
-    "SELECT id FROM pending_sync WHERE retry_count >= 10"
+    "SELECT id, retry_count, last_error FROM pending_sync WHERE retry_count >= 10"
   ).all();
   if (stale.length > 0) {
     const ids = stale.map((s) => s.id);
     db.prepare(`DELETE FROM pending_sync WHERE id IN (${ids.map(() => "?").join(",")})`).run(...ids);
+    const lastErrors = [...new Set(stale.map((s) => s.last_error).filter(Boolean))];
+    process.stderr.write(
+      `[massu] WARNING: ${stale.length} cloud-sync queue item(s) discarded after 10+ retries. Likely cause: invalid API key or unreachable endpoint. Recent errors: ${lastErrors.slice(0, 3).join("; ") || "(none recorded)"}
+`
+    );
+    try {
+      db.prepare(`
+        INSERT INTO analytics_events (event_type, event_data, created_at)
+        VALUES (?, ?, datetime('now'))
+      `).run(
+        "cloud_sync_giveup",
+        JSON.stringify({
+          discarded_count: stale.length,
+          recent_errors: lastErrors.slice(0, 3)
+        })
+      );
+    } catch {
+    }
   }
   return db.prepare(
     "SELECT id, payload, retry_count FROM pending_sync ORDER BY created_at ASC LIMIT ?"
@@ -1415,6 +1433,33 @@ function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
+// src/observation-extractor.ts
+var PRIVATE_PATTERNS = [
+  /\/Users\/\w+/,
+  // Absolute macOS paths
+  /\/home\/\w+/,
+  // Absolute Linux paths
+  /[A-Z]:\\/,
+  // Windows paths
+  /\b(api[_-]?key|secret|token|password|credential|dsn)\b/i,
+  // Secrets
+  /\b(STRIPE_|SUPABASE_|SENTRY_|AWS_|DATABASE_URL)\b/,
+  // Env var names
+  /\.(env|pem|key|cert)\b/,
+  // Sensitive file extensions
+  /Bearer\s+\S+/,
+  // Auth tokens
+  /sk_live_|sk_test_|whsec_/
+  // Stripe keys
+];
+function classifyVisibility(title, detail) {
+  const text = `${title} ${detail ?? ""}`;
+  for (const pattern of PRIVATE_PATTERNS) {
+    if (pattern.test(text)) return "private";
+  }
+  return "public";
+}
+
 // src/cloud-sync.ts
 var MAX_RETRIES = 3;
 var RETRY_DELAYS = [1e3, 2e3, 4e3];
@@ -1435,7 +1480,26 @@ async function syncToCloud(db, payload) {
   const filteredPayload = {};
   if (cloud.sync?.memory !== false) {
     filteredPayload.sessions = payload.sessions;
-    filteredPayload.observations = payload.observations;
+    if (payload.observations) {
+      let droppedPrivate = 0;
+      filteredPayload.observations = payload.observations.filter((obs) => {
+        if (classifyVisibility(obs.content ?? "", obs.content ?? "") === "private") {
+          droppedPrivate += 1;
+          return false;
+        }
+        if (obs.file_path && classifyVisibility(obs.file_path, obs.file_path) === "private") {
+          droppedPrivate += 1;
+          return false;
+        }
+        return true;
+      });
+      if (droppedPrivate > 0) {
+        process.stderr.write(
+          `[massu] cloud-sync: dropped ${droppedPrivate} private observation(s) (PRIVATE_PATTERNS match)
+`
+        );
+      }
+    }
   }
   if (cloud.sync?.analytics !== false) {
     filteredPayload.analytics = payload.analytics;

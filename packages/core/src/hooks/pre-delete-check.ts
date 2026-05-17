@@ -15,6 +15,7 @@ import { resolve } from 'path';
 import { existsSync } from 'fs';
 import { getFeatureImpact } from '../sentinel-db.ts';
 import { getProjectRoot, getResolvedPaths } from '../config.ts';
+import { t } from '../lib/sql-table-names.ts';
 
 interface HookInput {
   session_id: string;
@@ -144,8 +145,9 @@ async function main(): Promise<void> {
       return;
     }
 
-    // The sentinel registry table name (defined by sentinel-db schema)
-    const SENTINEL_TABLE = 'massu_sentinel';
+    // The sentinel registry table name (defined by sentinel-db schema).
+    // P-H032: now config-driven via t() helper from lib/sql-table-names.ts.
+    const SENTINEL_TABLE = t('sentinel');
 
     try {
       // Check if any sentinel tables exist
@@ -192,15 +194,15 @@ async function main(): Promise<void> {
         try {
           for (const pyFile of pyFiles) {
             const importers = db.prepare(
-              'SELECT source_file FROM massu_py_imports WHERE target_file = ?'
+              `SELECT source_file FROM ${t('py_imports')} WHERE target_file = ?`
             ).all(pyFile) as { source_file: string }[];
 
             const routes = db.prepare(
-              'SELECT method, path FROM massu_py_routes WHERE file = ?'
+              `SELECT method, path FROM ${t('py_routes')} WHERE file = ?`
             ).all(pyFile) as { method: string; path: string }[];
 
             const models = db.prepare(
-              'SELECT class_name FROM massu_py_models WHERE file = ?'
+              `SELECT class_name FROM ${t('py_models')} WHERE file = ?`
             ).all(pyFile) as { class_name: string }[];
 
             if (importers.length > 0 || routes.length > 0 || models.length > 0) {

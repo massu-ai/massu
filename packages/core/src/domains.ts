@@ -5,6 +5,7 @@ import type Database from 'better-sqlite3';
 import { globMatch } from './rules.ts';
 import { getConfig, getResolvedPaths } from './config.ts';
 import type { DomainConfig } from './config.ts';
+import { t } from './lib/sql-table-names.ts';
 
 // Re-export for backward compatibility
 export type { DomainConfig };
@@ -107,7 +108,7 @@ export function findCrossDomainImports(dataDb: Database.Database): {
 
   const srcPattern = srcPrefix + '/%';
   const imports = dataDb.prepare(
-    'SELECT source_file, target_file FROM massu_imports WHERE source_file LIKE ? AND target_file LIKE ?'
+    `SELECT source_file, target_file FROM ${t('imports')} WHERE source_file LIKE ? AND target_file LIKE ?`
   ).all(srcPattern, srcPattern) as { source_file: string; target_file: string }[];
 
   const crossings: {

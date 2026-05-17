@@ -6,6 +6,7 @@ import { resolve, dirname, join } from 'path';
 import type Database from 'better-sqlite3';
 import { getResolvedPaths, getProjectRoot } from './config.ts';
 import { ensureWithinRoot } from './security-utils.ts';
+import { t } from './lib/sql-table-names.ts';
 
 interface ImportEdge {
   source_file: string;
@@ -164,10 +165,10 @@ export function buildImportIndex(dataDb: Database.Database, codegraphDb: Databas
   const files = codegraphDb.prepare("SELECT path FROM files WHERE path LIKE 'src/%'").all() as { path: string }[];
 
   // Clear existing import edges
-  dataDb.exec('DELETE FROM massu_imports');
+  dataDb.exec(`DELETE FROM ${t('imports')}`);
 
   const insertStmt = dataDb.prepare(
-    'INSERT INTO massu_imports (source_file, target_file, import_type, imported_names, line) VALUES (?, ?, ?, ?, ?)'
+    `INSERT INTO ${t('imports')} (source_file, target_file, import_type, imported_names, line) VALUES (?, ?, ?, ?, ?)`
   );
 
   let edgeCount = 0;

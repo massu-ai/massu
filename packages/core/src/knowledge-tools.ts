@@ -9,6 +9,7 @@ import { resolve, basename } from 'path';
 import { getConfig, getResolvedPaths } from './config.ts';
 import { getDataDb } from './db.ts';
 import { getMemoryDb, sanitizeFts5Query } from './memory-db.ts';
+import { t } from './lib/sql-table-names.ts';
 
 // ============================================================
 // Massu Knowledge: MCP Tool Definitions & Handlers
@@ -1186,7 +1187,7 @@ function handleGaps(db: Database.Database, args: Record<string, unknown>): ToolR
     try {
       dataDb = getDataDb();
 
-      let sql = "SELECT feature_key, title, domain, status FROM massu_sentinel WHERE status = 'active'";
+      let sql = `SELECT feature_key, title, domain, status FROM ${t('sentinel')} WHERE status = 'active'`;
       const params: string[] = [];
       if (domain) {
         sql += ' AND domain LIKE ?';
@@ -1275,7 +1276,7 @@ function handleGaps(db: Database.Database, args: Record<string, unknown>): ToolR
       dataDb = getDataDb();
 
       const domains = dataDb.prepare(
-        "SELECT DISTINCT domain FROM massu_sentinel WHERE status = 'active' ORDER BY domain"
+        `SELECT DISTINCT domain FROM ${t('sentinel')} WHERE status = 'active' ORDER BY domain`
       ).all() as { domain: string }[];
 
       for (const d of domains) {

@@ -5,6 +5,7 @@ import type Database from 'better-sqlite3';
 import type { ToolDefinition, ToolResult } from './tools.ts';
 import { getConfig } from './config.ts';
 import { classifyPythonFileDomain } from './python/domain-enforcer.ts';
+import { t } from './lib/sql-table-names.ts';
 
 /** Get the configured tool prefix */
 function p(name: string): string {
@@ -195,7 +196,7 @@ function handlePyImports(args: Record<string, unknown>, dataDb: Database.Databas
         if (depth > maxDepth || visited.has(f)) return;
         visited.add(f);
         const imports = dataDb.prepare(
-          'SELECT target_file, imported_names FROM massu_py_imports WHERE source_file = ?'
+          `SELECT target_file, imported_names FROM ${t('py_imports')} WHERE source_file = ?`
         ).all(f) as { target_file: string; imported_names: string }[];
         for (const imp of imports) {
           const indent = '  '.repeat(depth);
@@ -207,7 +208,7 @@ function handlePyImports(args: Record<string, unknown>, dataDb: Database.Databas
       traverse(file, 0);
     } else {
       const imports = dataDb.prepare(
-        'SELECT target_file, import_type, imported_names, line FROM massu_py_imports WHERE source_file = ? ORDER BY line'
+        `SELECT target_file, import_type, imported_names, line FROM ${t('py_imports')} WHERE source_file = ? ORDER BY line`
       ).all(file) as { target_file: string; import_type: string; imported_names: string; line: number }[];
       lines.push(`## Imports from ${file} (${imports.length} edges)`);
       for (const imp of imports) {
@@ -217,7 +218,7 @@ function handlePyImports(args: Record<string, unknown>, dataDb: Database.Databas
     }
   } else if (importedBy) {
     const importers = dataDb.prepare(
-      'SELECT source_file, imported_names, line FROM massu_py_imports WHERE target_file = ? ORDER BY source_file'
+      `SELECT source_file, imported_names, line FROM ${t('py_imports')} WHERE target_file = ? ORDER BY source_file`
     ).all(importedBy) as { source_file: string; imported_names: string; line: number }[];
     lines.push(`## Files importing ${importedBy} (${importers.length} edges)`);
     for (const imp of importers) {
@@ -225,8 +226,8 @@ function handlePyImports(args: Record<string, unknown>, dataDb: Database.Databas
       lines.push(`- ${imp.source_file}:${imp.line}${names.length > 0 ? ' (' + names.join(', ') + ')' : ''}`);
     }
   } else {
-    const total = (dataDb.prepare('SELECT COUNT(*) as cnt FROM massu_py_imports').get() as { cnt: number }).cnt;
-    const files = (dataDb.prepare('SELECT COUNT(DISTINCT source_file) as cnt FROM massu_py_imports').get() as { cnt: number }).cnt;
+    const total = (dataDb.prepare(`SELECT COUNT(*) as cnt FROM ${t('py_imports')}`).get() as { cnt: number }).cnt;
+    const files = (dataDb.prepare(`SELECT COUNT(DISTINCT source_file) as cnt FROM ${t('py_imports')}`).get() as { cnt: number }).cnt;
     lines.push('## Python Import Index Summary');
     lines.push(`- Total import edges: ${total}`);
     lines.push(`- Files with imports: ${files}`);
@@ -241,7 +242,7 @@ function handlePyImports(args: Record<string, unknown>, dataDb: Database.Databas
 function handlePyRoutes(args: Record<string, unknown>, dataDb: Database.Database): ToolResult {
   const lines: string[] = [];
   const limit = Math.min(Math.max((args.limit as number) || 500, 1), 5000);
-  let query = 'SELECT * FROM massu_py_routes WHERE 1=1';
+  let query = `SELECT * FROM ${t('py_routes')} WHERE 1=1`;
   const params: unknown[] = [];
 
   if (args.method) { query += ' AND method = ?'; params.push((args.method as string).toUpperCase()); }
@@ -258,7 +259,7 @@ function handlePyRoutes(args: Record<string, unknown>, dataDb: Database.Database
   }[];
 
   if (args.uncoupled) {
-    const callerCountStmt = dataDb.prepare('SELECT COUNT(*) as cnt FROM massu_py_route_callers WHERE route_id = ?');
+    const callerCountStmt = dataDb.prepare(`SELECT COUNT(*) as cnt FROM ${t('py_route_callers')} WHERE route_id = ?`);
     const uncoupledRoutes = routes.filter(r => {
       const callers = (callerCountStmt.get(r.id) as { cnt: number }).cnt;
       return callers === 0;
@@ -286,8 +287,8 @@ function handlePyCoupling(args: Record<string, unknown>, dataDb: Database.Databa
   let query = `
     SELECT rc.frontend_file, rc.call_pattern, rc.line as caller_line,
            r.method, r.path, r.function_name, r.file as backend_file
-    FROM massu_py_route_callers rc
-    JOIN massu_py_routes r ON rc.route_id = r.id
+    FROM ${t('py_route_callers')} rc
+    JOIN ${t('py_routes')} r ON rc.route_id = r.id
     WHERE 1=1
   `;
   const params: unknown[] = [];
@@ -319,7 +320,7 @@ function handlePyModels(args: Record<string, unknown>, dataDb: Database.Database
   const lines: string[] = [];
 
   if (args.fk_graph) {
-    const edges = dataDb.prepare('SELECT * FROM massu_py_fk_edges ORDER BY source_table').all() as {
+    const edges = dataDb.prepare(`SELECT * FROM ${t('py_fk_edges')} ORDER BY source_table`).all() as {
       source_table: string; source_column: string; target_table: string; target_column: string;
     }[];
     lines.push(`## Foreign Key Graph (${edges.length} edges)`);
@@ -329,7 +330,7 @@ function handlePyModels(args: Record<string, unknown>, dataDb: Database.Database
   } else if (args.model || args.table) {
     const search = (args.model || args.table) as string;
     const model = dataDb.prepare(
-      'SELECT * FROM massu_py_models WHERE class_name = ? OR table_name = ?'
+      `SELECT * FROM ${t('py_models')} WHERE class_name = ? OR table_name = ?`
     ).get(search, search) as {
       class_name: string; table_name: string; file: string; line: number;
       columns: string; relationships: string; foreign_keys: string;
@@ -365,7 +366,7 @@ function handlePyModels(args: Record<string, unknown>, dataDb: Database.Database
     }
   } else {
     const limit = Math.min(Math.max((args.limit as number) || 500, 1), 5000);
-    const models = dataDb.prepare(`SELECT class_name, table_name, file, line FROM massu_py_models ORDER BY class_name LIMIT ${limit}`).all() as {
+    const models = dataDb.prepare(`SELECT class_name, table_name, file, line FROM ${t('py_models')} ORDER BY class_name LIMIT ${limit}`).all() as {
       class_name: string; table_name: string; file: string; line: number;
     }[];
     lines.push(`## Python Models (${models.length})`);
@@ -382,10 +383,10 @@ function handlePyMigrations(args: Record<string, unknown>, dataDb: Database.Data
 
   if (args.drift) {
     // Compare models against migration operations
-    const models = dataDb.prepare('SELECT class_name, table_name, columns FROM massu_py_models').all() as {
+    const models = dataDb.prepare(`SELECT class_name, table_name, columns FROM ${t('py_models')}`).all() as {
       class_name: string; table_name: string; columns: string;
     }[];
-    const migrations = dataDb.prepare('SELECT revision, operations FROM massu_py_migrations').all() as {
+    const migrations = dataDb.prepare(`SELECT revision, operations FROM ${t('py_migrations')}`).all() as {
       revision: string; operations: string;
     }[];
 
@@ -409,7 +410,7 @@ function handlePyMigrations(args: Record<string, unknown>, dataDb: Database.Data
     }
   } else if (args.chain) {
     const limit = Math.min(Math.max((args.limit as number) || 500, 1), 5000);
-    const migrations = dataDb.prepare(`SELECT * FROM massu_py_migrations ORDER BY id LIMIT ${limit}`).all() as {
+    const migrations = dataDb.prepare(`SELECT * FROM ${t('py_migrations')} ORDER BY id LIMIT ${limit}`).all() as {
       revision: string; down_revision: string | null; file: string; description: string | null; is_head: number;
     }[];
     lines.push(`## Migration Chain (${migrations.length} revisions)`);
@@ -418,7 +419,7 @@ function handlePyMigrations(args: Record<string, unknown>, dataDb: Database.Data
       lines.push(`- ${m.revision}${head} ← ${m.down_revision || 'BASE'}: ${m.description || '(no description)'} (${m.file})`);
     }
   } else if (args.revision) {
-    const m = dataDb.prepare('SELECT * FROM massu_py_migrations WHERE revision = ?').get(args.revision) as {
+    const m = dataDb.prepare(`SELECT * FROM ${t('py_migrations')} WHERE revision = ?`).get(args.revision) as {
       revision: string; down_revision: string | null; file: string; description: string | null;
       operations: string; is_head: number;
     } | undefined;
@@ -435,8 +436,8 @@ function handlePyMigrations(args: Record<string, unknown>, dataDb: Database.Data
       }
     }
   } else {
-    const total = (dataDb.prepare('SELECT COUNT(*) as cnt FROM massu_py_migrations').get() as { cnt: number }).cnt;
-    const head = dataDb.prepare('SELECT revision FROM massu_py_migrations WHERE is_head = 1').get() as { revision: string } | undefined;
+    const total = (dataDb.prepare(`SELECT COUNT(*) as cnt FROM ${t('py_migrations')}`).get() as { cnt: number }).cnt;
+    const head = dataDb.prepare(`SELECT revision FROM ${t('py_migrations')} WHERE is_head = 1`).get() as { revision: string } | undefined;
     lines.push('## Migration Summary');
     lines.push(`- Total revisions: ${total}`);
     lines.push(`- Current head: ${head?.revision || 'N/A'}`);
@@ -460,7 +461,7 @@ function handlePyDomains(args: Record<string, unknown>, dataDb: Database.Databas
       lines.push(`Allowed imports from: ${domainConfig.allowed_imports_from.join(', ') || 'any'}`);
     }
   } else if (args.crossings) {
-    const imports = dataDb.prepare('SELECT source_file, target_file FROM massu_py_imports').all() as {
+    const imports = dataDb.prepare(`SELECT source_file, target_file FROM ${t('py_imports')}`).all() as {
       source_file: string; target_file: string;
     }[];
     const violations: string[] = [];
@@ -481,7 +482,7 @@ function handlePyDomains(args: Record<string, unknown>, dataDb: Database.Databas
     if (violations.length > 50) lines.push(`... and ${violations.length - 50} more`);
   } else if (args.domain) {
     const domainName = args.domain as string;
-    const allFiles = dataDb.prepare('SELECT DISTINCT source_file FROM massu_py_imports UNION SELECT DISTINCT target_file FROM massu_py_imports').all() as { source_file: string }[];
+    const allFiles = dataDb.prepare(`SELECT DISTINCT source_file FROM ${t('py_imports')} UNION SELECT DISTINCT target_file FROM ${t('py_imports')}`).all() as { source_file: string }[];
     const filesInDomain = allFiles.filter(f => classifyPythonFileDomain(f.source_file) === domainName);
     lines.push(`## Domain: ${domainName} (${filesInDomain.length} files)`);
     for (const f of filesInDomain) {
@@ -503,7 +504,7 @@ function handlePyImpact(args: Record<string, unknown>, dataDb: Database.Database
 
   // 1. Who imports this file
   const importedBy = dataDb.prepare(
-    'SELECT source_file FROM massu_py_imports WHERE target_file = ?'
+    `SELECT source_file FROM ${t('py_imports')} WHERE target_file = ?`
   ).all(file) as { source_file: string }[];
   lines.push(`### Imported By (${importedBy.length} files)`);
   for (const imp of importedBy.slice(0, 20)) {
@@ -512,7 +513,7 @@ function handlePyImpact(args: Record<string, unknown>, dataDb: Database.Database
 
   // 2. Routes in this file
   const routes = dataDb.prepare(
-    'SELECT method, path, function_name FROM massu_py_routes WHERE file = ?'
+    `SELECT method, path, function_name FROM ${t('py_routes')} WHERE file = ?`
   ).all(file) as { method: string; path: string; function_name: string }[];
   if (routes.length > 0) {
     lines.push(`\n### Routes Defined (${routes.length})`);
@@ -523,7 +524,7 @@ function handlePyImpact(args: Record<string, unknown>, dataDb: Database.Database
 
   // 3. Models in this file
   const models = dataDb.prepare(
-    'SELECT class_name, table_name FROM massu_py_models WHERE file = ?'
+    `SELECT class_name, table_name FROM ${t('py_models')} WHERE file = ?`
   ).all(file) as { class_name: string; table_name: string }[];
   if (models.length > 0) {
     lines.push(`\n### Models Defined (${models.length})`);
@@ -533,11 +534,11 @@ function handlePyImpact(args: Record<string, unknown>, dataDb: Database.Database
   }
 
   // 4. Frontend callers (via routes)
-  const routeIds = dataDb.prepare('SELECT id FROM massu_py_routes WHERE file = ?').all(file) as { id: number }[];
+  const routeIds = dataDb.prepare(`SELECT id FROM ${t('py_routes')} WHERE file = ?`).all(file) as { id: number }[];
   if (routeIds.length > 0) {
     const placeholders = routeIds.map(() => '?').join(',');
     const callers = dataDb.prepare(
-      `SELECT DISTINCT frontend_file FROM massu_py_route_callers WHERE route_id IN (${placeholders})`
+      `SELECT DISTINCT frontend_file FROM ${t('py_route_callers')} WHERE route_id IN (${placeholders})`
     ).all(...routeIds.map(r => r.id)) as { frontend_file: string }[];
     if (callers.length > 0) {
       lines.push(`\n### Frontend Callers (${callers.length} files)`);
@@ -566,7 +567,7 @@ function handlePyContext(args: Record<string, unknown>, dataDb: Database.Databas
 
   // Imports
   const imports = dataDb.prepare(
-    'SELECT target_file, imported_names FROM massu_py_imports WHERE source_file = ? LIMIT 20'
+    `SELECT target_file, imported_names FROM ${t('py_imports')} WHERE source_file = ? LIMIT 20`
   ).all(file) as { target_file: string; imported_names: string }[];
   if (imports.length > 0) {
     lines.push('\n### Imports');
@@ -578,7 +579,7 @@ function handlePyContext(args: Record<string, unknown>, dataDb: Database.Databas
 
   // Imported by
   const importedBy = dataDb.prepare(
-    'SELECT source_file FROM massu_py_imports WHERE target_file = ? LIMIT 10'
+    `SELECT source_file FROM ${t('py_imports')} WHERE target_file = ? LIMIT 10`
   ).all(file) as { source_file: string }[];
   if (importedBy.length > 0) {
     lines.push('\n### Imported By');
@@ -588,7 +589,7 @@ function handlePyContext(args: Record<string, unknown>, dataDb: Database.Databas
   }
 
   // Routes
-  const routes = dataDb.prepare('SELECT method, path, function_name, line FROM massu_py_routes WHERE file = ?')
+  const routes = dataDb.prepare(`SELECT method, path, function_name, line FROM ${t('py_routes')} WHERE file = ?`)
     .all(file) as { method: string; path: string; function_name: string; line: number }[];
   if (routes.length > 0) {
     lines.push('\n### Routes');
@@ -598,7 +599,7 @@ function handlePyContext(args: Record<string, unknown>, dataDb: Database.Databas
   }
 
   // Models
-  const models = dataDb.prepare('SELECT class_name, table_name, line FROM massu_py_models WHERE file = ?')
+  const models = dataDb.prepare(`SELECT class_name, table_name, line FROM ${t('py_models')} WHERE file = ?`)
     .all(file) as { class_name: string; table_name: string; line: number }[];
   if (models.length > 0) {
     lines.push('\n### Models');

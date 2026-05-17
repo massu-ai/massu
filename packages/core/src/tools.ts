@@ -39,6 +39,7 @@ import { getKnowledgeDb } from './knowledge-db.ts';
 import { getPythonToolDefinitions, isPythonTool, handlePythonToolCall } from './python-tools.ts';
 import { getConfig, getProjectRoot, getResolvedPaths } from './config.ts';
 import { getCurrentTier, getToolTier, isToolAllowed, annotateToolDefinitions, getLicenseToolDefinitions, isLicenseTool, handleLicenseToolCall, isCloudFeatureAvailable } from './license.ts';
+import { t } from './lib/sql-table-names.ts';
 
 export interface ToolDefinition {
   name: string;
@@ -572,7 +573,7 @@ function handleContext(file: string, dataDb: Database.Database, codegraphDb: Dat
 
   // 5. Import edges
   const imports = dataDb.prepare(
-    'SELECT target_file, imported_names FROM massu_imports WHERE source_file = ? LIMIT 20'
+    `SELECT target_file, imported_names FROM ${t('imports')} WHERE source_file = ? LIMIT 20`
   ).all(file) as { target_file: string; imported_names: string }[];
 
   if (imports.length > 0) {
@@ -586,7 +587,7 @@ function handleContext(file: string, dataDb: Database.Database, codegraphDb: Dat
 
   // 6. Imported BY
   const importedBy = dataDb.prepare(
-    'SELECT source_file FROM massu_imports WHERE target_file = ? LIMIT 20'
+    `SELECT source_file FROM ${t('imports')} WHERE target_file = ? LIMIT 20`
   ).all(file) as { source_file: string }[];
 
   if (importedBy.length > 0) {
@@ -786,7 +787,7 @@ function handleTrpcMap(args: Record<string, unknown>, dataDb: Database.Database)
 
   if (args.uncoupled) {
     const uncoupled = dataDb.prepare(
-      'SELECT router_name, procedure_name, procedure_type, router_file FROM massu_trpc_procedures WHERE has_ui_caller = 0 ORDER BY router_name, procedure_name'
+      `SELECT router_name, procedure_name, procedure_type, router_file FROM ${t('trpc_procedures')} WHERE has_ui_caller = 0 ORDER BY router_name, procedure_name`
     ).all() as { router_name: string; procedure_name: string; procedure_type: string; router_file: string }[];
 
     lines.push(`## Uncoupled Procedures (${uncoupled.length} total)`);
@@ -803,7 +804,7 @@ function handleTrpcMap(args: Record<string, unknown>, dataDb: Database.Database)
     }
   } else if (args.router) {
     const procs = dataDb.prepare(
-      'SELECT id, procedure_name, procedure_type, has_ui_caller FROM massu_trpc_procedures WHERE router_name = ? ORDER BY procedure_name'
+      `SELECT id, procedure_name, procedure_type, has_ui_caller FROM ${t('trpc_procedures')} WHERE router_name = ? ORDER BY procedure_name`
     ).all(args.router as string) as { id: number; procedure_name: string; procedure_type: string; has_ui_caller: number }[];
 
     lines.push(`## Router: ${args.router} (${procs.length} procedures)`);
@@ -814,7 +815,7 @@ function handleTrpcMap(args: Record<string, unknown>, dataDb: Database.Database)
       lines.push(`### ${args.router}.${proc.procedure_name} (${proc.procedure_type})${status}`);
 
       const callSites = dataDb.prepare(
-        'SELECT file, line, call_pattern FROM massu_trpc_call_sites WHERE procedure_id = ?'
+        `SELECT file, line, call_pattern FROM ${t('trpc_call_sites')} WHERE procedure_id = ?`
       ).all(proc.id) as { file: string; line: number; call_pattern: string }[];
 
       if (callSites.length > 0) {
@@ -829,7 +830,7 @@ function handleTrpcMap(args: Record<string, unknown>, dataDb: Database.Database)
     }
   } else if (args.procedure) {
     const procs = dataDb.prepare(
-      'SELECT id, router_name, router_file, procedure_type, has_ui_caller FROM massu_trpc_procedures WHERE procedure_name = ? ORDER BY router_name'
+      `SELECT id, router_name, router_file, procedure_type, has_ui_caller FROM ${t('trpc_procedures')} WHERE procedure_name = ? ORDER BY router_name`
     ).all(args.procedure as string) as { id: number; router_name: string; router_file: string; procedure_type: string; has_ui_caller: number }[];
 
     lines.push(`## Procedure "${args.procedure}" found in ${procs.length} routers`);
@@ -840,7 +841,7 @@ function handleTrpcMap(args: Record<string, unknown>, dataDb: Database.Database)
       lines.push(`File: ${proc.router_file}`);
 
       const callSites = dataDb.prepare(
-        'SELECT file, line, call_pattern FROM massu_trpc_call_sites WHERE procedure_id = ?'
+        `SELECT file, line, call_pattern FROM ${t('trpc_call_sites')} WHERE procedure_id = ?`
       ).all(proc.id) as { file: string; line: number; call_pattern: string }[];
 
       if (callSites.length > 0) {
@@ -854,8 +855,8 @@ function handleTrpcMap(args: Record<string, unknown>, dataDb: Database.Database)
       lines.push('');
     }
   } else {
-    const total = dataDb.prepare('SELECT COUNT(*) as count FROM massu_trpc_procedures').get() as { count: number };
-    const coupled = dataDb.prepare('SELECT COUNT(*) as count FROM massu_trpc_procedures WHERE has_ui_caller = 1').get() as { count: number };
+    const total = dataDb.prepare(`SELECT COUNT(*) as count FROM ${t('trpc_procedures')}`).get() as { count: number };
+    const coupled = dataDb.prepare(`SELECT COUNT(*) as count FROM ${t('trpc_procedures')} WHERE has_ui_caller = 1`).get() as { count: number };
     const uncoupled = total.count - coupled.count;
 
     // P-H009 (plan-stage-c-high-batch): when the index is empty, return an
@@ -893,11 +894,11 @@ function handleCouplingCheck(args: Record<string, unknown>, dataDb: Database.Dat
   let uncoupledProcs;
   if (stagedFiles) {
     uncoupledProcs = dataDb.prepare(
-      `SELECT router_name, procedure_name, procedure_type, router_file FROM massu_trpc_procedures WHERE has_ui_caller = 0 AND router_file IN (${stagedFiles.map(() => '?').join(',')})`
+      `SELECT router_name, procedure_name, procedure_type, router_file FROM ${t('trpc_procedures')} WHERE has_ui_caller = 0 AND router_file IN (${stagedFiles.map(() => '?').join(',')})`
     ).all(...stagedFiles) as { router_name: string; procedure_name: string; procedure_type: string; router_file: string }[];
   } else {
     uncoupledProcs = dataDb.prepare(
-      'SELECT router_name, procedure_name, procedure_type, router_file FROM massu_trpc_procedures WHERE has_ui_caller = 0'
+      `SELECT router_name, procedure_name, procedure_type, router_file FROM ${t('trpc_procedures')} WHERE has_ui_caller = 0`
     ).all() as { router_name: string; procedure_name: string; procedure_type: string; router_file: string }[];
   }
 
@@ -922,7 +923,7 @@ function handleCouplingCheck(args: Record<string, unknown>, dataDb: Database.Dat
   const pageImports = new Set<string>();
   for (const page of allPages) {
     const imports = dataDb.prepare(
-      'SELECT target_file FROM massu_imports WHERE source_file = ?'
+      `SELECT target_file FROM ${t('imports')} WHERE source_file = ?`
     ).all(page.path) as { target_file: string }[];
     for (const imp of imports) {
       pageImports.add(imp.target_file);
@@ -1009,7 +1010,7 @@ function handleImpact(file: string, dataDb: Database.Database, codegraphDb: Data
   lines.push(`### Domain: ${fileDomain}`);
 
   const imports = dataDb.prepare(
-    'SELECT target_file FROM massu_imports WHERE source_file = ?'
+    `SELECT target_file FROM ${t('imports')} WHERE source_file = ?`
   ).all(file) as { target_file: string }[];
 
   const crossings: string[] = [];

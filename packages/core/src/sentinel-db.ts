@@ -24,6 +24,7 @@ import type {
 } from './sentinel-types.ts';
 import { getProjectRoot } from './config.ts';
 import { sanitizeFts5Query } from './memory-db.ts';
+import { t } from './lib/sql-table-names.ts';
 
 // ============================================================
 // Sentinel: Feature Registry Data Access Layer
@@ -63,11 +64,11 @@ function toFeature(row: Record<string, unknown>): Feature {
 // ============================================================
 
 export function upsertFeature(db: Database.Database, input: FeatureInput): number {
-  const existing = db.prepare('SELECT id FROM massu_sentinel WHERE feature_key = ?').get(input.feature_key) as { id: number } | undefined;
+  const existing = db.prepare(`SELECT id FROM ${t('sentinel')} WHERE feature_key = ?`).get(input.feature_key) as { id: number } | undefined;
 
   if (existing) {
     db.prepare(`
-      UPDATE massu_sentinel SET
+      UPDATE ${t('sentinel')} SET
         domain = ?, subdomain = ?, title = ?, description = ?,
         status = COALESCE(?, status), priority = COALESCE(?, priority),
         portal_scope = COALESCE(?, portal_scope),
@@ -87,7 +88,7 @@ export function upsertFeature(db: Database.Database, input: FeatureInput): numbe
   }
 
   const result = db.prepare(`
-    INSERT INTO massu_sentinel (feature_key, domain, subdomain, title, description, status, priority, portal_scope)
+    INSERT INTO ${t('sentinel')} (feature_key, domain, subdomain, title, description, status, priority, portal_scope)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     input.feature_key,
@@ -104,12 +105,12 @@ export function upsertFeature(db: Database.Database, input: FeatureInput): numbe
 }
 
 export function getFeature(db: Database.Database, featureKey: string): Feature | null {
-  const row = db.prepare('SELECT * FROM massu_sentinel WHERE feature_key = ?').get(featureKey) as Record<string, unknown> | undefined;
+  const row = db.prepare(`SELECT * FROM ${t('sentinel')} WHERE feature_key = ?`).get(featureKey) as Record<string, unknown> | undefined;
   return row ? toFeature(row) : null;
 }
 
 export function getFeatureById(db: Database.Database, id: number): Feature | null {
-  const row = db.prepare('SELECT * FROM massu_sentinel WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  const row = db.prepare(`SELECT * FROM ${t('sentinel')} WHERE id = ?`).get(id) as Record<string, unknown> | undefined;
   return row ? toFeature(row) : null;
 }
 
@@ -129,21 +130,21 @@ export function searchFeatures(
     // FTS5 search
     sql = `
       SELECT s.*, fts.rank,
-        (SELECT COUNT(*) FROM massu_sentinel_components WHERE feature_id = s.id) as component_count,
-        (SELECT COUNT(*) FROM massu_sentinel_procedures WHERE feature_id = s.id) as procedure_count,
-        (SELECT COUNT(*) FROM massu_sentinel_pages WHERE feature_id = s.id) as page_count
-      FROM massu_sentinel s
-      JOIN massu_sentinel_fts fts ON s.id = fts.rowid
-      WHERE massu_sentinel_fts MATCH ?
+        (SELECT COUNT(*) FROM ${t('sentinel_components')} WHERE feature_id = s.id) as component_count,
+        (SELECT COUNT(*) FROM ${t('sentinel_procedures')} WHERE feature_id = s.id) as procedure_count,
+        (SELECT COUNT(*) FROM ${t('sentinel_pages')} WHERE feature_id = s.id) as page_count
+      FROM ${t('sentinel')} s
+      JOIN ${t('sentinel_fts')} fts ON s.id = fts.rowid
+      WHERE ${t('sentinel_fts')} MATCH ?
     `;
     params.push(sanitizeFts5Query(query));
   } else {
     sql = `
       SELECT s.*,
-        (SELECT COUNT(*) FROM massu_sentinel_components WHERE feature_id = s.id) as component_count,
-        (SELECT COUNT(*) FROM massu_sentinel_procedures WHERE feature_id = s.id) as procedure_count,
-        (SELECT COUNT(*) FROM massu_sentinel_pages WHERE feature_id = s.id) as page_count
-      FROM massu_sentinel s
+        (SELECT COUNT(*) FROM ${t('sentinel_components')} WHERE feature_id = s.id) as component_count,
+        (SELECT COUNT(*) FROM ${t('sentinel_procedures')} WHERE feature_id = s.id) as procedure_count,
+        (SELECT COUNT(*) FROM ${t('sentinel_pages')} WHERE feature_id = s.id) as page_count
+      FROM ${t('sentinel')} s
       WHERE 1=1
     `;
   }
@@ -166,7 +167,7 @@ export function searchFeatures(
     params.push(`%"${escapedPortal}"%`);
   }
   if (filters?.page_route) {
-    sql += ' AND s.id IN (SELECT feature_id FROM massu_sentinel_pages WHERE page_route = ?)';
+    sql += ` AND s.id IN (SELECT feature_id FROM ${t('sentinel_pages')} WHERE page_route = ?)`;
     params.push(filters.page_route);
   }
 
@@ -182,14 +183,14 @@ export function searchFeatures(
 }
 
 export function getFeaturesByDomain(db: Database.Database, domain: string): Feature[] {
-  const rows = db.prepare('SELECT * FROM massu_sentinel WHERE domain = ? ORDER BY subdomain, feature_key').all(domain) as Record<string, unknown>[];
+  const rows = db.prepare(`SELECT * FROM ${t('sentinel')} WHERE domain = ? ORDER BY subdomain, feature_key`).all(domain) as Record<string, unknown>[];
   return rows.map(toFeature);
 }
 
 export function getFeaturesByFile(db: Database.Database, filePath: string): Feature[] {
   const rows = db.prepare(`
-    SELECT DISTINCT s.* FROM massu_sentinel s
-    JOIN massu_sentinel_components c ON c.feature_id = s.id
+    SELECT DISTINCT s.* FROM ${t('sentinel')} s
+    JOIN ${t('sentinel_components')} c ON c.feature_id = s.id
     WHERE c.component_file = ?
     ORDER BY s.feature_key
   `).all(filePath) as Record<string, unknown>[];
@@ -198,8 +199,8 @@ export function getFeaturesByFile(db: Database.Database, filePath: string): Feat
 
 export function getFeaturesByRoute(db: Database.Database, route: string): Feature[] {
   const rows = db.prepare(`
-    SELECT DISTINCT s.* FROM massu_sentinel s
-    JOIN massu_sentinel_pages p ON p.feature_id = s.id
+    SELECT DISTINCT s.* FROM ${t('sentinel')} s
+    JOIN ${t('sentinel_pages')} p ON p.feature_id = s.id
     WHERE p.page_route = ?
     ORDER BY s.feature_key
   `).all(route) as Record<string, unknown>[];
@@ -219,11 +220,11 @@ export function getFeatureDetail(db: Database.Database, featureKeyOrId: string |
   }
   if (!feature) return null;
 
-  const components = db.prepare('SELECT * FROM massu_sentinel_components WHERE feature_id = ?').all(feature.id) as FeatureComponent[];
-  const procedures = db.prepare('SELECT * FROM massu_sentinel_procedures WHERE feature_id = ?').all(feature.id) as FeatureProcedure[];
-  const pages = db.prepare('SELECT * FROM massu_sentinel_pages WHERE feature_id = ?').all(feature.id) as FeaturePage[];
-  const dependencies = db.prepare('SELECT * FROM massu_sentinel_deps WHERE feature_id = ?').all(feature.id) as FeatureDep[];
-  const changelog = db.prepare('SELECT * FROM massu_sentinel_changelog WHERE feature_id = ? ORDER BY created_at DESC LIMIT 50').all(feature.id) as FeatureChangeLog[];
+  const components = db.prepare(`SELECT * FROM ${t('sentinel_components')} WHERE feature_id = ?`).all(feature.id) as FeatureComponent[];
+  const procedures = db.prepare(`SELECT * FROM ${t('sentinel_procedures')} WHERE feature_id = ?`).all(feature.id) as FeatureProcedure[];
+  const pages = db.prepare(`SELECT * FROM ${t('sentinel_pages')} WHERE feature_id = ?`).all(feature.id) as FeaturePage[];
+  const dependencies = db.prepare(`SELECT * FROM ${t('sentinel_deps')} WHERE feature_id = ?`).all(feature.id) as FeatureDep[];
+  const changelog = db.prepare(`SELECT * FROM ${t('sentinel_changelog')} WHERE feature_id = ? ORDER BY created_at DESC LIMIT 50`).all(feature.id) as FeatureChangeLog[];
 
   return { ...feature, components, procedures, pages, dependencies, changelog };
 }
@@ -235,10 +236,10 @@ export function getFeatureDetail(db: Database.Database, featureKeyOrId: string |
 export function getOrphanedFeatures(db: Database.Database): Feature[] {
   // Active features with no living primary component files
   const features = db.prepare(`
-    SELECT s.* FROM massu_sentinel s
+    SELECT s.* FROM ${t('sentinel')} s
     WHERE s.status = 'active'
     AND NOT EXISTS (
-      SELECT 1 FROM massu_sentinel_components c
+      SELECT 1 FROM ${t('sentinel_components')} c
       WHERE c.feature_id = s.id AND c.is_primary = 1
     )
     ORDER BY s.domain, s.feature_key
@@ -253,7 +254,7 @@ export function getFeatureImpact(db: Database.Database, filePaths: string[]): Im
   // Find all features linked to these files
   for (const filePath of filePaths) {
     const links = db.prepare(
-      'SELECT feature_id FROM massu_sentinel_components WHERE component_file = ?'
+      `SELECT feature_id FROM ${t('sentinel_components')} WHERE component_file = ?`
     ).all(filePath) as { feature_id: number }[];
     for (const link of links) {
       affectedFeatureIds.add(link.feature_id);
@@ -269,7 +270,7 @@ export function getFeatureImpact(db: Database.Database, filePaths: string[]): Im
     if (!feature || feature.status !== 'active') continue;
 
     const allComponents = db.prepare(
-      'SELECT component_file, is_primary FROM massu_sentinel_components WHERE feature_id = ?'
+      `SELECT component_file, is_primary FROM ${t('sentinel_components')} WHERE feature_id = ?`
     ).all(featureId) as { component_file: string; is_primary: number }[];
 
     const affected = allComponents.filter(c => fileSet.has(c.component_file));
@@ -324,7 +325,7 @@ export function linkComponent(
   isPrimary: boolean = false
 ): void {
   db.prepare(`
-    INSERT OR REPLACE INTO massu_sentinel_components (feature_id, component_file, component_name, role, is_primary)
+    INSERT OR REPLACE INTO ${t('sentinel_components')} (feature_id, component_file, component_name, role, is_primary)
     VALUES (?, ?, ?, ?, ?)
   `).run(featureId, filePath, componentName, role, isPrimary ? 1 : 0);
 }
@@ -337,7 +338,7 @@ export function linkProcedure(
   procedureType?: string
 ): void {
   db.prepare(`
-    INSERT OR REPLACE INTO massu_sentinel_procedures (feature_id, router_name, procedure_name, procedure_type)
+    INSERT OR REPLACE INTO ${t('sentinel_procedures')} (feature_id, router_name, procedure_name, procedure_type)
     VALUES (?, ?, ?, ?)
   `).run(featureId, routerName, procedureName, procedureType || null);
 }
@@ -349,7 +350,7 @@ export function linkPage(
   portal?: string
 ): void {
   db.prepare(`
-    INSERT OR REPLACE INTO massu_sentinel_pages (feature_id, page_route, portal)
+    INSERT OR REPLACE INTO ${t('sentinel_pages')} (feature_id, page_route, portal)
     VALUES (?, ?, ?)
   `).run(featureId, route, portal || null);
 }
@@ -367,7 +368,7 @@ export function logChange(
   changedBy: string = 'claude-code'
 ): void {
   db.prepare(`
-    INSERT INTO massu_sentinel_changelog (feature_id, change_type, changed_by, change_detail, commit_hash)
+    INSERT INTO ${t('sentinel_changelog')} (feature_id, change_type, changed_by, change_detail, commit_hash)
     VALUES (?, ?, ?, ?, ?)
   `).run(featureId, changeType, changedBy, detail, commitHash || null);
 }
@@ -377,7 +378,7 @@ export function logChange(
 // ============================================================
 
 export function validateFeatures(db: Database.Database, domainFilter?: string): ValidationReport {
-  let sql = `SELECT * FROM massu_sentinel WHERE status = 'active'`;
+  let sql = `SELECT * FROM ${t('sentinel')} WHERE status = 'active'`;
   const params: unknown[] = [];
   if (domainFilter) {
     sql += ' AND domain = ?';
@@ -393,9 +394,9 @@ export function validateFeatures(db: Database.Database, domainFilter?: string): 
 
   for (const row of features) {
     const feature = toFeature(row);
-    const components = db.prepare('SELECT * FROM massu_sentinel_components WHERE feature_id = ?').all(feature.id) as FeatureComponent[];
-    const procedures = db.prepare('SELECT * FROM massu_sentinel_procedures WHERE feature_id = ?').all(feature.id) as FeatureProcedure[];
-    const pages = db.prepare('SELECT * FROM massu_sentinel_pages WHERE feature_id = ?').all(feature.id) as FeaturePage[];
+    const components = db.prepare(`SELECT * FROM ${t('sentinel_components')} WHERE feature_id = ?`).all(feature.id) as FeatureComponent[];
+    const procedures = db.prepare(`SELECT * FROM ${t('sentinel_procedures')} WHERE feature_id = ?`).all(feature.id) as FeatureProcedure[];
+    const pages = db.prepare(`SELECT * FROM ${t('sentinel_pages')} WHERE feature_id = ?`).all(feature.id) as FeaturePage[];
 
     const missingComponents: string[] = [];
     const missingProcedures: { router: string; procedure: string }[] = [];
@@ -475,7 +476,7 @@ export function checkParity(db: Database.Database, oldFiles: string[], newFiles:
   // Find features linked to old files
   const oldFeatureIds = new Set<number>();
   for (const file of oldFiles) {
-    const links = db.prepare('SELECT feature_id FROM massu_sentinel_components WHERE component_file = ?').all(file) as { feature_id: number }[];
+    const links = db.prepare(`SELECT feature_id FROM ${t('sentinel_components')} WHERE component_file = ?`).all(file) as { feature_id: number }[];
     for (const link of links) {
       oldFeatureIds.add(link.feature_id);
     }
@@ -484,7 +485,7 @@ export function checkParity(db: Database.Database, oldFiles: string[], newFiles:
   // Find features linked to new files
   const newFeatureIds = new Set<number>();
   for (const file of newFiles) {
-    const links = db.prepare('SELECT feature_id FROM massu_sentinel_components WHERE component_file = ?').all(file) as { feature_id: number }[];
+    const links = db.prepare(`SELECT feature_id FROM ${t('sentinel_components')} WHERE component_file = ?`).all(file) as { feature_id: number }[];
     for (const link of links) {
       newFeatureIds.add(link.feature_id);
     }
@@ -500,8 +501,8 @@ export function checkParity(db: Database.Database, oldFiles: string[], newFiles:
     const feature = getFeatureById(db, fId);
     if (!feature) continue;
 
-    const oldComps = db.prepare('SELECT component_file FROM massu_sentinel_components WHERE feature_id = ? AND component_file IN (' + oldFiles.map(() => '?').join(',') + ')').all(fId, ...oldFiles) as { component_file: string }[];
-    const newComps = db.prepare('SELECT component_file FROM massu_sentinel_components WHERE feature_id = ? AND component_file IN (' + newFiles.map(() => '?').join(',') + ')').all(fId, ...newFiles) as { component_file: string }[];
+    const oldComps = db.prepare(`SELECT component_file FROM ${t('sentinel_components')} WHERE feature_id = ? AND component_file IN (` + oldFiles.map(() => '?').join(',') + ')').all(fId, ...oldFiles) as { component_file: string }[];
+    const newComps = db.prepare(`SELECT component_file FROM ${t('sentinel_components')} WHERE feature_id = ? AND component_file IN (` + newFiles.map(() => '?').join(',') + ')').all(fId, ...newFiles) as { component_file: string }[];
 
     const item: ParityItem = {
       feature_key: feature.feature_key,
@@ -524,7 +525,7 @@ export function checkParity(db: Database.Database, oldFiles: string[], newFiles:
     const feature = getFeatureById(db, fId);
     if (!feature) continue;
 
-    const newComps = db.prepare('SELECT component_file FROM massu_sentinel_components WHERE feature_id = ? AND component_file IN (' + newFiles.map(() => '?').join(',') + ')').all(fId, ...newFiles) as { component_file: string }[];
+    const newComps = db.prepare(`SELECT component_file FROM ${t('sentinel_components')} WHERE feature_id = ? AND component_file IN (` + newFiles.map(() => '?').join(',') + ')').all(fId, ...newFiles) as { component_file: string }[];
 
     newFeatures.push({
       feature_key: feature.feature_key,
@@ -549,19 +550,19 @@ export function clearAutoDiscoveredFeatures(db: Database.Database): void {
   // Only clear features that were auto-discovered (not manually registered)
   // We use the changelog to distinguish: auto-discovered ones have changed_by = 'scanner'
   const autoIds = db.prepare(`
-    SELECT DISTINCT feature_id FROM massu_sentinel_changelog
+    SELECT DISTINCT feature_id FROM ${t('sentinel_changelog')}
     WHERE changed_by = 'scanner' AND change_type = 'created'
   `).all() as { feature_id: number }[];
 
   // Don't delete features that also have manual changes
   for (const { feature_id } of autoIds) {
     const hasManualChanges = db.prepare(`
-      SELECT 1 FROM massu_sentinel_changelog
+      SELECT 1 FROM ${t('sentinel_changelog')}
       WHERE feature_id = ? AND changed_by != 'scanner'
     `).get(feature_id);
 
     if (!hasManualChanges) {
-      db.prepare('DELETE FROM massu_sentinel WHERE id = ?').run(feature_id);
+      db.prepare(`DELETE FROM ${t('sentinel')} WHERE id = ?`).run(feature_id);
     }
   }
 }

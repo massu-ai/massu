@@ -3,6 +3,7 @@
 
 import type Database from 'better-sqlite3';
 import { getConfig } from '../config.ts';
+import { t } from '../lib/sql-table-names.ts';
 
 export interface DomainViolation {
   sourceFile: string;
@@ -44,7 +45,7 @@ export function findPythonDomainViolations(dataDb: Database.Database): DomainVio
   if (domains.length === 0) return [];
 
   const imports = dataDb.prepare(
-    'SELECT source_file, target_file FROM massu_py_imports'
+    `SELECT source_file, target_file FROM ${t('py_imports')}`
   ).all() as { source_file: string; target_file: string }[];
 
   const violations: DomainViolation[] = [];
@@ -74,7 +75,7 @@ export function findPythonDomainViolations(dataDb: Database.Database): DomainVio
  */
 export function getPythonFilesInDomain(dataDb: Database.Database, domainName: string): string[] {
   const allFiles = dataDb.prepare(
-    'SELECT DISTINCT source_file as f FROM massu_py_imports UNION SELECT DISTINCT target_file as f FROM massu_py_imports'
+    `SELECT DISTINCT source_file as f FROM ${t('py_imports')} UNION SELECT DISTINCT target_file as f FROM ${t('py_imports')}`
   ).all() as { f: string }[];
 
   return allFiles

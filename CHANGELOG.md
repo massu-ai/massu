@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.7] - 2026-05-17
+
+**P-H032 — Config-driven SQL table names (parent plan `plan-2026-05-16-prelaunch-audit`, sub-plan `plan-stage-c-high-batch`)**. 207 SQL string substitutions across 21 source files migrated from hardcoded `'massu_<table>'` literals to `${t('<table>')}` template-literal substitutions resolving through a new `lib/sql-table-names.ts` single-source-of-truth helper. Closes the split-brain bug class where tool names were already config-driven via `getConfig().toolPrefix` but persistence wasn't — non-default-prefix customers (e.g. `toolPrefix: 'foo'`) would have tools named `foo_*` but still write to / read from `massu_*` tables, missing their own data. Default-prefix customers (100% of current installs) see ZERO behavior change.
+
+### Added
+
+- **`packages/core/src/lib/sql-table-names.ts`** — typed `MassuTableSuffix` union (20 canonical suffixes) + `t(suffix)` helper returning `\`${getConfig().toolPrefix}_${suffix}\``. The typed union catches typos at compile time; the helper makes the prefix resolution single-source.
+- **`packages/core/src/__tests__/sql-table-names-no-hardcoded.test.ts`** — 2-case drift-guard: (1) walks `packages/core/src/**` and asserts zero bare `massu_<canonical-suffix>` literals outside the SoT module + tool-name registries + tests; (2) verifies `t()` resolves with the configured prefix. Closes the regression class where a future SQL string is written with a hardcoded literal and silently breaks custom-prefix installs.
+
+### Fixed
+
+- **20 source files migrated** (207 total substitutions): `db.ts` (64), `sentinel-db.ts` (46), `python-tools.ts` (30), `tools.ts` (13), `page-deps.ts` (8), `python/impact-analyzer.ts` (6), `middleware-tree.ts` (5), `python/migration-indexer.ts` (4), `python/model-indexer.ts` (4), `validate-features-runner.ts` (4), `trpc-index.ts` (4), `python/coupling-detector.ts` (3), `python/domain-enforcer.ts` (3), `python/route-indexer.ts` (3), `import-resolver.ts` (2), `knowledge-tools.ts` (2), `python/import-resolver.ts` (2), `sentinel-scanner.ts` (2), `domains.ts` (1), `sentinel-tools.ts` (1), plus the `hooks/pre-delete-check.ts` Python-index queries (4) for parity with the runtime modules.
+
+### Verification
+
+- packages/core `tsc --noEmit`: exit 0
+- packages/core `vitest run`: 2269/2269 PASS (Node 22) — 2 new test cases above the 1.10.6 baseline
+- packages/core `npm run build:hooks`: exit 0 (esbuild bundles `lib/sql-table-names.ts` into each affected hook)
+- Default-prefix behavior unchanged: `t('imports')` returns `'massu_imports'` exactly as the prior hardcoded literal.
+
 ## [1.10.6] - 2026-05-17
 
 **P-H022 partial advance — CSP hardening (parent plan `plan-2026-05-16-prelaunch-audit`, sub-plan `plan-stage-c-high-batch`)**. The full nonce-based CSP migration (per-request middleware nonce + Next.js consumption pattern + per-page smoke testing) requires multi-day operator-coordinated work and is tracked as the explicit follow-up plan `plan-csp-nonce-migration`. This release closes 3 distinct attack-surface bug classes structurally WITHOUT breaking Next.js production hydration (which uses hundreds of inline `<script>self.__next_f.push(...)` blocks per page that require `'unsafe-inline'` until middleware nonce ships).

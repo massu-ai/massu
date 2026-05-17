@@ -5,6 +5,7 @@ import type Database from 'better-sqlite3';
 import { getConfig } from './config.ts';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
+import { t } from './lib/sql-table-names.ts';
 
 /**
  * Build the middleware import tree by tracing all transitive imports
@@ -13,7 +14,7 @@ import { resolve } from 'path';
  */
 export function buildMiddlewareTree(dataDb: Database.Database): number {
   // Clear existing data
-  dataDb.exec('DELETE FROM massu_middleware_tree');
+  dataDb.exec(`DELETE FROM ${t('middleware_tree')}`);
 
   const config = getConfig();
   const middlewareFile = config.paths.middleware ?? 'src/middleware.ts';
@@ -30,7 +31,7 @@ export function buildMiddlewareTree(dataDb: Database.Database): number {
     const current = queue.shift()!;
 
     const imports = dataDb.prepare(
-      'SELECT target_file FROM massu_imports WHERE source_file = ?'
+      `SELECT target_file FROM ${t('imports')} WHERE source_file = ?`
     ).all(current) as { target_file: string }[];
 
     for (const imp of imports) {
@@ -42,7 +43,7 @@ export function buildMiddlewareTree(dataDb: Database.Database): number {
   }
 
   // Store the tree
-  const insertStmt = dataDb.prepare('INSERT INTO massu_middleware_tree (file) VALUES (?)');
+  const insertStmt = dataDb.prepare(`INSERT INTO ${t('middleware_tree')} (file) VALUES (?)`);
   const insertAll = dataDb.transaction(() => {
     for (const file of visited) {
       insertStmt.run(file);
@@ -57,7 +58,7 @@ export function buildMiddlewareTree(dataDb: Database.Database): number {
  * Check if a file is in the middleware import tree.
  */
 export function isInMiddlewareTree(dataDb: Database.Database, file: string): boolean {
-  const result = dataDb.prepare('SELECT 1 FROM massu_middleware_tree WHERE file = ?').get(file);
+  const result = dataDb.prepare(`SELECT 1 FROM ${t('middleware_tree')} WHERE file = ?`).get(file);
   return result !== undefined;
 }
 
@@ -65,6 +66,6 @@ export function isInMiddlewareTree(dataDb: Database.Database, file: string): boo
  * Get all files in the middleware import tree.
  */
 export function getMiddlewareTree(dataDb: Database.Database): string[] {
-  const rows = dataDb.prepare('SELECT file FROM massu_middleware_tree ORDER BY file').all() as { file: string }[];
+  const rows = dataDb.prepare(`SELECT file FROM ${t('middleware_tree')} ORDER BY file`).all() as { file: string }[];
   return rows.map(r => r.file);
 }

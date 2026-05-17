@@ -5,6 +5,7 @@ import { readFileSync, existsSync, readdirSync } from 'fs';
 import { resolve, join } from 'path';
 import type Database from 'better-sqlite3';
 import { getConfig, getResolvedPaths, getProjectRoot } from './config.ts';
+import { t } from './lib/sql-table-names.ts';
 
 interface RouterMapping {
   key: string;       // e.g., "orders" (used as api.orders.*)
@@ -170,16 +171,16 @@ function escapeRegex(str: string): string {
  */
 export function buildTrpcIndex(dataDb: Database.Database): { totalProcedures: number; withCallers: number; withoutCallers: number } {
   // Clear existing data
-  dataDb.exec('DELETE FROM massu_trpc_call_sites');
-  dataDb.exec('DELETE FROM massu_trpc_procedures');
+  dataDb.exec(`DELETE FROM ${t('trpc_call_sites')}`);
+  dataDb.exec(`DELETE FROM ${t('trpc_procedures')}`);
 
   const routerMappings = parseRootRouter();
 
   const insertProc = dataDb.prepare(
-    'INSERT INTO massu_trpc_procedures (router_file, router_name, procedure_name, procedure_type, has_ui_caller) VALUES (?, ?, ?, ?, ?)'
+    `INSERT INTO ${t('trpc_procedures')} (router_file, router_name, procedure_name, procedure_type, has_ui_caller) VALUES (?, ?, ?, ?, ?)`
   );
   const insertCallSite = dataDb.prepare(
-    'INSERT INTO massu_trpc_call_sites (procedure_id, file, line, call_pattern) VALUES (?, ?, ?, ?)'
+    `INSERT INTO ${t('trpc_call_sites')} (procedure_id, file, line, call_pattern) VALUES (?, ?, ?, ?)`
   );
 
   let totalProcedures = 0;

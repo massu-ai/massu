@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 import { dirname, join } from 'path';
 import { existsSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { getResolvedPaths } from './config.ts';
+import { t } from './lib/sql-table-names.ts';
 
 /**
  * Thrown by `getCodeGraphDb()` when `.codegraph/codegraph.db` is missing.
@@ -62,7 +63,7 @@ export function getDataDb(): Database.Database {
 
 function initDataSchema(db: Database.Database): void {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS massu_imports (
+    CREATE TABLE IF NOT EXISTS ${t('imports')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       source_file TEXT NOT NULL,
       target_file TEXT NOT NULL,
@@ -71,10 +72,10 @@ function initDataSchema(db: Database.Database): void {
       line INTEGER NOT NULL DEFAULT 0
     );
 
-    CREATE INDEX IF NOT EXISTS idx_massu_imports_source ON massu_imports(source_file);
-    CREATE INDEX IF NOT EXISTS idx_massu_imports_target ON massu_imports(target_file);
+    CREATE INDEX IF NOT EXISTS idx_massu_imports_source ON ${t('imports')}(source_file);
+    CREATE INDEX IF NOT EXISTS idx_massu_imports_target ON ${t('imports')}(target_file);
 
-    CREATE TABLE IF NOT EXISTS massu_trpc_procedures (
+    CREATE TABLE IF NOT EXISTS ${t('trpc_procedures')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       router_file TEXT NOT NULL,
       router_name TEXT NOT NULL,
@@ -83,20 +84,20 @@ function initDataSchema(db: Database.Database): void {
       has_ui_caller INTEGER NOT NULL DEFAULT 0
     );
 
-    CREATE INDEX IF NOT EXISTS idx_massu_trpc_router ON massu_trpc_procedures(router_name);
+    CREATE INDEX IF NOT EXISTS idx_massu_trpc_router ON ${t('trpc_procedures')}(router_name);
 
-    CREATE TABLE IF NOT EXISTS massu_trpc_call_sites (
+    CREATE TABLE IF NOT EXISTS ${t('trpc_call_sites')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       procedure_id INTEGER NOT NULL,
       file TEXT NOT NULL,
       line INTEGER NOT NULL DEFAULT 0,
       call_pattern TEXT NOT NULL,
-      FOREIGN KEY (procedure_id) REFERENCES massu_trpc_procedures(id)
+      FOREIGN KEY (procedure_id) REFERENCES ${t('trpc_procedures')}(id)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_massu_call_sites_proc ON massu_trpc_call_sites(procedure_id);
+    CREATE INDEX IF NOT EXISTS idx_massu_call_sites_proc ON ${t('trpc_call_sites')}(procedure_id);
 
-    CREATE TABLE IF NOT EXISTS massu_page_deps (
+    CREATE TABLE IF NOT EXISTS ${t('page_deps')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       page_file TEXT NOT NULL,
       route TEXT NOT NULL,
@@ -107,14 +108,14 @@ function initDataSchema(db: Database.Database): void {
       tables_touched TEXT NOT NULL DEFAULT '[]'
     );
 
-    CREATE INDEX IF NOT EXISTS idx_massu_page_deps_page ON massu_page_deps(page_file);
+    CREATE INDEX IF NOT EXISTS idx_massu_page_deps_page ON ${t('page_deps')}(page_file);
 
-    CREATE TABLE IF NOT EXISTS massu_middleware_tree (
+    CREATE TABLE IF NOT EXISTS ${t('middleware_tree')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       file TEXT NOT NULL UNIQUE
     );
 
-    CREATE TABLE IF NOT EXISTS massu_meta (
+    CREATE TABLE IF NOT EXISTS ${t('meta')} (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
@@ -123,7 +124,7 @@ function initDataSchema(db: Database.Database): void {
     -- Python Code Intelligence Tables
     -- ============================================================
 
-    CREATE TABLE IF NOT EXISTS massu_py_imports (
+    CREATE TABLE IF NOT EXISTS ${t('py_imports')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       source_file TEXT NOT NULL,
       target_file TEXT NOT NULL,
@@ -131,15 +132,15 @@ function initDataSchema(db: Database.Database): void {
       imported_names TEXT NOT NULL DEFAULT '[]',
       line INTEGER NOT NULL DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_massu_py_imports_source ON massu_py_imports(source_file);
-    CREATE INDEX IF NOT EXISTS idx_massu_py_imports_target ON massu_py_imports(target_file);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_imports_source ON ${t('py_imports')}(source_file);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_imports_target ON ${t('py_imports')}(target_file);
 
-    CREATE TABLE IF NOT EXISTS massu_py_meta (
+    CREATE TABLE IF NOT EXISTS ${t('py_meta')} (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS massu_py_routes (
+    CREATE TABLE IF NOT EXISTS ${t('py_routes')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       file TEXT NOT NULL,
       method TEXT NOT NULL,
@@ -151,19 +152,19 @@ function initDataSchema(db: Database.Database): void {
       is_authenticated INTEGER NOT NULL DEFAULT 0,
       line INTEGER NOT NULL DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_massu_py_routes_path ON massu_py_routes(path);
-    CREATE INDEX IF NOT EXISTS idx_massu_py_routes_file ON massu_py_routes(file);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_routes_path ON ${t('py_routes')}(path);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_routes_file ON ${t('py_routes')}(file);
 
-    CREATE TABLE IF NOT EXISTS massu_py_route_callers (
+    CREATE TABLE IF NOT EXISTS ${t('py_route_callers')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      route_id INTEGER NOT NULL REFERENCES massu_py_routes(id) ON DELETE CASCADE,
+      route_id INTEGER NOT NULL REFERENCES ${t('py_routes')}(id) ON DELETE CASCADE,
       frontend_file TEXT NOT NULL,
       line INTEGER NOT NULL DEFAULT 0,
       call_pattern TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_massu_py_route_callers_route ON massu_py_route_callers(route_id);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_route_callers_route ON ${t('py_route_callers')}(route_id);
 
-    CREATE TABLE IF NOT EXISTS massu_py_models (
+    CREATE TABLE IF NOT EXISTS ${t('py_models')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       class_name TEXT NOT NULL,
       table_name TEXT,
@@ -173,20 +174,20 @@ function initDataSchema(db: Database.Database): void {
       relationships TEXT NOT NULL DEFAULT '[]',
       foreign_keys TEXT NOT NULL DEFAULT '[]'
     );
-    CREATE INDEX IF NOT EXISTS idx_massu_py_models_file ON massu_py_models(file);
-    CREATE INDEX IF NOT EXISTS idx_massu_py_models_table ON massu_py_models(table_name);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_models_file ON ${t('py_models')}(file);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_models_table ON ${t('py_models')}(table_name);
 
-    CREATE TABLE IF NOT EXISTS massu_py_fk_edges (
+    CREATE TABLE IF NOT EXISTS ${t('py_fk_edges')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       source_table TEXT NOT NULL,
       source_column TEXT NOT NULL,
       target_table TEXT NOT NULL,
       target_column TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_massu_py_fk_source ON massu_py_fk_edges(source_table);
-    CREATE INDEX IF NOT EXISTS idx_massu_py_fk_target ON massu_py_fk_edges(target_table);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_fk_source ON ${t('py_fk_edges')}(source_table);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_fk_target ON ${t('py_fk_edges')}(target_table);
 
-    CREATE TABLE IF NOT EXISTS massu_py_migrations (
+    CREATE TABLE IF NOT EXISTS ${t('py_migrations')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       revision TEXT NOT NULL UNIQUE,
       down_revision TEXT,
@@ -195,14 +196,14 @@ function initDataSchema(db: Database.Database): void {
       operations TEXT NOT NULL DEFAULT '[]',
       is_head INTEGER NOT NULL DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_massu_py_migrations_rev ON massu_py_migrations(revision);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_migrations_rev ON ${t('py_migrations')}(revision);
 
     -- ============================================================
     -- Sentinel: Feature Registry Tables
     -- ============================================================
 
     -- Core feature definition
-    CREATE TABLE IF NOT EXISTS massu_sentinel (
+    CREATE TABLE IF NOT EXISTS ${t('sentinel')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       feature_key TEXT UNIQUE NOT NULL,
       domain TEXT NOT NULL,
@@ -220,14 +221,14 @@ function initDataSchema(db: Database.Database): void {
       removed_reason TEXT
     );
 
-    CREATE INDEX IF NOT EXISTS idx_sentinel_domain ON massu_sentinel(domain);
-    CREATE INDEX IF NOT EXISTS idx_sentinel_status ON massu_sentinel(status);
-    CREATE INDEX IF NOT EXISTS idx_sentinel_key ON massu_sentinel(feature_key);
+    CREATE INDEX IF NOT EXISTS idx_sentinel_domain ON ${t('sentinel')}(domain);
+    CREATE INDEX IF NOT EXISTS idx_sentinel_status ON ${t('sentinel')}(status);
+    CREATE INDEX IF NOT EXISTS idx_sentinel_key ON ${t('sentinel')}(feature_key);
 
     -- Feature-to-component mapping (many-to-many)
-    CREATE TABLE IF NOT EXISTS massu_sentinel_components (
+    CREATE TABLE IF NOT EXISTS ${t('sentinel_components')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      feature_id INTEGER NOT NULL REFERENCES massu_sentinel(id) ON DELETE CASCADE,
+      feature_id INTEGER NOT NULL REFERENCES ${t('sentinel')}(id) ON DELETE CASCADE,
       component_file TEXT NOT NULL,
       component_name TEXT,
       role TEXT DEFAULT 'implementation'
@@ -237,9 +238,9 @@ function initDataSchema(db: Database.Database): void {
     );
 
     -- Feature-to-procedure mapping (many-to-many)
-    CREATE TABLE IF NOT EXISTS massu_sentinel_procedures (
+    CREATE TABLE IF NOT EXISTS ${t('sentinel_procedures')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      feature_id INTEGER NOT NULL REFERENCES massu_sentinel(id) ON DELETE CASCADE,
+      feature_id INTEGER NOT NULL REFERENCES ${t('sentinel')}(id) ON DELETE CASCADE,
       router_name TEXT NOT NULL,
       procedure_name TEXT NOT NULL,
       procedure_type TEXT,
@@ -247,28 +248,28 @@ function initDataSchema(db: Database.Database): void {
     );
 
     -- Feature-to-page mapping (where feature is accessible)
-    CREATE TABLE IF NOT EXISTS massu_sentinel_pages (
+    CREATE TABLE IF NOT EXISTS ${t('sentinel_pages')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      feature_id INTEGER NOT NULL REFERENCES massu_sentinel(id) ON DELETE CASCADE,
+      feature_id INTEGER NOT NULL REFERENCES ${t('sentinel')}(id) ON DELETE CASCADE,
       page_route TEXT NOT NULL,
       portal TEXT,
       UNIQUE(feature_id, page_route, portal)
     );
 
     -- Feature dependency graph
-    CREATE TABLE IF NOT EXISTS massu_sentinel_deps (
+    CREATE TABLE IF NOT EXISTS ${t('sentinel_deps')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      feature_id INTEGER NOT NULL REFERENCES massu_sentinel(id) ON DELETE CASCADE,
-      depends_on_feature_id INTEGER NOT NULL REFERENCES massu_sentinel(id) ON DELETE CASCADE,
+      feature_id INTEGER NOT NULL REFERENCES ${t('sentinel')}(id) ON DELETE CASCADE,
+      depends_on_feature_id INTEGER NOT NULL REFERENCES ${t('sentinel')}(id) ON DELETE CASCADE,
       dependency_type TEXT DEFAULT 'requires'
         CHECK(dependency_type IN ('requires', 'enhances', 'replaces')),
       UNIQUE(feature_id, depends_on_feature_id)
     );
 
     -- Feature change log (audit trail)
-    CREATE TABLE IF NOT EXISTS massu_sentinel_changelog (
+    CREATE TABLE IF NOT EXISTS ${t('sentinel_changelog')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      feature_id INTEGER NOT NULL REFERENCES massu_sentinel(id) ON DELETE CASCADE,
+      feature_id INTEGER NOT NULL REFERENCES ${t('sentinel')}(id) ON DELETE CASCADE,
       change_type TEXT NOT NULL,
       changed_by TEXT,
       change_detail TEXT,
@@ -276,36 +277,36 @@ function initDataSchema(db: Database.Database): void {
       created_at TEXT DEFAULT (datetime('now'))
     );
 
-    CREATE INDEX IF NOT EXISTS idx_sentinel_components_file ON massu_sentinel_components(component_file);
-    CREATE INDEX IF NOT EXISTS idx_sentinel_procedures_router ON massu_sentinel_procedures(router_name);
-    CREATE INDEX IF NOT EXISTS idx_sentinel_pages_route ON massu_sentinel_pages(page_route);
-    CREATE INDEX IF NOT EXISTS idx_sentinel_changelog_feature ON massu_sentinel_changelog(feature_id);
+    CREATE INDEX IF NOT EXISTS idx_sentinel_components_file ON ${t('sentinel_components')}(component_file);
+    CREATE INDEX IF NOT EXISTS idx_sentinel_procedures_router ON ${t('sentinel_procedures')}(router_name);
+    CREATE INDEX IF NOT EXISTS idx_sentinel_pages_route ON ${t('sentinel_pages')}(page_route);
+    CREATE INDEX IF NOT EXISTS idx_sentinel_changelog_feature ON ${t('sentinel_changelog')}(feature_id);
   `);
 
   // FTS5 for feature search (separate exec since virtual tables can't be in same batch)
   db.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS massu_sentinel_fts USING fts5(
+    CREATE VIRTUAL TABLE IF NOT EXISTS ${t('sentinel_fts')} USING fts5(
       feature_key, title, description, domain, subdomain,
-      content=massu_sentinel, content_rowid=id
+      content=${t('sentinel')}, content_rowid=id
     );
   `);
 
   // FTS5 sync triggers
   db.exec(`
-    CREATE TRIGGER IF NOT EXISTS massu_sentinel_ai AFTER INSERT ON massu_sentinel BEGIN
-      INSERT INTO massu_sentinel_fts(rowid, feature_key, title, description, domain, subdomain)
+    CREATE TRIGGER IF NOT EXISTS massu_sentinel_ai AFTER INSERT ON ${t('sentinel')} BEGIN
+      INSERT INTO ${t('sentinel_fts')}(rowid, feature_key, title, description, domain, subdomain)
       VALUES (new.id, new.feature_key, new.title, new.description, new.domain, new.subdomain);
     END;
 
-    CREATE TRIGGER IF NOT EXISTS massu_sentinel_ad AFTER DELETE ON massu_sentinel BEGIN
-      INSERT INTO massu_sentinel_fts(massu_sentinel_fts, rowid, feature_key, title, description, domain, subdomain)
+    CREATE TRIGGER IF NOT EXISTS massu_sentinel_ad AFTER DELETE ON ${t('sentinel')} BEGIN
+      INSERT INTO ${t('sentinel_fts')}(${t('sentinel_fts')}, rowid, feature_key, title, description, domain, subdomain)
       VALUES ('delete', old.id, old.feature_key, old.title, old.description, old.domain, old.subdomain);
     END;
 
-    CREATE TRIGGER IF NOT EXISTS massu_sentinel_au AFTER UPDATE ON massu_sentinel BEGIN
-      INSERT INTO massu_sentinel_fts(massu_sentinel_fts, rowid, feature_key, title, description, domain, subdomain)
+    CREATE TRIGGER IF NOT EXISTS massu_sentinel_au AFTER UPDATE ON ${t('sentinel')} BEGIN
+      INSERT INTO ${t('sentinel_fts')}(${t('sentinel_fts')}, rowid, feature_key, title, description, domain, subdomain)
       VALUES ('delete', old.id, old.feature_key, old.title, old.description, old.domain, old.subdomain);
-      INSERT INTO massu_sentinel_fts(rowid, feature_key, title, description, domain, subdomain)
+      INSERT INTO ${t('sentinel_fts')}(rowid, feature_key, title, description, domain, subdomain)
       VALUES (new.id, new.feature_key, new.title, new.description, new.domain, new.subdomain);
     END;
   `);
@@ -315,7 +316,7 @@ function initDataSchema(db: Database.Database): void {
  * Check if Massu indexes are stale compared to CodeGraph timestamps.
  */
 export function isDataStale(dataDb: Database.Database, codegraphDb: Database.Database): boolean {
-  const lastBuild = dataDb.prepare("SELECT value FROM massu_meta WHERE key = 'last_build_time'").get() as { value: string } | undefined;
+  const lastBuild = dataDb.prepare(`SELECT value FROM ${t('meta')} WHERE key = 'last_build_time'`).get() as { value: string } | undefined;
   if (!lastBuild) return true;
 
   // CodeGraph stores indexed_at as unix timestamp (integer)
@@ -330,14 +331,14 @@ export function isDataStale(dataDb: Database.Database, codegraphDb: Database.Dat
  * Update the last build timestamp in massu_meta.
  */
 export function updateBuildTimestamp(dataDb: Database.Database): void {
-  dataDb.prepare("INSERT OR REPLACE INTO massu_meta (key, value) VALUES ('last_build_time', ?)").run(new Date().toISOString());
+  dataDb.prepare(`INSERT OR REPLACE INTO ${t('meta')} (key, value) VALUES ('last_build_time', ?)`).run(new Date().toISOString());
 }
 
 /**
  * Check if Python indexes are stale based on massu_py_meta.last_build_time.
  */
 export function isPythonDataStale(dataDb: Database.Database, pythonRoot: string): boolean {
-  const lastBuild = dataDb.prepare("SELECT value FROM massu_py_meta WHERE key = 'last_build_time'").get() as { value: string } | undefined;
+  const lastBuild = dataDb.prepare(`SELECT value FROM ${t('py_meta')} WHERE key = 'last_build_time'`).get() as { value: string } | undefined;
   if (!lastBuild) return true;
 
   const lastBuildTime = new Date(lastBuild.value).getTime();
@@ -365,5 +366,5 @@ export function isPythonDataStale(dataDb: Database.Database, pythonRoot: string)
  * Update the Python build timestamp in massu_py_meta.
  */
 export function updatePythonBuildTimestamp(dataDb: Database.Database): void {
-  dataDb.prepare("INSERT OR REPLACE INTO massu_py_meta (key, value) VALUES ('last_build_time', ?)").run(new Date().toISOString());
+  dataDb.prepare(`INSERT OR REPLACE INTO ${t('py_meta')} (key, value) VALUES ('last_build_time', ?)`).run(new Date().toISOString());
 }

@@ -6,6 +6,7 @@ import { join, relative } from 'path';
 import type Database from 'better-sqlite3';
 import { parsePythonRoutes } from './route-parser.ts';
 import { getProjectRoot } from '../config.ts';
+import { t } from '../lib/sql-table-names.ts';
 
 function walkPyFiles(dir: string, excludeDirs: string[]): string[] {
   const files: string[] = [];
@@ -26,11 +27,11 @@ function walkPyFiles(dir: string, excludeDirs: string[]): string[] {
 export function buildPythonRouteIndex(dataDb: Database.Database, pythonRoot: string, excludeDirs: string[] = ['__pycache__', '.venv', 'venv', '.mypy_cache', '.pytest_cache']): number {
   const projectRoot = getProjectRoot();
   const absRoot = join(projectRoot, pythonRoot);
-  dataDb.exec('DELETE FROM massu_py_routes');
-  dataDb.exec('DELETE FROM massu_py_route_callers');
+  dataDb.exec(`DELETE FROM ${t('py_routes')}`);
+  dataDb.exec(`DELETE FROM ${t('py_route_callers')}`);
 
   const insertStmt = dataDb.prepare(
-    'INSERT INTO massu_py_routes (file, method, path, function_name, dependencies, request_model, response_model, is_authenticated, line) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    `INSERT INTO ${t('py_routes')} (file, method, path, function_name, dependencies, request_model, response_model, is_authenticated, line) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
   const files = walkPyFiles(absRoot, excludeDirs);

@@ -12,6 +12,7 @@ import Database from 'better-sqlite3';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
 import { getProjectRoot, getResolvedPaths } from './config.ts';
+import { t } from './lib/sql-table-names.ts';
 
 const PROJECT_ROOT = getProjectRoot();
 
@@ -35,7 +36,7 @@ function main(): void {
   try {
     // Check if sentinel tables exist
     const tableExists = db.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='massu_sentinel'"
+      "SELECT name FROM sqlite_master WHERE type='table' AND name=`${t('sentinel')}`"
     ).get();
 
     if (!tableExists) {
@@ -45,7 +46,7 @@ function main(): void {
 
     // Count active features
     const totalActive = db.prepare(
-      "SELECT COUNT(*) as count FROM massu_sentinel WHERE status = 'active'"
+      `SELECT COUNT(*) as count FROM ${t('sentinel')} WHERE status = 'active'`
     ).get() as { count: number };
 
     if (totalActive.count === 0) {
@@ -56,8 +57,8 @@ function main(): void {
     // Check for orphaned features (active features with missing primary component files)
     const orphaned = db.prepare(`
       SELECT s.feature_key, s.title, s.priority, c.component_file
-      FROM massu_sentinel s
-      JOIN massu_sentinel_components c ON c.feature_id = s.id AND c.is_primary = 1
+      FROM ${t('sentinel')} s
+      JOIN ${t('sentinel_components')} c ON c.feature_id = s.id AND c.is_primary = 1
       WHERE s.status = 'active'
       ORDER BY s.priority DESC, s.domain, s.feature_key
     `).all() as { feature_key: string; title: string; priority: string; component_file: string }[];

@@ -6,11 +6,12 @@ import { join, relative } from 'path';
 import type Database from 'better-sqlite3';
 import { parseAlembicMigration } from './migration-parser.ts';
 import { getProjectRoot } from '../config.ts';
+import { t } from '../lib/sql-table-names.ts';
 
 export function buildPythonMigrationIndex(dataDb: Database.Database, alembicDir: string): number {
   const projectRoot = getProjectRoot();
   const absDir = join(projectRoot, alembicDir);
-  dataDb.exec('DELETE FROM massu_py_migrations');
+  dataDb.exec(`DELETE FROM ${t('py_migrations')}`);
 
   // Look for version files in versions/ subdirectory
   const versionsDir = join(absDir, 'versions');
@@ -28,7 +29,7 @@ export function buildPythonMigrationIndex(dataDb: Database.Database, alembicDir:
   }
 
   const insertStmt = dataDb.prepare(
-    'INSERT INTO massu_py_migrations (revision, down_revision, file, description, operations, is_head) VALUES (?, ?, ?, ?, ?, ?)'
+    `INSERT INTO ${t('py_migrations')} (revision, down_revision, file, description, operations, is_head) VALUES (?, ?, ?, ?, ?, ?)`
   );
 
   let count = 0;
@@ -80,11 +81,11 @@ export interface DriftReport {
 }
 
 export function detectMigrationDrift(dataDb: Database.Database): DriftReport {
-  const models = dataDb.prepare('SELECT class_name, table_name, columns FROM massu_py_models WHERE table_name IS NOT NULL').all() as {
+  const models = dataDb.prepare(`SELECT class_name, table_name, columns FROM ${t('py_models')} WHERE table_name IS NOT NULL`).all() as {
     class_name: string; table_name: string; columns: string;
   }[];
 
-  const migrations = dataDb.prepare('SELECT operations FROM massu_py_migrations').all() as { operations: string }[];
+  const migrations = dataDb.prepare(`SELECT operations FROM ${t('py_migrations')}`).all() as { operations: string }[];
 
   // Collect all tables and columns mentioned in migrations
   const migratedTables = new Set<string>();

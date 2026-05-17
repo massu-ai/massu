@@ -533,6 +533,11 @@ function getResolvedPaths() {
 // src/memory-db.ts
 import Database from "better-sqlite3";
 
+// src/lib/sql-table-names.ts
+function t(suffix) {
+  return `${getConfig().toolPrefix}_${suffix}`;
+}
+
 // src/sentinel-db.ts
 var PROJECT_ROOT = getProjectRoot();
 function parsePortalScope(raw) {
@@ -561,7 +566,7 @@ function toFeature(row) {
   };
 }
 function getFeatureById(db, id) {
-  const row = db.prepare("SELECT * FROM massu_sentinel WHERE id = ?").get(id);
+  const row = db.prepare(`SELECT * FROM ${t("sentinel")} WHERE id = ?`).get(id);
   return row ? toFeature(row) : null;
 }
 function getFeatureImpact(db, filePaths) {
@@ -569,7 +574,7 @@ function getFeatureImpact(db, filePaths) {
   const affectedFeatureIds = /* @__PURE__ */ new Set();
   for (const filePath of filePaths) {
     const links = db.prepare(
-      "SELECT feature_id FROM massu_sentinel_components WHERE component_file = ?"
+      `SELECT feature_id FROM ${t("sentinel_components")} WHERE component_file = ?`
     ).all(filePath);
     for (const link of links) {
       affectedFeatureIds.add(link.feature_id);
@@ -582,7 +587,7 @@ function getFeatureImpact(db, filePaths) {
     const feature = getFeatureById(db, featureId);
     if (!feature || feature.status !== "active") continue;
     const allComponents = db.prepare(
-      "SELECT component_file, is_primary FROM massu_sentinel_components WHERE feature_id = ?"
+      `SELECT component_file, is_primary FROM ${t("sentinel_components")} WHERE feature_id = ?`
     ).all(featureId);
     const affected = allComponents.filter((c) => fileSet.has(c.component_file));
     const remaining = allComponents.filter((c) => !fileSet.has(c.component_file));
@@ -703,7 +708,7 @@ async function main() {
       process.exit(0);
       return;
     }
-    const SENTINEL_TABLE = "massu_sentinel";
+    const SENTINEL_TABLE = t("sentinel");
     try {
       const tableExists = db.prepare(
         `SELECT name FROM sqlite_master WHERE type='table' AND name=?`
@@ -739,13 +744,13 @@ async function main() {
         try {
           for (const pyFile of pyFiles) {
             const importers = db.prepare(
-              "SELECT source_file FROM massu_py_imports WHERE target_file = ?"
+              `SELECT source_file FROM ${t("py_imports")} WHERE target_file = ?`
             ).all(pyFile);
             const routes = db.prepare(
-              "SELECT method, path FROM massu_py_routes WHERE file = ?"
+              `SELECT method, path FROM ${t("py_routes")} WHERE file = ?`
             ).all(pyFile);
             const models = db.prepare(
-              "SELECT class_name FROM massu_py_models WHERE file = ?"
+              `SELECT class_name FROM ${t("py_models")} WHERE file = ?`
             ).all(pyFile);
             if (importers.length > 0 || routes.length > 0 || models.length > 0) {
               const parts = [];

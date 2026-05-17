@@ -6,6 +6,7 @@ import { resolve } from 'path';
 import type Database from 'better-sqlite3';
 import { getConfig, getProjectRoot } from './config.ts';
 import { ensureWithinRoot } from './security-utils.ts';
+import { t } from './lib/sql-table-names.ts';
 
 export interface PageChain {
   page: string;
@@ -61,7 +62,7 @@ function traceImports(
   visited.add(startFile);
 
   const imports = dataDb.prepare(
-    'SELECT target_file, imported_names FROM massu_imports WHERE source_file = ?'
+    `SELECT target_file, imported_names FROM ${t('imports')} WHERE source_file = ?`
   ).all(startFile) as { target_file: string; imported_names: string }[];
 
   for (const imp of imports) {
@@ -117,7 +118,7 @@ function findTablesFromRouters(routerNames: string[], dataDb: Database.Database)
   // Look up router files from the tRPC index
   for (const routerName of routerNames) {
     const procs = dataDb.prepare(
-      'SELECT DISTINCT router_file FROM massu_trpc_procedures WHERE router_name = ?'
+      `SELECT DISTINCT router_file FROM ${t('trpc_procedures')} WHERE router_name = ?`
     ).all(routerName) as { router_file: string }[];
 
     for (const proc of procs) {
@@ -150,7 +151,7 @@ function findTablesFromRouters(routerNames: string[], dataDb: Database.Database)
  */
 export function buildPageDeps(dataDb: Database.Database, codegraphDb: Database.Database): number {
   // Clear existing data
-  dataDb.exec('DELETE FROM massu_page_deps');
+  dataDb.exec(`DELETE FROM ${t('page_deps')}`);
 
   // Find all page.tsx files from CodeGraph
   const pages = codegraphDb.prepare(
@@ -158,7 +159,7 @@ export function buildPageDeps(dataDb: Database.Database, codegraphDb: Database.D
   ).all() as { path: string }[];
 
   const insertStmt = dataDb.prepare(
-    'INSERT INTO massu_page_deps (page_file, route, portal, components, hooks, routers, tables_touched) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    `INSERT INTO ${t('page_deps')} (page_file, route, portal, components, hooks, routers, tables_touched) VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
 
   let count = 0;
@@ -200,7 +201,7 @@ export function buildPageDeps(dataDb: Database.Database, codegraphDb: Database.D
  * Get the dependency chain for a specific page.
  */
 export function getPageChain(dataDb: Database.Database, pageFile: string): PageChain | null {
-  const row = dataDb.prepare('SELECT * FROM massu_page_deps WHERE page_file = ?').get(pageFile) as {
+  const row = dataDb.prepare(`SELECT * FROM ${t('page_deps')} WHERE page_file = ?`).get(pageFile) as {
     page_file: string; route: string; portal: string;
     components: string; hooks: string; routers: string; tables_touched: string;
   } | undefined;
@@ -229,7 +230,7 @@ export function findAffectedPages(dataDb: Database.Database, file: string): Page
   // Find all pages that import this file (directly or transitively)
   // First, find who imports this file
   const importers = dataDb.prepare(
-    'SELECT source_file FROM massu_imports WHERE target_file = ?'
+    `SELECT source_file FROM ${t('imports')} WHERE target_file = ?`
   ).all(file) as { source_file: string }[];
 
   const affectedFiles = new Set<string>([file, ...importers.map(i => i.source_file)]);
@@ -244,7 +245,7 @@ export function findAffectedPages(dataDb: Database.Database, file: string): Page
     const next: string[] = [];
     for (const f of frontier) {
       const upstreamImporters = dataDb.prepare(
-        'SELECT source_file FROM massu_imports WHERE target_file = ?'
+        `SELECT source_file FROM ${t('imports')} WHERE target_file = ?`
       ).all(f) as { source_file: string }[];
 
       for (const imp of upstreamImporters) {
@@ -260,7 +261,7 @@ export function findAffectedPages(dataDb: Database.Database, file: string): Page
   }
 
   // Now find which pages are in the affected set
-  const allPages = dataDb.prepare('SELECT * FROM massu_page_deps').all() as {
+  const allPages = dataDb.prepare(`SELECT * FROM ${t('page_deps')}`).all() as {
     page_file: string; route: string; portal: string;
     components: string; hooks: string; routers: string; tables_touched: string;
   }[];

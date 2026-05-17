@@ -17,6 +17,7 @@ import {
 } from './sentinel-db.ts';
 import type { ComponentRole, FeatureStatus, FeaturePriority } from './sentinel-types.ts';
 import { getConfig } from './config.ts';
+import { t } from './lib/sql-table-names.ts';
 
 /** Prefix a base tool name with the configured tool prefix. */
 function p(baseName: string): string {
@@ -400,7 +401,7 @@ function handleValidate(args: Record<string, unknown>, db: Database.Database): T
     if (fix) {
       lines.push('### Auto-Fix Applied');
       for (const item of issues.filter(i => i.status === 'orphaned')) {
-        db.prepare("UPDATE massu_sentinel SET status = 'deprecated', updated_at = datetime('now') WHERE id = ?").run(item.feature.id);
+        db.prepare(`UPDATE ${t('sentinel')} SET status = 'deprecated', updated_at = datetime('now') WHERE id = ?`).run(item.feature.id);
         logChange(db, item.feature.id, 'deprecated', 'Auto-deprecated: all primary components missing');
         lines.push(`- Deprecated: ${item.feature.feature_key}`);
       }

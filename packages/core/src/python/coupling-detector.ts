@@ -5,6 +5,7 @@ import { readFileSync, readdirSync } from 'fs';
 import { join, relative } from 'path';
 import type Database from 'better-sqlite3';
 import { getProjectRoot, getConfig } from '../config.ts';
+import { t } from '../lib/sql-table-names.ts';
 
 interface CouplingMatch {
   frontendFile: string;
@@ -23,20 +24,20 @@ export function buildPythonCouplingIndex(dataDb: Database.Database): number {
   const srcDir = join(projectRoot, config.paths.source);
 
   // Get all routes from DB
-  const routes = dataDb.prepare('SELECT id, method, path FROM massu_py_routes').all() as {
+  const routes = dataDb.prepare(`SELECT id, method, path FROM ${t('py_routes')}`).all() as {
     id: number; method: string; path: string;
   }[];
 
   if (routes.length === 0) return 0;
 
   // Clear existing callers
-  dataDb.exec('DELETE FROM massu_py_route_callers');
+  dataDb.exec(`DELETE FROM ${t('py_route_callers')}`);
 
   // Walk frontend files (TS/TSX/JS/JSX)
   const frontendFiles = walkFrontendFiles(srcDir);
 
   const insertStmt = dataDb.prepare(
-    'INSERT INTO massu_py_route_callers (route_id, frontend_file, line, call_pattern) VALUES (?, ?, ?, ?)'
+    `INSERT INTO ${t('py_route_callers')} (route_id, frontend_file, line, call_pattern) VALUES (?, ?, ?, ?)`
   );
 
   let count = 0;

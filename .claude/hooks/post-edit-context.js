@@ -547,9 +547,14 @@ function globMatch(filePath, pattern) {
   return regex.test(filePath);
 }
 
+// src/lib/sql-table-names.ts
+function t(suffix) {
+  return `${getConfig().toolPrefix}_${suffix}`;
+}
+
 // src/middleware-tree.ts
 function isInMiddlewareTree(dataDb, file) {
-  const result = dataDb.prepare("SELECT 1 FROM massu_middleware_tree WHERE file = ?").get(file);
+  const result = dataDb.prepare(`SELECT 1 FROM ${t("middleware_tree")} WHERE file = ?`).get(file);
   return result !== void 0;
 }
 

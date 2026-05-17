@@ -6,6 +6,7 @@ import { join, relative } from 'path';
 import type Database from 'better-sqlite3';
 import { parsePythonModels } from './model-parser.ts';
 import { getProjectRoot } from '../config.ts';
+import { t } from '../lib/sql-table-names.ts';
 
 function walkPyFiles(dir: string, excludeDirs: string[]): string[] {
   const files: string[] = [];
@@ -26,14 +27,14 @@ function walkPyFiles(dir: string, excludeDirs: string[]): string[] {
 export function buildPythonModelIndex(dataDb: Database.Database, pythonRoot: string, excludeDirs: string[] = ['__pycache__', '.venv', 'venv', '.mypy_cache', '.pytest_cache']): number {
   const projectRoot = getProjectRoot();
   const absRoot = join(projectRoot, pythonRoot);
-  dataDb.exec('DELETE FROM massu_py_models');
-  dataDb.exec('DELETE FROM massu_py_fk_edges');
+  dataDb.exec(`DELETE FROM ${t('py_models')}`);
+  dataDb.exec(`DELETE FROM ${t('py_fk_edges')}`);
 
   const insertModel = dataDb.prepare(
-    'INSERT INTO massu_py_models (class_name, table_name, file, line, columns, relationships, foreign_keys) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    `INSERT INTO ${t('py_models')} (class_name, table_name, file, line, columns, relationships, foreign_keys) VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
   const insertFk = dataDb.prepare(
-    'INSERT INTO massu_py_fk_edges (source_table, source_column, target_table, target_column) VALUES (?, ?, ?, ?)'
+    `INSERT INTO ${t('py_fk_edges')} (source_table, source_column, target_table, target_column) VALUES (?, ?, ?, ?)`
   );
 
   const files = walkPyFiles(absRoot, excludeDirs);

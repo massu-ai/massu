@@ -6,6 +6,7 @@ import { resolve, join, relative, dirname } from 'path';
 import type Database from 'better-sqlite3';
 import { parsePythonImports } from './import-parser.ts';
 import { getProjectRoot } from '../config.ts';
+import { t } from '../lib/sql-table-names.ts';
 
 /**
  * Resolve a Python module path to a file path.
@@ -82,10 +83,10 @@ export function buildPythonImportIndex(dataDb: Database.Database, pythonRoot: st
   const absRoot = resolve(projectRoot, pythonRoot);
 
   // Clear existing Python import edges
-  dataDb.exec('DELETE FROM massu_py_imports');
+  dataDb.exec(`DELETE FROM ${t('py_imports')}`);
 
   const insertStmt = dataDb.prepare(
-    'INSERT INTO massu_py_imports (source_file, target_file, import_type, imported_names, line) VALUES (?, ?, ?, ?, ?)'
+    `INSERT INTO ${t('py_imports')} (source_file, target_file, import_type, imported_names, line) VALUES (?, ?, ?, ?, ?)`
   );
 
   const files = walkPythonFiles(absRoot, excludeDirs);

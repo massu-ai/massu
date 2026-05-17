@@ -13,6 +13,7 @@ import {
 } from './sentinel-db.ts';
 import type { FeatureInput, FeaturePriority } from './sentinel-types.ts';
 import { getConfig, getProjectRoot } from './config.ts';
+import { t } from './lib/sql-table-names.ts';
 
 // ============================================================
 // Sentinel: Feature Auto-Discovery Scanner
@@ -114,7 +115,7 @@ function scanTrpcProcedures(dataDb: Database.Database): DiscoveredFeature[] {
 
   const procedures = dataDb.prepare(`
     SELECT router_name, procedure_name, procedure_type, router_file
-    FROM massu_trpc_procedures
+    FROM ${t('trpc_procedures')}
     ORDER BY router_name, procedure_name
   `).all() as { router_name: string; procedure_name: string; procedure_type: string; router_file: string }[];
 
@@ -171,7 +172,7 @@ function scanPageRoutes(dataDb: Database.Database): DiscoveredFeature[] {
 
   const pages = dataDb.prepare(`
     SELECT page_file, route, portal, components, hooks, routers
-    FROM massu_page_deps
+    FROM ${t('page_deps')}
     ORDER BY route
   `).all() as { page_file: string; route: string; portal: string; components: string; hooks: string; routers: string }[];
 

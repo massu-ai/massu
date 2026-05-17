@@ -64,13 +64,25 @@ const EXEMPT: ReadonlySet<string> = new Set<string>([
 ]);
 
 function walk(dir: string, cb: (rel: string, abs: string) => void): void {
-  for (const entry of readdirSync(dir)) {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return; // ENOENT — concurrent test cleanup, skip
+  }
+  for (const entry of entries) {
     const abs = resolve(dir, entry);
-    const stat = statSync(abs);
+    let stat;
+    try {
+      stat = statSync(abs);
+    } catch {
+      continue; // race with another test that just deleted this entry
+    }
     const rel = relative(SRC_ROOT, abs);
     if (stat.isDirectory()) {
-      // Skip exempt directories
+      // Skip exempt directories + transient tmp dirs other tests create
       if (EXEMPT.has(entry)) continue;
+      if (entry.includes('-tmp') || entry.endsWith('.tmp')) continue;
       walk(abs, cb);
     } else if (stat.isFile() && (entry.endsWith('.ts') || entry.endsWith('.js'))) {
       // Skip exempt files + generated files

@@ -38,6 +38,7 @@ import { getKnowledgeToolDefinitions, isKnowledgeTool, handleKnowledgeToolCall }
 import { getKnowledgeDb } from './knowledge-db.ts';
 import { getPythonToolDefinitions, isPythonTool, handlePythonToolCall } from './python-tools.ts';
 import { getConfig, getProjectRoot, getResolvedPaths } from './config.ts';
+import { supportsRouter, supportsOrm } from './lib/framework-supports.ts';
 import { getCurrentTier, getToolTier, isToolAllowed, annotateToolDefinitions, getLicenseToolDefinitions, isLicenseTool, handleLicenseToolCall, isCloudFeatureAvailable } from './license.ts';
 import { t } from './lib/sql-table-names.ts';
 
@@ -99,7 +100,7 @@ function ensureIndexes(dataDb: Database.Database, codegraphDb?: Database.Databas
     const importCount = buildImportIndex(dataDb, codegraphDb);
     results.push(`Import edges: ${importCount}`);
 
-    if (config.framework.router === 'trpc') {
+    if (supportsRouter('trpc')) {
       const trpcStats = buildTrpcIndex(dataDb);
       results.push(`tRPC procedures: ${trpcStats.totalProcedures} (${trpcStats.withCallers} with UI, ${trpcStats.withoutCallers} without)`);
     }
@@ -203,7 +204,7 @@ export function getToolDefinitions(): ToolDefinition[] {
         required: ['file'],
       },
     },
-    ...(config.framework.router === 'trpc' ? [
+    ...(supportsRouter('trpc') ? [
       {
         name: p('trpc_map'),
         description: 'Map tRPC procedures to their UI call sites. Find which components call a router, which procedures have no UI callers, or list all procedures for a router.',
@@ -257,7 +258,7 @@ export function getToolDefinitions(): ToolDefinition[] {
         required: [],
       },
     }] : []),
-    ...(config.framework.orm === 'prisma' ? [{
+    ...(supportsOrm('prisma') ? [{
       name: p('schema'),
       description: 'Prisma schema cross-reference. Show columns for a table, detect mismatches between code and schema, or verify column references in a file.',
       inputSchema: {

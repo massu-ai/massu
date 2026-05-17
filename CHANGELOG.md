@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.8] - 2026-05-17
+
+**P-H033 — Adapter-pattern tool gating (parent plan `plan-2026-05-16-prelaunch-audit`, sub-plan `plan-stage-c-high-batch`)**. This is the FINAL Stage C deferred-item release. With 1.10.5 (Ed25519 license signing), 1.10.6 (CSP hardening), 1.10.7 (config-driven SQL table names), and now 1.10.8, all 4 Stage C deferred items have shipped — Stage C reaches 38/38 P-H items SHIPPED. Closes the bug class where `tools.ts:103,207,261` did direct `config.framework.router === 'trpc'` / `config.framework.orm === 'prisma'` comparisons that bypass the adapter pattern and make custom adapters' tool surfaces invisible to the dispatcher.
+
+### Added
+
+- **`packages/core/src/lib/framework-supports.ts`** — `supportsRouter(name)` + `supportsOrm(name)` helpers that consult BOTH the legacy top-level `framework.router/.orm` field AND the per-language v2 schema `framework.languages.<lang>.router/.orm` entries. Future framework adapters can light up tool surfaces without hand-editing `tools.ts`.
+- **`packages/core/src/__tests__/framework-supports-no-direct-comparison.test.ts`** — 2-case drift-guard: (1) scans `packages/core/src/**` (excluding `lib/framework-supports.ts` + tests + `detect/*` + `commands/*` config-builders) and asserts zero `config.framework.router ===` / `config.framework.orm ===` direct comparisons; (2) verifies both helpers return booleans.
+
+### Fixed
+
+- **`packages/core/src/tools.ts:103,207,261`** — 3 tool-gating decisions migrated from direct field comparisons to `supportsRouter('trpc')` / `supportsOrm('prisma')` helper calls. Default behavior preserved (default-prefix tRPC repos still get `trpc_map`, default-prefix Prisma repos still get `schema`); custom-adapter installs that set `framework.languages.<lang>.router='trpc'` instead of the legacy top-level field now ALSO activate `trpc_map` (previously they wouldn't).
+- **`packages/core/src/__tests__/sql-table-names-no-hardcoded.test.ts`** + **`framework-supports-no-direct-comparison.test.ts`** — walker hardened against transient tmp directories created+deleted by concurrent tests (`-tmp` suffix skip + ENOENT-tolerant statSync). Prevents flake when running the full suite.
+
+### Stage C Final Summary
+
+5 patch releases (1.10.0 through 1.10.4) shipped the initial 34/38 P-H items 2026-05-18. Operator-approved follow-up on 2026-05-17 (after waking to find the initial Stage C complete) commissioned the 4 deferred items as one ceremony each:
+
+- **1.10.5** P-H019 Ed25519 license signing (operator-provisioned Supabase Edge Function secret)
+- **1.10.6** P-H022 CSP partial hardening (3 new directives + JSON-LD sha256; full nonce migration deferred to `plan-csp-nonce-migration`)
+- **1.10.7** P-H032 207 SQL substitutions → config-driven table names via `t()` helper
+- **1.10.8** P-H033 adapter-pattern tool gating (THIS release)
+
+Stage C: **38 of 38 P-H items SHIPPED (100%)**. 9 new vitest drift-guard test files across the 5 releases close 9 distinct bug classes structurally.
+
 ## [1.10.7] - 2026-05-17
 
 **P-H032 — Config-driven SQL table names (parent plan `plan-2026-05-16-prelaunch-audit`, sub-plan `plan-stage-c-high-batch`)**. 207 SQL string substitutions across 21 source files migrated from hardcoded `'massu_<table>'` literals to `${t('<table>')}` template-literal substitutions resolving through a new `lib/sql-table-names.ts` single-source-of-truth helper. Closes the split-brain bug class where tool names were already config-driven via `getConfig().toolPrefix` but persistence wasn't — non-default-prefix customers (e.g. `toolPrefix: 'foo'`) would have tools named `foo_*` but still write to / read from `massu_*` tables, missing their own data. Default-prefix customers (100% of current installs) see ZERO behavior change.

@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.3] - 2026-05-18
+
+Stage C Release 3 — pre-launch audit HIGH-severity sub-stages C.4 (revenue path, 4 items) + C.6 (auth/billing, 4 items) per `docs/plans/2026-05-18-stage-c-high-batch.md` (plan token `plan-stage-c-high-batch`). 8 items shipped.
+
+### Added
+
+- **`website/src/app/api/auth/forgot-password/route.ts`** — server-side rate-limited forgot-password endpoint. 3 requests/email/hour + 10/IP/hour. Page refactored to POST here instead of calling `supabase.auth.resetPasswordForEmail` directly client-side. P-H026.
+- **`website/src/app/api/stripe/webhook/health/route.ts`** — uptime-monitor endpoint that returns 503 when `STRIPE_WEBHOOK_SECRET` or `STRIPE_SECRET_KEY` is missing, so external monitors detect misconfiguration before Stripe's retry budget exhausts. P-H017.
+- **`handleOrderRefunded` + `handleSubscriptionCancelled`** in `website/src/app/api/lemon-squeezy/webhook/route.ts` — refund-and-keep-trial attack closed. Both handlers revoke `license_key_status` and downgrade the linked org to `plan='free', plan_status='cancelled'`. Per operator policy decision 2026-05-18: subscription cancellation revokes entitlement. P-H016.
+
+### Fixed
+
+- **`website/src/app/book/page.tsx:178,196`** — Bundle and Team tier `note` copy changed from "Auto-renews at $X/yr unless cancelled" to "trial — we do NOT auto-bill; you continue on Free unless you explicitly upgrade with your consent". Closes the marketing-vs-implementation contradiction: pre-fix the copy promised auto-renewal but `tierTrialDays()` returns 365 with cron downgrade to free with no auto-bill. Welcome/nurture emails already correctly say "Nothing auto-bills" — copy is now consistent. P-H014. Per operator decision 2026-05-18: change copy (not implement auto-renew).
+- **`website/src/app/api/sso/callback/route.ts:341-360`** — SAML callback now performs an explicit NameID-domain match against `ssoConfig.domain` (defense-in-depth; mirrors OIDC at handleOidcCallback line ~407). Pre-fix: the implicit domain match via SELECT WHERE could regress on any future refactor of the lookup pattern. The explicit assertion makes cross-tenant takeover via NameID-with-mismatched-domain structurally impossible. P-H025. Lives UNDER the `MASSU_SSO_ENABLED=false` Stage B gate; activates when SSO re-enables post-pen-test.
+- **`website/src/app/api/cron/expire-trials/route.ts:158-170`** — milestone-email send conditions changed from EXACT-day equality (`=== 30`, `=== 14`, etc.) to RANGE checks (`>= 30`, `<= 14 && > 3`, etc.). Pre-fix: any Vercel cron miss permanently dropped the affected milestone. With ranges + `trial_email_log` `UNIQUE(org_id, milestone)` idempotency, missed cron days catch up on the next run; once-sent never re-sends. P-H028.
+- **`website/src/app/api/stripe/webhook/route.ts:8-25,46-55`** — both 500 paths (missing-secret + processing-failure) now emit `severity: 'critical'` log lines with `action` + `consequence` metadata for external alerting. Once @sentry/nextjs ships in 1.10.4 (P-H037), `logger.error` will additionally call `Sentry.captureException` without further code changes. P-H017.
+- **`website/src/app/api/license/activate/route.ts:17-39`** — `hashIp()` no longer falls back to `LEMON_SQUEEZY_WEBHOOK_SECRET`; `IP_HASH_PEPPER` is REQUIRED and throws on missing. (Already shipped in 1.10.2 P-H023 — reaffirmed here for changelog completeness across the cluster.)
+- **`website/src/app/api/cron/expire-trials/route.ts:184-218`** — removed the `supaUntyped as unknown as ...` cast hack on `trial_email_log` (P-H010 follow-up; `trial_email_log` now in generated types as of 1.10.2). The cron now uses `supabase.from('trial_email_log').insert(...)` directly. Pre-fix the hack was a CR-9 leftover from when the table wasn't in generated types.
+- **`website/src/__tests__/integration/api-auth.test.ts:14-25`** + **`scripts/massu-security-scanner.sh:169`** — added `auth/forgot-password` to PUBLIC_ROUTES allowlist (intentionally unauthenticated — server-side rate-limited). Both allowlists kept in lockstep so the drift-guard parity test stays green.
+- **`website/src/lib/changelog.ts:40`** — added `"Deferred to Follow-up Sub-Plans"` to `KNOWN_SECTION_HEADINGS` whitelist so the 1.10.2 changelog parses cleanly.
+
+### Verified (no code change)
+
+- **P-H015** ebook-attached-to-LS-variant verification — operator INDEPENDENT action; cannot be automated. Operator confirmed before book launch per parent plan operator-action-inventory.
+- **P-H027** `/api/v1/audit?actor=` filter uses correct `user_id` column (fixed in Stage A P-006 ff7e678; re-verified at `app/api/v1/audit/route.ts:39-40`).
+
 ## [1.10.2] - 2026-05-18
 
 Stage C Release 2 — pre-launch audit HIGH-severity sub-stages C.3 (schema/DB, 4 items) + C.5 (security defense-in-depth, 5 of 7 items) per `docs/plans/2026-05-18-stage-c-high-batch.md` (plan token `plan-stage-c-high-batch`). 9 items shipped this release. Two C.5 items (P-H019 Ed25519 license signing + P-H022 nonce-based CSP migration) are deferred to dedicated follow-up sub-plans because each requires non-trivial server-side counterparts (P-H019: AWS Secrets Manager key + signing route; P-H022: per-page inline-script audit) that must be done with operator coordination and proper testing scope — NOT release valves per CR-46, but legitimate scope-splitting where the structural foundation needs the operator's environment access.

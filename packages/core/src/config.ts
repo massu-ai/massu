@@ -15,6 +15,7 @@ import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { encodeMemoryDirName } from './lib/memory-path.ts';
 
 // ============================================================
 // Massu Configuration — Zod Schemas & Types
@@ -747,7 +748,7 @@ export function getResolvedPaths() {
     plansDir: resolve(root, 'docs/plans'),
     docsDir: resolve(root, 'docs'),
     claudeDir: resolve(root, claudeDirName),
-    memoryDir: resolve(homedir(), claudeDirName, 'projects', root.replace(/\//g, '-'), 'memory'),
+    memoryDir: resolve(homedir(), claudeDirName, 'projects', encodeMemoryDirName(root), 'memory'),
     sessionStatePath: resolve(root, config.conventions?.sessionStatePath ?? `${claudeDirName}/session-state/CURRENT.md`),
     sessionArchivePath: resolve(root, config.conventions?.sessionArchivePath ?? `${claudeDirName}/session-state/archive`),
     mcpJsonPath: resolve(root, '.mcp.json'),

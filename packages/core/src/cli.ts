@@ -42,6 +42,16 @@ async function main(): Promise<void> {
       await runInstallHooks();
       break;
     }
+    case 'hook-runner': {
+      // Dynamic hook dispatcher — invoked by Claude Code's hook command lines
+      // (settings.json -> `npx -y @massu/core@<version> hook-runner <name>`).
+      // Closes P-003 by resolving the hook file at fire-time instead of baking
+      // an absolute npx-cache path at install-time.
+      const { runHookRunner } = await import('./commands/hook-runner.ts');
+      const result = await runHookRunner(args.slice(1));
+      process.exit(result.exitCode);
+      return;
+    }
     case 'install-commands': {
       const { runInstallCommands } = await import('./commands/install-commands.ts');
       await runInstallCommands();

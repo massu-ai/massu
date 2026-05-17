@@ -181,7 +181,10 @@ describe('CLI: MCP Registration', () => {
     expect(content.mcpServers.massu).toBeDefined();
     expect(content.mcpServers.massu.type).toBe('stdio');
     expect(content.mcpServers.massu.command).toBe('npx');
-    expect(content.mcpServers.massu.args).toEqual(['-y', '@massu/core']);
+    // P-002: version-pinned to prevent customer drift onto unpinned @massu/core.
+    expect(content.mcpServers.massu.args).toHaveLength(2);
+    expect(content.mcpServers.massu.args[0]).toBe('-y');
+    expect(content.mcpServers.massu.args[1]).toMatch(/^@massu\/core@\d+\.\d+\.\d+/);
   });
 
   it('merges into existing .mcp.json without overwriting other servers', () => {
@@ -260,47 +263,48 @@ describe('CLI: Hooks Installation', () => {
   });
 
   it('generates correct hook commands', () => {
+    // P-003 (1.9.4+): commands now use `hook-runner <name>` (no `.js` suffix).
     const hooksConfig = buildHooksConfig('node_modules/@massu/core/dist/hooks');
 
     // Check PreToolUse has security-gate and pre-delete-check
     const preToolUse = hooksConfig.PreToolUse;
     expect(preToolUse).toHaveLength(2);
     expect(preToolUse[0].matcher).toBe('Bash');
-    expect(preToolUse[0].hooks[0].command).toContain('security-gate.js');
+    expect(preToolUse[0].hooks[0].command).toContain('hook-runner security-gate');
     expect(preToolUse[1].matcher).toBe('Bash|Write');
-    expect(preToolUse[1].hooks[0].command).toContain('pre-delete-check.js');
+    expect(preToolUse[1].hooks[0].command).toContain('hook-runner pre-delete-check');
 
     // PostToolUse has three groups: all-matcher (3 hooks), Edit|Write (3 hooks),
     // and Write-only (2 hooks for auto-learning pipelines).
     const postToolUse = hooksConfig.PostToolUse;
     expect(postToolUse).toHaveLength(3);
     expect(postToolUse[0].hooks).toHaveLength(3);
-    expect(postToolUse[0].hooks[0].command).toContain('post-tool-use.js');
-    expect(postToolUse[0].hooks[1].command).toContain('quality-event.js');
-    expect(postToolUse[0].hooks[2].command).toContain('cost-tracker.js');
+    expect(postToolUse[0].hooks[0].command).toContain('hook-runner post-tool-use');
+    expect(postToolUse[0].hooks[1].command).toContain('hook-runner quality-event');
+    expect(postToolUse[0].hooks[2].command).toContain('hook-runner cost-tracker');
     expect(postToolUse[1].matcher).toBe('Edit|Write');
     expect(postToolUse[1].hooks).toHaveLength(3);
-    expect(postToolUse[1].hooks[0].command).toContain('post-edit-context.js');
-    expect(postToolUse[1].hooks[1].command).toContain('fix-detector.js');
-    expect(postToolUse[1].hooks[2].command).toContain('classify-failure.js');
+    expect(postToolUse[1].hooks[0].command).toContain('hook-runner post-edit-context');
+    expect(postToolUse[1].hooks[1].command).toContain('hook-runner fix-detector');
+    expect(postToolUse[1].hooks[2].command).toContain('hook-runner classify-failure');
     expect(postToolUse[2].matcher).toBe('Write');
     expect(postToolUse[2].hooks).toHaveLength(2);
-    expect(postToolUse[2].hooks[0].command).toContain('incident-pipeline.js');
-    expect(postToolUse[2].hooks[1].command).toContain('rule-enforcement-pipeline.js');
+    expect(postToolUse[2].hooks[0].command).toContain('hook-runner incident-pipeline');
+    expect(postToolUse[2].hooks[1].command).toContain('hook-runner rule-enforcement-pipeline');
 
     // Check Stop has session-end + auto-learning aggregation
     expect(hooksConfig.Stop[0].hooks).toHaveLength(2);
-    expect(hooksConfig.Stop[0].hooks[0].command).toContain('session-end.js');
-    expect(hooksConfig.Stop[0].hooks[1].command).toContain('auto-learning-pipeline.js');
+    expect(hooksConfig.Stop[0].hooks[0].command).toContain('hook-runner session-end');
+    expect(hooksConfig.Stop[0].hooks[1].command).toContain('hook-runner auto-learning-pipeline');
 
     // Check PreCompact
-    expect(hooksConfig.PreCompact[0].hooks[0].command).toContain('pre-compact.js');
+    expect(hooksConfig.PreCompact[0].hooks[0].command).toContain('hook-runner pre-compact');
 
     // Check UserPromptSubmit
     const userPrompt = hooksConfig.UserPromptSubmit;
     expect(userPrompt[0].hooks).toHaveLength(2);
-    expect(userPrompt[0].hooks[0].command).toContain('user-prompt.js');
-    expect(userPrompt[0].hooks[1].command).toContain('intent-suggester.js');
+    expect(userPrompt[0].hooks[0].command).toContain('hook-runner user-prompt');
+    expect(userPrompt[0].hooks[1].command).toContain('hook-runner intent-suggester');
   });
 
   it('counts all 16 hooks correctly', () => {

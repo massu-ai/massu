@@ -14,7 +14,7 @@
 // Must complete in <1000ms.
 // ============================================================
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { existsSync, appendFileSync, mkdirSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -119,9 +119,9 @@ async function main(): Promise<void> {
     const root = getProjectRoot();
     let diff = '';
     try {
-      diff = execSync(`git diff -- "${filePath}"`, { cwd: root, timeout: 3000, encoding: 'utf-8' });
+      diff = execFileSync('git', ['diff', '--', filePath], { cwd: root, timeout: 3000, encoding: 'utf-8' });
       if (!diff) {
-        diff = execSync(`git diff HEAD -- "${filePath}"`, { cwd: root, timeout: 3000, encoding: 'utf-8' });
+        diff = execFileSync('git', ['diff', 'HEAD', '--', filePath], { cwd: root, timeout: 3000, encoding: 'utf-8' });
       }
     } catch {
       process.exit(0);

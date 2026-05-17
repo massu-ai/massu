@@ -14,6 +14,7 @@ import { getMemoryDb, createSession, addObservation, addSummary, addUserPrompt, 
 import { parseTranscript, extractUserMessages, getLastAssistantMessage } from './transcript-parser.ts';
 import { extractObservationsFromEntries } from './observation-extractor.ts';
 import { getProjectRoot, getConfig } from './config.ts';
+import { encodeMemoryDirName } from './lib/memory-path.ts';
 
 /**
  * Auto-detect the Claude Code project transcript directory.
@@ -23,8 +24,8 @@ function findTranscriptDir(): string {
   const home = process.env.HOME ?? '~';
   const projectRoot = getProjectRoot();
   const claudeDirName = getConfig().conventions?.claudeDirName ?? '.claude';
-  // Claude Code escapes the path by replacing / with -
-  const escapedPath = projectRoot.replace(/\//g, '-');
+  // Claude Code escapes the path by replacing / with -. Shared helper is SoT.
+  const escapedPath = encodeMemoryDirName(projectRoot);
   const candidate = resolve(home, `${claudeDirName}/projects`, escapedPath);
   if (existsSync(candidate)) return candidate;
   // Fallback: scan projects dir for directories matching the project name

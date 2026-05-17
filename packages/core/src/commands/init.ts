@@ -35,6 +35,7 @@ import { backfillMemoryFiles } from '../memory-file-ingest.ts';
 import { getConfig, resetConfig } from '../config.ts';
 import { installAll } from './install-commands.ts';
 import { readSettingsLocal, writeSettingsLocalAtomic } from '../lib/settings-local.ts';
+import { encodeMemoryDirName } from '../lib/memory-path.ts';
 import {
   runDetection,
   type DetectionResult,
@@ -956,6 +957,42 @@ export function copyTemplateConfig(
 // MCP Server Registration (preserved)
 // ============================================================
 
+/**
+ * Read the installer's OWN package.json version. The installer runs from
+ * its compiled `dist/cli.js` (under npx cache or a global install); the
+ * package.json sits one directory up from that. Used to pin downstream
+ * MCP server invocations and hook commands so customers don't drift onto
+ * unpinned `@massu/core` (which would resolve to the latest dist-tag on
+ * every spawn and silently change behavior across versions).
+ *
+ * Hard error if the package.json can't be read or has no version field —
+ * an unpinned write is a structural drift bug (P-002) and silently
+ * falling back to an unversioned `@massu/core` is what we're closing.
+ */
+export function getInstallerVersion(): string {
+  // Walk up from this module's compiled location to find package.json.
+  // Compiled layout: <root>/dist/cli.js → ../package.json
+  // TS source layout: <root>/src/commands/init.ts → ../../package.json
+  const candidates = [
+    resolve(__dirname, '../package.json'),
+    resolve(__dirname, '../../package.json'),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      try {
+        const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
+        if (typeof pkg.version === 'string' && pkg.version.length > 0 && pkg.name === '@massu/core') {
+          return pkg.version;
+        }
+      } catch { /* try next */ }
+    }
+  }
+  throw new Error(
+    'getInstallerVersion: could not resolve @massu/core package.json. ' +
+      'This indicates a corrupt install. Re-install via `npx -y @massu/core init`.',
+  );
+}
+
 export function registerMcpServer(projectRoot: string): boolean {
   const mcpPath = resolve(projectRoot, '.mcp.json');
 
@@ -973,10 +1010,14 @@ export function registerMcpServer(projectRoot: string): boolean {
     return false;
   }
 
+  // P-002: pin the version so customers don't drift onto unpinned `@massu/core`
+  // (which resolves to the latest dist-tag on every spawn). Closes the structural
+  // class flagged by feedback_mcp_pin_version_in_mcp_json (precedent: 0b60916).
+  const version = getInstallerVersion();
   servers.massu = {
     type: 'stdio',
     command: 'npx',
-    args: ['-y', '@massu/core'],
+    args: ['-y', `@massu/core@${version}`],
   };
 
   existing.mcpServers = servers;
@@ -1002,6 +1043,16 @@ interface HookGroup {
 
 type HooksConfig = Record<string, HookGroup[]>;
 
+/**
+ * @deprecated P-003 (1.9.4+): the path returned here is unsafe to bake into
+ * settings.json — under npx, `__dirname` resolves to whatever cache directory
+ * npx happens to use, which is invalidated on cache clear / upgrade / move.
+ *
+ * Retained only for backward compatibility with `buildHooksConfig(hooksDir)`
+ * callers in existing tests. New code should NEVER consume the returned path
+ * verbatim in a command line; use `hook-runner` invocations instead (see
+ * `buildHooksConfig` which now ignores the argument).
+ */
 export function resolveHooksDir(): string {
   const cwd = process.cwd();
   const nodeModulesPath = resolve(cwd, 'node_modules/@massu/core/dist/hooks');
@@ -1015,16 +1066,29 @@ export function resolveHooksDir(): string {
   return 'node_modules/@massu/core/dist/hooks';
 }
 
-function hookCmd(hooksDir: string, hookFile: string): string {
-  return `node ${hooksDir}/${hookFile}`;
+/**
+ * Build a single hook-command line. P-003: emits `npx -y @massu/core@<version>
+ * hook-runner <name>` so the hook file is resolved dynamically at fire-time
+ * rather than baked as an absolute path. Pins the version (CR-49-class fix)
+ * so customers don't drift onto unpinned `@massu/core` between hook fires.
+ */
+function hookCmd(version: string, hookName: string): string {
+  return `npx -y @massu/core@${version} hook-runner ${hookName}`;
 }
 
-export function buildHooksConfig(hooksDir: string): HooksConfig {
+/**
+ * Build the canonical Claude Code hooks configuration. The legacy
+ * `hooksDir` parameter is now ignored; we emit `hook-runner` invocations
+ * instead of `node <abs-path>` (see P-003). The parameter is retained
+ * for backward-compatible call sites (existing tests pass a dir).
+ */
+export function buildHooksConfig(_hooksDir?: string): HooksConfig {
+  const version = getInstallerVersion();
   return {
     SessionStart: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(hooksDir, 'session-start.js'), timeout: 10 },
+          { type: 'command', command: hookCmd(version, 'session-start'), timeout: 10 },
         ],
       },
     ],
@@ -1032,32 +1096,32 @@ export function buildHooksConfig(hooksDir: string): HooksConfig {
       {
         matcher: 'Bash',
         hooks: [
-          { type: 'command', command: hookCmd(hooksDir, 'security-gate.js'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'security-gate'), timeout: 5 },
         ],
       },
       {
         matcher: 'Bash|Write',
         hooks: [
-          { type: 'command', command: hookCmd(hooksDir, 'pre-delete-check.js'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'pre-delete-check'), timeout: 5 },
         ],
       },
     ],
     PostToolUse: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(hooksDir, 'post-tool-use.js'), timeout: 10 },
-          { type: 'command', command: hookCmd(hooksDir, 'quality-event.js'), timeout: 5 },
-          { type: 'command', command: hookCmd(hooksDir, 'cost-tracker.js'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'post-tool-use'), timeout: 10 },
+          { type: 'command', command: hookCmd(version, 'quality-event'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'cost-tracker'), timeout: 5 },
         ],
       },
       {
         matcher: 'Edit|Write',
         hooks: [
-          { type: 'command', command: hookCmd(hooksDir, 'post-edit-context.js'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'post-edit-context'), timeout: 5 },
           // Auto-learning pipeline — classifies failures and detects fixes on
           // file changes. See Phase 5-6 of the autodetect plan.
-          { type: 'command', command: hookCmd(hooksDir, 'fix-detector.js'), timeout: 5 },
-          { type: 'command', command: hookCmd(hooksDir, 'classify-failure.js'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'fix-detector'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'classify-failure'), timeout: 5 },
         ],
       },
       {
@@ -1065,36 +1129,131 @@ export function buildHooksConfig(hooksDir: string): HooksConfig {
         hooks: [
           // Incident + rule enforcement pipelines fire on Write-only (incidents
           // are authored as .md files; rules are enforced after new-file drops).
-          { type: 'command', command: hookCmd(hooksDir, 'incident-pipeline.js'), timeout: 5 },
-          { type: 'command', command: hookCmd(hooksDir, 'rule-enforcement-pipeline.js'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'incident-pipeline'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'rule-enforcement-pipeline'), timeout: 5 },
         ],
       },
     ],
     Stop: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(hooksDir, 'session-end.js'), timeout: 15 },
+          { type: 'command', command: hookCmd(version, 'session-end'), timeout: 15 },
           // Session-end auto-learning aggregation (failure-class roll-up).
-          { type: 'command', command: hookCmd(hooksDir, 'auto-learning-pipeline.js'), timeout: 10 },
+          { type: 'command', command: hookCmd(version, 'auto-learning-pipeline'), timeout: 10 },
         ],
       },
     ],
     PreCompact: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(hooksDir, 'pre-compact.js'), timeout: 10 },
+          { type: 'command', command: hookCmd(version, 'pre-compact'), timeout: 10 },
         ],
       },
     ],
     UserPromptSubmit: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(hooksDir, 'user-prompt.js'), timeout: 5 },
-          { type: 'command', command: hookCmd(hooksDir, 'intent-suggester.js'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'user-prompt'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'intent-suggester'), timeout: 5 },
         ],
       },
     ],
   };
+}
+
+/**
+ * Deep-merge two hooks configurations. P-012 (1.9.4+) — mirrors the 1.8.0
+ * permissions merge pattern; closes the structural class where wholesale
+ * `settings.hooks = newConfig` silently destroyed customer-defined hooks
+ * on every reinstall.
+ *
+ * Merge semantics:
+ *   - Top-level keys (event names: SessionStart, PreToolUse, ...) are unioned.
+ *   - For each event, hook-groups are merged by `matcher` (or "" if no matcher).
+ *     This is the same identity key Claude Code uses for dispatch — two groups
+ *     with the same matcher MUST be coalesced or the dispatcher will pick one
+ *     and silently drop the other.
+ *   - Within a merged group, hook entries are deduplicated by `command` string
+ *     (exact match). Massu's own canonical entries are emitted first, then any
+ *     customer entries that don't collide. This preserves customer hooks while
+ *     keeping Massu's pipeline behavior deterministic.
+ *
+ * Massu canonical entries are identified by the `npx -y @massu/core@<version>
+ * hook-runner ` prefix. ANY entry not matching that prefix is treated as
+ * customer-defined and preserved verbatim across reinstalls — including
+ * legacy entries from older `@massu/core` versions, which the customer can
+ * clean up at their leisure.
+ */
+export function mergeHooksConfig(
+  existing: HooksConfig,
+  additions: HooksConfig,
+): HooksConfig {
+  const eventNames = new Set<string>([
+    ...Object.keys(existing ?? {}),
+    ...Object.keys(additions ?? {}),
+  ]);
+
+  const merged: HooksConfig = {};
+  for (const event of eventNames) {
+    const existingGroups = (existing?.[event] ?? []) as HookGroup[];
+    const additionGroups = (additions?.[event] ?? []) as HookGroup[];
+
+    // Index by matcher key (use "" sentinel for groups with no matcher).
+    const byMatcher = new Map<string, HookGroup>();
+
+    // Pass 1: seed with EXISTING groups (preserves customer order + structure).
+    for (const group of existingGroups) {
+      const key = group.matcher ?? '';
+      const existingGroup = byMatcher.get(key);
+      if (existingGroup) {
+        // Two existing groups with same matcher — unusual but coalesce defensively.
+        existingGroup.hooks = mergeHookEntries(existingGroup.hooks, group.hooks);
+      } else {
+        byMatcher.set(key, { ...group, hooks: [...(group.hooks ?? [])] });
+      }
+    }
+
+    // Pass 2: merge ADDITIONS into the indexed groups.
+    for (const group of additionGroups) {
+      const key = group.matcher ?? '';
+      const existingGroup = byMatcher.get(key);
+      if (existingGroup) {
+        existingGroup.hooks = mergeHookEntries(existingGroup.hooks, group.hooks);
+      } else {
+        byMatcher.set(key, { ...group, hooks: [...(group.hooks ?? [])] });
+      }
+    }
+
+    merged[event] = Array.from(byMatcher.values());
+  }
+  return merged;
+}
+
+/**
+ * Merge two arrays of hook entries, deduplicating by `command`. Customer
+ * entries (any command NOT matching the Massu canonical prefix) are
+ * always preserved.
+ */
+function mergeHookEntries(
+  existing: HookEntry[],
+  additions: HookEntry[],
+): HookEntry[] {
+  const seen = new Set<string>();
+  const result: HookEntry[] = [];
+  // Additions go first so Massu's canonical pipeline order is deterministic.
+  for (const entry of additions ?? []) {
+    if (!entry || typeof entry.command !== 'string') continue;
+    if (seen.has(entry.command)) continue;
+    seen.add(entry.command);
+    result.push(entry);
+  }
+  for (const entry of existing ?? []) {
+    if (!entry || typeof entry.command !== 'string') continue;
+    if (seen.has(entry.command)) continue;
+    seen.add(entry.command);
+    result.push(entry);
+  }
+  return result;
 }
 
 export function installHooks(projectRoot: string): { installed: boolean; count: number } {
@@ -1115,17 +1274,23 @@ export function installHooks(projectRoot: string): { installed: boolean; count: 
 
   const settings = readSettingsLocal(claudeDir);
 
-  const hooksDir = resolveHooksDir();
-  const hooksConfig = buildHooksConfig(hooksDir);
+  // P-003: hooksDir argument is now unused (kept for legacy callers).
+  // buildHooksConfig emits `npx -y @massu/core@<version> hook-runner` lines.
+  const hooksConfig = buildHooksConfig(resolveHooksDir());
+
+  // P-012: deep-merge with existing customer hooks instead of wholesale
+  // replacement. Mirrors the 1.8.0 permissions-merge pattern (CR-39 trap class).
+  const existingHooks = (settings.hooks as HooksConfig | undefined) ?? {};
+  const mergedHooks = mergeHooksConfig(existingHooks, hooksConfig);
 
   let hookCount = 0;
-  for (const groups of Object.values(hooksConfig)) {
+  for (const groups of Object.values(mergedHooks)) {
     for (const group of groups) {
       hookCount += group.hooks.length;
     }
   }
 
-  settings.hooks = hooksConfig;
+  settings.hooks = mergedHooks;
 
   writeSettingsLocalAtomic(claudeDir, settings);
 
@@ -1136,9 +1301,34 @@ export function installHooks(projectRoot: string): { installed: boolean; count: 
 // Memory Directory Initialization (preserved)
 // ============================================================
 
-export function initMemoryDir(projectRoot: string): { created: boolean; memoryMdCreated: boolean } {
-  const encodedRoot = '-' + projectRoot.replace(/\//g, '-');
+export function initMemoryDir(projectRoot: string): { created: boolean; memoryMdCreated: boolean; migratedFromLegacy: boolean } {
+  // P-004 / CR-39: encoding MUST match the reader at `config.ts:getResolvedPaths()`.
+  // The legacy writer prepended an extra `-` (producing `--Users-foo-...`) which
+  // orphaned MEMORY.md from the reader's canonical single-dash path. Shared helper
+  // is the SoT — never re-derive inline.
+  const encodedRoot = encodeMemoryDirName(projectRoot);
   const memoryDir = resolve(homedir(), `.claude/projects/${encodedRoot}/memory`);
+
+  // Legacy-double-dash migration: if the customer was previously installed by
+  // a buggy version (<1.9.4) that wrote to `--<root>`, detect that orphaned
+  // sibling directory and move its contents into the canonical `-<root>` form.
+  // Idempotent: skips if the legacy dir doesn't exist OR if it's already migrated.
+  let migratedFromLegacy = false;
+  const legacyDir = resolve(homedir(), `.claude/projects/-${encodedRoot}/memory`);
+  if (existsSync(legacyDir) && !existsSync(memoryDir)) {
+    try {
+      mkdirSync(resolve(memoryDir, '..'), { recursive: true });
+      renameSync(legacyDir, memoryDir);
+      // Best-effort cleanup of the now-empty parent (only if empty).
+      try {
+        const legacyParent = resolve(legacyDir, '..');
+        if (existsSync(legacyParent) && readdirSync(legacyParent).length === 0) {
+          rmSync(legacyParent, { recursive: false });
+        }
+      } catch { /* best effort */ }
+      migratedFromLegacy = true;
+    } catch { /* best effort — if migration fails, the new canonical dir is still created below */ }
+  }
 
   let created = false;
   if (!existsSync(memoryDir)) {
@@ -1168,7 +1358,7 @@ export function initMemoryDir(projectRoot: string): { created: boolean; memoryMd
     memoryMdCreated = true;
   }
 
-  return { created, memoryMdCreated };
+  return { created, memoryMdCreated, migratedFromLegacy };
 }
 
 // ============================================================
@@ -1531,18 +1721,22 @@ function installSideEffects(
   }
 
   // Memory dir
-  const { created: memDirCreated, memoryMdCreated } = initMemoryDir(projectRoot);
+  const { created: memDirCreated, memoryMdCreated, migratedFromLegacy } = initMemoryDir(projectRoot);
   if (memDirCreated) {
     log('  Created memory directory');
   }
   if (memoryMdCreated) {
     log('  Created initial MEMORY.md');
   }
+  if (migratedFromLegacy) {
+    log('  Migrated memory directory from legacy double-dash path (pre-1.9.4)');
+  }
 
   // Backfill (best-effort, silent failure)
   (async () => {
     try {
-      const encodedRoot = projectRoot.replace(/\//g, '-');
+      // Shared encode helper — must match `initMemoryDir` and `config.ts:getResolvedPaths()`.
+      const encodedRoot = encodeMemoryDirName(projectRoot);
       const memoryDir = resolve(homedir(), '.claude', 'projects', encodedRoot, 'memory');
       const memFiles = existsSync(memoryDir)
         ? readdirSync(memoryDir).filter(f => f.endsWith('.md') && f !== 'MEMORY.md')

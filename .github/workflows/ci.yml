@@ -1,4 +1,19 @@
-name: CI
+name: CI (public-mirror)
+
+# This workflow lives in massu-internal as `ci.public.yml` and is synced to the
+# public repo at github.com/massu-ai/massu as `ci.yml` by scripts/sync-public.sh.
+#
+# CRITICAL: When this file is checked into massu-internal, its jobs MUST NOT run.
+# Otherwise the workflow-level `name:` collision with ci.yml (also `CI` before
+# this fix) AND the shared concurrency group cancelled ci.yml in 1-2s on every
+# push, silently disabling every drift-guard. Discovered 2026-05-16. The
+# job-level `if: github.repository != 'ethankowen-73/massu-internal'` gate skips
+# all jobs in the internal repo while still letting them run in the synced
+# public repo (where this file is named `ci.yml`).
+#
+# The workflow-level `name:` is also disambiguated to `CI (public-mirror)` so
+# even if a future contributor removes the `if:` gate, the two workflows no
+# longer share a `${{ github.workflow }}`-derived concurrency group key.
 
 on:
   push:
@@ -7,12 +22,13 @@ on:
     branches: [main]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-public-mirror-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   type-check:
     name: Type Check
+    if: github.repository != 'ethankowen-73/massu-internal'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +48,7 @@ jobs:
 
   test:
     name: Test
+    if: github.repository != 'ethankowen-73/massu-internal'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +67,7 @@ jobs:
 
   ruleset-drift-guard:
     name: Ruleset Drift Guard
+    if: github.repository != 'ethankowen-73/massu-internal'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,6 +84,7 @@ jobs:
 
   build:
     name: Build
+    if: github.repository != 'ethankowen-73/massu-internal'
     runs-on: ubuntu-latest
     needs: [type-check, test]
     steps:

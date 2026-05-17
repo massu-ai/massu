@@ -11,6 +11,13 @@ import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+
+// src/lib/memory-path.ts
+function encodeMemoryDirName(projectRoot) {
+  return projectRoot.replace(/\//g, "-");
+}
+
+// src/config.ts
 var DomainConfigSchema = z.object({
   name: z.string().default("Unknown"),
   routers: z.array(z.string()).default([]),
@@ -515,7 +522,7 @@ function getResolvedPaths() {
     plansDir: resolve(root, "docs/plans"),
     docsDir: resolve(root, "docs"),
     claudeDir: resolve(root, claudeDirName),
-    memoryDir: resolve(homedir(), claudeDirName, "projects", root.replace(/\//g, "-"), "memory"),
+    memoryDir: resolve(homedir(), claudeDirName, "projects", encodeMemoryDirName(root), "memory"),
     sessionStatePath: resolve(root, config.conventions?.sessionStatePath ?? `${claudeDirName}/session-state/CURRENT.md`),
     sessionArchivePath: resolve(root, config.conventions?.sessionArchivePath ?? `${claudeDirName}/session-state/archive`),
     mcpJsonPath: resolve(root, ".mcp.json"),

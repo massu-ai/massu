@@ -2,7 +2,7 @@
 import{createRequire as __cr}from"module";const require=__cr(import.meta.url);
 
 // src/hooks/fix-detector.ts
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { existsSync as existsSync2, appendFileSync, mkdirSync, readFileSync as readFileSync2 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -565,9 +565,9 @@ async function main() {
     const root = getProjectRoot();
     let diff = "";
     try {
-      diff = execSync(`git diff -- "${filePath}"`, { cwd: root, timeout: 3e3, encoding: "utf-8" });
+      diff = execFileSync("git", ["diff", "--", filePath], { cwd: root, timeout: 3e3, encoding: "utf-8" });
       if (!diff) {
-        diff = execSync(`git diff HEAD -- "${filePath}"`, { cwd: root, timeout: 3e3, encoding: "utf-8" });
+        diff = execFileSync("git", ["diff", "HEAD", "--", filePath], { cwd: root, timeout: 3e3, encoding: "utf-8" });
       }
     } catch {
       process.exit(0);

@@ -13,7 +13,7 @@ Massu AI ships with **five CLI commands** for project setup and maintenance plus
 
 ## massu init
 
-Full project setup in one command. Detects your framework, generates configuration, registers the MCP server, installs all 11 lifecycle hooks, and deploys 59 slash commands.
+Full project setup in one command. Detects your framework, generates configuration, registers the MCP server, installs all 16 lifecycle hooks, and deploys 59 slash commands.
 
 ### Usage
 
@@ -26,7 +26,7 @@ npx massu init
 1. **Framework Detection** — Scans `package.json` for TypeScript, Next.js, SvelteKit, Nuxt, Prisma, Drizzle, tRPC, GraphQL, Express, and more
 2. **Config Generation** — Creates `massu.config.yaml` with detected framework settings
 3. **MCP Registration** — Creates or merges `.mcp.json` to register the Massu MCP server
-4. **Hook Installation** — Configures all 11 lifecycle hooks in `.claude/settings.local.json`
+4. **Hook Installation** — Configures all 16 lifecycle hooks in `.claude/settings.local.json`
 5. **Slash Command Installation** — Deploys 59 workflow commands into `.claude/commands/`
 
 ### Output
@@ -38,7 +38,7 @@ Massu AI - Project Setup
   Detected: TypeScript, Next.js, Prisma, tRPC
   Created massu.config.yaml
   Registered MCP server in .mcp.json
-  Installed 11 hooks in .claude/settings.local.json
+  Installed 16 hooks in .claude/settings.local.json
   Installed 59 slash commands in .claude/commands/
   Databases will auto-create on first session
 
@@ -87,7 +87,7 @@ Massu AI Health Check
 
   ✓ Configuration      massu.config.yaml found and valid
   ✓ MCP Server         Registered in .mcp.json
-  ✓ Hooks Config       11 hooks configured
+  ✓ Hooks Config       16 hooks configured
   ✓ Hook Files         11/11 compiled hooks present
   ✓ Slash Commands     59/59 commands installed
   ✓ Native Modules     better-sqlite3 loads correctly
@@ -128,7 +128,7 @@ npx massu install-hooks
 Massu AI - Hook Installation
 ============================
 
-  Installed 11 hooks in .claude/settings.local.json
+  Installed 16 hooks in .claude/settings.local.json
 
 Hooks will activate on your next Claude Code session.
 ```

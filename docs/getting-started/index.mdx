@@ -16,7 +16,7 @@ Massu AI sits between your AI assistant and your codebase, providing:
 
 - **Cross-session memory** that persists decisions, failures, and context across sessions
 - **Knowledge system** with full-text search across rules, incidents, patterns, and verifications
-- **11 lifecycle hooks** that automatically capture observations, inject context, and enforce rules
+- **16 lifecycle hooks** that automatically capture observations, inject context, and enforce rules
 - **73 MCP tools** for code intelligence, security scoring, cost tracking, knowledge search, and more
 - **15 canonical rules** that ensure verified, auditable AI-generated code
 - **Config-driven architecture** that adapts to any TypeScript or JavaScript project
@@ -40,7 +40,7 @@ Most AI coding tools treat every session as a blank slate. Massu AI maintains a 
 
 ### Zero-Effort Automation
 
-Massu AI's 11 lifecycle hooks run automatically. You do not need to remember to log decisions, capture observations, or save session state. The hooks handle all of this in the background, completing in under 500ms to avoid slowing down your workflow.
+Massu AI's 16 lifecycle hooks run automatically. You do not need to remember to log decisions, capture observations, or save session state. The hooks handle all of this in the background, completing in under 500ms to avoid slowing down your workflow.
 
 ### 73 Purpose-Built Tools
 
@@ -73,7 +73,7 @@ Everything is configured through a single `massu.config.yaml` file. Define your 
 
 ### Memory System Setup
 
-When you run `npx massu init`, Massu AI automatically configures the memory system, installs all 11 lifecycle hooks, and deploys 59 slash commands into `.claude/commands/`. No additional setup is required. The `session-start` hook begins injecting context from your very first session. To check memory is working:
+When you run `npx massu init`, Massu AI automatically configures the memory system, installs all 16 lifecycle hooks, and deploys 59 slash commands into `.claude/commands/`. No additional setup is required. The `session-start` hook begins injecting context from your very first session. To check memory is working:
 
 ```bash
 npx massu doctor

@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.1] - 2026-05-18
+
+Hotfix release for Stage C `plan-stage-c-high-batch` Release 1 — closes the **wider P-H008 marketing-count drift class** caught by post-deploy smoke testing of 1.10.0. The 1.10.0 P-H008 fix scope was narrow (just `installation.mdx` + `stats.ts`); post-deploy curl of `https://massu.ai/docs/getting-started/installation` revealed 36 OTHER marketing surfaces still hardcoded `"11 lifecycle hooks"` / `"11 hooks"` / `"43 workflow commands"` literals across `website/src/**` (TSX pages, layouts, components, data files, lib/email.ts) AND `website/content/**` (MDX docs + articles). Same structural bug class as **P-019** (MCP_TOOL_COUNT drift); fix follows the same structural pattern.
+
+### Fixed
+
+- **`website/src/app/layout.tsx`** + **`features/page.tsx`** + **`docs/layout.tsx`** + **`about/page.tsx`** + **`overview/page.tsx`** + **`how-it-works/page.tsx`** + **`checkout/cancel/page.tsx`** — replaced hardcoded literals `"11 lifecycle hooks"` / `"11 hooks"` / `"59 workflow commands"` / `"11 AI agents"` with named-export consumption (`LIFECYCLE_HOOK_COUNT`, `WORKFLOW_COMMAND_COUNT`, `AI_AGENT_COUNT`) from `@/data/stats`. Mirrors the P-019 pattern. P-H008-extended.
+- **`website/src/components/sections/Hero.tsx`** + **`OpenSourceSection.tsx`** + **`HowItWorksPreview.tsx`** + **`pricing/PricingFAQ.tsx`** — same named-export migration. P-H008-extended.
+- **`website/src/data/articles.ts`** + **`pricing.ts`** + **`features.ts`** — converted hardcoded counts to template-literal references to the stats SoT named exports. P-H008-extended.
+- **`website/src/lib/email.ts`** — pre-existing **"43 workflow commands"** drift (also pre-1.5.x) fixed to `${WORKFLOW_COMMAND_COUNT}` reference. CR-9 bonus surface caught while fixing P-H008-extended.
+- **`website/content/docs/getting-started/index.mdx`** + **`guides/troubleshooting.mdx`** + **`reference/cli-reference.mdx`** + **`articles/automated-enforcement.mdx`** — MDX literal updates 11→16 hooks. MDX files don't consume TS imports; drift-guard ban catches future regressions.
+
+### Added
+
+- **`website/src/__tests__/marketing-tool-count-against-source-truth.test.ts`** — extended drift-guard `BANNED` patterns to cover the new bug classes. Hook-count `"11 lifecycle hooks"` / `"11 hooks"`, command-count `"43 workflow commands"` / `"47 commands"` / `"49 commands"`, AI-agent-count `"7 AI agents"` / `"9 AI agents"` are now scanned across `website/src/**` + `website/content/**`. Closes the same bug class P-019 closed for `MCP_TOOL_COUNT` — but for the FULL stats.ts named-export family.
+
 ## [1.10.0] - 2026-05-18
 
 Stage C Release 1 — pre-launch audit HIGH-severity sub-stages C.1 (hooks + doctor parity, 8 items) and C.2 (MCP tools, 2 items) per `docs/plans/2026-05-18-stage-c-high-batch.md` (plan token `plan-stage-c-high-batch`). 10 P-H items shipped; 28 remain across 1.10.1 / 1.10.2 / 1.10.3 per the operator-revised release plan. 4 of 7 planned drift-guards land here (DG-1..DG-4); DG-5..DG-7 ship with their respective P-items in subsequent releases. Every fix is structural — paired with a vitest drift-guard that makes the bug class impossible to reintroduce (CR-46).
@@ -35,7 +51,7 @@ Stage C Release 1 — pre-launch audit HIGH-severity sub-stages C.1 (hooks + doc
 - **`website/content/docs/getting-started/installation.mdx`** — hook count synced from drifted 11 to actual 16. Hook table appended with the 5 missing rows: `fix-detector`, `classify-failure`, `incident-pipeline`, `rule-enforcement-pipeline`, `auto-learning-pipeline`. P-H008.
 - **`website/src/data/stats.ts`** — `Lifecycle Hooks` count updated 11 → 16 to match `lib/hook-registry.ts` SoT. P-H008.
 - **`packages/core/src/__tests__/server-lazy-db-deps.test.ts:99-122`** and **`packages/core/src/__tests__/server.test.ts:243`** — updated to assert the new P-H009 behavior (`trpc_map` opens both `codegraph` and `data` DBs). Previously these tests asserted the bug.
-- **`docs/plans/2026-05-16-prelaunch-audit-remediation.md`** — added `## Changelog Summary` section retrospectively to comply with plan-1.9.0 P-A-003 SHIPPED-status requirement (CR-9 cleanup of pre-existing parent-plan validator FAIL).
+- **`docs/plans/2026-05-16-prelaunch-audit-remediation.md`** (plan-token `plan-2026-05-16-prelaunch-audit`) — added `## Changelog Summary` section retrospectively to comply with plan-1.9.0 P-A-003 SHIPPED-status requirement (CR-9 cleanup of pre-existing parent-plan validator FAIL).
 
 ## [1.9.5] - 2026-05-16
 

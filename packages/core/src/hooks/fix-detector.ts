@@ -19,6 +19,7 @@ import { existsSync, appendFileSync, mkdirSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
+import { writeHookMessage } from './lib/write-hook-message.ts';
 
 interface HookInput {
   session_id: string;
@@ -83,6 +84,75 @@ function getSessionFlagPath(sessionId: string): string {
   return join(dir, `fixes-${sessionId.slice(0, 12)}.jsonl`);
 }
 
+// P-M-003: cached git work-tree check + per-session auto-disable on slow git.
+// Cache path: /tmp/massu-fix-detector-state/{cwd-hash}.json with TTL 1h.
+// Disable path: /tmp/massu-fix-detector-state/disabled-{session_id}.flag.
+function _stateDir(): string {
+  const dir = join(tmpdir(), 'massu-fix-detector-state');
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
+function _cwdHash(cwd: string): string {
+  // djb2-ish stable hash; we don't need cryptographic strength, just stability.
+  let h = 5381;
+  for (let i = 0; i < cwd.length; i++) {
+    h = ((h << 5) + h + cwd.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h).toString(36);
+}
+
+function isGitWorkTreeFast(cwd: string): boolean {
+  try {
+    const cachePath = join(_stateDir(), `worktree-${_cwdHash(cwd)}.json`);
+    if (existsSync(cachePath)) {
+      const cached = JSON.parse(readFileSync(cachePath, 'utf-8')) as { isWorkTree: boolean; ts: number };
+      const ageMs = Date.now() - cached.ts;
+      if (ageMs < 3600_000) return cached.isWorkTree;
+    }
+    let isWorkTree = false;
+    try {
+      execFileSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd, timeout: 500, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+      isWorkTree = true;
+    } catch {
+      isWorkTree = false;
+    }
+    try {
+      appendFileSync(cachePath, '');
+      const fs = require('fs') as typeof import('fs');
+      fs.writeFileSync(cachePath, JSON.stringify({ isWorkTree, ts: Date.now() }));
+    } catch {
+      // Cache write best-effort; on failure, accept fresh probe next time.
+    }
+    return isWorkTree;
+  } catch {
+    return false;
+  }
+}
+
+function _disabledFlagPath(sessionId: string): string {
+  return join(_stateDir(), `disabled-${sessionId.slice(0, 12)}.flag`);
+}
+
+function isSessionAutoDisabled(sessionId: string): boolean {
+  try {
+    return existsSync(_disabledFlagPath(sessionId));
+  } catch {
+    return false;
+  }
+}
+
+function markSessionAutoDisabled(sessionId: string, elapsedMs: number): void {
+  try {
+    const fs = require('fs') as typeof import('fs');
+    fs.writeFileSync(_disabledFlagPath(sessionId), `disabled: previous git diff took ${elapsedMs}ms\n`);
+  } catch {
+    // Best-effort; if we can't write the flag the next call will just re-probe slowly.
+  }
+}
+
 async function main(): Promise<void> {
   try {
     const input = await readStdin();
@@ -115,13 +185,25 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Get git diff for this file
+    // Get git diff for this file.
+    // P-M-003 (plan-stage-d-medium-sweep): pre-check git work-tree once with short 500ms
+    // budget; cache result in tmpdir; auto-disable for sessions where git-diff exceeded
+    // 2000ms previously. Protects against slow git filesystems (WSL, network drives).
     const root = getProjectRoot();
+    if (!isGitWorkTreeFast(root) || isSessionAutoDisabled(hookInput.session_id)) {
+      process.exit(0);
+      return;
+    }
     let diff = '';
     try {
+      const startMs = Date.now();
       diff = execFileSync('git', ['diff', '--', filePath], { cwd: root, timeout: 3000, encoding: 'utf-8' });
       if (!diff) {
         diff = execFileSync('git', ['diff', 'HEAD', '--', filePath], { cwd: root, timeout: 3000, encoding: 'utf-8' });
+      }
+      const elapsedMs = Date.now() - startMs;
+      if (elapsedMs > 2000) {
+        markSessionAutoDisabled(hookInput.session_id, elapsedMs);
       }
     } catch {
       process.exit(0);
@@ -161,7 +243,7 @@ async function main(): Promise<void> {
     const lines = readFileSync(flagPath, 'utf-8').split('\n').filter(Boolean);
     if (lines.length === 1) {
       // First fix detected — output advisory
-      console.log(
+      writeHookMessage(
         `[Massu Auto-Learning] Bug fix detected in ${filePath} (signals: ${detected.join(', ')}). ` +
         `The auto-learning pipeline will prompt you at session end to create an incident report, ` +
         `derive a prevention rule, and add enforcement.`

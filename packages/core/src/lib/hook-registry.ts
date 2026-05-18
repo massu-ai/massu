@@ -23,7 +23,12 @@ export const REGISTERED_HOOKS = [
   'post-edit-context',
   'post-tool-use',
   'pre-compact',
+  // P-E-019 (1.12.0): security-gate + pre-delete-check are kept registered
+  // for back-compat (operator settings.json may still reference them
+  // individually), but new installs emit only `pre-tool-use-gate` —
+  // the consolidated single-spawn PreToolUse hook.
   'pre-delete-check',
+  'pre-tool-use-gate',
   'quality-event',
   'rule-enforcement-pipeline',
   'security-gate',

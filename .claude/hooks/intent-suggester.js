@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 import{createRequire as __cr}from"module";const require=__cr(import.meta.url);
 
+// src/hooks/lib/write-hook-message.ts
+function writeHookMessage(message) {
+  process.stdout.write(JSON.stringify({ message }) + "\n");
+}
+
 // src/hooks/intent-suggester.ts
 var COMMAND_MAPPINGS = [
   {
@@ -79,9 +84,7 @@ async function main() {
       process.exit(0);
       return;
     }
-    process.stdout.write(
-      `Tip: Use ${match.command} to ${match.description}.`
-    );
+    writeHookMessage(`Tip: Use ${match.command} to ${match.description}.`);
   } catch (_e) {
   }
   process.exit(0);

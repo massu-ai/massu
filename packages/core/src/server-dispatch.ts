@@ -20,6 +20,8 @@
 
 import type Database from 'better-sqlite3';
 import { getCodeGraphDb, getDataDb, CodegraphDbNotInitializedError } from './db.ts';
+import { getMemoryDb } from './memory-db.ts';
+import { getKnowledgeDb } from './knowledge-db.ts';
 import { getConfig } from './config.ts';
 import { getToolDefinitions, handleToolCall } from './tools.ts';
 import { getToolDbNeeds, UnknownToolError, type DbNeed } from './tool-db-needs.ts';
@@ -58,16 +60,25 @@ export interface Dispatcher {
 export function createDispatcher(options: DispatcherOptions): Dispatcher {
   let codegraphDbCache: Database.Database | null = null;
   let dataDbCache: Database.Database | null = null;
+  // plan-stage-d-medium-sweep P-M-010: extend the lazy DB cache to memory.db
+  // and knowledge.db so heavily-used analytics/audit/knowledge tool paths
+  // don't open + close a fresh SQLite connection on every dispatch.
+  let memoryDbCache: Database.Database | null = null;
+  let knowledgeDbCache: Database.Database | null = null;
 
   function resolveDbsForTool(toolName: string): {
     needs: readonly DbNeed[];
     dataDb?: Database.Database;
     codegraphDb?: Database.Database;
+    memoryDb?: Database.Database;
+    knowledgeDb?: Database.Database;
   } {
     const needs = getToolDbNeeds(toolName, getConfig().toolPrefix);
 
     let dataDbResolved: Database.Database | undefined;
     let codegraphDbResolved: Database.Database | undefined;
+    let memoryDbResolved: Database.Database | undefined;
+    let knowledgeDbResolved: Database.Database | undefined;
 
     if (needs.includes('data')) {
       if (!dataDbCache) dataDbCache = getDataDb();
@@ -80,7 +91,23 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
       codegraphDbResolved = codegraphDbCache;
     }
 
-    return { needs, dataDb: dataDbResolved, codegraphDb: codegraphDbResolved };
+    if (needs.includes('memory')) {
+      if (!memoryDbCache) memoryDbCache = getMemoryDb();
+      memoryDbResolved = memoryDbCache;
+    }
+
+    if (needs.includes('knowledge')) {
+      if (!knowledgeDbCache) knowledgeDbCache = getKnowledgeDb();
+      knowledgeDbResolved = knowledgeDbCache;
+    }
+
+    return {
+      needs,
+      dataDb: dataDbResolved,
+      codegraphDb: codegraphDbResolved,
+      memoryDb: memoryDbResolved,
+      knowledgeDb: knowledgeDbResolved,
+    };
   }
 
   async function handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> {
@@ -116,8 +143,8 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
         const toolArgs = (params as { arguments?: Record<string, unknown> })?.arguments ?? {};
 
         try {
-          const { dataDb, codegraphDb } = resolveDbsForTool(toolName);
-          const result = await handleToolCall(toolName, toolArgs, dataDb, codegraphDb);
+          const { dataDb, codegraphDb, memoryDb, knowledgeDb } = resolveDbsForTool(toolName);
+          const result = await handleToolCall(toolName, toolArgs, dataDb, codegraphDb, memoryDb, knowledgeDb);
           return { jsonrpc: '2.0', id: id ?? null, result };
         } catch (err) {
           if (err instanceof CodegraphDbNotInitializedError) {
@@ -218,6 +245,14 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
     if (dataDbCache) {
       dataDbCache.close();
       dataDbCache = null;
+    }
+    if (memoryDbCache) {
+      memoryDbCache.close();
+      memoryDbCache = null;
+    }
+    if (knowledgeDbCache) {
+      knowledgeDbCache.close();
+      knowledgeDbCache = null;
     }
   }
 

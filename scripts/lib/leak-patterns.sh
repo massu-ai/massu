@@ -136,6 +136,15 @@ CONTENT_SCAN_SELF_REFERENCE_FILES_PUBLIC_REPO=(
   # so they need self-reference allowlisting in the public-repo guard.
   'scripts/lib/leak-patterns.sh'
   'scripts/massu-website-content-leak-guard.sh'
+  # P-M-040 / P-E-019 follow-on (plan-stage-e-low-info-sweep ceremony
+  # 2026-05-18): these two scripts legitimately enumerate the
+  # `massu-internal-` exclusion convention as part of their job —
+  # diff-commands-vs-docs.sh excludes the internal-prefix from its
+  # public-docs completeness check, and massu-pattern-scanner.sh
+  # Check 24 enforces that public commands have docs (and explicitly
+  # NOT internal ones).
+  'scripts/diff-commands-vs-docs.sh'
+  'scripts/massu-pattern-scanner.sh'
 )
 
 # Files under website/content/** whose job IS to mention forbidden

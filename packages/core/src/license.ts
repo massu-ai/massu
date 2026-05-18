@@ -17,7 +17,11 @@ import { createHash } from 'crypto';
 import type { ToolDefinition, ToolResult } from './tools.ts';
 import { getConfig } from './config.ts';
 import { getMemoryDb } from './memory-db.ts';
-import { verifyLicenseResponse, isLicenseSignatureRequired } from './security/license-response-verifier.ts';
+import {
+  verifyLicenseResponse,
+  isLicenseSignatureRequired,
+  type SignedLicenseResponse,
+} from './security/license-response-verifier.ts';
 
 // P-H019 one-shot warning gate. We emit the stderr warning at most once
 // per process lifetime so the customer's terminal isn't spammed every
@@ -37,7 +41,13 @@ function warnLicenseSigOnce(reason: string): void {
 // Types
 // ============================================================
 
-export type ToolTier = 'free' | 'pro' | 'team' | 'enterprise';
+// P-E-025 (plan-stage-e-low-info-sweep): tier names live in the shared
+// `@massu/types` workspace package so the website + core share a single
+// SoT. `ToolTier` is preserved as an alias for `TierName` so existing
+// imports across the codebase continue to resolve without a wide
+// refactor.
+import type { TierName } from '@massu/types';
+export type ToolTier = TierName;
 
 // ============================================================
 // Tier Ordering (for comparison)
@@ -79,6 +89,12 @@ export const TOOL_TIER_MAP: Record<string, ToolTier> = {
   coupling_check: 'free',
   memory_search: 'free',
   memory_ingest: 'free',
+  // P-M-042 (plan-stage-d-medium-sweep): memory_backfill serves the
+  // customer's MEMORY.md ingestion workflow and was registered in
+  // memory-tools.ts but missing from TOOL_TIER_MAP. The bijection
+  // drift-guard (P-M-033) would have caught it on next add; we land it
+  // explicitly as Free since it's a customer-owned-data ingestion path.
+  memory_backfill: 'free',
   regression_risk: 'free',
   feature_health: 'free',
   license_status: 'free',
@@ -194,8 +210,14 @@ export function isToolAllowed(toolName: string, userTier: ToolTier): boolean {
 // P3-004: annotateToolDefinitions
 // ============================================================
 
+// P-E-011 (plan-stage-e-low-info-sweep, wave1-mcp-tools:F-MCP-007):
+// Free-tier tools now carry an explicit `[FREE]` prefix so the
+// listing surface is symmetric. Customers browsing `ListTools` no
+// longer have to infer "no prefix == free" — the tier is named on
+// every tool. Idempotent strip below handles existing un-prefixed
+// descriptions on first run.
 const TIER_LABELS: Record<ToolTier, string> = {
-  free: '',
+  free: '[FREE] ',
   pro: '[PRO] ',
   team: '[TEAM] ',
   enterprise: '[ENTERPRISE] ',
@@ -210,13 +232,45 @@ const TIER_LABELS: Record<ToolTier, string> = {
  * Free tools get no label prefix.
  */
 export function annotateToolDefinitions(defs: ToolDefinition[]): ToolDefinition[] {
+  // P-M-033 (plan-stage-d-medium-sweep): runtime bijection assertion BEFORE
+  // we override. If a def arrives with annotations.tier already set, the
+  // value MUST match TOOL_TIER_MAP. A divergence indicates someone
+  // hand-edited a tool def's tier field — structural drift surface that
+  // would otherwise be silently corrected here and ship with mismatched
+  // wire / placement tier. Throwing forces the source-of-truth back into
+  // TOOL_TIER_MAP.
+  for (const def of defs) {
+    const expectedTier = getToolTier(def.name);
+    const incomingTier = (def.annotations as { tier?: ToolTier } | undefined)?.tier;
+    if (incomingTier !== undefined && incomingTier !== expectedTier) {
+      throw new Error(
+        `TOOL_TIER_MAP bijection violation (P-M-033): tool "${def.name}" has annotations.tier="${incomingTier}" but TOOL_TIER_MAP says "${expectedTier}". TOOL_TIER_MAP is the SoT — fix the source instead.`
+      );
+    }
+    const expectedPrefix = TIER_LABELS[expectedTier];
+    // Description must NOT already have a wrong prefix. An empty/missing
+    // prefix is fine (we add it below); a wrong prefix would compound.
+    for (const otherPrefix of Object.values(TIER_LABELS)) {
+      if (otherPrefix && otherPrefix !== expectedPrefix && def.description.startsWith(otherPrefix)) {
+        throw new Error(
+          `TOOL_TIER_MAP bijection violation (P-M-033): tool "${def.name}" description starts with "${otherPrefix}" but TOOL_TIER_MAP tier is "${expectedTier}" (expected prefix "${expectedPrefix}").`
+        );
+      }
+    }
+  }
+
   return defs.map(def => {
     const tier = getToolTier(def.name);
     const label = TIER_LABELS[tier];
+    // Re-prefix idempotently: strip any existing matching prefix so
+    // re-running annotation doesn't produce "[PRO] [PRO] foo".
+    const stripped = label && def.description.startsWith(label)
+      ? def.description.slice(label.length)
+      : def.description;
     return {
       ...def,
       annotations: { ...(def.annotations ?? {}), tier },
-      description: label ? `${label}${def.description}` : def.description,
+      description: label ? `${label}${stripped}` : stripped,
     };
   });
 }
@@ -269,20 +323,29 @@ export async function validateLicense(apiKey: string): Promise<LicenseInfo> {
   const memDb = getMemoryDb();
   try {
     const cached = memDb.prepare(
-      'SELECT tier, valid_until, last_validated, features FROM license_cache WHERE api_key_hash = ?'
-    ).get(keyHash) as { tier: string; valid_until: string; last_validated: string; features: string } | undefined;
+      'SELECT tier, valid_until, last_validated, features, signed_payload_json FROM license_cache WHERE api_key_hash = ?'
+    ).get(keyHash) as {
+      tier: string;
+      valid_until: string;
+      last_validated: string;
+      features: string;
+      signed_payload_json: string;
+    } | undefined;
 
-    if (cached) {
+    // P-M-023 (plan-stage-d-medium-sweep): read cache through the signed
+    // wire payload, never the plain columns. Editing tier/valid_until in
+    // SQLite is a no-op because we re-extract from the verified payload.
+    // Returns the trusted LicenseInfo, or null when the row is missing /
+    // unsigned / has an invalid signature.
+    const trusted = cached ? readTrustedCache(cached) : null;
+
+    if (cached && trusted) {
       const lastValidated = new Date(cached.last_validated);
       const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
       // Cache is fresh (< 1 hour old)
       if (lastValidated > hourAgo) {
-        return {
-          tier: cached.tier as ToolTier,
-          validUntil: cached.valid_until,
-          features: JSON.parse(cached.features || '[]'),
-        };
+        return trusted;
       }
     }
 
@@ -346,8 +409,17 @@ export async function validateLicense(apiKey: string): Promise<LicenseInfo> {
             const validUntil = data.validUntil ?? '';
             const features = data.features ?? [];
 
-            // Update local cache
-            updateLicenseCache(apiKey, tier, validUntil, features);
+            // P-M-023: persist the entire signed payload so cache reads
+            // re-verify the Ed25519 signature instead of trusting plain
+            // SQLite columns. Pre-1.11.0 cache rows without
+            // signed_payload_json fall through to free tier on read.
+            updateLicenseCache(
+              apiKey,
+              tier,
+              validUntil,
+              features,
+              sigResult.kind === 'valid' ? data : null,
+            );
 
             return { tier, validUntil, features };
           }
@@ -360,18 +432,16 @@ export async function validateLicense(apiKey: string): Promise<LicenseInfo> {
       }
     }
 
-    // 3. Grace period: cache exists but stale (up to 7 days)
-    if (cached) {
+    // 3. Grace period: cache exists but stale (up to 7 days). P-M-023:
+    // only honour the grace window when the cached row was authoritatively
+    // signed; an unsigned / tampered row drops straight to free tier.
+    if (cached && trusted) {
       const lastValidated = new Date(cached.last_validated);
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
       // P3-013: 7-day grace period
       if (lastValidated > sevenDaysAgo) {
-        return {
-          tier: cached.tier as ToolTier,
-          validUntil: cached.valid_until,
-          features: JSON.parse(cached.features || '[]'),
-        };
+        return trusted;
       }
     }
 
@@ -385,23 +455,82 @@ export async function validateLicense(apiKey: string): Promise<LicenseInfo> {
 /**
  * Update the license cache in memory.db.
  * Called by the session-start hook after async cloud validation.
+ *
+ * P-M-023: the optional `signedPayload` carries the entire signed
+ * /validate-key wire response (with `_signature` triplet). Stored verbatim
+ * as JSON so cache reads can re-verify the Ed25519 signature. Pass `null`
+ * if the upstream response was unsigned (transition mode) — the row will
+ * NOT be honoured on subsequent reads under strict mode.
  */
 export function updateLicenseCache(
   apiKey: string,
   tier: ToolTier,
   validUntil: string,
-  features: string[] = []
+  features: string[] = [],
+  signedPayload: SignedLicenseResponse | null = null,
 ): void {
   const keyHash = createHash('sha256').update(apiKey).digest('hex');
   const memDb = getMemoryDb();
   try {
     memDb.prepare(`
-      INSERT OR REPLACE INTO license_cache (api_key_hash, tier, valid_until, last_validated, features)
-      VALUES (?, ?, ?, datetime('now'), ?)
-    `).run(keyHash, tier, validUntil, JSON.stringify(features));
+      INSERT OR REPLACE INTO license_cache (api_key_hash, tier, valid_until, last_validated, features, signed_payload_json)
+      VALUES (?, ?, ?, datetime('now'), ?, ?)
+    `).run(
+      keyHash,
+      tier,
+      validUntil,
+      JSON.stringify(features),
+      signedPayload ? JSON.stringify(signedPayload) : '',
+    );
   } finally {
     memDb.close();
   }
+}
+
+/**
+ * P-M-023: read a license_cache row through the signed wire payload.
+ * Returns the trusted LicenseInfo when the stored signature verifies, or
+ * `null` when the row is missing, unsigned, or tampered. Strict mode
+ * (MASSU_REQUIRE_SIGNED_LICENSE=true) rejects unsigned rows; transition
+ * mode accepts them but emits a one-shot stderr warning.
+ */
+function readTrustedCache(cached: {
+  tier: string;
+  valid_until: string;
+  features: string;
+  signed_payload_json: string;
+}): LicenseInfo | null {
+  // Unsigned row (pre-P-M-023 or upstream-unsigned-during-transition).
+  if (!cached.signed_payload_json) {
+    if (isLicenseSignatureRequired()) return null;
+    warnLicenseSigOnce('cache_unsigned_transition');
+    return {
+      tier: cached.tier as ToolTier,
+      validUntil: cached.valid_until,
+      features: JSON.parse(cached.features || '[]'),
+    };
+  }
+
+  let parsed: SignedLicenseResponse;
+  try {
+    parsed = JSON.parse(cached.signed_payload_json) as SignedLicenseResponse;
+  } catch {
+    return null;
+  }
+
+  const result = verifyLicenseResponse(parsed);
+  if (result.kind !== 'valid') return null;
+
+  // Re-derive tier from the VERIFIED payload, NOT the plain SQLite column.
+  // Editing the tier column directly is structurally a no-op now.
+  const verifiedPlan = typeof parsed.plan === 'string' ? parsed.plan : null;
+  const verifiedTierField = typeof parsed.tier === 'string' ? (parsed.tier as ToolTier) : null;
+  const tier: ToolTier = verifiedPlan
+    ? (PLAN_TO_TIER_MAP[verifiedPlan] ?? 'free')
+    : (verifiedTierField ?? 'free');
+  const validUntil = typeof parsed.validUntil === 'string' ? parsed.validUntil : '';
+  const features = Array.isArray(parsed.features) ? (parsed.features as string[]) : [];
+  return { tier, validUntil, features };
 }
 
 // ============================================================

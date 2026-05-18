@@ -71,6 +71,22 @@ export function initKnowledgeSchema(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_kr_id ON knowledge_rules(rule_id);
+  `);
+
+  // P-M-036 (plan-stage-d-medium-sweep): add `source` column to knowledge_rules
+  // so customer-authored `governance_rules:` entries from massu.config.yaml
+  // are distinguishable from framework-shipped CR-* definitions. SQLite's
+  // ALTER TABLE ADD COLUMN has no IF NOT EXISTS variant; PRAGMA-introspect.
+  const rulesCols = db
+    .prepare(`PRAGMA table_info(knowledge_rules)`)
+    .all() as Array<{ name: string }>;
+  if (!rulesCols.some((c) => c.name === 'source')) {
+    db.exec(
+      `ALTER TABLE knowledge_rules ADD COLUMN source TEXT NOT NULL DEFAULT 'framework'`,
+    );
+  }
+
+  db.exec(`
 
     -- Verification Requirements index
     CREATE TABLE IF NOT EXISTS knowledge_verifications (

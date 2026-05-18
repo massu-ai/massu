@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 import{createRequire as __cr}from"module";const require=__cr(import.meta.url);
 
+// src/hooks/lib/write-hook-message.ts
+function writeHookMessage(message) {
+  process.stdout.write(JSON.stringify({ message }) + "\n");
+}
+
 // src/hooks/security-gate.ts
 var DANGEROUS_BASH_PATTERNS = [
   { pattern: /rm\s+-[a-z]*r[a-z]*f[a-z]*\s+\/(?:\s|$)/, label: "rm -rf /" },
@@ -70,42 +75,45 @@ function checkPythonContent(content) {
   }
   return null;
 }
-async function main() {
+function runSecurityGateChecks(hookInput) {
+  const messages = [];
   try {
-    const input = await readStdin();
-    const hookInput = JSON.parse(input);
     const { tool_name, tool_input } = hookInput;
     if (tool_name === "Bash" && tool_input.command) {
       const violation = checkBashCommand(tool_input.command);
       if (violation) {
-        process.stdout.write(JSON.stringify({
-          message: `SECURITY GATE: Dangerous command pattern detected: ${violation}
+        messages.push(`SECURITY GATE: Dangerous command pattern detected: ${violation}
 Command: ${tool_input.command.slice(0, 200)}
-Review carefully before proceeding.`
-        }));
+Review carefully before proceeding.`);
       }
     }
     if ((tool_name === "Write" || tool_name === "Edit") && tool_input.file_path) {
       const violation = checkFilePath(tool_input.file_path);
       if (violation) {
-        process.stdout.write(JSON.stringify({
-          message: `SECURITY GATE: Attempt to write to protected file: ${violation}
+        messages.push(`SECURITY GATE: Attempt to write to protected file: ${violation}
 Path: ${tool_input.file_path}
-Ensure this is intentional and no secrets will be exposed.`
-        }));
+Ensure this is intentional and no secrets will be exposed.`);
       }
     }
     const pyContent = tool_input.content || tool_input.new_string;
     if ((tool_name === "Write" || tool_name === "Edit") && tool_input.file_path?.endsWith(".py") && pyContent) {
       const pyViolation = checkPythonContent(pyContent);
       if (pyViolation) {
-        process.stdout.write(JSON.stringify({
-          message: `SECURITY GATE: Dangerous Python pattern detected: ${pyViolation}
+        messages.push(`SECURITY GATE: Dangerous Python pattern detected: ${pyViolation}
 File: ${tool_input.file_path}
-Review carefully before proceeding.`
-        }));
+Review carefully before proceeding.`);
       }
     }
+  } catch {
+  }
+  return messages;
+}
+async function main() {
+  try {
+    const input = await readStdin();
+    const hookInput = JSON.parse(input);
+    const messages = runSecurityGateChecks(hookInput);
+    for (const msg of messages) writeHookMessage(msg);
   } catch {
   }
   process.exit(0);
@@ -121,4 +129,9 @@ function readStdin() {
     setTimeout(() => resolve(data), 400);
   });
 }
-main();
+if (process.argv[1]?.endsWith("security-gate.js") || process.argv[1]?.endsWith("security-gate")) {
+  main();
+}
+export {
+  runSecurityGateChecks
+};

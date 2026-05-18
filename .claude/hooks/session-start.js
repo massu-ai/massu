@@ -39,6 +39,916 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// src/detect/manifest-registry.ts
+var manifest_registry_exports = {};
+__export(manifest_registry_exports, {
+  getManifestPatterns: () => getManifestPatterns,
+  getManifestRegistry: () => getManifestRegistry,
+  matchManifestPattern: () => matchManifestPattern
+});
+function matchManifestPattern(name, pattern) {
+  if (pattern.startsWith("*")) {
+    const suffix = pattern.slice(1);
+    if (suffix.includes("*")) {
+      throw new Error(
+        `[manifest-registry] pattern "${pattern}" has more than one wildcard. Only "*.<ext>" extension-globs are supported.`
+      );
+    }
+    return name.endsWith(suffix);
+  }
+  return name === pattern;
+}
+function getManifestRegistry() {
+  if (_registryCache !== null) return _registryCache;
+  _registryCache = [
+    {
+      pattern: "package.json",
+      manifestType: "package.json",
+      language: "typescript",
+      runtime: "node",
+      parse: parsePackageJson,
+      signalKey: "packageJson",
+      signalShape: "json"
+    },
+    {
+      pattern: "pyproject.toml",
+      manifestType: "pyproject.toml",
+      language: "python",
+      runtime: "python3",
+      parse: parsePyproject,
+      signalKey: "pyprojectToml",
+      signalShape: "toml"
+    },
+    {
+      pattern: "requirements.txt",
+      manifestType: "requirements.txt",
+      language: "python",
+      runtime: "python3",
+      parse: parseRequirementsTxt,
+      // Captured via pyprojectToml sibling already; no separate signal.
+      signalKey: null,
+      signalShape: "string"
+    },
+    {
+      pattern: "Pipfile",
+      manifestType: "Pipfile",
+      language: "python",
+      runtime: "python3",
+      parse: parsePipfile,
+      // Captured via pyprojectToml sibling already; no separate signal.
+      signalKey: null,
+      signalShape: "string"
+    },
+    {
+      pattern: "Cargo.toml",
+      manifestType: "Cargo.toml",
+      language: "rust",
+      runtime: "cargo",
+      parse: parseCargoToml,
+      signalKey: "cargoToml",
+      signalShape: "toml"
+    },
+    {
+      pattern: "Package.swift",
+      manifestType: "Package.swift",
+      language: "swift",
+      runtime: "xcode",
+      parse: parsePackageSwift,
+      // No AST adapter consumer yet (swift-swiftui doesn't need it).
+      signalKey: null,
+      signalShape: "string"
+    },
+    {
+      pattern: "go.mod",
+      manifestType: "go.mod",
+      language: "go",
+      runtime: "go",
+      parse: parseGoMod,
+      signalKey: "goMod",
+      signalShape: "string"
+    },
+    {
+      pattern: "pom.xml",
+      manifestType: "pom.xml",
+      language: "java",
+      runtime: "jvm",
+      parse: parsePomXml,
+      signalKey: "pomXml",
+      signalShape: "string"
+    },
+    {
+      pattern: "build.gradle",
+      manifestType: "build.gradle",
+      language: "java",
+      runtime: "jvm",
+      parse: parseBuildGradle,
+      signalKey: "gradleBuild",
+      signalShape: "string"
+    },
+    {
+      pattern: "build.gradle.kts",
+      manifestType: "build.gradle",
+      language: "java",
+      runtime: "jvm",
+      parse: parseBuildGradle,
+      signalKey: "gradleBuild",
+      signalShape: "string"
+    },
+    {
+      pattern: "Gemfile",
+      manifestType: "Gemfile",
+      language: "ruby",
+      runtime: "ruby",
+      parse: parseGemfile,
+      signalKey: "gemfile",
+      signalShape: "string"
+    },
+    // Plan 1.5.1 — closes CR-39 violation (1.5.0 init failed for Phoenix
+    // + ASP.NET fixtures). Both rely on AST adapters that already work
+    // in introspect; the gap was solely package-detector unaware of the
+    // manifest filenames.
+    {
+      pattern: "mix.exs",
+      manifestType: "mix.exs",
+      language: "elixir",
+      runtime: "beam",
+      parse: parseMixExs,
+      signalKey: "mixExs",
+      signalShape: "string"
+    },
+    {
+      pattern: "*.csproj",
+      manifestType: "*.csproj",
+      language: "csharp",
+      runtime: "dotnet",
+      parse: parseCsproj,
+      signalKey: "csproj",
+      signalShape: "string"
+    }
+  ];
+  return _registryCache;
+}
+function getManifestPatterns() {
+  return getManifestRegistry().map((e) => e.pattern);
+}
+var _registryCache;
+var init_manifest_registry = __esm({
+  "src/detect/manifest-registry.ts"() {
+    "use strict";
+    init_package_detector();
+    _registryCache = null;
+  }
+});
+
+// src/detect/package-detector.ts
+import { readFileSync as readFileSync2, existsSync as existsSync3, statSync, lstatSync, readdirSync } from "fs";
+import { join, relative } from "path";
+import { parse as parseToml } from "smol-toml";
+function safeRead(path) {
+  try {
+    if (!existsSync3(path)) return null;
+    const ls = lstatSync(path);
+    if (ls.isSymbolicLink()) return null;
+    const st = statSync(path);
+    if (!st.isFile()) return null;
+    return readFileSync2(path, "utf-8");
+  } catch {
+    return null;
+  }
+}
+function normalizeRelative(root, path) {
+  const rel = relative(root, path);
+  return rel.split(/[/\\]/).join("/");
+}
+function parsePackageJson(path, directory, root, warnings) {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  let pkg;
+  try {
+    pkg = JSON.parse(raw);
+  } catch (err) {
+    warnings.push({
+      path,
+      reason: `package.json JSON parse failed: ${err.message}`
+    });
+    return null;
+  }
+  const deps = Object.keys(
+    pkg.dependencies ?? {}
+  );
+  const devDeps = Object.keys(
+    pkg.devDependencies ?? {}
+  );
+  const peer = Object.keys(
+    pkg.peerDependencies ?? {}
+  );
+  const hasTs = deps.includes("typescript") || devDeps.includes("typescript") || existsSync3(join(directory, "tsconfig.json"));
+  const language = hasTs ? "typescript" : "javascript";
+  const scripts = Object.keys(
+    pkg.scripts ?? {}
+  );
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language,
+    runtime: "node",
+    name: typeof pkg.name === "string" ? pkg.name : null,
+    version: typeof pkg.version === "string" ? pkg.version : null,
+    dependencies: [...deps, ...peer],
+    devDependencies: devDeps,
+    scripts,
+    manifestType: "package.json"
+  };
+}
+function parsePyproject(path, directory, root, warnings) {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  let toml;
+  try {
+    toml = parseToml(raw);
+  } catch (err) {
+    warnings.push({
+      path,
+      reason: `pyproject.toml TOML parse failed: ${err.message}`
+    });
+    return null;
+  }
+  const deps = [];
+  const devDeps = [];
+  const scripts = [];
+  let name = null;
+  let version = null;
+  const project = toml.project;
+  if (project && typeof project === "object") {
+    if (typeof project.name === "string") name = project.name;
+    if (typeof project.version === "string") version = project.version;
+    const pd = project.dependencies;
+    if (Array.isArray(pd)) {
+      for (const d of pd) {
+        if (typeof d === "string") deps.push(normalizePyDep(d));
+      }
+    }
+    const optDeps = project["optional-dependencies"];
+    if (optDeps && typeof optDeps === "object") {
+      for (const grp of Object.values(optDeps)) {
+        if (Array.isArray(grp)) {
+          for (const d of grp) {
+            if (typeof d === "string") devDeps.push(normalizePyDep(d));
+          }
+        }
+      }
+    }
+    const psScripts = project.scripts;
+    if (psScripts && typeof psScripts === "object") {
+      scripts.push(...Object.keys(psScripts));
+    }
+  }
+  const tool = toml.tool;
+  const poetry = tool?.poetry;
+  if (poetry && typeof poetry === "object") {
+    if (!name && typeof poetry.name === "string") name = poetry.name;
+    if (!version && typeof poetry.version === "string") version = poetry.version;
+    const pdeps = poetry.dependencies;
+    if (pdeps && typeof pdeps === "object") {
+      for (const k of Object.keys(pdeps)) {
+        if (k !== "python") deps.push(k);
+      }
+    }
+    const groups = poetry.group;
+    if (groups && typeof groups === "object") {
+      for (const grp of Object.values(groups)) {
+        const grpObj = grp;
+        const grpDeps = grpObj?.dependencies;
+        if (grpDeps && typeof grpDeps === "object") {
+          for (const k of Object.keys(grpDeps)) {
+            if (k !== "python") devDeps.push(k);
+          }
+        }
+      }
+    }
+    const legacyDev = poetry["dev-dependencies"];
+    if (legacyDev && typeof legacyDev === "object") {
+      for (const k of Object.keys(legacyDev)) {
+        if (k !== "python") devDeps.push(k);
+      }
+    }
+    const pScripts = poetry.scripts;
+    if (pScripts && typeof pScripts === "object") {
+      scripts.push(...Object.keys(pScripts));
+    }
+  }
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: "python",
+    runtime: "python3",
+    name,
+    version,
+    dependencies: deps,
+    devDependencies: devDeps,
+    scripts,
+    manifestType: "pyproject.toml"
+  };
+}
+function normalizePyDep(spec) {
+  const semi = spec.split(";")[0];
+  const extras = semi.split("[")[0];
+  const name = extras.split(/[=<>!~ ]/)[0];
+  return name.trim();
+}
+function parseRequirementsTxt(path, directory, root, _warnings) {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  const deps = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith("#")) continue;
+    if (trimmed.startsWith("-")) continue;
+    const name = normalizePyDep(trimmed);
+    if (name) deps.push(name);
+  }
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: "python",
+    runtime: "python3",
+    name: null,
+    version: null,
+    dependencies: deps,
+    devDependencies: [],
+    scripts: [],
+    manifestType: "requirements.txt"
+  };
+}
+function parsePipfile(path, directory, root, warnings) {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  let toml;
+  try {
+    toml = parseToml(raw);
+  } catch (err) {
+    warnings.push({
+      path,
+      reason: `Pipfile TOML parse failed: ${err.message}`
+    });
+    return null;
+  }
+  const packages = toml.packages ?? {};
+  const devPackages = toml["dev-packages"] ?? {};
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: "python",
+    runtime: "python3",
+    name: null,
+    version: null,
+    dependencies: Object.keys(packages),
+    devDependencies: Object.keys(devPackages),
+    scripts: [],
+    manifestType: "Pipfile"
+  };
+}
+function parseCargoToml(path, directory, root, warnings) {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  let toml;
+  try {
+    toml = parseToml(raw);
+  } catch (err) {
+    warnings.push({
+      path,
+      reason: `Cargo.toml TOML parse failed: ${err.message}`
+    });
+    return null;
+  }
+  const pkg = toml.package;
+  const deps = toml.dependencies;
+  const devDeps = toml["dev-dependencies"];
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: "rust",
+    runtime: "cargo",
+    name: typeof pkg?.name === "string" ? pkg.name : null,
+    version: typeof pkg?.version === "string" ? pkg.version : null,
+    dependencies: deps ? Object.keys(deps) : [],
+    devDependencies: devDeps ? Object.keys(devDeps) : [],
+    scripts: [],
+    manifestType: "Cargo.toml"
+  };
+}
+function parsePackageSwift(path, directory, root, _warnings) {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  const deps = [];
+  const urlRe = /\.package\s*\(\s*(?:name\s*:\s*"([^"]+)"\s*,\s*)?url\s*:\s*"([^"]+)"/g;
+  let m;
+  while ((m = urlRe.exec(raw)) !== null) {
+    const explicitName = m[1];
+    if (explicitName) {
+      deps.push(explicitName);
+      continue;
+    }
+    const url = m[2];
+    const last = url.split("/").pop() ?? "";
+    const clean = last.replace(/\.git$/, "").trim();
+    if (clean) deps.push(clean);
+  }
+  const nameMatch = /let\s+package\s*=\s*Package\s*\(\s*name\s*:\s*"([^"]+)"/.exec(
+    raw
+  );
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: "swift",
+    runtime: "xcode",
+    name: nameMatch ? nameMatch[1] : null,
+    version: null,
+    dependencies: deps,
+    devDependencies: [],
+    scripts: [],
+    manifestType: "Package.swift"
+  };
+}
+function parseGoMod(path, directory, root, _warnings) {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  const deps = [];
+  let name = null;
+  let inRequire = false;
+  for (const rawLine of raw.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("//")) continue;
+    if (line.startsWith("module ")) {
+      name = line.slice("module ".length).trim();
+      continue;
+    }
+    if (line === "require (") {
+      inRequire = true;
+      continue;
+    }
+    if (inRequire) {
+      if (line === ")") {
+        inRequire = false;
+        continue;
+      }
+      const parts = line.split(/\s+/);
+      if (parts.length >= 2 && !parts[0].startsWith("//")) deps.push(parts[0]);
+      continue;
+    }
+    if (line.startsWith("require ")) {
+      const parts = line.slice("require ".length).trim().split(/\s+/);
+      if (parts[0]) deps.push(parts[0]);
+    }
+  }
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: "go",
+    runtime: "go",
+    name,
+    version: null,
+    dependencies: deps,
+    devDependencies: [],
+    scripts: [],
+    manifestType: "go.mod"
+  };
+}
+function parsePomXml(path, directory, root, _warnings) {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  const deps = [];
+  const depRe = /<dependency>[\s\S]*?<artifactId>([^<]+)<\/artifactId>[\s\S]*?<\/dependency>/g;
+  let m;
+  while ((m = depRe.exec(raw)) !== null) deps.push(m[1].trim());
+  const nameMatch = /<artifactId>([^<]+)<\/artifactId>/.exec(raw);
+  const versionMatch = /<project[^>]*>[\s\S]*?<version>([^<]+)<\/version>/.exec(
+    raw
+  );
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: "java",
+    runtime: "jvm",
+    name: nameMatch ? nameMatch[1].trim() : null,
+    version: versionMatch ? versionMatch[1].trim() : null,
+    dependencies: deps,
+    devDependencies: [],
+    scripts: [],
+    manifestType: "pom.xml"
+  };
+}
+function parseBuildGradle(path, directory, root, _warnings) {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  const deps = [];
+  const devDeps = [];
+  const re = /(implementation|api|runtimeOnly|compileOnly|testImplementation|testRuntimeOnly|androidTestImplementation)\s*[\("']+([^"'\)]+)[\)"']+/g;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const scope = m[1];
+    const coord = m[2];
+    const parts = coord.split(":");
+    const artifact = parts.length >= 2 ? parts[1] : parts[0];
+    if (!artifact) continue;
+    if (scope.toLowerCase().startsWith("test")) devDeps.push(artifact);
+    else deps.push(artifact);
+  }
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: "java",
+    runtime: "jvm",
+    name: null,
+    version: null,
+    dependencies: deps,
+    devDependencies: devDeps,
+    scripts: [],
+    manifestType: "build.gradle"
+  };
+}
+function parseGemfile(path, directory, root, _warnings) {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  const deps = [];
+  const devDeps = [];
+  let inDevGroup = false;
+  for (const rawLine of raw.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    if (/^group\s*:test|^group\s+:development/.test(line)) inDevGroup = true;
+    if (/^end\b/.test(line)) inDevGroup = false;
+    const gemMatch = /^gem\s+["']([^"']+)["']/.exec(line);
+    if (gemMatch) {
+      if (inDevGroup) devDeps.push(gemMatch[1]);
+      else deps.push(gemMatch[1]);
+    }
+  }
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: "ruby",
+    runtime: "ruby",
+    name: null,
+    version: null,
+    dependencies: deps,
+    devDependencies: devDeps,
+    scripts: [],
+    manifestType: "Gemfile"
+  };
+}
+function parseMixExs(path, directory, root, _warnings) {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  const deps = [];
+  const depPattern = /\{\s*:([a-z][a-z0-9_]*)\s*,/g;
+  let m;
+  while ((m = depPattern.exec(raw)) !== null) {
+    if (!deps.includes(m[1])) deps.push(m[1]);
+  }
+  const appMatch = /\bapp\s*:\s*:([a-z][a-z0-9_]*)/.exec(raw);
+  const name = appMatch ? appMatch[1] : null;
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: "elixir",
+    runtime: "beam",
+    name,
+    version: null,
+    dependencies: deps,
+    devDependencies: [],
+    scripts: [],
+    manifestType: "mix.exs"
+  };
+}
+function parseCsproj(path, directory, root, _warnings) {
+  const raw = safeRead(path);
+  if (raw === null) return null;
+  const deps = [];
+  const pkgRefPattern = /<PackageReference\s+[^>]*Include\s*=\s*"([^"]+)"/gi;
+  let m;
+  while ((m = pkgRefPattern.exec(raw)) !== null) {
+    if (!deps.includes(m[1])) deps.push(m[1]);
+  }
+  const sdkMatch = /<Project\s+[^>]*Sdk\s*=\s*"([^"]+)"/i.exec(raw);
+  if (sdkMatch && !deps.includes(sdkMatch[1])) {
+    deps.push(sdkMatch[1]);
+  }
+  const fname = path.split(/[/\\]/).pop() ?? "";
+  const name = fname.endsWith(".csproj") ? fname.slice(0, -".csproj".length) : null;
+  return {
+    path,
+    relativePath: normalizeRelative(root, path),
+    directory,
+    language: "csharp",
+    runtime: "dotnet",
+    name,
+    version: null,
+    dependencies: deps,
+    devDependencies: [],
+    scripts: [],
+    manifestType: "*.csproj"
+  };
+}
+function detectManifestsInDir(dir, root, warnings) {
+  const { getManifestRegistry: getManifestRegistry2, matchManifestPattern: matchManifestPattern2 } = manifest_registry_exports;
+  const out = [];
+  let dirEntries = null;
+  for (const entry of getManifestRegistry2()) {
+    if (!entry.pattern.startsWith("*")) {
+      const path = join(dir, entry.pattern);
+      if (!existsSync3(path)) continue;
+      const m = entry.parse(path, dir, root, warnings);
+      if (m !== null) out.push(m);
+    } else {
+      if (dirEntries === null) {
+        try {
+          dirEntries = readdirSync(dir);
+        } catch {
+          dirEntries = [];
+        }
+      }
+      for (const fname of dirEntries) {
+        if (!matchManifestPattern2(fname, entry.pattern)) continue;
+        const path = join(dir, fname);
+        if (!existsSync3(path)) continue;
+        const m = entry.parse(path, dir, root, warnings);
+        if (m !== null) out.push(m);
+      }
+    }
+  }
+  return out;
+}
+function listSubdirs(dir) {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && !IGNORED_DIRS.has(e.name)).map((e) => join(dir, e.name));
+  } catch {
+    return [];
+  }
+}
+function detectPackageManifests(projectRoot) {
+  const warnings = [];
+  const manifests = [];
+  manifests.push(...detectManifestsInDir(projectRoot, projectRoot, warnings));
+  for (const ws of WORKSPACE_DIRS) {
+    const wsRoot = join(projectRoot, ws);
+    if (!existsSync3(wsRoot)) continue;
+    for (const sub of listSubdirs(wsRoot)) {
+      manifests.push(...detectManifestsInDir(sub, projectRoot, warnings));
+      for (const sub2 of listSubdirs(sub)) {
+        manifests.push(...detectManifestsInDir(sub2, projectRoot, warnings));
+      }
+    }
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const dedup = [];
+  for (const m of manifests) {
+    if (seen.has(m.path)) continue;
+    seen.add(m.path);
+    dedup.push(m);
+  }
+  return { manifests: dedup, warnings };
+}
+var WORKSPACE_DIRS, IGNORED_DIRS;
+var init_package_detector = __esm({
+  "src/detect/package-detector.ts"() {
+    "use strict";
+    init_manifest_registry();
+    WORKSPACE_DIRS = ["apps", "packages", "services", "libs", "modules"];
+    IGNORED_DIRS = /* @__PURE__ */ new Set([
+      "node_modules",
+      ".venv",
+      "venv",
+      "__pycache__",
+      "dist",
+      "build",
+      ".build",
+      "target",
+      ".next",
+      ".nuxt",
+      "coverage",
+      ".git",
+      ".massu",
+      ".turbo",
+      ".cache",
+      ".pytest_cache",
+      ".mypy_cache",
+      "DerivedData",
+      "Pods"
+    ]);
+  }
+});
+
+// src/detect/framework-detector.ts
+function matchRule(rules, language, kind, deps) {
+  let best = null;
+  for (const r of rules) {
+    if (r.language !== language) continue;
+    if (r.kind !== kind) continue;
+    if (!deps.has(r.keyword.toLowerCase())) continue;
+    const pr = r.priority ?? 0;
+    if (!best || pr > best.priority) {
+      best = { value: r.value, priority: pr };
+    }
+  }
+  return best;
+}
+function matchUserFrameworkRules(userRules, language, deps) {
+  if (!userRules) return null;
+  const byLang = userRules[language];
+  if (!byLang) return null;
+  let best = null;
+  for (const [framework, entry] of Object.entries(byLang)) {
+    const signals = entry.signals ?? [];
+    const priority = entry.priority ?? 100;
+    for (const sig of signals) {
+      if (deps.has(sig.toLowerCase())) {
+        if (!best || priority > best.priority) {
+          best = { framework, priority };
+        }
+        break;
+      }
+    }
+  }
+  return best;
+}
+function detectFrameworks(manifests, userDetection) {
+  const byLang = /* @__PURE__ */ new Map();
+  for (const m of manifests) {
+    const entry = byLang.get(m.language) ?? {
+      deps: /* @__PURE__ */ new Set(),
+      versionOf: /* @__PURE__ */ new Map()
+    };
+    for (const d of m.dependencies) entry.deps.add(d.toLowerCase());
+    for (const d of m.devDependencies) entry.deps.add(d.toLowerCase());
+    byLang.set(m.language, entry);
+  }
+  const rules = userDetection?.disable_builtin ? [] : [...DETECTION_RULES];
+  const out = {};
+  for (const [language, { deps }] of byLang.entries()) {
+    const fw = matchRule(rules, language, "framework", deps);
+    const userFw = matchUserFrameworkRules(
+      userDetection?.rules,
+      language,
+      deps
+    );
+    let frameworkValue = null;
+    if (userFw && (!fw || userFw.priority > fw.priority)) {
+      frameworkValue = userFw.framework;
+    } else if (fw) {
+      frameworkValue = fw.value;
+    }
+    const info = {
+      framework: frameworkValue,
+      version: null,
+      test_framework: matchRule(rules, language, "test_framework", deps)?.value ?? null,
+      orm: matchRule(rules, language, "orm", deps)?.value ?? null,
+      ui_library: matchRule(rules, language, "ui_library", deps)?.value ?? null,
+      router: matchRule(rules, language, "router", deps)?.value ?? null
+    };
+    out[language] = info;
+  }
+  return out;
+}
+var DETECTION_RULES;
+var init_framework_detector = __esm({
+  "src/detect/framework-detector.ts"() {
+    "use strict";
+    DETECTION_RULES = [
+      // Python frameworks
+      { language: "python", kind: "framework", keyword: "fastapi", value: "fastapi", priority: 10 },
+      { language: "python", kind: "framework", keyword: "flask", value: "flask", priority: 9 },
+      { language: "python", kind: "framework", keyword: "django", value: "django", priority: 9 },
+      { language: "python", kind: "framework", keyword: "aiohttp", value: "aiohttp", priority: 8 },
+      { language: "python", kind: "framework", keyword: "sanic", value: "sanic", priority: 8 },
+      { language: "python", kind: "framework", keyword: "starlette", value: "starlette", priority: 7 },
+      // Python test
+      { language: "python", kind: "test_framework", keyword: "pytest", value: "pytest", priority: 10 },
+      { language: "python", kind: "test_framework", keyword: "pytest-asyncio", value: "pytest", priority: 9 },
+      // Python ORM
+      { language: "python", kind: "orm", keyword: "sqlalchemy", value: "sqlalchemy", priority: 10 },
+      { language: "python", kind: "orm", keyword: "django-orm", value: "django-orm", priority: 9 },
+      { language: "python", kind: "orm", keyword: "peewee", value: "peewee", priority: 8 },
+      { language: "python", kind: "orm", keyword: "tortoise-orm", value: "tortoise-orm", priority: 8 },
+      // TypeScript / JavaScript frameworks
+      { language: "typescript", kind: "framework", keyword: "next", value: "next", priority: 10 },
+      { language: "typescript", kind: "framework", keyword: "@nestjs/core", value: "nestjs", priority: 10 },
+      { language: "typescript", kind: "framework", keyword: "fastify", value: "fastify", priority: 9 },
+      { language: "typescript", kind: "framework", keyword: "express", value: "express", priority: 9 },
+      { language: "typescript", kind: "framework", keyword: "hono", value: "hono", priority: 9 },
+      { language: "typescript", kind: "framework", keyword: "@sveltejs/kit", value: "sveltekit", priority: 10 },
+      { language: "typescript", kind: "framework", keyword: "nuxt", value: "nuxt", priority: 10 },
+      { language: "typescript", kind: "framework", keyword: "@angular/core", value: "angular", priority: 10 },
+      { language: "typescript", kind: "framework", keyword: "react", value: "react", priority: 5 },
+      { language: "typescript", kind: "framework", keyword: "vue", value: "vue", priority: 5 },
+      // Mirror for javascript
+      { language: "javascript", kind: "framework", keyword: "next", value: "next", priority: 10 },
+      { language: "javascript", kind: "framework", keyword: "express", value: "express", priority: 9 },
+      { language: "javascript", kind: "framework", keyword: "fastify", value: "fastify", priority: 9 },
+      { language: "javascript", kind: "framework", keyword: "react", value: "react", priority: 5 },
+      // TS/JS test
+      { language: "typescript", kind: "test_framework", keyword: "vitest", value: "vitest", priority: 10 },
+      { language: "typescript", kind: "test_framework", keyword: "jest", value: "jest", priority: 9 },
+      { language: "typescript", kind: "test_framework", keyword: "mocha", value: "mocha", priority: 8 },
+      { language: "typescript", kind: "test_framework", keyword: "@playwright/test", value: "playwright", priority: 7 },
+      { language: "javascript", kind: "test_framework", keyword: "vitest", value: "vitest", priority: 10 },
+      { language: "javascript", kind: "test_framework", keyword: "jest", value: "jest", priority: 9 },
+      { language: "javascript", kind: "test_framework", keyword: "mocha", value: "mocha", priority: 8 },
+      // TS/JS ORM
+      { language: "typescript", kind: "orm", keyword: "@prisma/client", value: "prisma", priority: 10 },
+      { language: "typescript", kind: "orm", keyword: "prisma", value: "prisma", priority: 9 },
+      { language: "typescript", kind: "orm", keyword: "drizzle-orm", value: "drizzle", priority: 10 },
+      { language: "typescript", kind: "orm", keyword: "typeorm", value: "typeorm", priority: 9 },
+      { language: "typescript", kind: "orm", keyword: "mongoose", value: "mongoose", priority: 9 },
+      { language: "typescript", kind: "orm", keyword: "sequelize", value: "sequelize", priority: 8 },
+      { language: "javascript", kind: "orm", keyword: "@prisma/client", value: "prisma", priority: 10 },
+      { language: "javascript", kind: "orm", keyword: "mongoose", value: "mongoose", priority: 9 },
+      // TS/JS UI
+      { language: "typescript", kind: "ui_library", keyword: "next", value: "next", priority: 9 },
+      { language: "typescript", kind: "ui_library", keyword: "react", value: "react", priority: 8 },
+      { language: "typescript", kind: "ui_library", keyword: "vue", value: "vue", priority: 8 },
+      { language: "typescript", kind: "ui_library", keyword: "@sveltejs/kit", value: "svelte", priority: 9 },
+      { language: "javascript", kind: "ui_library", keyword: "react", value: "react", priority: 8 },
+      // TS/JS router
+      { language: "typescript", kind: "router", keyword: "@trpc/server", value: "trpc", priority: 10 },
+      { language: "typescript", kind: "router", keyword: "@apollo/server", value: "graphql", priority: 9 },
+      { language: "typescript", kind: "router", keyword: "graphql", value: "graphql", priority: 8 },
+      { language: "typescript", kind: "router", keyword: "express", value: "express", priority: 7 },
+      { language: "typescript", kind: "router", keyword: "fastify", value: "fastify", priority: 7 },
+      { language: "typescript", kind: "router", keyword: "hono", value: "hono", priority: 7 },
+      // Rust
+      { language: "rust", kind: "framework", keyword: "actix-web", value: "actix-web", priority: 10 },
+      { language: "rust", kind: "framework", keyword: "axum", value: "axum", priority: 10 },
+      { language: "rust", kind: "framework", keyword: "rocket", value: "rocket", priority: 10 },
+      { language: "rust", kind: "framework", keyword: "warp", value: "warp", priority: 9 },
+      { language: "rust", kind: "framework", keyword: "tokio", value: "tokio", priority: 5 },
+      { language: "rust", kind: "test_framework", keyword: "cargo", value: "cargo", priority: 1 },
+      { language: "rust", kind: "orm", keyword: "diesel", value: "diesel", priority: 10 },
+      { language: "rust", kind: "orm", keyword: "sqlx", value: "sqlx", priority: 10 },
+      { language: "rust", kind: "orm", keyword: "sea-orm", value: "sea-orm", priority: 10 },
+      // Go
+      { language: "go", kind: "framework", keyword: "github.com/gin-gonic/gin", value: "gin", priority: 10 },
+      { language: "go", kind: "framework", keyword: "github.com/labstack/echo", value: "echo", priority: 10 },
+      { language: "go", kind: "framework", keyword: "github.com/gofiber/fiber", value: "fiber", priority: 10 },
+      { language: "go", kind: "framework", keyword: "github.com/go-chi/chi", value: "chi", priority: 9 },
+      // chi versioned import paths (Go convention: github.com/<org>/<name>/v<N>).
+      // matchRule does exact case-insensitive set lookup, so the unversioned and
+      // each major-version path each need their own rule.
+      { language: "go", kind: "framework", keyword: "github.com/go-chi/chi/v2", value: "chi", priority: 9 },
+      { language: "go", kind: "framework", keyword: "github.com/go-chi/chi/v3", value: "chi", priority: 9 },
+      { language: "go", kind: "framework", keyword: "github.com/go-chi/chi/v4", value: "chi", priority: 9 },
+      { language: "go", kind: "framework", keyword: "github.com/go-chi/chi/v5", value: "chi", priority: 9 },
+      { language: "go", kind: "test_framework", keyword: "github.com/stretchr/testify", value: "testify", priority: 8 },
+      { language: "go", kind: "orm", keyword: "gorm.io/gorm", value: "gorm", priority: 10 },
+      // Swift (SPM dependency names, best-effort)
+      { language: "swift", kind: "framework", keyword: "vapor", value: "vapor", priority: 10 },
+      { language: "swift", kind: "framework", keyword: "swift-nio", value: "swift-nio", priority: 7 },
+      { language: "swift", kind: "test_framework", keyword: "xctest", value: "xctest", priority: 5 },
+      // Java
+      { language: "java", kind: "framework", keyword: "spring-boot-starter", value: "spring-boot", priority: 10 },
+      { language: "java", kind: "framework", keyword: "spring-boot-starter-web", value: "spring-boot", priority: 10 },
+      { language: "java", kind: "test_framework", keyword: "junit", value: "junit", priority: 10 },
+      { language: "java", kind: "test_framework", keyword: "junit-jupiter", value: "junit", priority: 10 },
+      // Ruby
+      { language: "ruby", kind: "framework", keyword: "rails", value: "rails", priority: 10 },
+      { language: "ruby", kind: "framework", keyword: "sinatra", value: "sinatra", priority: 9 },
+      { language: "ruby", kind: "test_framework", keyword: "rspec", value: "rspec", priority: 10 },
+      { language: "ruby", kind: "orm", keyword: "activerecord", value: "activerecord", priority: 10 },
+      // Plan 1.5.1: elixir + csharp framework rules. Closes the CR-39 gap
+      // where Phoenix + ASP.NET projects produced `framework.languages.<lang>`
+      // entries WITHOUT a `framework:` value, which prevented variant
+      // templates from being looked up.
+      { language: "elixir", kind: "framework", keyword: "phoenix", value: "phoenix", priority: 10 },
+      { language: "elixir", kind: "test_framework", keyword: "ex_unit", value: "ex-unit", priority: 10 },
+      { language: "elixir", kind: "orm", keyword: "ecto", value: "ecto", priority: 10 },
+      // ASP.NET Core surfaces via several PackageReference names; the canonical
+      // ones in modern .NET projects are .App and .Mvc. matchRule does exact
+      // (case-insensitive) lookup against the deps set parseCsproj extracts.
+      { language: "csharp", kind: "framework", keyword: "Microsoft.AspNetCore.App", value: "aspnet-core", priority: 10 },
+      { language: "csharp", kind: "framework", keyword: "Microsoft.AspNetCore.Mvc", value: "aspnet-core", priority: 10 },
+      { language: "csharp", kind: "framework", keyword: "Microsoft.AspNetCore", value: "aspnet-core", priority: 9 },
+      // SDK-style projects: `<Project Sdk="Microsoft.NET.Sdk.Web">` is the
+      // canonical ASP.NET Core declaration in modern .NET. parseCsproj
+      // surfaces the Sdk attribute as a dep so this rule can match.
+      { language: "csharp", kind: "framework", keyword: "Microsoft.NET.Sdk.Web", value: "aspnet-core", priority: 10 },
+      { language: "csharp", kind: "test_framework", keyword: "xunit", value: "xunit", priority: 10 },
+      { language: "csharp", kind: "orm", keyword: "EntityFrameworkCore", value: "ef-core", priority: 10 }
+    ];
+  }
+});
+
 // ../../node_modules/fast-glob/out/utils/array.js
 var require_array = __commonJS({
   "../../node_modules/fast-glob/out/utils/array.js"(exports) {
@@ -5784,12 +6694,1243 @@ var require_out4 = __commonJS({
   }
 });
 
+// src/detect/source-dir-detector.ts
+import { realpathSync } from "fs";
+import { resolve as resolve3 } from "path";
+function extsFor(language) {
+  return EXTENSIONS[language] ?? [];
+}
+function extsWithFallback(language, fallbackTsForJs) {
+  const base = extsFor(language);
+  if (language === "javascript" && fallbackTsForJs) {
+    return [...base, "ts", "tsx"];
+  }
+  return base;
+}
+function isTestPath(language, path) {
+  const segments = path.split("/");
+  for (const seg of segments) {
+    if (TEST_DIR_KEYWORDS.includes(seg)) return true;
+  }
+  const patterns = TEST_FILE_PATTERNS[language] ?? [];
+  return patterns.some((re) => re.test(path));
+}
+function topSegment(rel) {
+  const parts = rel.split("/");
+  return parts.length > 1 ? parts[0] : ".";
+}
+function isInsideRoot(root, candidate) {
+  try {
+    const realRoot = realpathSync(root);
+    const realCand = realpathSync(resolve3(root, candidate));
+    return realCand === realRoot || realCand.startsWith(realRoot + "/");
+  } catch {
+    return false;
+  }
+}
+function detectSourceDirs(projectRoot, languages, opts) {
+  const fallbackTsForJs = opts?.fallbackTsForJs ?? false;
+  const out = {};
+  for (const lang of languages) {
+    const exts = extsWithFallback(lang, fallbackTsForJs);
+    if (exts.length === 0) continue;
+    const patterns = exts.map((e) => `**/*.${e}`);
+    let files;
+    try {
+      files = import_fast_glob.default.sync(patterns, {
+        cwd: projectRoot,
+        dot: false,
+        ignore: IGNORE_PATTERNS,
+        followSymbolicLinks: false,
+        suppressErrors: true
+      });
+    } catch {
+      files = [];
+    }
+    files = files.filter((f) => isInsideRoot(projectRoot, f));
+    if (files.length === 0) {
+      continue;
+    }
+    const sourceFiles = [];
+    const testFiles = [];
+    for (const f of files) {
+      if (isTestPath(lang, f)) testFiles.push(f);
+      else sourceFiles.push(f);
+    }
+    const srcCluster = /* @__PURE__ */ new Map();
+    for (const f of sourceFiles) {
+      const k = topSegment(f);
+      srcCluster.set(k, (srcCluster.get(k) ?? 0) + 1);
+    }
+    const testCluster = /* @__PURE__ */ new Map();
+    for (const f of testFiles) {
+      const k = topSegment(f);
+      testCluster.set(k, (testCluster.get(k) ?? 0) + 1);
+    }
+    const source_dirs = [];
+    const test_dirs = [];
+    const srcSorted = [...srcCluster.entries()].sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    });
+    for (const [seg] of srcSorted) source_dirs.push(seg);
+    const testSet = /* @__PURE__ */ new Set();
+    for (const [seg] of testCluster.entries()) {
+      if (TEST_DIR_KEYWORDS.includes(seg)) testSet.add(seg);
+    }
+    let testDirHits = [];
+    try {
+      testDirHits = import_fast_glob.default.sync(
+        TEST_DIR_KEYWORDS.map((k) => `**/${k}/**/*.${exts[0]}`),
+        {
+          cwd: projectRoot,
+          dot: false,
+          ignore: IGNORE_PATTERNS,
+          followSymbolicLinks: false,
+          suppressErrors: true
+        }
+      );
+    } catch {
+      testDirHits = [];
+    }
+    const testPrefixes = /* @__PURE__ */ new Set();
+    for (const f of testDirHits) {
+      const segs = f.split("/");
+      for (let i = 0; i < segs.length; i++) {
+        if (TEST_DIR_KEYWORDS.includes(segs[i])) {
+          testPrefixes.add(segs.slice(0, i + 1).join("/"));
+          break;
+        }
+      }
+    }
+    for (const p of testPrefixes) testSet.add(p);
+    for (const seg of testSet) test_dirs.push(seg);
+    test_dirs.sort();
+    const totalFiles = sourceFiles.length + testFiles.length;
+    const testRatio = totalFiles === 0 ? 0 : testFiles.length / totalFiles;
+    const hasDedicatedTestDir = test_dirs.length > 0;
+    const colocated = !hasDedicatedTestDir && testFiles.length > 0 && testRatio < 0.3;
+    if (colocated) {
+      for (const s of source_dirs) if (!test_dirs.includes(s)) test_dirs.push(s);
+    }
+    out[lang] = {
+      source_dirs,
+      test_dirs,
+      colocated,
+      file_count: files.length
+    };
+  }
+  return out;
+}
+var import_fast_glob, IGNORE_PATTERNS, EXTENSIONS, TEST_FILE_PATTERNS, TEST_DIR_KEYWORDS;
+var init_source_dir_detector = __esm({
+  "src/detect/source-dir-detector.ts"() {
+    "use strict";
+    import_fast_glob = __toESM(require_out4(), 1);
+    IGNORE_PATTERNS = [
+      "**/node_modules/**",
+      "**/.venv/**",
+      "**/venv/**",
+      "**/__pycache__/**",
+      "**/dist/**",
+      "**/build/**",
+      "**/.build/**",
+      "**/target/**",
+      "**/.next/**",
+      "**/.nuxt/**",
+      "**/coverage/**",
+      "**/.git/**",
+      "**/.massu/**",
+      "**/.turbo/**",
+      "**/.cache/**",
+      "**/.pytest_cache/**",
+      "**/.mypy_cache/**",
+      "**/DerivedData/**",
+      "**/Pods/**",
+      // Secret-ish patterns
+      "**/.env",
+      "**/.env.*",
+      "**/*.pem",
+      "**/*.key",
+      "**/.aws/**",
+      "**/.ssh/**",
+      "**/credentials.json",
+      "**/*.p12",
+      "**/*.pfx"
+    ];
+    EXTENSIONS = {
+      python: ["py"],
+      typescript: ["ts", "tsx"],
+      javascript: ["js", "jsx", "mjs", "cjs"],
+      rust: ["rs"],
+      swift: ["swift"],
+      go: ["go"],
+      java: ["java", "kt"],
+      ruby: ["rb"],
+      // Plan 1.5.1 — closing CR-39 init gap for Phoenix + ASP.NET projects.
+      elixir: ["ex", "exs"],
+      csharp: ["cs"]
+    };
+    TEST_FILE_PATTERNS = {
+      python: [/_test\.py$/, /test_[^/]*\.py$/],
+      typescript: [/\.test\.tsx?$/, /\.spec\.tsx?$/],
+      javascript: [/\.test\.[mc]?jsx?$/, /\.spec\.[mc]?jsx?$/],
+      rust: [/tests\/.*\.rs$/],
+      swift: [/Tests\//],
+      go: [/_test\.go$/],
+      java: [/Test[^/]*\.(java|kt)$/, /[^/]*Test\.(java|kt)$/],
+      ruby: [/_spec\.rb$/, /_test\.rb$/],
+      // Phoenix/ExUnit canonical: `test/**_test.exs`. ASP.NET / xUnit
+      // canonical: `*Tests.cs` or `*.Tests/...`.
+      elixir: [/_test\.exs$/, /\/test\//],
+      csharp: [/Tests?\.cs$/, /\.Tests?\//]
+    };
+    TEST_DIR_KEYWORDS = ["tests", "test", "__tests__", "spec", "specs"];
+  }
+});
+
+// src/detect/monorepo-detector.ts
+import { readFileSync as readFileSync3, existsSync as existsSync4, statSync as statSync2, lstatSync as lstatSync2, readdirSync as readdirSync2 } from "fs";
+import { join as join2, relative as relative2 } from "path";
+import { parse as parseYaml2 } from "yaml";
+import { parse as parseToml2 } from "smol-toml";
+function safeReadText(path) {
+  try {
+    if (!existsSync4(path)) return null;
+    const ls = lstatSync2(path);
+    if (ls.isSymbolicLink()) return null;
+    const st = statSync2(path);
+    if (!st.isFile()) return null;
+    return readFileSync3(path, "utf-8");
+  } catch {
+    return null;
+  }
+}
+function firstManifestIn(dir) {
+  for (const m of MANIFEST_PRIORITY) {
+    if (existsSync4(join2(dir, m))) return m;
+  }
+  return null;
+}
+function manifestName(dir, manifest) {
+  try {
+    if (manifest === "package.json") {
+      const raw = safeReadText(join2(dir, "package.json"));
+      if (!raw) return null;
+      const pkg = JSON.parse(raw);
+      return typeof pkg.name === "string" ? pkg.name : null;
+    }
+    if (manifest === "pyproject.toml") {
+      const raw = safeReadText(join2(dir, "pyproject.toml"));
+      if (!raw) return null;
+      const toml = parseToml2(raw);
+      const project = toml.project;
+      if (project && typeof project.name === "string") return project.name;
+      const tool = toml.tool;
+      const poetry = tool?.poetry;
+      if (poetry && typeof poetry.name === "string") return poetry.name;
+      return null;
+    }
+    if (manifest === "Cargo.toml") {
+      const raw = safeReadText(join2(dir, "Cargo.toml"));
+      if (!raw) return null;
+      const toml = parseToml2(raw);
+      const pkg = toml.package;
+      if (pkg && typeof pkg.name === "string") return pkg.name;
+      return null;
+    }
+    if (manifest === "go.mod") {
+      const raw = safeReadText(join2(dir, "go.mod"));
+      if (!raw) return null;
+      for (const line of raw.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("module ")) return trimmed.slice(7).trim();
+      }
+      return null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+function pkgFromDir(root, dir) {
+  const m = firstManifestIn(dir);
+  if (!m) return null;
+  return {
+    path: relative2(root, dir).split(/[/\\]/).join("/"),
+    name: manifestName(dir, m),
+    manifest: m
+  };
+}
+function listSubdirs2(dir) {
+  try {
+    return readdirSync2(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && !IGNORED_DIRS2.has(e.name)).map((e) => join2(dir, e.name));
+  } catch {
+    return [];
+  }
+}
+function genericWorkspaces(root) {
+  const out = [];
+  for (const parent of CONVENTIONAL_WORKSPACE_PARENTS) {
+    const p = join2(root, parent);
+    if (!existsSync4(p)) continue;
+    for (const sub of listSubdirs2(p)) {
+      const pkg = pkgFromDir(root, sub);
+      if (pkg) out.push(pkg);
+    }
+  }
+  return out;
+}
+function detectYarnWorkspaces(root) {
+  const raw = safeReadText(join2(root, "package.json"));
+  if (!raw) return null;
+  let pkg;
+  try {
+    pkg = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const ws = pkg.workspaces;
+  if (!ws) return null;
+  const globs = Array.isArray(ws) ? ws.filter((x) => typeof x === "string") : typeof ws === "object" && ws !== null && Array.isArray(ws.packages) ? ws.packages.filter((x) => typeof x === "string") : [];
+  if (globs.length === 0) return null;
+  return expandWorkspaceGlobs(root, globs);
+}
+function detectPnpmWorkspaces(root) {
+  const raw = safeReadText(join2(root, "pnpm-workspace.yaml"));
+  if (!raw) return null;
+  try {
+    const parsed = parseYaml2(raw);
+    const list = Array.isArray(parsed?.packages) ? parsed.packages.filter((x) => typeof x === "string") : [];
+    return expandWorkspaceGlobs(root, list);
+  } catch {
+    return null;
+  }
+}
+function expandWorkspaceGlobs(root, globs) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const pattern of globs) {
+    const parts = pattern.split("/");
+    if (parts.length === 2 && (parts[1] === "*" || parts[1] === "**")) {
+      const parent = join2(root, parts[0]);
+      if (!existsSync4(parent)) continue;
+      for (const sub of listSubdirs2(parent)) {
+        const pkg = pkgFromDir(root, sub);
+        if (pkg && !seen.has(pkg.path)) {
+          seen.add(pkg.path);
+          out.push(pkg);
+        }
+      }
+      continue;
+    }
+    const direct = join2(root, pattern);
+    if (existsSync4(direct)) {
+      const pkg = pkgFromDir(root, direct);
+      if (pkg && !seen.has(pkg.path)) {
+        seen.add(pkg.path);
+        out.push(pkg);
+      }
+    }
+  }
+  return out;
+}
+function hasTurbo(root) {
+  return existsSync4(join2(root, "turbo.json"));
+}
+function hasNx(root) {
+  return existsSync4(join2(root, "nx.json"));
+}
+function hasLerna(root) {
+  return existsSync4(join2(root, "lerna.json"));
+}
+function hasBazel(root) {
+  return existsSync4(join2(root, "WORKSPACE")) || existsSync4(join2(root, "WORKSPACE.bazel")) || existsSync4(join2(root, "MODULE.bazel"));
+}
+function detectMonorepo(projectRoot) {
+  const nested = [];
+  const pnpm = detectPnpmWorkspaces(projectRoot);
+  const yarn = detectYarnWorkspaces(projectRoot);
+  let primary = "single";
+  let primaryPackages = [];
+  if (hasTurbo(projectRoot)) {
+    primary = "turbo";
+    primaryPackages = pnpm ?? yarn ?? genericWorkspaces(projectRoot);
+    if (pnpm && pnpm.length) {
+      nested.push({ type: "pnpm", packages: pnpm, nested: [] });
+    } else if (yarn && yarn.length) {
+      nested.push({ type: "yarn", packages: yarn, nested: [] });
+    }
+  } else if (hasNx(projectRoot)) {
+    primary = "nx";
+    primaryPackages = yarn ?? pnpm ?? genericWorkspaces(projectRoot);
+    if (pnpm && pnpm.length) nested.push({ type: "pnpm", packages: pnpm, nested: [] });
+    else if (yarn && yarn.length) nested.push({ type: "yarn", packages: yarn, nested: [] });
+  } else if (hasLerna(projectRoot)) {
+    primary = "lerna";
+    primaryPackages = yarn ?? pnpm ?? genericWorkspaces(projectRoot);
+  } else if (pnpm && pnpm.length) {
+    primary = "pnpm";
+    primaryPackages = pnpm;
+  } else if (yarn && yarn.length) {
+    primary = "yarn";
+    primaryPackages = yarn;
+  } else if (hasBazel(projectRoot)) {
+    primary = "bazel";
+    primaryPackages = genericWorkspaces(projectRoot);
+  } else {
+    const gen = genericWorkspaces(projectRoot);
+    if (gen.length > 0) {
+      primary = "generic";
+      primaryPackages = gen;
+    } else {
+      primary = "single";
+      primaryPackages = [];
+    }
+  }
+  return { type: primary, packages: primaryPackages, nested };
+}
+var MANIFEST_PRIORITY, IGNORED_DIRS2, CONVENTIONAL_WORKSPACE_PARENTS;
+var init_monorepo_detector = __esm({
+  "src/detect/monorepo-detector.ts"() {
+    "use strict";
+    MANIFEST_PRIORITY = [
+      "package.json",
+      "pyproject.toml",
+      "Cargo.toml",
+      "go.mod",
+      "build.gradle",
+      "pom.xml",
+      "Gemfile",
+      "Package.swift"
+    ];
+    IGNORED_DIRS2 = /* @__PURE__ */ new Set([
+      "node_modules",
+      ".venv",
+      "venv",
+      "__pycache__",
+      "dist",
+      "build",
+      ".build",
+      "target",
+      ".next",
+      ".nuxt",
+      "coverage",
+      ".git",
+      ".massu",
+      ".turbo",
+      ".cache"
+    ]);
+    CONVENTIONAL_WORKSPACE_PARENTS = [
+      "apps",
+      "packages",
+      "services",
+      "libs",
+      "modules"
+    ];
+  }
+});
+
+// src/detect/vr-command-map.ts
+function prefix(dir, cmd) {
+  if (!dir || dir === ".") return cmd;
+  return `cd ${dir} && ${cmd}`;
+}
+function defaultsFor(language, fw, dir) {
+  switch (language) {
+    case "python": {
+      const testFw = fw.test_framework ?? "pytest";
+      return {
+        test: testFw === "unittest" ? prefix(dir, "python3 -m unittest") : prefix(dir, "python3 -m pytest -q"),
+        type: prefix(dir, "python3 -m mypy ."),
+        build: null,
+        syntax: prefix(dir, "python3 -m py_compile"),
+        lint: prefix(dir, "python3 -m ruff check .")
+      };
+    }
+    case "typescript": {
+      const testFw = fw.test_framework ?? "vitest";
+      return {
+        test: prefix(dir, "npm test"),
+        type: prefix(dir, "npx tsc --noEmit"),
+        build: prefix(dir, "npm run build"),
+        syntax: null,
+        lint: prefix(dir, "npx eslint ."),
+        // testFw currently only affects defaults; npm test is runner-agnostic
+        ...testFw === "mocha" ? { test: prefix(dir, "npx mocha") } : {}
+      };
+    }
+    case "javascript": {
+      return {
+        test: prefix(dir, "npm test"),
+        type: null,
+        build: prefix(dir, "npm run build"),
+        syntax: null,
+        lint: prefix(dir, "npx eslint .")
+      };
+    }
+    case "rust": {
+      return {
+        test: prefix(dir, "cargo test"),
+        type: prefix(dir, "cargo check"),
+        build: prefix(dir, "cargo build"),
+        syntax: null,
+        lint: prefix(dir, "cargo clippy -- -D warnings")
+      };
+    }
+    case "swift": {
+      return {
+        test: prefix(dir, "swift test"),
+        type: prefix(dir, "swift build"),
+        build: prefix(dir, "xcodebuild build"),
+        syntax: null,
+        lint: prefix(dir, "swiftlint")
+      };
+    }
+    case "go": {
+      return {
+        test: prefix(dir, "go test ./..."),
+        type: prefix(dir, "go vet ./..."),
+        build: prefix(dir, "go build ./..."),
+        syntax: null,
+        lint: prefix(dir, "golangci-lint run")
+      };
+    }
+    case "java": {
+      return {
+        test: prefix(dir, "mvn test"),
+        type: prefix(dir, "mvn compile"),
+        build: prefix(dir, "mvn package"),
+        syntax: null,
+        lint: null
+      };
+    }
+    case "ruby": {
+      return {
+        test: prefix(dir, "bundle exec rspec"),
+        type: null,
+        build: null,
+        syntax: prefix(dir, "ruby -c"),
+        lint: prefix(dir, "bundle exec rubocop")
+      };
+    }
+    default:
+      return { test: null, type: null, build: null, syntax: null, lint: null };
+  }
+}
+function getVRCommands(language, framework, dir, userOverrides) {
+  const built = defaultsFor(language, framework, dir);
+  if (!userOverrides) return built;
+  return {
+    test: userOverrides.test ?? built.test,
+    type: userOverrides.type ?? built.type,
+    build: userOverrides.build ?? built.build,
+    syntax: userOverrides.syntax ?? built.syntax,
+    lint: userOverrides.lint ?? built.lint
+  };
+}
+var init_vr_command_map = __esm({
+  "src/detect/vr-command-map.ts"() {
+    "use strict";
+  }
+});
+
+// src/detect/domain-inferrer.ts
+import { existsSync as existsSync5, readdirSync as readdirSync3 } from "fs";
+import { join as join3 } from "path";
+function titleCase(s) {
+  if (!s) return s;
+  return s.split(/[-_\s]+/).filter(Boolean).map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ");
+}
+function domainFromWorkspace(pkg) {
+  const pathTail = pkg.path.split("/").pop() ?? pkg.path;
+  const name = pkg.name ?? titleCase(pathTail);
+  return {
+    name,
+    routers: [],
+    pages: [],
+    tables: [],
+    allowedImportsFrom: []
+  };
+}
+function topLevelSrcSubdirs(root, sourceDirs) {
+  const effective = sourceDirs.length > 0 ? sourceDirs : ["src"];
+  const seen = /* @__PURE__ */ new Set();
+  for (const rel of effective) {
+    const abs = join3(root, rel);
+    if (!existsSync5(abs)) continue;
+    try {
+      for (const e of readdirSync3(abs, { withFileTypes: true })) {
+        if (!e.isDirectory()) continue;
+        if (IGNORED_SUBDIRS.has(e.name)) continue;
+        seen.add(e.name);
+      }
+    } catch {
+    }
+  }
+  return Array.from(seen).sort();
+}
+function flattenSourceDirs(sourceDirs) {
+  const flat = /* @__PURE__ */ new Set();
+  for (const entry of Object.values(sourceDirs)) {
+    if (!entry) continue;
+    for (const dir of entry.source_dirs) {
+      if (dir === "." || dir === "") continue;
+      flat.add(dir);
+    }
+  }
+  return Array.from(flat);
+}
+function inferDomains(projectRoot, monorepo, sourceDirs) {
+  const domains = [];
+  if (monorepo.type !== "single" && monorepo.packages.length > 0) {
+    for (const pkg of monorepo.packages) {
+      domains.push(domainFromWorkspace(pkg));
+    }
+  } else {
+    const flat = flattenSourceDirs(sourceDirs);
+    const subdirs = topLevelSrcSubdirs(projectRoot, flat);
+    for (const s of subdirs) {
+      domains.push({
+        name: titleCase(s),
+        routers: [],
+        pages: [],
+        tables: [],
+        allowedImportsFrom: []
+      });
+    }
+    if (domains.length === 0) {
+      const langs = Object.keys(sourceDirs);
+      for (const lang of langs.sort()) {
+        domains.push({
+          name: titleCase(lang),
+          routers: [],
+          pages: [],
+          tables: [],
+          allowedImportsFrom: []
+        });
+      }
+    }
+  }
+  domains.sort((a, b) => a.name.localeCompare(b.name));
+  const seen = /* @__PURE__ */ new Set();
+  const dedup = [];
+  for (const d of domains) {
+    if (seen.has(d.name)) continue;
+    seen.add(d.name);
+    dedup.push(d);
+  }
+  return dedup;
+}
+var IGNORED_SUBDIRS;
+var init_domain_inferrer = __esm({
+  "src/detect/domain-inferrer.ts"() {
+    "use strict";
+    IGNORED_SUBDIRS = /* @__PURE__ */ new Set([
+      "node_modules",
+      "__pycache__",
+      "dist",
+      "build",
+      ".build",
+      "target",
+      ".next",
+      ".git",
+      ".massu",
+      "coverage",
+      "tests",
+      "test",
+      "__tests__"
+    ]);
+  }
+});
+
+// src/detect/regex-fallback.ts
+import { existsSync as existsSync6, readdirSync as readdirSync4, readFileSync as readFileSync4, statSync as statSync3 } from "fs";
+import { resolve as resolve4, join as join4, basename as basename2 } from "path";
+function introspectPython(detection, projectRoot) {
+  const sourceDir = resolveSourceDir(detection, "python", projectRoot);
+  if (!sourceDir) return null;
+  const routerFiles = sampleFiles(
+    sourceDir,
+    /\.py$/,
+    (absPath, name) => /\/(routers?|api|endpoints?|views)\//.test(absPath) || /^(routers?|api|endpoints?)\.py$/.test(name)
+  );
+  const viewFiles = sampleFiles(sourceDir, /^views\.py$/);
+  const fallbackFiles = routerFiles.length === 0 && viewFiles.length === 0 ? sampleFiles(sourceDir, /\.py$/) : [];
+  const candidates = [...routerFiles, ...viewFiles, ...fallbackFiles].slice(
+    0,
+    MAX_SAMPLES_PER_ADAPTER
+  );
+  if (candidates.length === 0) return null;
+  const authDeps = /* @__PURE__ */ new Map();
+  const prefixBases = /* @__PURE__ */ new Map();
+  const testAsyncPatterns = /* @__PURE__ */ new Map();
+  for (const path of candidates) {
+    const body = readSafe(path);
+    if (body === null) continue;
+    const authRegex = /\bDepends\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)/gu;
+    forEachMatch(authRegex, body, (m) => {
+      const name = m[1];
+      if (!authDeps.has(name)) authDeps.set(name, path);
+    });
+    const djangoAuthRegex = /^@\s*([a-z_][a-z0-9_]*(?:_required|_login))\b/gmu;
+    forEachMatch(djangoAuthRegex, body, (m) => {
+      const name = m[1];
+      if (!authDeps.has(name)) authDeps.set(name, path);
+    });
+    const prefixRegex = /\bAPIRouter\s*\(\s*[^)]*?prefix\s*=\s*["']([^"']+)["']/gu;
+    forEachMatch(prefixRegex, body, (m) => {
+      const fullPrefix = m[1];
+      const base = extractPrefixBase(fullPrefix);
+      if (base && !prefixBases.has(base)) prefixBases.set(base, path);
+    });
+    const asyncRegex = /^(@pytest\.mark\.asyncio(?:\s*\([^)]*\))?)/gmu;
+    forEachMatch(asyncRegex, body, (m) => {
+      const pat = m[1].trim();
+      if (!testAsyncPatterns.has(pat)) testAsyncPatterns.set(pat, path);
+    });
+  }
+  const authDep = pickBestSingleton(authDeps);
+  const apiPrefixBase = pickBestSingleton(prefixBases);
+  const testAsyncPattern = pickBestSingleton(testAsyncPatterns);
+  const result = {};
+  const provenance = {};
+  if (authDep) {
+    result.auth_dep = authDep.value;
+    provenance.auth_dep_source = relativeTo(projectRoot, authDep.source);
+  }
+  if (apiPrefixBase) {
+    result.api_prefix_base = apiPrefixBase.value;
+    provenance.api_prefix_base_source = relativeTo(projectRoot, apiPrefixBase.source);
+  }
+  if (testAsyncPattern) {
+    result.test_async_pattern = testAsyncPattern.value;
+    provenance.test_async_pattern_source = relativeTo(projectRoot, testAsyncPattern.source);
+  }
+  if (Object.keys(result).length === 0) return null;
+  if (Object.keys(provenance).length > 0) result._provenance = provenance;
+  return result;
+}
+function extractPrefixBase(prefix2) {
+  if (!prefix2.startsWith("/")) return null;
+  const stripped = prefix2.replace(/^\/+/, "");
+  const firstSeg = stripped.split("/")[0];
+  if (!firstSeg) return null;
+  return "/" + firstSeg;
+}
+function introspectSwift(detection, projectRoot) {
+  const sourceDir = resolveSourceDir(detection, "swift", projectRoot);
+  if (!sourceDir) return null;
+  const viewFiles = sampleFiles(
+    sourceDir,
+    /\.swift$/,
+    (absPath, name) => /View\.swift$/.test(name) || /\/Views\//.test(absPath)
+  );
+  const fallbackFiles = viewFiles.length === 0 ? sampleFiles(sourceDir, /\.swift$/) : [];
+  const candidates = [...viewFiles, ...fallbackFiles].slice(
+    0,
+    MAX_SAMPLES_PER_ADAPTER
+  );
+  if (candidates.length === 0) return null;
+  const apiClasses = /* @__PURE__ */ new Map();
+  const biometricPolicies = /* @__PURE__ */ new Map();
+  for (const path of candidates) {
+    const body = readSafe(path);
+    if (body === null) continue;
+    const apiRegex = /\b([A-Z][A-Za-z0-9_]*API)\s*(?:\(|\.shared|\b)/gu;
+    forEachMatch(apiRegex, body, (m) => {
+      const name = m[1];
+      if (!apiClasses.has(name)) apiClasses.set(name, path);
+    });
+    const policyRegex = /\.(deviceOwnerAuthentication(?:WithBiometrics)?)\b/gu;
+    forEachMatch(policyRegex, body, (m) => {
+      const name = m[1];
+      if (!biometricPolicies.has(name)) biometricPolicies.set(name, path);
+    });
+  }
+  const apiClass = pickBestSingleton(apiClasses);
+  const biometricPolicy = pickBestSingleton(biometricPolicies);
+  const result = {};
+  const provenance = {};
+  if (apiClass) {
+    result.api_client_class = apiClass.value;
+    provenance.api_client_class_source = relativeTo(projectRoot, apiClass.source);
+  }
+  if (biometricPolicy) {
+    result.biometric_policy = biometricPolicy.value;
+    provenance.biometric_policy_source = relativeTo(projectRoot, biometricPolicy.source);
+  }
+  if (Object.keys(result).length === 0) return null;
+  if (Object.keys(provenance).length > 0) result._provenance = provenance;
+  return result;
+}
+function introspectTypeScript(detection, projectRoot) {
+  const sourceDir = resolveSourceDir(detection, "typescript", projectRoot) ?? resolveSourceDir(detection, "javascript", projectRoot);
+  if (!sourceDir) return null;
+  const routerFiles = sampleFiles(
+    sourceDir,
+    /\.tsx?$/,
+    (absPath, name) => /(router|trpc)/i.test(name) || /\/(routers|trpc|server\/api)\//.test(absPath)
+  );
+  const candidates = routerFiles.slice(0, MAX_SAMPLES_PER_ADAPTER);
+  if (candidates.length === 0) return null;
+  const builders = /* @__PURE__ */ new Map();
+  const procedurePatterns = /* @__PURE__ */ new Map();
+  for (const path of candidates) {
+    const body = readSafe(path);
+    if (body === null) continue;
+    const builderRegex = /\b(createTRPCRouter|router|t\.router)\s*\(/gu;
+    forEachMatch(builderRegex, body, (m) => {
+      const name = m[1];
+      if (!builders.has(name)) builders.set(name, path);
+    });
+    const procRegex = /\b([a-z]+Procedure)\b/gu;
+    forEachMatch(procRegex, body, (m) => {
+      const name = m[1];
+      if (!procedurePatterns.has(name)) procedurePatterns.set(name, path);
+    });
+  }
+  const builder = pickBestSingleton(builders);
+  const proc = pickBestSingleton(procedurePatterns);
+  const result = {};
+  const provenance = {};
+  if (builder) {
+    result.trpc_router_builder = builder.value;
+    provenance.trpc_router_builder_source = relativeTo(projectRoot, builder.source);
+  }
+  if (proc) {
+    result.procedure_pattern = proc.value;
+    provenance.procedure_pattern_source = relativeTo(projectRoot, proc.source);
+  }
+  if (Object.keys(result).length === 0) return null;
+  if (Object.keys(provenance).length > 0) result._provenance = provenance;
+  return result;
+}
+function resolveSourceDir(detection, lang, projectRoot) {
+  const dirs = detection.sourceDirs;
+  const info = dirs[lang];
+  const list = info?.source_dirs ?? [];
+  if (list.length > 0) {
+    const first = list[0];
+    const abs = resolve4(projectRoot, first);
+    return existsSync6(abs) ? abs : null;
+  }
+  return existsSync6(projectRoot) ? projectRoot : null;
+}
+function sampleFiles(dir, nameRegex, pathFilter) {
+  const out = [];
+  const stack = [{ path: dir, depth: 0 }];
+  while (stack.length > 0 && out.length < MAX_SAMPLES_PER_ADAPTER * 4) {
+    const { path, depth } = stack.pop();
+    if (depth > MAX_DIR_DEPTH) continue;
+    let entries;
+    try {
+      entries = readdirSync4(path);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.startsWith(".")) continue;
+      if (entry === "node_modules") continue;
+      if (entry === "__pycache__") continue;
+      if (entry === "venv" || entry === ".venv") continue;
+      if (entry === "dist" || entry === "build") continue;
+      const child = join4(path, entry);
+      let st;
+      try {
+        st = statSync3(child);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        stack.push({ path: child, depth: depth + 1 });
+        continue;
+      }
+      if (!nameRegex.test(entry)) continue;
+      if (pathFilter && !pathFilter(child, entry)) continue;
+      if (st.size > MAX_FILE_BYTES) continue;
+      out.push(child);
+      if (out.length >= MAX_SAMPLES_PER_ADAPTER * 4) break;
+    }
+  }
+  out.sort();
+  return out.slice(0, MAX_SAMPLES_PER_ADAPTER * 2);
+}
+function readSafe(path) {
+  try {
+    const st = statSync3(path);
+    if (st.size > MAX_FILE_BYTES) return null;
+    return readFileSync4(path, "utf-8");
+  } catch {
+    return null;
+  }
+}
+function forEachMatch(re, body, cb) {
+  if (!re.global) return;
+  re.lastIndex = 0;
+  let count = 0;
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    cb(m);
+    count++;
+    if (count > 1e3) break;
+    if (m.index === re.lastIndex) re.lastIndex++;
+  }
+}
+function pickBestSingleton(samples) {
+  if (samples.size === 0) return null;
+  if (samples.size >= 3) return null;
+  const [firstKey, firstSource] = samples.entries().next().value;
+  return { value: firstKey, source: firstSource };
+}
+function relativeTo(projectRoot, absPath) {
+  if (absPath.startsWith(projectRoot + "/")) {
+    return absPath.slice(projectRoot.length + 1);
+  }
+  return basename2(absPath);
+}
+var MAX_FILE_BYTES, MAX_SAMPLES_PER_ADAPTER, MAX_DIR_DEPTH;
+var init_regex_fallback = __esm({
+  "src/detect/regex-fallback.ts"() {
+    "use strict";
+    MAX_FILE_BYTES = 256 * 1024;
+    MAX_SAMPLES_PER_ADAPTER = 3;
+    MAX_DIR_DEPTH = 6;
+  }
+});
+
 // src/detect/adapters/parse-guard.ts
 var MAX_AST_FILE_BYTES;
 var init_parse_guard = __esm({
   "src/detect/adapters/parse-guard.ts"() {
     "use strict";
     MAX_AST_FILE_BYTES = 1 * 1024 * 1024;
+  }
+});
+
+// src/detect/adapters/runner.ts
+var init_runner = __esm({
+  "src/detect/adapters/runner.ts"() {
+    "use strict";
+    init_parse_guard();
+  }
+});
+
+// src/detect/adapters/query-helpers.ts
+import { Query } from "web-tree-sitter";
+var init_query_helpers = __esm({
+  "src/detect/adapters/query-helpers.ts"() {
+    "use strict";
+  }
+});
+
+// src/detect/adapters/tree-sitter-loader.ts
+import { Language, Parser } from "web-tree-sitter";
+var init_tree_sitter_loader = __esm({
+  "src/detect/adapters/tree-sitter-loader.ts"() {
+    "use strict";
+  }
+});
+
+// src/detect/adapters/python-fastapi.ts
+import { Parser as Parser2 } from "web-tree-sitter";
+var init_python_fastapi = __esm({
+  "src/detect/adapters/python-fastapi.ts"() {
+    "use strict";
+    init_query_helpers();
+    init_tree_sitter_loader();
+    init_parse_guard();
+  }
+});
+
+// src/detect/adapters/python-django.ts
+import { Parser as Parser3 } from "web-tree-sitter";
+var init_python_django = __esm({
+  "src/detect/adapters/python-django.ts"() {
+    "use strict";
+    init_query_helpers();
+    init_tree_sitter_loader();
+    init_parse_guard();
+  }
+});
+
+// src/detect/adapters/nextjs-trpc.ts
+import { Parser as Parser4 } from "web-tree-sitter";
+var init_nextjs_trpc = __esm({
+  "src/detect/adapters/nextjs-trpc.ts"() {
+    "use strict";
+    init_query_helpers();
+    init_tree_sitter_loader();
+    init_parse_guard();
+  }
+});
+
+// src/detect/adapters/swift-swiftui.ts
+import { Parser as Parser5 } from "web-tree-sitter";
+var init_swift_swiftui = __esm({
+  "src/detect/adapters/swift-swiftui.ts"() {
+    "use strict";
+    init_query_helpers();
+    init_tree_sitter_loader();
+    init_parse_guard();
+  }
+});
+
+// src/detect/adapters/python-flask.ts
+import { Parser as Parser6 } from "web-tree-sitter";
+var init_python_flask = __esm({
+  "src/detect/adapters/python-flask.ts"() {
+    "use strict";
+    init_query_helpers();
+    init_tree_sitter_loader();
+    init_parse_guard();
+  }
+});
+
+// src/detect/adapters/rails.ts
+import { railsAdapter } from "@massu/adapter-rails";
+var init_rails = __esm({
+  "src/detect/adapters/rails.ts"() {
+    "use strict";
+  }
+});
+
+// src/detect/adapters/spring.ts
+import { springAdapter } from "@massu/adapter-spring";
+var init_spring = __esm({
+  "src/detect/adapters/spring.ts"() {
+    "use strict";
+  }
+});
+
+// src/detect/codebase-introspector.ts
+function introspect(detection, projectRoot) {
+  const out = {};
+  const languages = Array.from(
+    new Set(detection.manifests.map((m) => m.language))
+  );
+  if (languages.includes("python")) {
+    const python = introspectPython(detection, projectRoot);
+    if (python !== null) out.python = python;
+  }
+  if (languages.includes("swift")) {
+    const swift = introspectSwift(detection, projectRoot);
+    if (swift !== null) out.swift = swift;
+  }
+  if (languages.includes("typescript") || languages.includes("javascript")) {
+    const ts = introspectTypeScript(detection, projectRoot);
+    if (ts !== null) out.typescript = ts;
+  }
+  return out;
+}
+var init_codebase_introspector = __esm({
+  "src/detect/codebase-introspector.ts"() {
+    "use strict";
+    init_regex_fallback();
+    init_runner();
+    init_python_fastapi();
+    init_python_django();
+    init_nextjs_trpc();
+    init_swift_swiftui();
+    init_python_flask();
+    init_rails();
+    init_spring();
+  }
+});
+
+// src/detect/index.ts
+var detect_exports = {};
+__export(detect_exports, {
+  runDetection: () => runDetection
+});
+function dominantDir(lang, sourceDirs, monorepo) {
+  const info = sourceDirs[lang];
+  if (info && info.source_dirs.length > 0) return info.source_dirs[0];
+  if (monorepo.packages.length > 0) return monorepo.packages[0].path;
+  return ".";
+}
+async function runDetection(projectRoot, overrides, options) {
+  const pkg = detectPackageManifests(projectRoot);
+  const frameworks = detectFrameworks(pkg.manifests, overrides?.detection);
+  const languages = Array.from(
+    new Set(pkg.manifests.map((m) => m.language))
+  );
+  const fallbackTsForJs = languages.includes("javascript") && !languages.includes("typescript");
+  const [sourceDirs, monorepo] = await Promise.all([
+    Promise.resolve(detectSourceDirs(projectRoot, languages, { fallbackTsForJs })),
+    Promise.resolve(detectMonorepo(projectRoot))
+  ]);
+  const domains = inferDomains(projectRoot, monorepo, sourceDirs);
+  const verificationCommands = {};
+  for (const lang of languages) {
+    const fw = frameworks[lang] ?? {
+      framework: null,
+      version: null,
+      test_framework: null,
+      orm: null,
+      ui_library: null,
+      router: null
+    };
+    const dir = dominantDir(lang, sourceDirs, monorepo);
+    const userOverride = overrides?.verification?.[lang];
+    verificationCommands[lang] = getVRCommands(lang, fw, dir, userOverride);
+  }
+  const result = {
+    projectRoot,
+    manifests: pkg.manifests,
+    frameworks,
+    sourceDirs,
+    monorepo,
+    domains,
+    verificationCommands,
+    warnings: pkg.warnings
+  };
+  if (!options?.skipIntrospect) {
+    result.detected = introspect(result, projectRoot);
+  }
+  return result;
+}
+var init_detect = __esm({
+  "src/detect/index.ts"() {
+    "use strict";
+    init_package_detector();
+    init_framework_detector();
+    init_source_dir_detector();
+    init_monorepo_detector();
+    init_vr_command_map();
+    init_domain_inferrer();
+    init_codebase_introspector();
+  }
+});
+
+// src/detect/drift.ts
+var drift_exports = {};
+__export(drift_exports, {
+  computeFingerprint: () => computeFingerprint,
+  detectDrift: () => detectDrift
+});
+import { createHash } from "crypto";
+function summarizeDetection(det) {
+  const languages = Array.from(new Set(det.manifests.map((m) => m.language))).sort();
+  const frameworks = {};
+  for (const lang of languages) {
+    const fw = det.frameworks[lang];
+    frameworks[lang] = {
+      framework: fw?.framework ?? null,
+      test_framework: fw?.test_framework ?? null,
+      orm: fw?.orm ?? null
+    };
+  }
+  const sourceDirs = {};
+  for (const lang of languages) {
+    const info = det.sourceDirs[lang];
+    sourceDirs[lang] = [...info?.source_dirs ?? []].sort();
+  }
+  const manifests = [...det.manifests.map((m) => m.relativePath)].sort();
+  const workspaces = [...det.monorepo.packages.map((p) => p.path)].sort();
+  return {
+    languages,
+    frameworks,
+    source_dirs: sourceDirs,
+    manifests,
+    monorepo: det.monorepo.type,
+    workspaces
+  };
+}
+function computeFingerprint(det) {
+  const data = summarizeDetection(det);
+  const stable = JSON.stringify(data, Object.keys(data).sort());
+  return createHash("sha256").update(stable).digest("hex");
+}
+function stringOf(v) {
+  if (typeof v === "string") return v;
+  if (v === null || v === void 0) return null;
+  return String(v);
+}
+function detectDrift(currentConfig, actualDetection) {
+  const changes = [];
+  const configFw = currentConfig.framework && typeof currentConfig.framework === "object" ? currentConfig.framework : {};
+  const configLanguages = configFw.languages && typeof configFw.languages === "object" ? configFw.languages : {};
+  const detectedLanguages = Array.from(
+    new Set(actualDetection.manifests.map((m) => m.language))
+  );
+  const configLangKeys = Object.keys(configLanguages).sort();
+  const detectedLangKeys = [...detectedLanguages].sort();
+  if (JSON.stringify(configLangKeys) !== JSON.stringify(detectedLangKeys)) {
+    changes.push({
+      field: "framework.languages",
+      before: configLangKeys,
+      after: detectedLangKeys
+    });
+  }
+  for (const lang of detectedLanguages) {
+    const detFw = actualDetection.frameworks[lang];
+    const cfgEntry = configLanguages[lang];
+    if (!cfgEntry) continue;
+    const cfgFramework = stringOf(cfgEntry.framework);
+    const detFramework = detFw?.framework ?? null;
+    if (cfgFramework !== detFramework && detFramework !== null) {
+      changes.push({
+        field: `framework.languages.${lang}.framework`,
+        before: cfgFramework,
+        after: detFramework
+      });
+    }
+    const cfgTest = stringOf(cfgEntry.test_framework);
+    const detTest = detFw?.test_framework ?? null;
+    if (cfgTest !== detTest && detTest !== null) {
+      changes.push({
+        field: `framework.languages.${lang}.test_framework`,
+        before: cfgTest,
+        after: detTest
+      });
+    }
+  }
+  const detectedManifestPaths = new Set(actualDetection.manifests.map((m) => m.relativePath));
+  const declaredManifestPaths = /* @__PURE__ */ new Set();
+  const canonical = currentConfig.canonical_paths;
+  if (canonical && typeof canonical.manifest_paths === "string") {
+    for (const p of canonical.manifest_paths.split(",").map((s) => s.trim())) {
+      if (p) declaredManifestPaths.add(p);
+    }
+  }
+  if (Array.isArray(currentConfig.manifests)) {
+    for (const p of currentConfig.manifests) {
+      if (typeof p === "string") declaredManifestPaths.add(p);
+    }
+  }
+  if (declaredManifestPaths.size > 0) {
+    const added = [...detectedManifestPaths].filter((p) => !declaredManifestPaths.has(p)).sort();
+    const removed = [...declaredManifestPaths].filter((p) => !detectedManifestPaths.has(p)).sort();
+    if (added.length > 0) {
+      changes.push({ field: "manifests.added", before: [], after: added });
+    }
+    if (removed.length > 0) {
+      changes.push({ field: "manifests.removed", before: removed, after: [] });
+    }
+  }
+  const configWorkspaces = [];
+  if (Array.isArray(currentConfig.monorepo?.workspaces)) {
+    for (const w of currentConfig.monorepo.workspaces) {
+      if (typeof w === "string") configWorkspaces.push(w);
+    }
+  }
+  const detectedWorkspaces = actualDetection.monorepo.packages.map((p) => p.path).sort();
+  if (configWorkspaces.length > 0) {
+    const cfgSorted = [...configWorkspaces].sort();
+    if (JSON.stringify(cfgSorted) !== JSON.stringify(detectedWorkspaces)) {
+      changes.push({
+        field: "monorepo.workspaces",
+        before: cfgSorted,
+        after: detectedWorkspaces
+      });
+    }
+  }
+  return { drifted: changes.length > 0, changes };
+}
+var init_drift = __esm({
+  "src/detect/drift.ts"() {
+    "use strict";
   }
 });
 
@@ -6140,6 +8281,22 @@ var RawConfigSchema = z.object({
   accessScopes: z.array(z.string()).optional(),
   domains: z.array(DomainConfigSchema).default([]),
   rules: z.array(PatternRuleConfigSchema).default([]),
+  // P-M-036 (plan-stage-d-medium-sweep): customer-authored CR-style
+  // governance rules. DISTINCT from `rules:` above (path-scoped lint hints
+  // used by pattern-scanner). At config-refresh time these entries are
+  // loaded into the `knowledge_rules` SQLite table with
+  // `source = 'customer-config'` so `massu_knowledge_rule` and the
+  // governance docs surface customer-defined rules alongside framework CRs.
+  governance_rules: z.array(
+    z.object({
+      id: z.string().min(1, "governance_rules[].id is required"),
+      title: z.string().min(1, "governance_rules[].title is required"),
+      description: z.string().min(1, "governance_rules[].description is required"),
+      vr_type: z.string().default("VR-CUSTOM"),
+      reference_path: z.string().optional(),
+      severity: z.enum(["critical", "high", "medium", "low", "info"]).default("medium")
+    }).passthrough()
+  ).default([]),
   analytics: AnalyticsConfigSchema,
   governance: GovernanceConfigSchema,
   security: SecurityConfigSchema,
@@ -6258,6 +8415,8 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     accessScopes: parsed.accessScopes,
     domains: parsed.domains,
     rules: parsed.rules,
+    // P-M-036: customer-authored CR-style governance rules.
+    governance_rules: parsed.governance_rules,
     analytics: parsed.analytics,
     governance: parsed.governance,
     security: parsed.security,
@@ -6816,6 +8975,12 @@ function initMemorySchema(db) {
       features TEXT DEFAULT '[]'
     );
   `);
+  const licenseCacheCols = db.prepare(`PRAGMA table_info(license_cache)`).all();
+  if (!licenseCacheCols.some((c) => c.name === "signed_payload_json")) {
+    db.exec(
+      `ALTER TABLE license_cache ADD COLUMN signed_payload_json TEXT NOT NULL DEFAULT ''`
+    );
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS failure_classes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -6917,1925 +9082,6 @@ function linkSessionToTask(db, sessionId, taskId) {
 import { readFileSync as readFileSync5, existsSync as existsSync7 } from "fs";
 import { join as join5, resolve as resolve5 } from "path";
 import { parse as parseYaml3 } from "yaml";
-
-// src/detect/package-detector.ts
-import { readFileSync as readFileSync2, existsSync as existsSync3, statSync, lstatSync, readdirSync } from "fs";
-import { join, relative } from "path";
-import { parse as parseToml } from "smol-toml";
-
-// src/detect/manifest-registry.ts
-var manifest_registry_exports = {};
-__export(manifest_registry_exports, {
-  getManifestPatterns: () => getManifestPatterns,
-  getManifestRegistry: () => getManifestRegistry,
-  matchManifestPattern: () => matchManifestPattern
-});
-function matchManifestPattern(name, pattern) {
-  if (pattern.startsWith("*")) {
-    const suffix = pattern.slice(1);
-    if (suffix.includes("*")) {
-      throw new Error(
-        `[manifest-registry] pattern "${pattern}" has more than one wildcard. Only "*.<ext>" extension-globs are supported.`
-      );
-    }
-    return name.endsWith(suffix);
-  }
-  return name === pattern;
-}
-var _registryCache = null;
-function getManifestRegistry() {
-  if (_registryCache !== null) return _registryCache;
-  _registryCache = [
-    {
-      pattern: "package.json",
-      manifestType: "package.json",
-      language: "typescript",
-      runtime: "node",
-      parse: parsePackageJson,
-      signalKey: "packageJson",
-      signalShape: "json"
-    },
-    {
-      pattern: "pyproject.toml",
-      manifestType: "pyproject.toml",
-      language: "python",
-      runtime: "python3",
-      parse: parsePyproject,
-      signalKey: "pyprojectToml",
-      signalShape: "toml"
-    },
-    {
-      pattern: "requirements.txt",
-      manifestType: "requirements.txt",
-      language: "python",
-      runtime: "python3",
-      parse: parseRequirementsTxt,
-      // Captured via pyprojectToml sibling already; no separate signal.
-      signalKey: null,
-      signalShape: "string"
-    },
-    {
-      pattern: "Pipfile",
-      manifestType: "Pipfile",
-      language: "python",
-      runtime: "python3",
-      parse: parsePipfile,
-      // Captured via pyprojectToml sibling already; no separate signal.
-      signalKey: null,
-      signalShape: "string"
-    },
-    {
-      pattern: "Cargo.toml",
-      manifestType: "Cargo.toml",
-      language: "rust",
-      runtime: "cargo",
-      parse: parseCargoToml,
-      signalKey: "cargoToml",
-      signalShape: "toml"
-    },
-    {
-      pattern: "Package.swift",
-      manifestType: "Package.swift",
-      language: "swift",
-      runtime: "xcode",
-      parse: parsePackageSwift,
-      // No AST adapter consumer yet (swift-swiftui doesn't need it).
-      signalKey: null,
-      signalShape: "string"
-    },
-    {
-      pattern: "go.mod",
-      manifestType: "go.mod",
-      language: "go",
-      runtime: "go",
-      parse: parseGoMod,
-      signalKey: "goMod",
-      signalShape: "string"
-    },
-    {
-      pattern: "pom.xml",
-      manifestType: "pom.xml",
-      language: "java",
-      runtime: "jvm",
-      parse: parsePomXml,
-      signalKey: "pomXml",
-      signalShape: "string"
-    },
-    {
-      pattern: "build.gradle",
-      manifestType: "build.gradle",
-      language: "java",
-      runtime: "jvm",
-      parse: parseBuildGradle,
-      signalKey: "gradleBuild",
-      signalShape: "string"
-    },
-    {
-      pattern: "build.gradle.kts",
-      manifestType: "build.gradle",
-      language: "java",
-      runtime: "jvm",
-      parse: parseBuildGradle,
-      signalKey: "gradleBuild",
-      signalShape: "string"
-    },
-    {
-      pattern: "Gemfile",
-      manifestType: "Gemfile",
-      language: "ruby",
-      runtime: "ruby",
-      parse: parseGemfile,
-      signalKey: "gemfile",
-      signalShape: "string"
-    },
-    // Plan 1.5.1 — closes CR-39 violation (1.5.0 init failed for Phoenix
-    // + ASP.NET fixtures). Both rely on AST adapters that already work
-    // in introspect; the gap was solely package-detector unaware of the
-    // manifest filenames.
-    {
-      pattern: "mix.exs",
-      manifestType: "mix.exs",
-      language: "elixir",
-      runtime: "beam",
-      parse: parseMixExs,
-      signalKey: "mixExs",
-      signalShape: "string"
-    },
-    {
-      pattern: "*.csproj",
-      manifestType: "*.csproj",
-      language: "csharp",
-      runtime: "dotnet",
-      parse: parseCsproj,
-      signalKey: "csproj",
-      signalShape: "string"
-    }
-  ];
-  return _registryCache;
-}
-function getManifestPatterns() {
-  return getManifestRegistry().map((e) => e.pattern);
-}
-
-// src/detect/package-detector.ts
-var WORKSPACE_DIRS = ["apps", "packages", "services", "libs", "modules"];
-var IGNORED_DIRS = /* @__PURE__ */ new Set([
-  "node_modules",
-  ".venv",
-  "venv",
-  "__pycache__",
-  "dist",
-  "build",
-  ".build",
-  "target",
-  ".next",
-  ".nuxt",
-  "coverage",
-  ".git",
-  ".massu",
-  ".turbo",
-  ".cache",
-  ".pytest_cache",
-  ".mypy_cache",
-  "DerivedData",
-  "Pods"
-]);
-function safeRead(path) {
-  try {
-    if (!existsSync3(path)) return null;
-    const ls = lstatSync(path);
-    if (ls.isSymbolicLink()) return null;
-    const st = statSync(path);
-    if (!st.isFile()) return null;
-    return readFileSync2(path, "utf-8");
-  } catch {
-    return null;
-  }
-}
-function normalizeRelative(root, path) {
-  const rel = relative(root, path);
-  return rel.split(/[/\\]/).join("/");
-}
-function parsePackageJson(path, directory, root, warnings) {
-  const raw = safeRead(path);
-  if (raw === null) return null;
-  let pkg;
-  try {
-    pkg = JSON.parse(raw);
-  } catch (err) {
-    warnings.push({
-      path,
-      reason: `package.json JSON parse failed: ${err.message}`
-    });
-    return null;
-  }
-  const deps = Object.keys(
-    pkg.dependencies ?? {}
-  );
-  const devDeps = Object.keys(
-    pkg.devDependencies ?? {}
-  );
-  const peer = Object.keys(
-    pkg.peerDependencies ?? {}
-  );
-  const hasTs = deps.includes("typescript") || devDeps.includes("typescript") || existsSync3(join(directory, "tsconfig.json"));
-  const language = hasTs ? "typescript" : "javascript";
-  const scripts = Object.keys(
-    pkg.scripts ?? {}
-  );
-  return {
-    path,
-    relativePath: normalizeRelative(root, path),
-    directory,
-    language,
-    runtime: "node",
-    name: typeof pkg.name === "string" ? pkg.name : null,
-    version: typeof pkg.version === "string" ? pkg.version : null,
-    dependencies: [...deps, ...peer],
-    devDependencies: devDeps,
-    scripts,
-    manifestType: "package.json"
-  };
-}
-function parsePyproject(path, directory, root, warnings) {
-  const raw = safeRead(path);
-  if (raw === null) return null;
-  let toml;
-  try {
-    toml = parseToml(raw);
-  } catch (err) {
-    warnings.push({
-      path,
-      reason: `pyproject.toml TOML parse failed: ${err.message}`
-    });
-    return null;
-  }
-  const deps = [];
-  const devDeps = [];
-  const scripts = [];
-  let name = null;
-  let version = null;
-  const project = toml.project;
-  if (project && typeof project === "object") {
-    if (typeof project.name === "string") name = project.name;
-    if (typeof project.version === "string") version = project.version;
-    const pd = project.dependencies;
-    if (Array.isArray(pd)) {
-      for (const d of pd) {
-        if (typeof d === "string") deps.push(normalizePyDep(d));
-      }
-    }
-    const optDeps = project["optional-dependencies"];
-    if (optDeps && typeof optDeps === "object") {
-      for (const grp of Object.values(optDeps)) {
-        if (Array.isArray(grp)) {
-          for (const d of grp) {
-            if (typeof d === "string") devDeps.push(normalizePyDep(d));
-          }
-        }
-      }
-    }
-    const psScripts = project.scripts;
-    if (psScripts && typeof psScripts === "object") {
-      scripts.push(...Object.keys(psScripts));
-    }
-  }
-  const tool = toml.tool;
-  const poetry = tool?.poetry;
-  if (poetry && typeof poetry === "object") {
-    if (!name && typeof poetry.name === "string") name = poetry.name;
-    if (!version && typeof poetry.version === "string") version = poetry.version;
-    const pdeps = poetry.dependencies;
-    if (pdeps && typeof pdeps === "object") {
-      for (const k of Object.keys(pdeps)) {
-        if (k !== "python") deps.push(k);
-      }
-    }
-    const groups = poetry.group;
-    if (groups && typeof groups === "object") {
-      for (const grp of Object.values(groups)) {
-        const grpObj = grp;
-        const grpDeps = grpObj?.dependencies;
-        if (grpDeps && typeof grpDeps === "object") {
-          for (const k of Object.keys(grpDeps)) {
-            if (k !== "python") devDeps.push(k);
-          }
-        }
-      }
-    }
-    const legacyDev = poetry["dev-dependencies"];
-    if (legacyDev && typeof legacyDev === "object") {
-      for (const k of Object.keys(legacyDev)) {
-        if (k !== "python") devDeps.push(k);
-      }
-    }
-    const pScripts = poetry.scripts;
-    if (pScripts && typeof pScripts === "object") {
-      scripts.push(...Object.keys(pScripts));
-    }
-  }
-  return {
-    path,
-    relativePath: normalizeRelative(root, path),
-    directory,
-    language: "python",
-    runtime: "python3",
-    name,
-    version,
-    dependencies: deps,
-    devDependencies: devDeps,
-    scripts,
-    manifestType: "pyproject.toml"
-  };
-}
-function normalizePyDep(spec) {
-  const semi = spec.split(";")[0];
-  const extras = semi.split("[")[0];
-  const name = extras.split(/[=<>!~ ]/)[0];
-  return name.trim();
-}
-function parseRequirementsTxt(path, directory, root, _warnings) {
-  const raw = safeRead(path);
-  if (raw === null) return null;
-  const deps = [];
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (trimmed.startsWith("#")) continue;
-    if (trimmed.startsWith("-")) continue;
-    const name = normalizePyDep(trimmed);
-    if (name) deps.push(name);
-  }
-  return {
-    path,
-    relativePath: normalizeRelative(root, path),
-    directory,
-    language: "python",
-    runtime: "python3",
-    name: null,
-    version: null,
-    dependencies: deps,
-    devDependencies: [],
-    scripts: [],
-    manifestType: "requirements.txt"
-  };
-}
-function parsePipfile(path, directory, root, warnings) {
-  const raw = safeRead(path);
-  if (raw === null) return null;
-  let toml;
-  try {
-    toml = parseToml(raw);
-  } catch (err) {
-    warnings.push({
-      path,
-      reason: `Pipfile TOML parse failed: ${err.message}`
-    });
-    return null;
-  }
-  const packages = toml.packages ?? {};
-  const devPackages = toml["dev-packages"] ?? {};
-  return {
-    path,
-    relativePath: normalizeRelative(root, path),
-    directory,
-    language: "python",
-    runtime: "python3",
-    name: null,
-    version: null,
-    dependencies: Object.keys(packages),
-    devDependencies: Object.keys(devPackages),
-    scripts: [],
-    manifestType: "Pipfile"
-  };
-}
-function parseCargoToml(path, directory, root, warnings) {
-  const raw = safeRead(path);
-  if (raw === null) return null;
-  let toml;
-  try {
-    toml = parseToml(raw);
-  } catch (err) {
-    warnings.push({
-      path,
-      reason: `Cargo.toml TOML parse failed: ${err.message}`
-    });
-    return null;
-  }
-  const pkg = toml.package;
-  const deps = toml.dependencies;
-  const devDeps = toml["dev-dependencies"];
-  return {
-    path,
-    relativePath: normalizeRelative(root, path),
-    directory,
-    language: "rust",
-    runtime: "cargo",
-    name: typeof pkg?.name === "string" ? pkg.name : null,
-    version: typeof pkg?.version === "string" ? pkg.version : null,
-    dependencies: deps ? Object.keys(deps) : [],
-    devDependencies: devDeps ? Object.keys(devDeps) : [],
-    scripts: [],
-    manifestType: "Cargo.toml"
-  };
-}
-function parsePackageSwift(path, directory, root, _warnings) {
-  const raw = safeRead(path);
-  if (raw === null) return null;
-  const deps = [];
-  const urlRe = /\.package\s*\(\s*(?:name\s*:\s*"([^"]+)"\s*,\s*)?url\s*:\s*"([^"]+)"/g;
-  let m;
-  while ((m = urlRe.exec(raw)) !== null) {
-    const explicitName = m[1];
-    if (explicitName) {
-      deps.push(explicitName);
-      continue;
-    }
-    const url = m[2];
-    const last = url.split("/").pop() ?? "";
-    const clean = last.replace(/\.git$/, "").trim();
-    if (clean) deps.push(clean);
-  }
-  const nameMatch = /let\s+package\s*=\s*Package\s*\(\s*name\s*:\s*"([^"]+)"/.exec(
-    raw
-  );
-  return {
-    path,
-    relativePath: normalizeRelative(root, path),
-    directory,
-    language: "swift",
-    runtime: "xcode",
-    name: nameMatch ? nameMatch[1] : null,
-    version: null,
-    dependencies: deps,
-    devDependencies: [],
-    scripts: [],
-    manifestType: "Package.swift"
-  };
-}
-function parseGoMod(path, directory, root, _warnings) {
-  const raw = safeRead(path);
-  if (raw === null) return null;
-  const deps = [];
-  let name = null;
-  let inRequire = false;
-  for (const rawLine of raw.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("//")) continue;
-    if (line.startsWith("module ")) {
-      name = line.slice("module ".length).trim();
-      continue;
-    }
-    if (line === "require (") {
-      inRequire = true;
-      continue;
-    }
-    if (inRequire) {
-      if (line === ")") {
-        inRequire = false;
-        continue;
-      }
-      const parts = line.split(/\s+/);
-      if (parts.length >= 2 && !parts[0].startsWith("//")) deps.push(parts[0]);
-      continue;
-    }
-    if (line.startsWith("require ")) {
-      const parts = line.slice("require ".length).trim().split(/\s+/);
-      if (parts[0]) deps.push(parts[0]);
-    }
-  }
-  return {
-    path,
-    relativePath: normalizeRelative(root, path),
-    directory,
-    language: "go",
-    runtime: "go",
-    name,
-    version: null,
-    dependencies: deps,
-    devDependencies: [],
-    scripts: [],
-    manifestType: "go.mod"
-  };
-}
-function parsePomXml(path, directory, root, _warnings) {
-  const raw = safeRead(path);
-  if (raw === null) return null;
-  const deps = [];
-  const depRe = /<dependency>[\s\S]*?<artifactId>([^<]+)<\/artifactId>[\s\S]*?<\/dependency>/g;
-  let m;
-  while ((m = depRe.exec(raw)) !== null) deps.push(m[1].trim());
-  const nameMatch = /<artifactId>([^<]+)<\/artifactId>/.exec(raw);
-  const versionMatch = /<project[^>]*>[\s\S]*?<version>([^<]+)<\/version>/.exec(
-    raw
-  );
-  return {
-    path,
-    relativePath: normalizeRelative(root, path),
-    directory,
-    language: "java",
-    runtime: "jvm",
-    name: nameMatch ? nameMatch[1].trim() : null,
-    version: versionMatch ? versionMatch[1].trim() : null,
-    dependencies: deps,
-    devDependencies: [],
-    scripts: [],
-    manifestType: "pom.xml"
-  };
-}
-function parseBuildGradle(path, directory, root, _warnings) {
-  const raw = safeRead(path);
-  if (raw === null) return null;
-  const deps = [];
-  const devDeps = [];
-  const re = /(implementation|api|runtimeOnly|compileOnly|testImplementation|testRuntimeOnly|androidTestImplementation)\s*[\("']+([^"'\)]+)[\)"']+/g;
-  let m;
-  while ((m = re.exec(raw)) !== null) {
-    const scope = m[1];
-    const coord = m[2];
-    const parts = coord.split(":");
-    const artifact = parts.length >= 2 ? parts[1] : parts[0];
-    if (!artifact) continue;
-    if (scope.toLowerCase().startsWith("test")) devDeps.push(artifact);
-    else deps.push(artifact);
-  }
-  return {
-    path,
-    relativePath: normalizeRelative(root, path),
-    directory,
-    language: "java",
-    runtime: "jvm",
-    name: null,
-    version: null,
-    dependencies: deps,
-    devDependencies: devDeps,
-    scripts: [],
-    manifestType: "build.gradle"
-  };
-}
-function parseGemfile(path, directory, root, _warnings) {
-  const raw = safeRead(path);
-  if (raw === null) return null;
-  const deps = [];
-  const devDeps = [];
-  let inDevGroup = false;
-  for (const rawLine of raw.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    if (/^group\s*:test|^group\s+:development/.test(line)) inDevGroup = true;
-    if (/^end\b/.test(line)) inDevGroup = false;
-    const gemMatch = /^gem\s+["']([^"']+)["']/.exec(line);
-    if (gemMatch) {
-      if (inDevGroup) devDeps.push(gemMatch[1]);
-      else deps.push(gemMatch[1]);
-    }
-  }
-  return {
-    path,
-    relativePath: normalizeRelative(root, path),
-    directory,
-    language: "ruby",
-    runtime: "ruby",
-    name: null,
-    version: null,
-    dependencies: deps,
-    devDependencies: devDeps,
-    scripts: [],
-    manifestType: "Gemfile"
-  };
-}
-function parseMixExs(path, directory, root, _warnings) {
-  const raw = safeRead(path);
-  if (raw === null) return null;
-  const deps = [];
-  const depPattern = /\{\s*:([a-z][a-z0-9_]*)\s*,/g;
-  let m;
-  while ((m = depPattern.exec(raw)) !== null) {
-    if (!deps.includes(m[1])) deps.push(m[1]);
-  }
-  const appMatch = /\bapp\s*:\s*:([a-z][a-z0-9_]*)/.exec(raw);
-  const name = appMatch ? appMatch[1] : null;
-  return {
-    path,
-    relativePath: normalizeRelative(root, path),
-    directory,
-    language: "elixir",
-    runtime: "beam",
-    name,
-    version: null,
-    dependencies: deps,
-    devDependencies: [],
-    scripts: [],
-    manifestType: "mix.exs"
-  };
-}
-function parseCsproj(path, directory, root, _warnings) {
-  const raw = safeRead(path);
-  if (raw === null) return null;
-  const deps = [];
-  const pkgRefPattern = /<PackageReference\s+[^>]*Include\s*=\s*"([^"]+)"/gi;
-  let m;
-  while ((m = pkgRefPattern.exec(raw)) !== null) {
-    if (!deps.includes(m[1])) deps.push(m[1]);
-  }
-  const sdkMatch = /<Project\s+[^>]*Sdk\s*=\s*"([^"]+)"/i.exec(raw);
-  if (sdkMatch && !deps.includes(sdkMatch[1])) {
-    deps.push(sdkMatch[1]);
-  }
-  const fname = path.split(/[/\\]/).pop() ?? "";
-  const name = fname.endsWith(".csproj") ? fname.slice(0, -".csproj".length) : null;
-  return {
-    path,
-    relativePath: normalizeRelative(root, path),
-    directory,
-    language: "csharp",
-    runtime: "dotnet",
-    name,
-    version: null,
-    dependencies: deps,
-    devDependencies: [],
-    scripts: [],
-    manifestType: "*.csproj"
-  };
-}
-function detectManifestsInDir(dir, root, warnings) {
-  const { getManifestRegistry: getManifestRegistry2, matchManifestPattern: matchManifestPattern2 } = manifest_registry_exports;
-  const out = [];
-  let dirEntries = null;
-  for (const entry of getManifestRegistry2()) {
-    if (!entry.pattern.startsWith("*")) {
-      const path = join(dir, entry.pattern);
-      if (!existsSync3(path)) continue;
-      const m = entry.parse(path, dir, root, warnings);
-      if (m !== null) out.push(m);
-    } else {
-      if (dirEntries === null) {
-        try {
-          dirEntries = readdirSync(dir);
-        } catch {
-          dirEntries = [];
-        }
-      }
-      for (const fname of dirEntries) {
-        if (!matchManifestPattern2(fname, entry.pattern)) continue;
-        const path = join(dir, fname);
-        if (!existsSync3(path)) continue;
-        const m = entry.parse(path, dir, root, warnings);
-        if (m !== null) out.push(m);
-      }
-    }
-  }
-  return out;
-}
-function listSubdirs(dir) {
-  try {
-    return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && !IGNORED_DIRS.has(e.name)).map((e) => join(dir, e.name));
-  } catch {
-    return [];
-  }
-}
-function detectPackageManifests(projectRoot) {
-  const warnings = [];
-  const manifests = [];
-  manifests.push(...detectManifestsInDir(projectRoot, projectRoot, warnings));
-  for (const ws of WORKSPACE_DIRS) {
-    const wsRoot = join(projectRoot, ws);
-    if (!existsSync3(wsRoot)) continue;
-    for (const sub of listSubdirs(wsRoot)) {
-      manifests.push(...detectManifestsInDir(sub, projectRoot, warnings));
-      for (const sub2 of listSubdirs(sub)) {
-        manifests.push(...detectManifestsInDir(sub2, projectRoot, warnings));
-      }
-    }
-  }
-  const seen = /* @__PURE__ */ new Set();
-  const dedup = [];
-  for (const m of manifests) {
-    if (seen.has(m.path)) continue;
-    seen.add(m.path);
-    dedup.push(m);
-  }
-  return { manifests: dedup, warnings };
-}
-
-// src/detect/framework-detector.ts
-var DETECTION_RULES = [
-  // Python frameworks
-  { language: "python", kind: "framework", keyword: "fastapi", value: "fastapi", priority: 10 },
-  { language: "python", kind: "framework", keyword: "flask", value: "flask", priority: 9 },
-  { language: "python", kind: "framework", keyword: "django", value: "django", priority: 9 },
-  { language: "python", kind: "framework", keyword: "aiohttp", value: "aiohttp", priority: 8 },
-  { language: "python", kind: "framework", keyword: "sanic", value: "sanic", priority: 8 },
-  { language: "python", kind: "framework", keyword: "starlette", value: "starlette", priority: 7 },
-  // Python test
-  { language: "python", kind: "test_framework", keyword: "pytest", value: "pytest", priority: 10 },
-  { language: "python", kind: "test_framework", keyword: "pytest-asyncio", value: "pytest", priority: 9 },
-  // Python ORM
-  { language: "python", kind: "orm", keyword: "sqlalchemy", value: "sqlalchemy", priority: 10 },
-  { language: "python", kind: "orm", keyword: "django-orm", value: "django-orm", priority: 9 },
-  { language: "python", kind: "orm", keyword: "peewee", value: "peewee", priority: 8 },
-  { language: "python", kind: "orm", keyword: "tortoise-orm", value: "tortoise-orm", priority: 8 },
-  // TypeScript / JavaScript frameworks
-  { language: "typescript", kind: "framework", keyword: "next", value: "next", priority: 10 },
-  { language: "typescript", kind: "framework", keyword: "@nestjs/core", value: "nestjs", priority: 10 },
-  { language: "typescript", kind: "framework", keyword: "fastify", value: "fastify", priority: 9 },
-  { language: "typescript", kind: "framework", keyword: "express", value: "express", priority: 9 },
-  { language: "typescript", kind: "framework", keyword: "hono", value: "hono", priority: 9 },
-  { language: "typescript", kind: "framework", keyword: "@sveltejs/kit", value: "sveltekit", priority: 10 },
-  { language: "typescript", kind: "framework", keyword: "nuxt", value: "nuxt", priority: 10 },
-  { language: "typescript", kind: "framework", keyword: "@angular/core", value: "angular", priority: 10 },
-  { language: "typescript", kind: "framework", keyword: "react", value: "react", priority: 5 },
-  { language: "typescript", kind: "framework", keyword: "vue", value: "vue", priority: 5 },
-  // Mirror for javascript
-  { language: "javascript", kind: "framework", keyword: "next", value: "next", priority: 10 },
-  { language: "javascript", kind: "framework", keyword: "express", value: "express", priority: 9 },
-  { language: "javascript", kind: "framework", keyword: "fastify", value: "fastify", priority: 9 },
-  { language: "javascript", kind: "framework", keyword: "react", value: "react", priority: 5 },
-  // TS/JS test
-  { language: "typescript", kind: "test_framework", keyword: "vitest", value: "vitest", priority: 10 },
-  { language: "typescript", kind: "test_framework", keyword: "jest", value: "jest", priority: 9 },
-  { language: "typescript", kind: "test_framework", keyword: "mocha", value: "mocha", priority: 8 },
-  { language: "typescript", kind: "test_framework", keyword: "@playwright/test", value: "playwright", priority: 7 },
-  { language: "javascript", kind: "test_framework", keyword: "vitest", value: "vitest", priority: 10 },
-  { language: "javascript", kind: "test_framework", keyword: "jest", value: "jest", priority: 9 },
-  { language: "javascript", kind: "test_framework", keyword: "mocha", value: "mocha", priority: 8 },
-  // TS/JS ORM
-  { language: "typescript", kind: "orm", keyword: "@prisma/client", value: "prisma", priority: 10 },
-  { language: "typescript", kind: "orm", keyword: "prisma", value: "prisma", priority: 9 },
-  { language: "typescript", kind: "orm", keyword: "drizzle-orm", value: "drizzle", priority: 10 },
-  { language: "typescript", kind: "orm", keyword: "typeorm", value: "typeorm", priority: 9 },
-  { language: "typescript", kind: "orm", keyword: "mongoose", value: "mongoose", priority: 9 },
-  { language: "typescript", kind: "orm", keyword: "sequelize", value: "sequelize", priority: 8 },
-  { language: "javascript", kind: "orm", keyword: "@prisma/client", value: "prisma", priority: 10 },
-  { language: "javascript", kind: "orm", keyword: "mongoose", value: "mongoose", priority: 9 },
-  // TS/JS UI
-  { language: "typescript", kind: "ui_library", keyword: "next", value: "next", priority: 9 },
-  { language: "typescript", kind: "ui_library", keyword: "react", value: "react", priority: 8 },
-  { language: "typescript", kind: "ui_library", keyword: "vue", value: "vue", priority: 8 },
-  { language: "typescript", kind: "ui_library", keyword: "@sveltejs/kit", value: "svelte", priority: 9 },
-  { language: "javascript", kind: "ui_library", keyword: "react", value: "react", priority: 8 },
-  // TS/JS router
-  { language: "typescript", kind: "router", keyword: "@trpc/server", value: "trpc", priority: 10 },
-  { language: "typescript", kind: "router", keyword: "@apollo/server", value: "graphql", priority: 9 },
-  { language: "typescript", kind: "router", keyword: "graphql", value: "graphql", priority: 8 },
-  { language: "typescript", kind: "router", keyword: "express", value: "express", priority: 7 },
-  { language: "typescript", kind: "router", keyword: "fastify", value: "fastify", priority: 7 },
-  { language: "typescript", kind: "router", keyword: "hono", value: "hono", priority: 7 },
-  // Rust
-  { language: "rust", kind: "framework", keyword: "actix-web", value: "actix-web", priority: 10 },
-  { language: "rust", kind: "framework", keyword: "axum", value: "axum", priority: 10 },
-  { language: "rust", kind: "framework", keyword: "rocket", value: "rocket", priority: 10 },
-  { language: "rust", kind: "framework", keyword: "warp", value: "warp", priority: 9 },
-  { language: "rust", kind: "framework", keyword: "tokio", value: "tokio", priority: 5 },
-  { language: "rust", kind: "test_framework", keyword: "cargo", value: "cargo", priority: 1 },
-  { language: "rust", kind: "orm", keyword: "diesel", value: "diesel", priority: 10 },
-  { language: "rust", kind: "orm", keyword: "sqlx", value: "sqlx", priority: 10 },
-  { language: "rust", kind: "orm", keyword: "sea-orm", value: "sea-orm", priority: 10 },
-  // Go
-  { language: "go", kind: "framework", keyword: "github.com/gin-gonic/gin", value: "gin", priority: 10 },
-  { language: "go", kind: "framework", keyword: "github.com/labstack/echo", value: "echo", priority: 10 },
-  { language: "go", kind: "framework", keyword: "github.com/gofiber/fiber", value: "fiber", priority: 10 },
-  { language: "go", kind: "framework", keyword: "github.com/go-chi/chi", value: "chi", priority: 9 },
-  // chi versioned import paths (Go convention: github.com/<org>/<name>/v<N>).
-  // matchRule does exact case-insensitive set lookup, so the unversioned and
-  // each major-version path each need their own rule.
-  { language: "go", kind: "framework", keyword: "github.com/go-chi/chi/v2", value: "chi", priority: 9 },
-  { language: "go", kind: "framework", keyword: "github.com/go-chi/chi/v3", value: "chi", priority: 9 },
-  { language: "go", kind: "framework", keyword: "github.com/go-chi/chi/v4", value: "chi", priority: 9 },
-  { language: "go", kind: "framework", keyword: "github.com/go-chi/chi/v5", value: "chi", priority: 9 },
-  { language: "go", kind: "test_framework", keyword: "github.com/stretchr/testify", value: "testify", priority: 8 },
-  { language: "go", kind: "orm", keyword: "gorm.io/gorm", value: "gorm", priority: 10 },
-  // Swift (SPM dependency names, best-effort)
-  { language: "swift", kind: "framework", keyword: "vapor", value: "vapor", priority: 10 },
-  { language: "swift", kind: "framework", keyword: "swift-nio", value: "swift-nio", priority: 7 },
-  { language: "swift", kind: "test_framework", keyword: "xctest", value: "xctest", priority: 5 },
-  // Java
-  { language: "java", kind: "framework", keyword: "spring-boot-starter", value: "spring-boot", priority: 10 },
-  { language: "java", kind: "framework", keyword: "spring-boot-starter-web", value: "spring-boot", priority: 10 },
-  { language: "java", kind: "test_framework", keyword: "junit", value: "junit", priority: 10 },
-  { language: "java", kind: "test_framework", keyword: "junit-jupiter", value: "junit", priority: 10 },
-  // Ruby
-  { language: "ruby", kind: "framework", keyword: "rails", value: "rails", priority: 10 },
-  { language: "ruby", kind: "framework", keyword: "sinatra", value: "sinatra", priority: 9 },
-  { language: "ruby", kind: "test_framework", keyword: "rspec", value: "rspec", priority: 10 },
-  { language: "ruby", kind: "orm", keyword: "activerecord", value: "activerecord", priority: 10 },
-  // Plan 1.5.1: elixir + csharp framework rules. Closes the CR-39 gap
-  // where Phoenix + ASP.NET projects produced `framework.languages.<lang>`
-  // entries WITHOUT a `framework:` value, which prevented variant
-  // templates from being looked up.
-  { language: "elixir", kind: "framework", keyword: "phoenix", value: "phoenix", priority: 10 },
-  { language: "elixir", kind: "test_framework", keyword: "ex_unit", value: "ex-unit", priority: 10 },
-  { language: "elixir", kind: "orm", keyword: "ecto", value: "ecto", priority: 10 },
-  // ASP.NET Core surfaces via several PackageReference names; the canonical
-  // ones in modern .NET projects are .App and .Mvc. matchRule does exact
-  // (case-insensitive) lookup against the deps set parseCsproj extracts.
-  { language: "csharp", kind: "framework", keyword: "Microsoft.AspNetCore.App", value: "aspnet-core", priority: 10 },
-  { language: "csharp", kind: "framework", keyword: "Microsoft.AspNetCore.Mvc", value: "aspnet-core", priority: 10 },
-  { language: "csharp", kind: "framework", keyword: "Microsoft.AspNetCore", value: "aspnet-core", priority: 9 },
-  // SDK-style projects: `<Project Sdk="Microsoft.NET.Sdk.Web">` is the
-  // canonical ASP.NET Core declaration in modern .NET. parseCsproj
-  // surfaces the Sdk attribute as a dep so this rule can match.
-  { language: "csharp", kind: "framework", keyword: "Microsoft.NET.Sdk.Web", value: "aspnet-core", priority: 10 },
-  { language: "csharp", kind: "test_framework", keyword: "xunit", value: "xunit", priority: 10 },
-  { language: "csharp", kind: "orm", keyword: "EntityFrameworkCore", value: "ef-core", priority: 10 }
-];
-function matchRule(rules, language, kind, deps) {
-  let best = null;
-  for (const r of rules) {
-    if (r.language !== language) continue;
-    if (r.kind !== kind) continue;
-    if (!deps.has(r.keyword.toLowerCase())) continue;
-    const pr = r.priority ?? 0;
-    if (!best || pr > best.priority) {
-      best = { value: r.value, priority: pr };
-    }
-  }
-  return best;
-}
-function matchUserFrameworkRules(userRules, language, deps) {
-  if (!userRules) return null;
-  const byLang = userRules[language];
-  if (!byLang) return null;
-  let best = null;
-  for (const [framework, entry] of Object.entries(byLang)) {
-    const signals = entry.signals ?? [];
-    const priority = entry.priority ?? 100;
-    for (const sig of signals) {
-      if (deps.has(sig.toLowerCase())) {
-        if (!best || priority > best.priority) {
-          best = { framework, priority };
-        }
-        break;
-      }
-    }
-  }
-  return best;
-}
-function detectFrameworks(manifests, userDetection) {
-  const byLang = /* @__PURE__ */ new Map();
-  for (const m of manifests) {
-    const entry = byLang.get(m.language) ?? {
-      deps: /* @__PURE__ */ new Set(),
-      versionOf: /* @__PURE__ */ new Map()
-    };
-    for (const d of m.dependencies) entry.deps.add(d.toLowerCase());
-    for (const d of m.devDependencies) entry.deps.add(d.toLowerCase());
-    byLang.set(m.language, entry);
-  }
-  const rules = userDetection?.disable_builtin ? [] : [...DETECTION_RULES];
-  const out = {};
-  for (const [language, { deps }] of byLang.entries()) {
-    const fw = matchRule(rules, language, "framework", deps);
-    const userFw = matchUserFrameworkRules(
-      userDetection?.rules,
-      language,
-      deps
-    );
-    let frameworkValue = null;
-    if (userFw && (!fw || userFw.priority > fw.priority)) {
-      frameworkValue = userFw.framework;
-    } else if (fw) {
-      frameworkValue = fw.value;
-    }
-    const info = {
-      framework: frameworkValue,
-      version: null,
-      test_framework: matchRule(rules, language, "test_framework", deps)?.value ?? null,
-      orm: matchRule(rules, language, "orm", deps)?.value ?? null,
-      ui_library: matchRule(rules, language, "ui_library", deps)?.value ?? null,
-      router: matchRule(rules, language, "router", deps)?.value ?? null
-    };
-    out[language] = info;
-  }
-  return out;
-}
-
-// src/detect/source-dir-detector.ts
-var import_fast_glob = __toESM(require_out4(), 1);
-import { realpathSync } from "fs";
-import { resolve as resolve3 } from "path";
-var IGNORE_PATTERNS = [
-  "**/node_modules/**",
-  "**/.venv/**",
-  "**/venv/**",
-  "**/__pycache__/**",
-  "**/dist/**",
-  "**/build/**",
-  "**/.build/**",
-  "**/target/**",
-  "**/.next/**",
-  "**/.nuxt/**",
-  "**/coverage/**",
-  "**/.git/**",
-  "**/.massu/**",
-  "**/.turbo/**",
-  "**/.cache/**",
-  "**/.pytest_cache/**",
-  "**/.mypy_cache/**",
-  "**/DerivedData/**",
-  "**/Pods/**",
-  // Secret-ish patterns
-  "**/.env",
-  "**/.env.*",
-  "**/*.pem",
-  "**/*.key",
-  "**/.aws/**",
-  "**/.ssh/**",
-  "**/credentials.json",
-  "**/*.p12",
-  "**/*.pfx"
-];
-var EXTENSIONS = {
-  python: ["py"],
-  typescript: ["ts", "tsx"],
-  javascript: ["js", "jsx", "mjs", "cjs"],
-  rust: ["rs"],
-  swift: ["swift"],
-  go: ["go"],
-  java: ["java", "kt"],
-  ruby: ["rb"],
-  // Plan 1.5.1 — closing CR-39 init gap for Phoenix + ASP.NET projects.
-  elixir: ["ex", "exs"],
-  csharp: ["cs"]
-};
-var TEST_FILE_PATTERNS = {
-  python: [/_test\.py$/, /test_[^/]*\.py$/],
-  typescript: [/\.test\.tsx?$/, /\.spec\.tsx?$/],
-  javascript: [/\.test\.[mc]?jsx?$/, /\.spec\.[mc]?jsx?$/],
-  rust: [/tests\/.*\.rs$/],
-  swift: [/Tests\//],
-  go: [/_test\.go$/],
-  java: [/Test[^/]*\.(java|kt)$/, /[^/]*Test\.(java|kt)$/],
-  ruby: [/_spec\.rb$/, /_test\.rb$/],
-  // Phoenix/ExUnit canonical: `test/**_test.exs`. ASP.NET / xUnit
-  // canonical: `*Tests.cs` or `*.Tests/...`.
-  elixir: [/_test\.exs$/, /\/test\//],
-  csharp: [/Tests?\.cs$/, /\.Tests?\//]
-};
-var TEST_DIR_KEYWORDS = ["tests", "test", "__tests__", "spec", "specs"];
-function extsFor(language) {
-  return EXTENSIONS[language] ?? [];
-}
-function extsWithFallback(language, fallbackTsForJs) {
-  const base = extsFor(language);
-  if (language === "javascript" && fallbackTsForJs) {
-    return [...base, "ts", "tsx"];
-  }
-  return base;
-}
-function isTestPath(language, path) {
-  const segments = path.split("/");
-  for (const seg of segments) {
-    if (TEST_DIR_KEYWORDS.includes(seg)) return true;
-  }
-  const patterns = TEST_FILE_PATTERNS[language] ?? [];
-  return patterns.some((re) => re.test(path));
-}
-function topSegment(rel) {
-  const parts = rel.split("/");
-  return parts.length > 1 ? parts[0] : ".";
-}
-function isInsideRoot(root, candidate) {
-  try {
-    const realRoot = realpathSync(root);
-    const realCand = realpathSync(resolve3(root, candidate));
-    return realCand === realRoot || realCand.startsWith(realRoot + "/");
-  } catch {
-    return false;
-  }
-}
-function detectSourceDirs(projectRoot, languages, opts) {
-  const fallbackTsForJs = opts?.fallbackTsForJs ?? false;
-  const out = {};
-  for (const lang of languages) {
-    const exts = extsWithFallback(lang, fallbackTsForJs);
-    if (exts.length === 0) continue;
-    const patterns = exts.map((e) => `**/*.${e}`);
-    let files;
-    try {
-      files = import_fast_glob.default.sync(patterns, {
-        cwd: projectRoot,
-        dot: false,
-        ignore: IGNORE_PATTERNS,
-        followSymbolicLinks: false,
-        suppressErrors: true
-      });
-    } catch {
-      files = [];
-    }
-    files = files.filter((f) => isInsideRoot(projectRoot, f));
-    if (files.length === 0) {
-      continue;
-    }
-    const sourceFiles = [];
-    const testFiles = [];
-    for (const f of files) {
-      if (isTestPath(lang, f)) testFiles.push(f);
-      else sourceFiles.push(f);
-    }
-    const srcCluster = /* @__PURE__ */ new Map();
-    for (const f of sourceFiles) {
-      const k = topSegment(f);
-      srcCluster.set(k, (srcCluster.get(k) ?? 0) + 1);
-    }
-    const testCluster = /* @__PURE__ */ new Map();
-    for (const f of testFiles) {
-      const k = topSegment(f);
-      testCluster.set(k, (testCluster.get(k) ?? 0) + 1);
-    }
-    const source_dirs = [];
-    const test_dirs = [];
-    const srcSorted = [...srcCluster.entries()].sort((a, b) => {
-      if (b[1] !== a[1]) return b[1] - a[1];
-      return a[0].localeCompare(b[0]);
-    });
-    for (const [seg] of srcSorted) source_dirs.push(seg);
-    const testSet = /* @__PURE__ */ new Set();
-    for (const [seg] of testCluster.entries()) {
-      if (TEST_DIR_KEYWORDS.includes(seg)) testSet.add(seg);
-    }
-    let testDirHits = [];
-    try {
-      testDirHits = import_fast_glob.default.sync(
-        TEST_DIR_KEYWORDS.map((k) => `**/${k}/**/*.${exts[0]}`),
-        {
-          cwd: projectRoot,
-          dot: false,
-          ignore: IGNORE_PATTERNS,
-          followSymbolicLinks: false,
-          suppressErrors: true
-        }
-      );
-    } catch {
-      testDirHits = [];
-    }
-    const testPrefixes = /* @__PURE__ */ new Set();
-    for (const f of testDirHits) {
-      const segs = f.split("/");
-      for (let i = 0; i < segs.length; i++) {
-        if (TEST_DIR_KEYWORDS.includes(segs[i])) {
-          testPrefixes.add(segs.slice(0, i + 1).join("/"));
-          break;
-        }
-      }
-    }
-    for (const p of testPrefixes) testSet.add(p);
-    for (const seg of testSet) test_dirs.push(seg);
-    test_dirs.sort();
-    const totalFiles = sourceFiles.length + testFiles.length;
-    const testRatio = totalFiles === 0 ? 0 : testFiles.length / totalFiles;
-    const hasDedicatedTestDir = test_dirs.length > 0;
-    const colocated = !hasDedicatedTestDir && testFiles.length > 0 && testRatio < 0.3;
-    if (colocated) {
-      for (const s of source_dirs) if (!test_dirs.includes(s)) test_dirs.push(s);
-    }
-    out[lang] = {
-      source_dirs,
-      test_dirs,
-      colocated,
-      file_count: files.length
-    };
-  }
-  return out;
-}
-
-// src/detect/monorepo-detector.ts
-import { readFileSync as readFileSync3, existsSync as existsSync4, statSync as statSync2, lstatSync as lstatSync2, readdirSync as readdirSync2 } from "fs";
-import { join as join2, relative as relative2 } from "path";
-import { parse as parseYaml2 } from "yaml";
-import { parse as parseToml2 } from "smol-toml";
-var MANIFEST_PRIORITY = [
-  "package.json",
-  "pyproject.toml",
-  "Cargo.toml",
-  "go.mod",
-  "build.gradle",
-  "pom.xml",
-  "Gemfile",
-  "Package.swift"
-];
-var IGNORED_DIRS2 = /* @__PURE__ */ new Set([
-  "node_modules",
-  ".venv",
-  "venv",
-  "__pycache__",
-  "dist",
-  "build",
-  ".build",
-  "target",
-  ".next",
-  ".nuxt",
-  "coverage",
-  ".git",
-  ".massu",
-  ".turbo",
-  ".cache"
-]);
-var CONVENTIONAL_WORKSPACE_PARENTS = [
-  "apps",
-  "packages",
-  "services",
-  "libs",
-  "modules"
-];
-function safeReadText(path) {
-  try {
-    if (!existsSync4(path)) return null;
-    const ls = lstatSync2(path);
-    if (ls.isSymbolicLink()) return null;
-    const st = statSync2(path);
-    if (!st.isFile()) return null;
-    return readFileSync3(path, "utf-8");
-  } catch {
-    return null;
-  }
-}
-function firstManifestIn(dir) {
-  for (const m of MANIFEST_PRIORITY) {
-    if (existsSync4(join2(dir, m))) return m;
-  }
-  return null;
-}
-function manifestName(dir, manifest) {
-  try {
-    if (manifest === "package.json") {
-      const raw = safeReadText(join2(dir, "package.json"));
-      if (!raw) return null;
-      const pkg = JSON.parse(raw);
-      return typeof pkg.name === "string" ? pkg.name : null;
-    }
-    if (manifest === "pyproject.toml") {
-      const raw = safeReadText(join2(dir, "pyproject.toml"));
-      if (!raw) return null;
-      const toml = parseToml2(raw);
-      const project = toml.project;
-      if (project && typeof project.name === "string") return project.name;
-      const tool = toml.tool;
-      const poetry = tool?.poetry;
-      if (poetry && typeof poetry.name === "string") return poetry.name;
-      return null;
-    }
-    if (manifest === "Cargo.toml") {
-      const raw = safeReadText(join2(dir, "Cargo.toml"));
-      if (!raw) return null;
-      const toml = parseToml2(raw);
-      const pkg = toml.package;
-      if (pkg && typeof pkg.name === "string") return pkg.name;
-      return null;
-    }
-    if (manifest === "go.mod") {
-      const raw = safeReadText(join2(dir, "go.mod"));
-      if (!raw) return null;
-      for (const line of raw.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith("module ")) return trimmed.slice(7).trim();
-      }
-      return null;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-function pkgFromDir(root, dir) {
-  const m = firstManifestIn(dir);
-  if (!m) return null;
-  return {
-    path: relative2(root, dir).split(/[/\\]/).join("/"),
-    name: manifestName(dir, m),
-    manifest: m
-  };
-}
-function listSubdirs2(dir) {
-  try {
-    return readdirSync2(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && !IGNORED_DIRS2.has(e.name)).map((e) => join2(dir, e.name));
-  } catch {
-    return [];
-  }
-}
-function genericWorkspaces(root) {
-  const out = [];
-  for (const parent of CONVENTIONAL_WORKSPACE_PARENTS) {
-    const p = join2(root, parent);
-    if (!existsSync4(p)) continue;
-    for (const sub of listSubdirs2(p)) {
-      const pkg = pkgFromDir(root, sub);
-      if (pkg) out.push(pkg);
-    }
-  }
-  return out;
-}
-function detectYarnWorkspaces(root) {
-  const raw = safeReadText(join2(root, "package.json"));
-  if (!raw) return null;
-  let pkg;
-  try {
-    pkg = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  const ws = pkg.workspaces;
-  if (!ws) return null;
-  const globs = Array.isArray(ws) ? ws.filter((x) => typeof x === "string") : typeof ws === "object" && ws !== null && Array.isArray(ws.packages) ? ws.packages.filter((x) => typeof x === "string") : [];
-  if (globs.length === 0) return null;
-  return expandWorkspaceGlobs(root, globs);
-}
-function detectPnpmWorkspaces(root) {
-  const raw = safeReadText(join2(root, "pnpm-workspace.yaml"));
-  if (!raw) return null;
-  try {
-    const parsed = parseYaml2(raw);
-    const list = Array.isArray(parsed?.packages) ? parsed.packages.filter((x) => typeof x === "string") : [];
-    return expandWorkspaceGlobs(root, list);
-  } catch {
-    return null;
-  }
-}
-function expandWorkspaceGlobs(root, globs) {
-  const out = [];
-  const seen = /* @__PURE__ */ new Set();
-  for (const pattern of globs) {
-    const parts = pattern.split("/");
-    if (parts.length === 2 && (parts[1] === "*" || parts[1] === "**")) {
-      const parent = join2(root, parts[0]);
-      if (!existsSync4(parent)) continue;
-      for (const sub of listSubdirs2(parent)) {
-        const pkg = pkgFromDir(root, sub);
-        if (pkg && !seen.has(pkg.path)) {
-          seen.add(pkg.path);
-          out.push(pkg);
-        }
-      }
-      continue;
-    }
-    const direct = join2(root, pattern);
-    if (existsSync4(direct)) {
-      const pkg = pkgFromDir(root, direct);
-      if (pkg && !seen.has(pkg.path)) {
-        seen.add(pkg.path);
-        out.push(pkg);
-      }
-    }
-  }
-  return out;
-}
-function hasTurbo(root) {
-  return existsSync4(join2(root, "turbo.json"));
-}
-function hasNx(root) {
-  return existsSync4(join2(root, "nx.json"));
-}
-function hasLerna(root) {
-  return existsSync4(join2(root, "lerna.json"));
-}
-function hasBazel(root) {
-  return existsSync4(join2(root, "WORKSPACE")) || existsSync4(join2(root, "WORKSPACE.bazel")) || existsSync4(join2(root, "MODULE.bazel"));
-}
-function detectMonorepo(projectRoot) {
-  const nested = [];
-  const pnpm = detectPnpmWorkspaces(projectRoot);
-  const yarn = detectYarnWorkspaces(projectRoot);
-  let primary = "single";
-  let primaryPackages = [];
-  if (hasTurbo(projectRoot)) {
-    primary = "turbo";
-    primaryPackages = pnpm ?? yarn ?? genericWorkspaces(projectRoot);
-    if (pnpm && pnpm.length) {
-      nested.push({ type: "pnpm", packages: pnpm, nested: [] });
-    } else if (yarn && yarn.length) {
-      nested.push({ type: "yarn", packages: yarn, nested: [] });
-    }
-  } else if (hasNx(projectRoot)) {
-    primary = "nx";
-    primaryPackages = yarn ?? pnpm ?? genericWorkspaces(projectRoot);
-    if (pnpm && pnpm.length) nested.push({ type: "pnpm", packages: pnpm, nested: [] });
-    else if (yarn && yarn.length) nested.push({ type: "yarn", packages: yarn, nested: [] });
-  } else if (hasLerna(projectRoot)) {
-    primary = "lerna";
-    primaryPackages = yarn ?? pnpm ?? genericWorkspaces(projectRoot);
-  } else if (pnpm && pnpm.length) {
-    primary = "pnpm";
-    primaryPackages = pnpm;
-  } else if (yarn && yarn.length) {
-    primary = "yarn";
-    primaryPackages = yarn;
-  } else if (hasBazel(projectRoot)) {
-    primary = "bazel";
-    primaryPackages = genericWorkspaces(projectRoot);
-  } else {
-    const gen = genericWorkspaces(projectRoot);
-    if (gen.length > 0) {
-      primary = "generic";
-      primaryPackages = gen;
-    } else {
-      primary = "single";
-      primaryPackages = [];
-    }
-  }
-  return { type: primary, packages: primaryPackages, nested };
-}
-
-// src/detect/vr-command-map.ts
-function prefix(dir, cmd) {
-  if (!dir || dir === ".") return cmd;
-  return `cd ${dir} && ${cmd}`;
-}
-function defaultsFor(language, fw, dir) {
-  switch (language) {
-    case "python": {
-      const testFw = fw.test_framework ?? "pytest";
-      return {
-        test: testFw === "unittest" ? prefix(dir, "python3 -m unittest") : prefix(dir, "python3 -m pytest -q"),
-        type: prefix(dir, "python3 -m mypy ."),
-        build: null,
-        syntax: prefix(dir, "python3 -m py_compile"),
-        lint: prefix(dir, "python3 -m ruff check .")
-      };
-    }
-    case "typescript": {
-      const testFw = fw.test_framework ?? "vitest";
-      return {
-        test: prefix(dir, "npm test"),
-        type: prefix(dir, "npx tsc --noEmit"),
-        build: prefix(dir, "npm run build"),
-        syntax: null,
-        lint: prefix(dir, "npx eslint ."),
-        // testFw currently only affects defaults; npm test is runner-agnostic
-        ...testFw === "mocha" ? { test: prefix(dir, "npx mocha") } : {}
-      };
-    }
-    case "javascript": {
-      return {
-        test: prefix(dir, "npm test"),
-        type: null,
-        build: prefix(dir, "npm run build"),
-        syntax: null,
-        lint: prefix(dir, "npx eslint .")
-      };
-    }
-    case "rust": {
-      return {
-        test: prefix(dir, "cargo test"),
-        type: prefix(dir, "cargo check"),
-        build: prefix(dir, "cargo build"),
-        syntax: null,
-        lint: prefix(dir, "cargo clippy -- -D warnings")
-      };
-    }
-    case "swift": {
-      return {
-        test: prefix(dir, "swift test"),
-        type: prefix(dir, "swift build"),
-        build: prefix(dir, "xcodebuild build"),
-        syntax: null,
-        lint: prefix(dir, "swiftlint")
-      };
-    }
-    case "go": {
-      return {
-        test: prefix(dir, "go test ./..."),
-        type: prefix(dir, "go vet ./..."),
-        build: prefix(dir, "go build ./..."),
-        syntax: null,
-        lint: prefix(dir, "golangci-lint run")
-      };
-    }
-    case "java": {
-      return {
-        test: prefix(dir, "mvn test"),
-        type: prefix(dir, "mvn compile"),
-        build: prefix(dir, "mvn package"),
-        syntax: null,
-        lint: null
-      };
-    }
-    case "ruby": {
-      return {
-        test: prefix(dir, "bundle exec rspec"),
-        type: null,
-        build: null,
-        syntax: prefix(dir, "ruby -c"),
-        lint: prefix(dir, "bundle exec rubocop")
-      };
-    }
-    default:
-      return { test: null, type: null, build: null, syntax: null, lint: null };
-  }
-}
-function getVRCommands(language, framework, dir, userOverrides) {
-  const built = defaultsFor(language, framework, dir);
-  if (!userOverrides) return built;
-  return {
-    test: userOverrides.test ?? built.test,
-    type: userOverrides.type ?? built.type,
-    build: userOverrides.build ?? built.build,
-    syntax: userOverrides.syntax ?? built.syntax,
-    lint: userOverrides.lint ?? built.lint
-  };
-}
-
-// src/detect/domain-inferrer.ts
-import { existsSync as existsSync5, readdirSync as readdirSync3 } from "fs";
-import { join as join3 } from "path";
-var IGNORED_SUBDIRS = /* @__PURE__ */ new Set([
-  "node_modules",
-  "__pycache__",
-  "dist",
-  "build",
-  ".build",
-  "target",
-  ".next",
-  ".git",
-  ".massu",
-  "coverage",
-  "tests",
-  "test",
-  "__tests__"
-]);
-function titleCase(s) {
-  if (!s) return s;
-  return s.split(/[-_\s]+/).filter(Boolean).map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ");
-}
-function domainFromWorkspace(pkg) {
-  const pathTail = pkg.path.split("/").pop() ?? pkg.path;
-  const name = pkg.name ?? titleCase(pathTail);
-  return {
-    name,
-    routers: [],
-    pages: [],
-    tables: [],
-    allowedImportsFrom: []
-  };
-}
-function topLevelSrcSubdirs(root, sourceDirs) {
-  const effective = sourceDirs.length > 0 ? sourceDirs : ["src"];
-  const seen = /* @__PURE__ */ new Set();
-  for (const rel of effective) {
-    const abs = join3(root, rel);
-    if (!existsSync5(abs)) continue;
-    try {
-      for (const e of readdirSync3(abs, { withFileTypes: true })) {
-        if (!e.isDirectory()) continue;
-        if (IGNORED_SUBDIRS.has(e.name)) continue;
-        seen.add(e.name);
-      }
-    } catch {
-    }
-  }
-  return Array.from(seen).sort();
-}
-function flattenSourceDirs(sourceDirs) {
-  const flat = /* @__PURE__ */ new Set();
-  for (const entry of Object.values(sourceDirs)) {
-    if (!entry) continue;
-    for (const dir of entry.source_dirs) {
-      if (dir === "." || dir === "") continue;
-      flat.add(dir);
-    }
-  }
-  return Array.from(flat);
-}
-function inferDomains(projectRoot, monorepo, sourceDirs) {
-  const domains = [];
-  if (monorepo.type !== "single" && monorepo.packages.length > 0) {
-    for (const pkg of monorepo.packages) {
-      domains.push(domainFromWorkspace(pkg));
-    }
-  } else {
-    const flat = flattenSourceDirs(sourceDirs);
-    const subdirs = topLevelSrcSubdirs(projectRoot, flat);
-    for (const s of subdirs) {
-      domains.push({
-        name: titleCase(s),
-        routers: [],
-        pages: [],
-        tables: [],
-        allowedImportsFrom: []
-      });
-    }
-    if (domains.length === 0) {
-      const langs = Object.keys(sourceDirs);
-      for (const lang of langs.sort()) {
-        domains.push({
-          name: titleCase(lang),
-          routers: [],
-          pages: [],
-          tables: [],
-          allowedImportsFrom: []
-        });
-      }
-    }
-  }
-  domains.sort((a, b) => a.name.localeCompare(b.name));
-  const seen = /* @__PURE__ */ new Set();
-  const dedup = [];
-  for (const d of domains) {
-    if (seen.has(d.name)) continue;
-    seen.add(d.name);
-    dedup.push(d);
-  }
-  return dedup;
-}
-
-// src/detect/regex-fallback.ts
-import { existsSync as existsSync6, readdirSync as readdirSync4, readFileSync as readFileSync4, statSync as statSync3 } from "fs";
-import { resolve as resolve4, join as join4, basename as basename2 } from "path";
-var MAX_FILE_BYTES = 256 * 1024;
-var MAX_SAMPLES_PER_ADAPTER = 3;
-var MAX_DIR_DEPTH = 6;
-function introspectPython(detection, projectRoot) {
-  const sourceDir = resolveSourceDir(detection, "python", projectRoot);
-  if (!sourceDir) return null;
-  const routerFiles = sampleFiles(
-    sourceDir,
-    /\.py$/,
-    (absPath, name) => /\/(routers?|api|endpoints?|views)\//.test(absPath) || /^(routers?|api|endpoints?)\.py$/.test(name)
-  );
-  const viewFiles = sampleFiles(sourceDir, /^views\.py$/);
-  const fallbackFiles = routerFiles.length === 0 && viewFiles.length === 0 ? sampleFiles(sourceDir, /\.py$/) : [];
-  const candidates = [...routerFiles, ...viewFiles, ...fallbackFiles].slice(
-    0,
-    MAX_SAMPLES_PER_ADAPTER
-  );
-  if (candidates.length === 0) return null;
-  const authDeps = /* @__PURE__ */ new Map();
-  const prefixBases = /* @__PURE__ */ new Map();
-  const testAsyncPatterns = /* @__PURE__ */ new Map();
-  for (const path of candidates) {
-    const body = readSafe(path);
-    if (body === null) continue;
-    const authRegex = /\bDepends\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)/gu;
-    forEachMatch(authRegex, body, (m) => {
-      const name = m[1];
-      if (!authDeps.has(name)) authDeps.set(name, path);
-    });
-    const djangoAuthRegex = /^@\s*([a-z_][a-z0-9_]*(?:_required|_login))\b/gmu;
-    forEachMatch(djangoAuthRegex, body, (m) => {
-      const name = m[1];
-      if (!authDeps.has(name)) authDeps.set(name, path);
-    });
-    const prefixRegex = /\bAPIRouter\s*\(\s*[^)]*?prefix\s*=\s*["']([^"']+)["']/gu;
-    forEachMatch(prefixRegex, body, (m) => {
-      const fullPrefix = m[1];
-      const base = extractPrefixBase(fullPrefix);
-      if (base && !prefixBases.has(base)) prefixBases.set(base, path);
-    });
-    const asyncRegex = /^(@pytest\.mark\.asyncio(?:\s*\([^)]*\))?)/gmu;
-    forEachMatch(asyncRegex, body, (m) => {
-      const pat = m[1].trim();
-      if (!testAsyncPatterns.has(pat)) testAsyncPatterns.set(pat, path);
-    });
-  }
-  const authDep = pickBestSingleton(authDeps);
-  const apiPrefixBase = pickBestSingleton(prefixBases);
-  const testAsyncPattern = pickBestSingleton(testAsyncPatterns);
-  const result = {};
-  const provenance = {};
-  if (authDep) {
-    result.auth_dep = authDep.value;
-    provenance.auth_dep_source = relativeTo(projectRoot, authDep.source);
-  }
-  if (apiPrefixBase) {
-    result.api_prefix_base = apiPrefixBase.value;
-    provenance.api_prefix_base_source = relativeTo(projectRoot, apiPrefixBase.source);
-  }
-  if (testAsyncPattern) {
-    result.test_async_pattern = testAsyncPattern.value;
-    provenance.test_async_pattern_source = relativeTo(projectRoot, testAsyncPattern.source);
-  }
-  if (Object.keys(result).length === 0) return null;
-  if (Object.keys(provenance).length > 0) result._provenance = provenance;
-  return result;
-}
-function extractPrefixBase(prefix2) {
-  if (!prefix2.startsWith("/")) return null;
-  const stripped = prefix2.replace(/^\/+/, "");
-  const firstSeg = stripped.split("/")[0];
-  if (!firstSeg) return null;
-  return "/" + firstSeg;
-}
-function introspectSwift(detection, projectRoot) {
-  const sourceDir = resolveSourceDir(detection, "swift", projectRoot);
-  if (!sourceDir) return null;
-  const viewFiles = sampleFiles(
-    sourceDir,
-    /\.swift$/,
-    (absPath, name) => /View\.swift$/.test(name) || /\/Views\//.test(absPath)
-  );
-  const fallbackFiles = viewFiles.length === 0 ? sampleFiles(sourceDir, /\.swift$/) : [];
-  const candidates = [...viewFiles, ...fallbackFiles].slice(
-    0,
-    MAX_SAMPLES_PER_ADAPTER
-  );
-  if (candidates.length === 0) return null;
-  const apiClasses = /* @__PURE__ */ new Map();
-  const biometricPolicies = /* @__PURE__ */ new Map();
-  for (const path of candidates) {
-    const body = readSafe(path);
-    if (body === null) continue;
-    const apiRegex = /\b([A-Z][A-Za-z0-9_]*API)\s*(?:\(|\.shared|\b)/gu;
-    forEachMatch(apiRegex, body, (m) => {
-      const name = m[1];
-      if (!apiClasses.has(name)) apiClasses.set(name, path);
-    });
-    const policyRegex = /\.(deviceOwnerAuthentication(?:WithBiometrics)?)\b/gu;
-    forEachMatch(policyRegex, body, (m) => {
-      const name = m[1];
-      if (!biometricPolicies.has(name)) biometricPolicies.set(name, path);
-    });
-  }
-  const apiClass = pickBestSingleton(apiClasses);
-  const biometricPolicy = pickBestSingleton(biometricPolicies);
-  const result = {};
-  const provenance = {};
-  if (apiClass) {
-    result.api_client_class = apiClass.value;
-    provenance.api_client_class_source = relativeTo(projectRoot, apiClass.source);
-  }
-  if (biometricPolicy) {
-    result.biometric_policy = biometricPolicy.value;
-    provenance.biometric_policy_source = relativeTo(projectRoot, biometricPolicy.source);
-  }
-  if (Object.keys(result).length === 0) return null;
-  if (Object.keys(provenance).length > 0) result._provenance = provenance;
-  return result;
-}
-function introspectTypeScript(detection, projectRoot) {
-  const sourceDir = resolveSourceDir(detection, "typescript", projectRoot) ?? resolveSourceDir(detection, "javascript", projectRoot);
-  if (!sourceDir) return null;
-  const routerFiles = sampleFiles(
-    sourceDir,
-    /\.tsx?$/,
-    (absPath, name) => /(router|trpc)/i.test(name) || /\/(routers|trpc|server\/api)\//.test(absPath)
-  );
-  const candidates = routerFiles.slice(0, MAX_SAMPLES_PER_ADAPTER);
-  if (candidates.length === 0) return null;
-  const builders = /* @__PURE__ */ new Map();
-  const procedurePatterns = /* @__PURE__ */ new Map();
-  for (const path of candidates) {
-    const body = readSafe(path);
-    if (body === null) continue;
-    const builderRegex = /\b(createTRPCRouter|router|t\.router)\s*\(/gu;
-    forEachMatch(builderRegex, body, (m) => {
-      const name = m[1];
-      if (!builders.has(name)) builders.set(name, path);
-    });
-    const procRegex = /\b([a-z]+Procedure)\b/gu;
-    forEachMatch(procRegex, body, (m) => {
-      const name = m[1];
-      if (!procedurePatterns.has(name)) procedurePatterns.set(name, path);
-    });
-  }
-  const builder = pickBestSingleton(builders);
-  const proc = pickBestSingleton(procedurePatterns);
-  const result = {};
-  const provenance = {};
-  if (builder) {
-    result.trpc_router_builder = builder.value;
-    provenance.trpc_router_builder_source = relativeTo(projectRoot, builder.source);
-  }
-  if (proc) {
-    result.procedure_pattern = proc.value;
-    provenance.procedure_pattern_source = relativeTo(projectRoot, proc.source);
-  }
-  if (Object.keys(result).length === 0) return null;
-  if (Object.keys(provenance).length > 0) result._provenance = provenance;
-  return result;
-}
-function resolveSourceDir(detection, lang, projectRoot) {
-  const dirs = detection.sourceDirs;
-  const info = dirs[lang];
-  const list = info?.source_dirs ?? [];
-  if (list.length > 0) {
-    const first = list[0];
-    const abs = resolve4(projectRoot, first);
-    return existsSync6(abs) ? abs : null;
-  }
-  return existsSync6(projectRoot) ? projectRoot : null;
-}
-function sampleFiles(dir, nameRegex, pathFilter) {
-  const out = [];
-  const stack = [{ path: dir, depth: 0 }];
-  while (stack.length > 0 && out.length < MAX_SAMPLES_PER_ADAPTER * 4) {
-    const { path, depth } = stack.pop();
-    if (depth > MAX_DIR_DEPTH) continue;
-    let entries;
-    try {
-      entries = readdirSync4(path);
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (entry.startsWith(".")) continue;
-      if (entry === "node_modules") continue;
-      if (entry === "__pycache__") continue;
-      if (entry === "venv" || entry === ".venv") continue;
-      if (entry === "dist" || entry === "build") continue;
-      const child = join4(path, entry);
-      let st;
-      try {
-        st = statSync3(child);
-      } catch {
-        continue;
-      }
-      if (st.isDirectory()) {
-        stack.push({ path: child, depth: depth + 1 });
-        continue;
-      }
-      if (!nameRegex.test(entry)) continue;
-      if (pathFilter && !pathFilter(child, entry)) continue;
-      if (st.size > MAX_FILE_BYTES) continue;
-      out.push(child);
-      if (out.length >= MAX_SAMPLES_PER_ADAPTER * 4) break;
-    }
-  }
-  out.sort();
-  return out.slice(0, MAX_SAMPLES_PER_ADAPTER * 2);
-}
-function readSafe(path) {
-  try {
-    const st = statSync3(path);
-    if (st.size > MAX_FILE_BYTES) return null;
-    return readFileSync4(path, "utf-8");
-  } catch {
-    return null;
-  }
-}
-function forEachMatch(re, body, cb) {
-  if (!re.global) return;
-  re.lastIndex = 0;
-  let count = 0;
-  let m;
-  while ((m = re.exec(body)) !== null) {
-    cb(m);
-    count++;
-    if (count > 1e3) break;
-    if (m.index === re.lastIndex) re.lastIndex++;
-  }
-}
-function pickBestSingleton(samples) {
-  if (samples.size === 0) return null;
-  if (samples.size >= 3) return null;
-  const [firstKey, firstSource] = samples.entries().next().value;
-  return { value: firstKey, source: firstSource };
-}
-function relativeTo(projectRoot, absPath) {
-  if (absPath.startsWith(projectRoot + "/")) {
-    return absPath.slice(projectRoot.length + 1);
-  }
-  return basename2(absPath);
-}
-
-// src/detect/adapters/runner.ts
-init_parse_guard();
-
-// src/detect/adapters/python-fastapi.ts
-import { Parser as Parser2 } from "web-tree-sitter";
-
-// src/detect/adapters/query-helpers.ts
-import { Query } from "web-tree-sitter";
-
-// src/detect/adapters/tree-sitter-loader.ts
-import { Language, Parser } from "web-tree-sitter";
-
-// src/detect/adapters/python-fastapi.ts
-init_parse_guard();
-
-// src/detect/adapters/python-django.ts
-import { Parser as Parser3 } from "web-tree-sitter";
-init_parse_guard();
-
-// src/detect/adapters/nextjs-trpc.ts
-import { Parser as Parser4 } from "web-tree-sitter";
-init_parse_guard();
-
-// src/detect/adapters/swift-swiftui.ts
-import { Parser as Parser5 } from "web-tree-sitter";
-init_parse_guard();
-
-// src/detect/adapters/python-flask.ts
-import { Parser as Parser6 } from "web-tree-sitter";
-init_parse_guard();
-
-// src/detect/adapters/go-chi.ts
-import { goChiAdapter } from "@massu/adapter-go-chi";
-
-// src/detect/adapters/rails.ts
-import { railsAdapter } from "@massu/adapter-rails";
-
-// src/detect/adapters/phoenix.ts
-import { phoenixAdapter } from "@massu/adapter-phoenix";
-
-// src/detect/adapters/aspnet.ts
-import { aspnetAdapter } from "@massu/adapter-aspnet";
-
-// src/detect/adapters/spring.ts
-import { springAdapter } from "@massu/adapter-spring";
-
-// src/detect/codebase-introspector.ts
-function introspect(detection, projectRoot) {
-  const out = {};
-  const languages = Array.from(
-    new Set(detection.manifests.map((m) => m.language))
-  );
-  if (languages.includes("python")) {
-    const python = introspectPython(detection, projectRoot);
-    if (python !== null) out.python = python;
-  }
-  if (languages.includes("swift")) {
-    const swift = introspectSwift(detection, projectRoot);
-    if (swift !== null) out.swift = swift;
-  }
-  if (languages.includes("typescript") || languages.includes("javascript")) {
-    const ts = introspectTypeScript(detection, projectRoot);
-    if (ts !== null) out.typescript = ts;
-  }
-  return out;
-}
-
-// src/detect/index.ts
-function dominantDir(lang, sourceDirs, monorepo) {
-  const info = sourceDirs[lang];
-  if (info && info.source_dirs.length > 0) return info.source_dirs[0];
-  if (monorepo.packages.length > 0) return monorepo.packages[0].path;
-  return ".";
-}
-async function runDetection(projectRoot, overrides, options) {
-  const pkg = detectPackageManifests(projectRoot);
-  const frameworks = detectFrameworks(pkg.manifests, overrides?.detection);
-  const languages = Array.from(
-    new Set(pkg.manifests.map((m) => m.language))
-  );
-  const fallbackTsForJs = languages.includes("javascript") && !languages.includes("typescript");
-  const [sourceDirs, monorepo] = await Promise.all([
-    Promise.resolve(detectSourceDirs(projectRoot, languages, { fallbackTsForJs })),
-    Promise.resolve(detectMonorepo(projectRoot))
-  ]);
-  const domains = inferDomains(projectRoot, monorepo, sourceDirs);
-  const verificationCommands = {};
-  for (const lang of languages) {
-    const fw = frameworks[lang] ?? {
-      framework: null,
-      version: null,
-      test_framework: null,
-      orm: null,
-      ui_library: null,
-      router: null
-    };
-    const dir = dominantDir(lang, sourceDirs, monorepo);
-    const userOverride = overrides?.verification?.[lang];
-    verificationCommands[lang] = getVRCommands(lang, fw, dir, userOverride);
-  }
-  const result = {
-    projectRoot,
-    manifests: pkg.manifests,
-    frameworks,
-    sourceDirs,
-    monorepo,
-    domains,
-    verificationCommands,
-    warnings: pkg.warnings
-  };
-  if (!options?.skipIntrospect) {
-    result.detected = introspect(result, projectRoot);
-  }
-  return result;
-}
-
-// src/detect/drift.ts
-import { createHash } from "crypto";
-function summarizeDetection(det) {
-  const languages = Array.from(new Set(det.manifests.map((m) => m.language))).sort();
-  const frameworks = {};
-  for (const lang of languages) {
-    const fw = det.frameworks[lang];
-    frameworks[lang] = {
-      framework: fw?.framework ?? null,
-      test_framework: fw?.test_framework ?? null,
-      orm: fw?.orm ?? null
-    };
-  }
-  const sourceDirs = {};
-  for (const lang of languages) {
-    const info = det.sourceDirs[lang];
-    sourceDirs[lang] = [...info?.source_dirs ?? []].sort();
-  }
-  const manifests = [...det.manifests.map((m) => m.relativePath)].sort();
-  const workspaces = [...det.monorepo.packages.map((p) => p.path)].sort();
-  return {
-    languages,
-    frameworks,
-    source_dirs: sourceDirs,
-    manifests,
-    monorepo: det.monorepo.type,
-    workspaces
-  };
-}
-function computeFingerprint(det) {
-  const data = summarizeDetection(det);
-  const stable = JSON.stringify(data, Object.keys(data).sort());
-  return createHash("sha256").update(stable).digest("hex");
-}
 
 // src/lib/pidLiveness.ts
 import { spawnSync } from "child_process";
@@ -9100,8 +9346,12 @@ async function buildDriftBanner() {
     const det = parsed.detection;
     const storedFp = typeof det?.fingerprint === "string" ? det.fingerprint : null;
     if (!storedFp) return "";
-    const detection = await runDetection(process.cwd(), void 0, { skipIntrospect: true });
-    const currentFp = computeFingerprint(detection);
+    const [{ runDetection: runDetection2 }, { computeFingerprint: computeFingerprint2 }] = await Promise.all([
+      Promise.resolve().then(() => (init_detect(), detect_exports)),
+      Promise.resolve().then(() => (init_drift(), drift_exports))
+    ]);
+    const detection = await runDetection2(process.cwd(), void 0, { skipIntrospect: true });
+    const currentFp = computeFingerprint2(detection);
     if (currentFp === storedFp) return "";
     return `=== Massu Config Drift ===
 Detected stack has changed since last config refresh.

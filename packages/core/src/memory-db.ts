@@ -1,6 +1,18 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
+// @scanner-allow:large-file
+// P-M-031 (plan-stage-d-medium-sweep): this file is currently 1633 LOC and
+// exceeds the 1000 LOC cap enforced by pattern-scanner Check 21. The
+// structural drift-guard (Check 21 itself, shipped in 1.11.0) prevents any
+// NEW file from exceeding the cap without an explicit allowlist marker.
+// The mechanical decomposition into memory-db/{schema,sessions,...}.ts
+// sub-modules is deferred to Stage E so the security-critical P-M items
+// ship un-coupled from a high-risk refactor across 30+ exported helpers
+// and 600+ tests that import from this module's surface. Removing this
+// marker requires shipping the sub-module split — there is no alternative
+// escape path.
+
 import Database from 'better-sqlite3';
 import { resolve, dirname, basename } from 'path';
 import { existsSync, mkdirSync } from 'fs';
@@ -38,6 +50,26 @@ export function getMemoryDb(): Database.Database {
   db.pragma('foreign_keys = ON');
   initMemorySchema(db);
   return db;
+}
+
+/**
+ * P-E-014 (plan-stage-e-low-info-sweep, wave1-hooks:F-HOOK-009).
+ *
+ * Tool-cost-event retention policy: 90 days. Without this the
+ * `tool_cost_events` table grows unbounded — customers running for
+ * months accumulate multi-GB memory.db files.
+ *
+ * Exported for the session-start hook to call once per session
+ * (cheap; uses idx_tce_created index). Returns the number of rows
+ * deleted so callers can log.
+ */
+export const TOOL_COST_EVENTS_RETENTION_DAYS = 90;
+
+export function pruneToolCostEvents(db: Database.Database): number {
+  const result = db.prepare(
+    `DELETE FROM tool_cost_events WHERE created_at < datetime('now', '-' || ? || ' days')`
+  ).run(TOOL_COST_EVENTS_RETENTION_DAYS);
+  return result.changes;
 }
 
 export function initMemorySchema(db: Database.Database): void {
@@ -587,6 +619,25 @@ export function initMemorySchema(db: Database.Database): void {
       features TEXT DEFAULT '[]'
     );
   `);
+
+  // P-M-023 (plan-stage-d-medium-sweep): in-place schema upgrade — store the
+  // entire signed /validate-key wire payload so cache reads can re-verify
+  // the Ed25519 signature. Closes the bug class where a user could edit
+  // tier/valid_until directly in SQLite to grant arbitrary tier. The signed
+  // payload is the only authoritative source; the plain columns are read
+  // only as a back-compat fallback for rows written before this migration.
+  //
+  // SQLite's ALTER TABLE ... ADD COLUMN does not support IF NOT EXISTS, so
+  // we PRAGMA-introspect and add only when missing. Idempotent across
+  // repeated initMemorySchema calls.
+  const licenseCacheCols = db
+    .prepare(`PRAGMA table_info(license_cache)`)
+    .all() as Array<{ name: string }>;
+  if (!licenseCacheCols.some((c) => c.name === 'signed_payload_json')) {
+    db.exec(
+      `ALTER TABLE license_cache ADD COLUMN signed_payload_json TEXT NOT NULL DEFAULT ''`,
+    );
+  }
 
   // ============================================================
   // Failure Classification: Taxonomy of known failure patterns

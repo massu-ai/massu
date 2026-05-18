@@ -29,7 +29,7 @@
  * cutover smoke test passes.
  */
 
-import { createVerify, createPublicKey } from 'crypto';
+import { createVerify, createPublicKey, verify as cryptoVerify } from 'crypto';
 import {
   LICENSE_PUBKEY_ED25519,
   LICENSE_PUBKEY_FINGERPRINT_HEX,
@@ -121,9 +121,7 @@ export function verifyLicenseResponse(payload: SignedLicenseResponse): Verificat
 
     // Ed25519 in node uses `verify` directly (no createVerify needed for ed25519).
     // crypto.verify(algorithm, data, key, signature) — algorithm MUST be null for Ed25519.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { verify } = require('crypto');
-    const ok = verify(
+    const ok = cryptoVerify(
       null,
       Buffer.from(canonical, 'utf-8'),
       pubkey,

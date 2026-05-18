@@ -1,9 +1,11 @@
 ---
 name: massu-audit-deps
-description: Comprehensive dependency audit (vulnerabilities, outdated, licenses, unused, bundle size)
+description: "[DEPRECATED — use /massu-deps] Comprehensive dependency audit (vulnerabilities, outdated, licenses, unused, bundle size)"
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
 name: massu-audit-deps
+
+> ⚠️ **DEPRECATED** (since `@massu/core@1.12.0`, plan `plan-stage-e-low-info-sweep` P-E-023): this command duplicates `/massu-deps`. Use `/massu-deps` instead — it covers the same dependency audit surface (vulnerabilities, outdated packages, licenses, unused deps, bundle size). This command will be **removed in `@massu/core@1.13.0`**.
 
 > **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-9, CR-35 enforced.
 

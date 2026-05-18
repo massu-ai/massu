@@ -14,9 +14,29 @@ import { logAuditEntry } from '../audit-trail.ts';
 import { trackModification, recordTestResult } from '../regression-detector.ts';
 import { validateFile, storeValidationResult } from '../validation-engine.ts';
 import { scoreFileSecurity, storeSecurityScore } from '../security-scorer.ts';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, statSync } from 'fs';
 import { join } from 'path';
-import { parse as parseYaml } from 'yaml';
+// P-E-018 (plan-stage-e-low-info-sweep): defer yaml dependency load
+// until first parse call. Most hook invocations don't need YAML
+// parsing (the massu.config.yaml read happens only when the relevant
+// convention-resolution path fires). Cold-start invocations now skip
+// yaml's module load entirely.
+//
+// Hooks are esbuild-bundled with `--external:yaml` AND a `createRequire`
+// banner — synchronous `require` defers resolution to first call.
+// `parseYaml` keeps the same name as the original direct import so the
+// post-tool-use-config-cache.test.ts grep-based drift-guard
+// (mtime-before-parseYaml-call) continues to work. The lazy import
+// resolves only ONCE thanks to the closure-cached `_yamlParser`.
+let _yamlParser: ((input: string) => unknown) | null = null;
+const parseYaml: (content: string) => unknown = (content) => {
+  if (!_yamlParser) {
+    // pattern-scanner-allow: require
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    _yamlParser = (require('yaml') as { parse: (s: string) => unknown }).parse;
+  }
+  return _yamlParser(content);
+};
 import { ingestMemoryFile } from '../memory-file-ingest.ts';
 
 interface HookInput {
@@ -317,39 +337,61 @@ function readStdin(): Promise<string> {
   });
 }
 
+type Conventions = { knowledgeSourceFiles: string[]; claudeDirName: string };
+
+// Module-scope cache for readConventions (P-M-002 plan-stage-d-medium-sweep).
+// Re-parse YAML only when config-file mtime changes within a hook lifetime.
+// Each PostToolUse invocation re-imports this module fresh (esbuild bundle starts
+// per-spawn), so the cache lifetime is per-hook-call NOT per-process — but within
+// that call, redundant readConventions() invocations short-circuit.
+let _cachedConventions: Conventions | null = null;
+let _cachedConventionsPath: string | null = null;
+let _cachedConventionsMtimeMs = 0;
+
+const _conventionDefaults: Conventions = {
+  knowledgeSourceFiles: ['CLAUDE.md', 'MEMORY.md', 'corrections.md'],
+  claudeDirName: '.claude',
+};
+
 /**
  * Read the conventions section from massu.config.yaml directly.
  * Hooks are compiled with esbuild and cannot use getConfig() from config.ts.
  * Falls back to sensible defaults if the config file is not found.
+ * Cached per (path, mtime) within a hook invocation — see _cachedConventions above.
  */
-function readConventions(cwd?: string): {
-  knowledgeSourceFiles: string[];
-  claudeDirName: string;
-} {
-  const defaults = {
-    knowledgeSourceFiles: ['CLAUDE.md', 'MEMORY.md', 'corrections.md'],
-    claudeDirName: '.claude',
-  };
+function readConventions(cwd?: string): Conventions {
   try {
     const projectRoot = cwd ?? process.cwd();
     const configPath = join(projectRoot, 'massu.config.yaml');
-    if (!existsSync(configPath)) return defaults;
+    if (!existsSync(configPath)) return _conventionDefaults;
+    const mtimeMs = statSync(configPath).mtimeMs;
+    if (
+      _cachedConventions !== null &&
+      _cachedConventionsPath === configPath &&
+      _cachedConventionsMtimeMs === mtimeMs
+    ) {
+      return _cachedConventions;
+    }
     const content = readFileSync(configPath, 'utf-8');
     // pattern-scanner-allow: yaml-parse — reason: compiled standalone hook (esbuild bundle). Per P2-023a, hooks cannot import getConfig() — they run in the Claude Code subprocess context with no module resolution path back to packages/core. Direct YAML parse is the only available access pattern.
     const parsed = parseYaml(content) as Record<string, unknown> | null;
-    if (!parsed || typeof parsed !== 'object') return defaults;
+    if (!parsed || typeof parsed !== 'object') return _conventionDefaults;
     const conventions = parsed.conventions as Record<string, unknown> | undefined;
-    if (!conventions || typeof conventions !== 'object') return defaults;
-    return {
+    if (!conventions || typeof conventions !== 'object') return _conventionDefaults;
+    const resolved: Conventions = {
       knowledgeSourceFiles: Array.isArray(conventions.knowledgeSourceFiles)
         ? conventions.knowledgeSourceFiles as string[]
-        : defaults.knowledgeSourceFiles,
+        : _conventionDefaults.knowledgeSourceFiles,
       claudeDirName: typeof conventions.claudeDirName === 'string'
         ? conventions.claudeDirName
-        : defaults.claudeDirName,
+        : _conventionDefaults.claudeDirName,
     };
+    _cachedConventions = resolved;
+    _cachedConventionsPath = configPath;
+    _cachedConventionsMtimeMs = mtimeMs;
+    return resolved;
   } catch {
-    return defaults;
+    return _conventionDefaults;
   }
 }
 
@@ -396,12 +438,17 @@ function checkMemoryFileIntegrity(filePath: string): string[] {
       issues.push(`MEMORY.md exceeds ${MAX_LINES} lines (currently ${lines.length}). Consider archiving old entries.`);
     }
 
-    // Check required structure sections
-    const requiredSections = ['# Massu Memory', '## Key Learnings', '## Common Gotchas'];
-    for (const section of requiredSections) {
-      if (!content.includes(section)) {
-        issues.push(`Missing required section: "${section}"`);
-      }
+    // P-E-020 (plan-stage-e-low-info-sweep): MEMORY.md integrity check uses
+    // structural assertions instead of brittle fixed-heading strings. The
+    // canonical format per CLAUDE.md spec is `# Memory Index` followed by
+    // `- [title](file.md) — hook` lines. Old per-heading list caused false
+    // positives every time the operator reorganized sections.
+    if (!/^#\s+Memory(\s+Index)?\s*$/m.test(content)) {
+      issues.push('MEMORY.md missing top-level `# Memory Index` heading');
+    }
+    const linkLineCount = (content.match(/^- \[[^\]]+\]\([^)]+\.md\)/mg) ?? []).length;
+    if (linkLineCount === 0) {
+      issues.push('MEMORY.md has no `- [Title](file.md) — hook` index lines');
     }
   } catch (_e) {
     // Graceful degradation: don't report issues if we can't check

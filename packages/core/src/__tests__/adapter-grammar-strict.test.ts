@@ -34,11 +34,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { aspnetAdapter } from '../detect/adapters/aspnet.ts';
-import { goChiAdapter } from '../detect/adapters/go-chi.ts';
+// P-M-032 (plan-stage-d-medium-sweep): aspnet, go-chi, phoenix adapters
+// REMOVED — zero downstream consumers. Their fixtures below are deleted.
 import { springAdapter } from '../detect/adapters/spring.ts';
 import { railsAdapter } from '../detect/adapters/rails.ts';
-import { phoenixAdapter } from '../detect/adapters/phoenix.ts';
 import { pythonFlaskAdapter } from '../detect/adapters/python-flask.ts';
 import { pythonFastApiAdapter } from '../detect/adapters/python-fastapi.ts';
 import { pythonDjangoAdapter } from '../detect/adapters/python-django.ts';
@@ -86,60 +85,7 @@ public class UserController {
 `,
     expectIn: ['high'],
   },
-  {
-    adapter: aspnetAdapter,
-    relPath: 'Controllers/UsersController.cs',
-    content: `using Microsoft.AspNetCore.Mvc;
-
-namespace MyApp.Controllers;
-
-[ApiController]
-[Route("api/[controller]")]
-public class UsersController : ControllerBase
-{
-    [HttpGet("{id:int}")]
-    public IActionResult GetById(int id) => Ok();
-}
-`,
-    expectIn: ['high'],
-  },
-  {
-    adapter: phoenixAdapter,
-    relPath: 'lib/my_app_web/router.ex',
-    content: `defmodule MyAppWeb.Router do
-  use MyAppWeb, :router
-
-  scope "/api", MyAppWeb do
-    get "/health", HealthController, :show
-  end
-end
-`,
-    expectIn: ['high'],
-  },
-  {
-    adapter: goChiAdapter,
-    relPath: 'internal/api/router.go',
-    content: `package api
-
-import (
-    "net/http"
-
-    "github.com/go-chi/chi/v5"
-    "github.com/go-chi/chi/v5/middleware"
-)
-
-func NewRouter() http.Handler {
-    r := chi.NewRouter()
-    r.Use(middleware.Logger)
-    r.Get("/users", func(w http.ResponseWriter, req *http.Request) {})
-    r.Mount("/api/v1", apiHandler())
-    return r
-}
-
-func apiHandler() http.Handler { return nil }
-`,
-    expectIn: ['high'],
-  },
+  // P-M-032: aspnet, phoenix, go-chi fixtures removed with their adapters.
   {
     adapter: pythonFlaskAdapter,
     relPath: 'app/views.py',

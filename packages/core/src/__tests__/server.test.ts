@@ -36,6 +36,25 @@ vi.mock('../db.ts', async () => {
   };
 });
 
+// plan-stage-d-medium-sweep P-M-010: dispatcher now resolves memory.db and
+// knowledge.db lazily for tools whose TOOL_DB_NEEDS declares them. Mock both
+// factories so the dispatcher does not touch the real filesystem in tests.
+vi.mock('../memory-db.ts', async () => {
+  const actual = await vi.importActual<typeof import('../memory-db.ts')>('../memory-db.ts');
+  return {
+    ...actual,
+    getMemoryDb: vi.fn(() => ({ close: vi.fn() }) as unknown as Database.Database),
+  };
+});
+
+vi.mock('../knowledge-db.ts', async () => {
+  const actual = await vi.importActual<typeof import('../knowledge-db.ts')>('../knowledge-db.ts');
+  return {
+    ...actual,
+    getKnowledgeDb: vi.fn(() => ({ close: vi.fn() }) as unknown as Database.Database),
+  };
+});
+
 vi.mock('../config.ts', () => ({
   getConfig: vi.fn(() => ({
     toolPrefix: 'massu',
@@ -74,6 +93,8 @@ vi.mock('../tools.ts', () => ({
 
 import { createDispatcher, type Dispatcher } from '../server-dispatch.ts';
 import { getCodeGraphDb, getDataDb, CodegraphDbNotInitializedError } from '../db.ts';
+import { getMemoryDb } from '../memory-db.ts';
+import { getKnowledgeDb } from '../knowledge-db.ts';
 import { getToolDefinitions, handleToolCall } from '../tools.ts';
 
 const TEST_VERSION = '1.0.0';
@@ -83,8 +104,12 @@ let dispatcher: Dispatcher;
 beforeEach(() => {
   vi.mocked(getCodeGraphDb).mockReset();
   vi.mocked(getDataDb).mockReset();
+  vi.mocked(getMemoryDb).mockReset();
+  vi.mocked(getKnowledgeDb).mockReset();
   vi.mocked(getCodeGraphDb).mockReturnValue({ close: vi.fn() } as unknown as Database.Database);
   vi.mocked(getDataDb).mockReturnValue({ close: vi.fn() } as unknown as Database.Database);
+  vi.mocked(getMemoryDb).mockReturnValue({ close: vi.fn() } as unknown as Database.Database);
+  vi.mocked(getKnowledgeDb).mockReturnValue({ close: vi.fn() } as unknown as Database.Database);
   vi.mocked(getToolDefinitions).mockClear();
   vi.mocked(handleToolCall).mockReset();
   vi.mocked(handleToolCall).mockResolvedValue({ content: [{ type: 'text', text: 'tool result' }] });
@@ -204,11 +229,18 @@ describe('Server JSON-RPC 2.0 — tools/call', () => {
       method: 'tools/call',
       params: { name: 'massu_context', arguments: { file: 'src/index.ts' } },
     });
+    // plan-stage-d-medium-sweep P-M-010: handleToolCall signature extended
+    // to (name, args, dataDb, codegraphDb, memoryDb, knowledgeDb). For
+    // massu_context (TOOL_DB_NEEDS = ['data', 'codegraph']), memoryDb +
+    // knowledgeDb are undefined; the test asserts the first four argument
+    // shape and lets the trailing optional args be anything (incl. undefined).
     expect(vi.mocked(handleToolCall)).toHaveBeenCalledWith(
       'massu_context',
       { file: 'src/index.ts' },
       expect.anything(),
       expect.anything(),
+      undefined,
+      undefined,
     );
   });
 
@@ -224,6 +256,8 @@ describe('Server JSON-RPC 2.0 — tools/call', () => {
       {},
       expect.anything(),
       expect.anything(),
+      undefined,
+      undefined,
     );
   });
 });
@@ -255,7 +289,11 @@ describe('Server JSON-RPC 2.0 — lazy per-tool DB resolution', () => {
     expect(vi.mocked(getDataDb)).toHaveBeenCalledTimes(1);
   });
 
-  it('opens NEITHER for memory tools (handler opens memory DB itself)', async () => {
+  it('opens memory.db at dispatcher level for memory tools, not codegraph or data', async () => {
+    // plan-stage-d-medium-sweep P-M-010: dispatcher now eagerly resolves
+    // memory.db (cached for the process lifetime) for tools whose
+    // TOOL_DB_NEEDS declares 'memory'. Codegraph + Data must still NOT be
+    // opened for memory-only tools.
     await dispatcher.handleRequest({
       jsonrpc: '2.0',
       id: 7,

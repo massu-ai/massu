@@ -82,7 +82,15 @@ describe('bundle-adapters reproducibility (P-B-003 / drift-prevention #2)', () =
     }
   });
 
-  it('sentinel covers all 5 first-party workspace adapters + 4 helpers + the adapter subpath', () => {
+  it('sentinel covers all first-party workspace adapters + 4 helpers + the adapter subpath', () => {
+    // P-M-032 (plan-stage-d-medium-sweep, commit 6944c11): aspnet, phoenix,
+    // and go-chi adapters were REMOVED from source. The two remaining
+    // first-party adapters are `rails` and `spring`. Total required keys:
+    // 2 frameworks + 4 helpers + 1 subpath = 7. Drift-guard against the
+    // P-M-032 removal is preserved by the explicit list below — adding a
+    // new adapter requires touching THREE places (workspace package,
+    // bundle-adapters.ts ADAPTERS, and this list) and the drift between
+    // any two FAILs this test.
     if (!existsSync(SENTINEL)) {
       console.warn('[adapter-bundle-reproducibility] SKIP: dist not built');
       return;
@@ -90,13 +98,9 @@ describe('bundle-adapters reproducibility (P-B-003 / drift-prevention #2)', () =
     const sentinel = JSON.parse(readFileSync(SENTINEL, 'utf-8')) as Record<string, string>;
     const keys = Object.keys(sentinel).sort();
 
-    // Required keys: 5 frameworks + 4 helpers + 1 subpath = 10
     const expectedKeys = [
       '@massu/core/adapter',
-      'aspnet',
-      'go-chi',
       'parse-guard',
-      'phoenix',
       'query-helpers',
       'rails',
       'spring',

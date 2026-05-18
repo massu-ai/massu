@@ -19,6 +19,15 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# Awk portability shim (P-E-003): macOS ships BSD awk which rejects ERE
+# escapes like `require\(`. Prefer GNU awk (gawk) when available — falls
+# back to system awk + caller-side `[(]` escaping for portability.
+if command -v gawk >/dev/null 2>&1; then
+  AWK="gawk"
+else
+  AWK="awk"
+fi
+
 pass() { echo -e "  ${GREEN}PASS${NC}: $1"; }
 fail() { echo -e "  ${RED}FAIL${NC}: $1"; VIOLATIONS=$((VIOLATIONS + 1)); }
 warn() { echo -e "  ${YELLOW}WARN${NC}: $1"; }
@@ -64,15 +73,23 @@ scan_with_directive() {
       esac
     done
     [ "$skip" = "1" ] && continue
-    awk -v file="$f" -v vre="$violation_regex" -v key="$directive_key" '
+    "$AWK" -v file="$f" -v vre="$violation_regex" -v key="$directive_key" '
+      # Directive line — set allow for the next NON-COMMENT, NON-BLANK line.
       $0 ~ "pattern-scanner-allow:[[:space:]]*" key { allow_next = 1; next }
+      # Violation candidate.
       $0 ~ vre {
         if (allow_next) { allow_next = 0; next }
-        if ($0 ~ /^[[:space:]]*(\*|\/\/|\/\*)/) { allow_next = 0; next }
+        # Skip if the match itself is inside a comment line.
+        if ($0 ~ /^[[:space:]]*(\*|\/\/|\/\*)/) { next }
         print file ":" NR ":" $0
-        allow_next = 0
         next
       }
+      # Allow flag persists through comment-only and blank lines so a
+      # multi-line allow rationale (block-comment style) does not break
+      # the bridge between directive and the actual call line. Reset only
+      # on the first NON-COMMENT, NON-BLANK line.
+      $0 ~ /^[[:space:]]*$/ { next }
+      $0 ~ /^[[:space:]]*(\*|\/\/|\/\*)/ { next }
       { allow_next = 0 }
     ' "$f"
   done < <(find "$SRC_DIR" -name "*.ts" \
@@ -100,7 +117,7 @@ echo ""
 #     mirroring scripts/massu-public-leak-guard.sh:179.
 # -------------------------------------------------------
 echo "Check 1: No require() in source files"
-REQUIRE_HITS=$(scan_with_directive 'require\(' 'require' '*/hooks/*')
+REQUIRE_HITS=$(scan_with_directive 'require[(]' 'require' '*/hooks/*')
 REQUIRE_COUNT=$(printf '%s\n' "$REQUIRE_HITS" | grep -c . || true)
 if [ "$REQUIRE_COUNT" -gt 0 ]; then
   fail "Found $REQUIRE_COUNT require() calls in src/ (use ESM imports OR add a // pattern-scanner-allow: require directive on the line BEFORE the call)"
@@ -198,7 +215,7 @@ fi
 #     implementation; exempting via directive would be redundant).
 # -------------------------------------------------------
 echo "Check 5: Config access via getConfig() only"
-YAML_HITS=$(scan_with_directive 'yaml\.parse[A-Za-z]*\(|parseYaml\(|yamlParse\(|parseDocument\(' 'yaml-parse' '*/config.ts')
+YAML_HITS=$(scan_with_directive 'yaml\.parse[A-Za-z]*[(]|parseYaml[(]|yamlParse[(]|parseDocument[(]' 'yaml-parse' '*/config.ts')
 YAML_COUNT=$(printf '%s\n' "$YAML_HITS" | grep -c . || true)
 if [ "$YAML_COUNT" -gt 0 ]; then
   fail "Found $YAML_COUNT direct YAML parse calls outside config.ts (use getConfig() OR add a // pattern-scanner-allow: yaml-parse directive on the line BEFORE the call)"
@@ -284,25 +301,39 @@ else
 fi
 
 # -------------------------------------------------------
-# Check 10: Memory system patterns
-# Verifies getMemoryDb() is closed after use (try/finally pattern)
+# Check 10: Memory system patterns (P-E-004 — per-file leak detection)
+# Verifies every file that calls getMemoryDb() also contains a .close()
+# call on SOME variable. The original count-based check produced false
+# positives when files used variable names other than `memDb` (db, memoryDb,
+# mdb) or used a centralized close helper.
 # -------------------------------------------------------
 echo "Check 10: Memory DB closed after use (try/finally pattern)"
-MEMORY_DB_OPEN=$(grep -rn 'getMemoryDb()' "$SRC_DIR" --include="*.ts" \
-  | grep -v '__tests__' \
-  | grep -v 'node_modules' \
-  | grep -v '\.test\.ts:' \
-  | grep -v 'memory-db\.ts' \
-  | wc -l | tr -d ' ')
-MEMORY_DB_CLOSE=$(grep -rn 'memDb\.close()' "$SRC_DIR" --include="*.ts" \
-  | grep -v '__tests__' \
-  | grep -v 'node_modules' \
-  | grep -v '\.test\.ts:' \
-  | wc -l | tr -d ' ')
-if [ "$MEMORY_DB_OPEN" -gt 0 ] && [ "$MEMORY_DB_CLOSE" -lt "$MEMORY_DB_OPEN" ]; then
-  warn "getMemoryDb() called $MEMORY_DB_OPEN times but memDb.close() only $MEMORY_DB_CLOSE times (possible leak)"
+MEMORY_LEAK_FILES=""
+MEMORY_LEAK_COUNT=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  # File contains getMemoryDb() (excluding the helper itself)?
+  case "$f" in
+    */memory-db.ts) continue ;;
+    */__tests__/*) continue ;;
+    *.test.ts) continue ;;
+  esac
+  # Detect actual getMemoryDb() CALLS (not comment-line references).
+  if grep -nE '^[[:space:]]*[^[:space:]/*]+.*getMemoryDb\(\)' "$f" 2>/dev/null | grep -qv '^[[:space:]]*//' ; then
+    # Look for ANY `.close()` or `?.close()` call in the same file
+    # (try/finally, helper, optional-chain — all valid close patterns).
+    if ! grep -qE '\b[A-Za-z_][A-Za-z0-9_]*\??\.close\(\)' "$f" 2>/dev/null; then
+      MEMORY_LEAK_FILES="$MEMORY_LEAK_FILES$f\n"
+      MEMORY_LEAK_COUNT=$((MEMORY_LEAK_COUNT + 1))
+    fi
+  fi
+done < <(find "$SRC_DIR" -name "*.ts" -not -path "*/node_modules/*" 2>/dev/null)
+
+if [ "$MEMORY_LEAK_COUNT" -gt 0 ]; then
+  warn "$MEMORY_LEAK_COUNT file(s) call getMemoryDb() but contain no .close() — possible leaks:"
+  printf '%b' "$MEMORY_LEAK_FILES" | head -5
 else
-  pass "Memory DB open/close balanced ($MEMORY_DB_OPEN opens, $MEMORY_DB_CLOSE closes)"
+  pass "Memory DB open/close balanced (every file calling getMemoryDb() has a matching .close())"
 fi
 
 # -------------------------------------------------------
@@ -522,6 +553,251 @@ else
     fail "Public-content leak detected (see /tmp/massu-website-content-leak-guard.log)"
     tail -10 /tmp/massu-website-content-leak-guard.log
   fi
+fi
+
+# -------------------------------------------------------
+# Check 19: console.* on hot paths in packages/core (plan-stage-d-medium-sweep P-M-035)
+# Closes wave2-architecture F-ARCH-008. MCP server protocol requires stdout
+# to be JSON-RPC ONLY. A console.log on a code path reachable during server
+# lifecycle corrupts the JSON-RPC frame → silent client disconnect. This
+# check forbids console.log/error/warn in packages/core/src outside the
+# `hooks/`, `commands/`, `__tests__/` dirs and explicit `@stdout-allow:`
+# allowlist comments on the preceding line.
+# -------------------------------------------------------
+echo "Check 19: console.* on hot paths (P-M-035)"
+CHECK19_VIOLATIONS=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    *"/hooks/"*) continue ;;
+    *"/commands/"*) continue ;;
+    *"/__tests__/"*) continue ;;
+    *.test.ts) continue ;;
+    *"/cli.ts") continue ;;
+    *"/backfill-sessions.ts") continue ;;
+    *"/knowledge-indexer.ts") continue ;;
+  esac
+  # Use awk to inspect the previous line for the allowlist marker.
+  hits=$(awk '
+    /(\@stdout-allow|pattern-scanner-allow:\s*stdout)/ { allow = NR + 1; next }
+    /console\.(log|error|warn)\s*\(/ {
+      if (NR == allow) next
+      print FILENAME ":" NR ":" $0
+    }
+  ' "$f" 2>/dev/null)
+  if [ -n "$hits" ]; then
+    echo "$hits" >> /tmp/massu-check19-violations.log
+    CHECK19_VIOLATIONS=$((CHECK19_VIOLATIONS + 1))
+  fi
+done < <(find "$SRC_DIR" -type f -name "*.ts" 2>/dev/null)
+
+if [ "$CHECK19_VIOLATIONS" -gt 0 ]; then
+  fail "Check 19: $CHECK19_VIOLATIONS file(s) have console.* on hot paths"
+  cat /tmp/massu-check19-violations.log 2>/dev/null | head -20
+  rm -f /tmp/massu-check19-violations.log
+else
+  pass "No console.log/error/warn on hot paths in packages/core/src"
+fi
+
+# -------------------------------------------------------
+# Check 23: TODO/FIXME without plan-token or issue-link (plan-stage-d-medium-sweep P-M-037)
+# Closes wave2-architecture F-ARCH-014 silent-skip class. Any new TODO,
+# FIXME, "workaround", "for now", "good enough" comment in packages/core
+# source MUST carry an `@plan:<token>` or `@issue:<#>` reference so the
+# follow-up is discoverable. Bare TODOs that never get closed are
+# permanent rot. The check warns rather than fails when retrofitting
+# pre-existing entries — new commits add markers as they touch code.
+# -------------------------------------------------------
+echo "Check 23: TODO/FIXME require @plan: or @issue: tag (P-M-037)"
+CHECK23_VIOLATIONS=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    *"/__tests__/"*) continue ;;
+    *.test.ts) continue ;;
+    *"/dist/"*) continue ;;
+    *"/node_modules/"*) continue ;;
+  esac
+  # Match comment lines containing TODO/FIXME/workaround/for now/good enough
+  # AND missing @plan: or @issue: markers, AND not already marked
+  # @stdout-allow (covered by Check 19) or pattern-scanner-allow.
+  hits=$(awk '
+    /(\/\/|\*)\s*(TODO|FIXME|workaround|for now|good enough)/ {
+      if (/@plan\s*:|@issue\s*:|@stdout-allow|pattern-scanner-allow/) next
+      print FILENAME ":" NR ":" $0
+    }
+  ' "$f" 2>/dev/null)
+  if [ -n "$hits" ]; then
+    echo "$hits" >> /tmp/massu-check23-violations.log
+    CHECK23_VIOLATIONS=$((CHECK23_VIOLATIONS + 1))
+  fi
+done < <(find "$SRC_DIR" -type f \( -name "*.ts" -o -name "*.tsx" \) 2>/dev/null)
+
+if [ "$CHECK23_VIOLATIONS" -gt 0 ]; then
+  warn "Check 23: $CHECK23_VIOLATIONS file(s) have untagged TODO/FIXME (warn — non-blocking)"
+  head -10 /tmp/massu-check23-violations.log 2>/dev/null
+  rm -f /tmp/massu-check23-violations.log
+else
+  pass "No untagged TODO/FIXME/workaround comments in packages/core/src"
+fi
+
+# -------------------------------------------------------
+# Check 22: audit_log direct-insert ban (plan-stage-d-medium-sweep P-M-034)
+# Closes wave2-architecture F-ARCH-007. Every audit-log write across the
+# website codebase MUST go through `auditWrite()` from
+# `website/src/lib/audit-write.ts`. Direct `from('audit_log').insert(...)`
+# calls bypass the helper's null-org routing (audit_log_unattributed),
+# violate CR-39 (silent-skip), and create schema-drift surface across the
+# 28+ historical callsites. The helper file itself is the only legal
+# location for the pattern; tests are excluded as fixtures.
+# -------------------------------------------------------
+echo "Check 22: audit_log direct-insert ban (P-M-034)"
+CHECK22_VIOLATIONS=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    *"audit-write.ts"*) continue ;;
+    */__tests__/*) continue ;;
+    *.test.ts) continue ;;
+  esac
+  grep -nE "\.from\([\"']audit_log[\"']\)[[:space:]]*\.insert\b" "$f" >> /tmp/massu-check22-violations.log 2>/dev/null && \
+    CHECK22_VIOLATIONS=$((CHECK22_VIOLATIONS + 1))
+done < <(find "$REPO_ROOT/website/src" -type f \( -name "*.ts" -o -name "*.tsx" \) 2>/dev/null)
+
+if [ "$CHECK22_VIOLATIONS" -gt 0 ]; then
+  fail "Check 22: $CHECK22_VIOLATIONS file(s) bypass auditWrite() helper"
+  cat /tmp/massu-check22-violations.log 2>/dev/null
+  rm -f /tmp/massu-check22-violations.log
+else
+  pass "All audit_log writes go through auditWrite() helper"
+fi
+
+# -------------------------------------------------------
+# Check 24: Public-command docs completeness (plan-stage-d-medium-sweep P-M-040)
+# -------------------------------------------------------
+# Closes wave3-help-sync DRIFT-06. Every `.claude/commands/massu-*.md`
+# (NOT `massu-internal-*`) MUST have a corresponding doc page at
+# `website/content/docs/commands/<name>.mdx`. Delegate to the dedicated
+# script so the same enforcement runs in pre-push, CI, and ceremony pre-flight.
+# Triage-pending commands listed in `.claude/commands/.docs-triage-pending.txt`
+# are exempt (operator-coordinated triage tracked separately).
+# -------------------------------------------------------
+echo "Check 24: Public-command docs completeness (P-M-040)"
+if bash "$REPO_ROOT/scripts/diff-commands-vs-docs.sh" >/tmp/massu-check24-out.log 2>&1; then
+  pass "All public commands have docs (or are triage-pending allowlisted)"
+else
+  fail "Check 24: Public-command docs drift detected"
+  cat /tmp/massu-check24-out.log 2>/dev/null
+fi
+rm -f /tmp/massu-check24-out.log
+
+# -------------------------------------------------------
+# Check 25: SQL .all() must carry LIMIT (plan-stage-d-medium-sweep P-DG-001)
+# -------------------------------------------------------
+# Grep-level safety net mirroring the ESLint rule `massu/no-unbounded-sql-all`.
+# The ESLint rule walks the AST and is the authoritative gate when running
+# `npx eslint`. This scanner check is a CI tripwire that runs even when
+# ESLint is not invoked (e.g., during a pre-commit Bash flow). It flags any
+# `db.prepare(...)... .all()` chain where the literal SQL appears not to
+# contain a LIMIT clause. False positives can be silenced with an inline
+# `// eslint-disable-next-line massu/no-unbounded-sql-all -- <reason>` (the
+# ESLint disable comment doubles as the scanner allowlist marker).
+# -------------------------------------------------------
+echo "Check 25: SQL .all() bounded by LIMIT (P-DG-001)"
+CHECK25_VIOLATIONS=0
+check25_scan() {
+  local root="$1"
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    case "$f" in
+      */__tests__/*) continue ;;
+      *.test.ts) continue ;;
+      */dist/*) continue ;;
+      */node_modules/*) continue ;;
+      */.next/*) continue ;;
+    esac
+    # Awk pass extracts `.prepare(... ).all()` chains, checks whether the
+    # captured SQL contains LIMIT, and emits violations.
+    hits=$(awk '
+      # Strip inline /* ... */ comments to avoid false hits in prose.
+      function strip_comments(s) { gsub(/\/\*[^*]*\*+([^/*][^*]*\*+)*\//, "", s); return s }
+      # Track allowlist disable comments on preceding lines.
+      /eslint-disable-next-line[^\n]*massu\/no-unbounded-sql-all/ { allow = NR + 1 }
+      /\.prepare\(/ { buf = $0; line_start = NR; collecting = 1; next }
+      collecting {
+        buf = buf "\n" $0
+        if (/\.all\(/) {
+          collecting = 0
+          if (NR == allow || line_start == allow) next
+          tmp = strip_comments(buf)
+          # Crude SELECT? + LIMIT? grep.
+          if (tmp ~ /[Ss][Ee][Ll][Ee][Cc][Tt]/ &&
+              tmp !~ /[Cc][Oo][Uu][Nn][Tt]\s*\(/ &&
+              tmp !~ /[Ll][Ii][Mm][Ii][Tt]\s*(\$|\?|:|[0-9])/) {
+            print FILENAME ":" line_start ":" buf
+          }
+        }
+      }
+    ' "$f" 2>/dev/null)
+    if [ -n "$hits" ]; then
+      echo "$hits" >> /tmp/massu-check25-violations.log
+      CHECK25_VIOLATIONS=$((CHECK25_VIOLATIONS + 1))
+    fi
+  done < <(find "$root" -type f \( -name "*.ts" -o -name "*.tsx" \) 2>/dev/null)
+}
+check25_scan "$SRC_DIR"
+if [ -d "$REPO_ROOT/website/src" ]; then
+  check25_scan "$REPO_ROOT/website/src"
+fi
+
+if [ "$CHECK25_VIOLATIONS" -gt 0 ]; then
+  fail "Check 25: $CHECK25_VIOLATIONS file(s) have unbounded .prepare(...).all() chains"
+  head -30 /tmp/massu-check25-violations.log 2>/dev/null
+  rm -f /tmp/massu-check25-violations.log
+else
+  pass "All .prepare(SELECT ...).all() chains carry LIMIT (or are allowlisted)"
+fi
+
+# -------------------------------------------------------
+# Check 21: File-size cap on packages/core/src TypeScript modules
+#          (plan-stage-d-medium-sweep P-M-031)
+# -------------------------------------------------------
+# Closes wave2-architecture F-ARCH-004. Single files >1000 LOC accrue
+# god-module gravity: tests cascade, refactors stall, ownership blurs.
+# This check enforces the upper bound structurally. Files that legitimately
+# exceed the cap MUST add a `// @scanner-allow:large-file <reason>` comment
+# in the first 30 lines documenting WHY. Future modules cannot accidentally
+# grow past the cap without an explicit acknowledgement.
+# -------------------------------------------------------
+echo "Check 21: File-size cap (packages/core/src) (P-M-031)"
+CHECK21_VIOLATIONS=0
+CHECK21_CAP=1000
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    */__tests__/*) continue ;;
+    *.test.ts) continue ;;
+    */dist/*) continue ;;
+    */node_modules/*) continue ;;
+  esac
+  loc=$(wc -l < "$f" 2>/dev/null | tr -d ' ')
+  [ -z "$loc" ] && continue
+  if [ "$loc" -gt "$CHECK21_CAP" ]; then
+    # Allow if the file head carries an explicit allowlist marker.
+    if head -n 30 "$f" 2>/dev/null | grep -qE '@scanner-allow:large-file'; then
+      continue
+    fi
+    echo "$f:$loc lines" >> /tmp/massu-check21-violations.log
+    CHECK21_VIOLATIONS=$((CHECK21_VIOLATIONS + 1))
+  fi
+done < <(find "$SRC_DIR" -type f -name "*.ts" 2>/dev/null)
+
+if [ "$CHECK21_VIOLATIONS" -gt 0 ]; then
+  fail "Check 21: $CHECK21_VIOLATIONS file(s) exceed $CHECK21_CAP LOC without @scanner-allow:large-file marker"
+  cat /tmp/massu-check21-violations.log 2>/dev/null
+  rm -f /tmp/massu-check21-violations.log
+else
+  pass "All packages/core/src TypeScript modules within $CHECK21_CAP LOC cap"
 fi
 
 # -------------------------------------------------------

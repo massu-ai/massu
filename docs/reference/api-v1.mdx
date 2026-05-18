@@ -132,13 +132,20 @@ Example response:
 }
 ```
 
-#### Get Session Quality Score
+#### Get Quality Trend
 
 ```http
-GET /api/v1/quality/:session_id
+GET /api/v1/quality/trend
 ```
 
-Returns quality score breakdown for a specific session.
+Query parameters:
+- `granularity` (string): "day" | "week" | "month" (default: "day")
+- `date_from` (string): ISO 8601 date
+- `date_to` (string): ISO 8601 date
+
+Returns time-series quality data points. Per-session quality breakdown
+is available via `/api/v1/sessions/[id]` which includes the
+`quality_metadata` object inline.
 
 ### Cost
 
@@ -171,72 +178,91 @@ Example response:
 }
 ```
 
-#### Get Budget Status
+> **Note**: budget data is included in the `/api/v1/cost` summary payload
+> via the `current_budget` field — no separate `/api/v1/cost/budget`
+> endpoint exists. See "Cost Trend" below for time-series budget vs.
+> spend.
+
+#### Get Cost Trend
 
 ```http
-GET /api/v1/cost/budget
-```
-
-Returns current budget configuration and usage.
-
-### Security
-
-#### Get Security Alerts
-
-```http
-GET /api/v1/security/alerts
+GET /api/v1/cost/trend
 ```
 
 Query parameters:
-- `severity` (string): "critical", "high", "medium", "low"
-- `status` (string): "open", "acknowledged", "resolved"
-- `page` (integer): Page number
-- `per_page` (integer): Results per page
+- `granularity` (string): "day" | "week" | "month" (default: "day")
+- `date_from` (string): ISO 8601 date
+- `date_to` (string): ISO 8601 date
+
+Returns time-series cost and budget data points.
+
+### Security
+
+#### Get Security Overview
+
+```http
+GET /api/v1/security
+```
+
+Returns aggregated security data for the org — average score, score
+range, total sessions analyzed, and the 10 most recent sessions with
+security metadata. Use `recent_sessions[].security_metadata` to inspect
+per-session findings.
+
+> P-M-043 (plan-stage-d-medium-sweep): prior doc entries for
+> `/api/v1/security/alerts` and `/api/v1/security/score` were removed —
+> they never mapped to real route handlers. The aggregated payload above
+> covers both prior views.
 
 Example response:
 
 ```json
 {
-  "data": [
+  "summary": {
+    "avg_score": 87.5,
+    "min_score": 62,
+    "max_score": 100,
+    "total_sessions": 42
+  },
+  "recent_sessions": [
     {
-      "id": "alert_xyz789",
-      "severity": "high",
-      "title": "Hardcoded API key detected",
-      "description": "Found potential API key in session turn 3",
-      "session_id": "sess_abc123",
-      "status": "open",
-      "created_at": "2026-02-15T10:30:00Z"
+      "id": "sess_abc123",
+      "project": "my-app",
+      "created_at": "2026-02-15T10:30:00Z",
+      "security_metadata": { "score": 89, "findings": [] }
     }
-  ],
-  "pagination": {
-    "page": 1,
-    "per_page": 50,
-    "total": 8
-  }
+  ]
 }
 ```
 
-#### Get Security Score
+#### Get Security Heatmap
 
 ```http
-GET /api/v1/security/score
+GET /api/v1/security/heatmap
 ```
 
-Returns overall security score and breakdown.
+Returns a per-file heatmap of risk findings aggregated across sessions.
 
 ### Team
 
-#### List Team Members
+#### Get Team Overview
 
 ```http
-GET /api/v1/team/members
+GET /api/v1/team
 ```
+
+Returns the org's team roster and aggregated activity summary.
+
+> P-M-043 (plan-stage-d-medium-sweep): prior doc entries for
+> `/api/v1/team/members` and `/api/v1/team/activity` were removed —
+> they never mapped to real route handlers. The consolidated payload
+> below covers both prior views.
 
 Example response:
 
 ```json
 {
-  "data": [
+  "members": [
     {
       "id": "user_123",
       "email": "alice@example.com",
@@ -244,22 +270,22 @@ Example response:
       "role": "admin",
       "joined_at": "2026-01-15T09:00:00Z"
     }
-  ]
+  ],
+  "activity_summary": {
+    "sessions_last_7d": 124,
+    "active_members_last_7d": 8
+  }
 }
 ```
 
-#### Get Team Activity
+#### Get Team Expertise
 
 ```http
-GET /api/v1/team/activity
+GET /api/v1/team/expertise
 ```
 
-Query parameters:
-- `user_id` (string): Filter by user ID
-- `date_from` (string): ISO 8601 date
-- `date_to` (string): ISO 8601 date
-
-Returns activity logs for team members.
+Returns per-member domain expertise scores derived from commit history
+and sentinel ownership records.
 
 ### Audit
 
@@ -299,13 +325,35 @@ Example response:
 }
 ```
 
+#### Get Audit Report
+
+```http
+GET /api/v1/audit/report
+```
+
+Returns a pre-aggregated audit report scoped to the org. When no pre-
+generated report exists, the route synthesizes a paginated fallback
+bounded by `LIMIT 10000` (P-M-013) with cursor-based continuation via
+the `cursor` query parameter.
+
+Query parameters:
+- `cursor` (string): ISO 8601 timestamp used for keyset pagination
+- `direction` (string): "before" | "after" (default: "before")
+
+Response includes `truncated: true` and `next_cursor` when the fallback
+hits its LIMIT — keep paging to retrieve the full set.
+
 ### PR Risk Scores
 
 #### List PR Risk Scores
 
 ```http
-GET /api/v1/risk/prs
+GET /api/v1/risk
 ```
+
+> P-M-043 (plan-stage-d-medium-sweep): prior doc entry referenced
+> `/api/v1/risk/prs` which never existed as a route. The list payload
+> below IS the default `/api/v1/risk` response shape.
 
 Query parameters:
 - `repo` (string): Filter by repository

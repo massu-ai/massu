@@ -231,8 +231,9 @@ describe('CLI: Hooks Installation', () => {
   it('creates .claude/settings.local.json with hooks', () => {
     const { installed, count } = installHooks(TEST_DIR);
     expect(installed).toBe(true);
-    // 16 total: 1 SessionStart + 2 PreToolUse + 8 PostToolUse + 2 Stop + 1 PreCompact + 2 UserPromptSubmit
-    expect(count).toBe(16);
+    // 15 total (P-E-019): 1 SessionStart + 1 PreToolUse (consolidated gate) +
+    // 8 PostToolUse + 2 Stop + 1 PreCompact + 2 UserPromptSubmit
+    expect(count).toBe(15);
 
     const settingsPath = resolve(TEST_DIR, '.claude/settings.local.json');
     expect(existsSync(settingsPath)).toBe(true);
@@ -266,13 +267,12 @@ describe('CLI: Hooks Installation', () => {
     // P-003 (1.9.4+): commands now use `hook-runner <name>` (no `.js` suffix).
     const hooksConfig = buildHooksConfig('node_modules/@massu/core/dist/hooks');
 
-    // Check PreToolUse has security-gate and pre-delete-check
+    // P-E-019 (1.12.0): consolidated PreToolUse gate — single hook
+    // covers BOTH security-gate AND pre-delete-check checks in one spawn.
     const preToolUse = hooksConfig.PreToolUse;
-    expect(preToolUse).toHaveLength(2);
-    expect(preToolUse[0].matcher).toBe('Bash');
-    expect(preToolUse[0].hooks[0].command).toContain('hook-runner security-gate');
-    expect(preToolUse[1].matcher).toBe('Bash|Write');
-    expect(preToolUse[1].hooks[0].command).toContain('hook-runner pre-delete-check');
+    expect(preToolUse).toHaveLength(1);
+    expect(preToolUse[0].matcher).toBe('Bash|Write|Edit');
+    expect(preToolUse[0].hooks[0].command).toContain('hook-runner pre-tool-use-gate');
 
     // PostToolUse has three groups: all-matcher (3 hooks), Edit|Write (3 hooks),
     // and Write-only (2 hooks for auto-learning pipelines).
@@ -307,8 +307,9 @@ describe('CLI: Hooks Installation', () => {
     expect(userPrompt[0].hooks[1].command).toContain('hook-runner intent-suggester');
   });
 
-  it('counts all 16 hooks correctly', () => {
-    // 2 PreToolUse + 8 PostToolUse (3+3+2) + 2 Stop + 1 PreCompact + 2 UserPromptSubmit + 1 SessionStart = 16
+  it('counts all 15 hooks correctly (P-E-019 consolidated 2 PreToolUse → 1)', () => {
+    // 1 PreToolUse (consolidated gate) + 8 PostToolUse (3+3+2) + 2 Stop +
+    // 1 PreCompact + 2 UserPromptSubmit + 1 SessionStart = 15
     const hooksConfig = buildHooksConfig('test/path');
     let count = 0;
     for (const groups of Object.values(hooksConfig)) {
@@ -316,6 +317,6 @@ describe('CLI: Hooks Installation', () => {
         count += group.hooks.length;
       }
     }
-    expect(count).toBe(16);
+    expect(count).toBe(15);
   });
 });

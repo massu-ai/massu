@@ -112,8 +112,23 @@ async function main(): Promise<void> {
       break;
     }
     default: {
-      // No subcommand or unknown: fall through to MCP server mode
-      // This maintains backward compatibility with `npx @massu/core`
+      // P-E-027 (plan-stage-e-low-info-sweep): differentiate "no
+      // subcommand" (legitimate MCP-server entry) from "unknown
+      // subcommand" (customer typo). Previously both fell through
+      // silently to MCP stdio mode, which made `npx @massu/core foo`
+      // hang the terminal with no error message — customer thinks
+      // they invoked something; actually their terminal is now an
+      // MCP server waiting for JSON-RPC on stdin.
+      if (subcommand && !subcommand.startsWith('-')) {
+        process.stderr.write(
+          `Error: Unknown subcommand '${subcommand}'.\n` +
+            `Run \`npx @massu/core --help\` for the list of available subcommands.\n` +
+            `To start the MCP server, run without a subcommand (e.g. \`npx @massu/core\`).\n`
+        );
+        process.exit(2);
+      }
+      // No subcommand: fall through to MCP server mode (backward
+      // compatible with `npx @massu/core` and `npx @massu/core --stdio`).
       await import('./server.ts');
     }
   }

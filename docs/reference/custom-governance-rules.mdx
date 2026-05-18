@@ -1,0 +1,100 @@
+---
+title: "Custom Governance Rules"
+description: "Author CR-style governance rules in massu.config.yaml that ship with your project and surface alongside Massu's framework rules."
+order: 50
+---
+
+# Custom Governance Rules
+
+Massu lets your team author **CR-style governance rules** that travel with
+the project. They live under the top-level `governance_rules:` section of
+`massu.config.yaml`, load into the Massu knowledge base at config-refresh
+time, and surface through the same `knowledge_rule` lookups as the
+framework's built-in canonical rules.
+
+## When to use this vs. the existing `rules:` field
+
+The two top-level keys look similar but serve different purposes:
+
+| Field                | Purpose                                              | Loaded into                    |
+| -------------------- | ---------------------------------------------------- | ------------------------------ |
+| `rules:`             | Path-scoped lint hints surfaced by pattern-scanner   | In-memory (per scan)           |
+| `governance_rules:`  | CR-style governance rules with VR-* mapping          | `knowledge_rules` SQLite table |
+
+If you want to say "every file under `app/api/**` must validate input via
+Zod," use `rules:` — it is a tag the scanner attaches to matching paths.
+
+If you want to say "Rule: no `any` types anywhere in TypeScript files, see
+`.claude/rules/no-any-type.md`," use `governance_rules:` — it indexes into
+your knowledge base and shows up in `massu_knowledge_rule` results next to
+framework CRs.
+
+## Schema
+
+```yaml
+governance_rules:
+  - id: CR-customer-001                  # required; must be unique in this file
+    title: "No `any` type in TypeScript" # required; one-line summary
+    description: |                       # required; multi-line allowed
+      Use specific types or `unknown` instead of `any`.
+      Inferred types from imported libraries are exempt.
+    vr_type: VR-CUSTOM                   # optional; default: VR-CUSTOM
+    reference_path: .claude/rules/no-any-type.md  # optional; path inside project
+    severity: high                       # optional; one of critical|high|medium|low|info
+```
+
+All entries are validated against a Zod schema at config load time. A
+missing required field or unknown severity value throws a helpful error
+before any indexing runs.
+
+## How customer rules are stored
+
+When `massu config refresh` (or any flow that re-indexes the knowledge
+base) runs, every entry in `governance_rules:` is upserted into the
+`knowledge_rules` table with a `source = 'customer-config'` column. The
+framework's built-in CR-* rules have `source = 'framework'`. Lookups can
+filter by source when they need to distinguish.
+
+The structural drift-guard (`custom-governance-rules-config-loading.test.ts`)
+asserts:
+
+1. An empty / absent `governance_rules:` block is a no-op (no rows inserted).
+2. A valid block inserts every entry with `source = 'customer-config'`.
+3. A schema-invalid entry throws a helpful Zod error during config load.
+4. `governance_rules:` and the existing `rules:` field do NOT
+   cross-contaminate — each consumer reads only its own field.
+
+## Example: enforcing a custom rule
+
+```yaml
+# massu.config.yaml
+project:
+  name: my-project
+governance_rules:
+  - id: CR-myteam-001
+    title: "API routes must use Zod validation"
+    description: |
+      Every Next.js route handler under `website/src/app/api/**`
+      must validate its request body with Zod before any business logic.
+    vr_type: VR-CUSTOM
+    reference_path: .claude/rules/api-zod-validation.md
+    severity: critical
+```
+
+After `npx @massu/core config refresh`, this rule surfaces in:
+
+- `massu_knowledge_rule` lookups (filtered or unfiltered).
+- The session-start banner if the rule references a hot file path.
+- `massu_knowledge_search` full-text matches over rule title + description.
+
+## Future extensions
+
+`governance_rules:` is the foundation for customer-authored governance.
+Future work (Stage E and beyond) will add:
+
+- Plugin-style VR-* runners that customers can register alongside the
+  built-in `VR-FILE`, `VR-GREP`, `VR-TEST` validators.
+- A `governance_rules.export` flag that publishes rules to the Massu Cloud
+  shared registry so multiple repos under one org stay in sync.
+- Path-scoped governance rules that combine the targeting of `rules:` with
+  the knowledge-base integration of `governance_rules:`.

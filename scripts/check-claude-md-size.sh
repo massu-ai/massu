@@ -6,7 +6,13 @@
 set -e
 
 MAX_SIZE=35000
-CLAUDE_MD="/Users/operator/massu-internal/.claude/CLAUDE.md"
+# Resolve repo root via git so the script is portable across machines / usernames.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$REPO_ROOT" ] || [ ! -d "$REPO_ROOT" ]; then
+  echo "[ERROR] Not inside a git repository — run this script from a Massu checkout"
+  exit 1
+fi
+CLAUDE_MD="$REPO_ROOT/.claude/CLAUDE.md"
 
 # Check if file exists
 if [ ! -f "$CLAUDE_MD" ]; then

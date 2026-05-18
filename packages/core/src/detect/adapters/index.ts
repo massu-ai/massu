@@ -20,10 +20,11 @@
  */
 
 export const CORE_BUNDLED_IDS: ReadonlySet<string> = new Set([
-  'aspnet',
-  'go-chi',
+  // P-M-032 (plan-stage-d-medium-sweep): aspnet, go-chi, phoenix REMOVED
+  // — zero downstream consumers (each had a single 1-line re-export shim).
+  // Rails (5 consumers) + Spring (1 consumer) deferred to Stage E as the
+  // JVM/Ruby ecosystem-watch pair per operator decision.
   'nextjs-trpc',
-  'phoenix',
   'python-django',
   'python-fastapi',
   'python-flask',

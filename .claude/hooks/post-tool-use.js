@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 import{createRequire as __cr}from"module";const require=__cr(import.meta.url);
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
 
 // src/memory-db.ts
 import Database from "better-sqlite3";
@@ -348,6 +354,22 @@ var RawConfigSchema = z.object({
   accessScopes: z.array(z.string()).optional(),
   domains: z.array(DomainConfigSchema).default([]),
   rules: z.array(PatternRuleConfigSchema).default([]),
+  // P-M-036 (plan-stage-d-medium-sweep): customer-authored CR-style
+  // governance rules. DISTINCT from `rules:` above (path-scoped lint hints
+  // used by pattern-scanner). At config-refresh time these entries are
+  // loaded into the `knowledge_rules` SQLite table with
+  // `source = 'customer-config'` so `massu_knowledge_rule` and the
+  // governance docs surface customer-defined rules alongside framework CRs.
+  governance_rules: z.array(
+    z.object({
+      id: z.string().min(1, "governance_rules[].id is required"),
+      title: z.string().min(1, "governance_rules[].title is required"),
+      description: z.string().min(1, "governance_rules[].description is required"),
+      vr_type: z.string().default("VR-CUSTOM"),
+      reference_path: z.string().optional(),
+      severity: z.enum(["critical", "high", "medium", "low", "info"]).default("medium")
+    }).passthrough()
+  ).default([]),
   analytics: AnalyticsConfigSchema,
   governance: GovernanceConfigSchema,
   security: SecurityConfigSchema,
@@ -466,6 +488,8 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     accessScopes: parsed.accessScopes,
     domains: parsed.domains,
     rules: parsed.rules,
+    // P-M-036: customer-authored CR-style governance rules.
+    governance_rules: parsed.governance_rules,
     analytics: parsed.analytics,
     governance: parsed.governance,
     security: parsed.security,
@@ -1018,6 +1042,12 @@ function initMemorySchema(db) {
       features TEXT DEFAULT '[]'
     );
   `);
+  const licenseCacheCols = db.prepare(`PRAGMA table_info(license_cache)`).all();
+  if (!licenseCacheCols.some((c) => c.name === "signed_payload_json")) {
+    db.exec(
+      `ALTER TABLE license_cache ADD COLUMN signed_payload_json TEXT NOT NULL DEFAULT ''`
+    );
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS failure_classes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1848,9 +1878,8 @@ function storeSecurityScore(db, sessionId, filePath, riskScore, findings) {
 }
 
 // src/hooks/post-tool-use.ts
-import { readFileSync as readFileSync6, existsSync as existsSync7 } from "fs";
+import { readFileSync as readFileSync6, existsSync as existsSync7, statSync as statSync2 } from "fs";
 import { join as join2 } from "path";
-import { parse as parseYaml3 } from "yaml";
 
 // src/memory-file-ingest.ts
 import { readFileSync as readFileSync5, existsSync as existsSync6, readdirSync } from "fs";
@@ -1908,6 +1937,13 @@ function mapMemoryTypeToObservationType(memoryType) {
 }
 
 // src/hooks/post-tool-use.ts
+var _yamlParser = null;
+var parseYaml3 = (content) => {
+  if (!_yamlParser) {
+    _yamlParser = __require("yaml").parse;
+  }
+  return _yamlParser(content);
+};
 var seenReads = /* @__PURE__ */ new Set();
 var currentSessionId = null;
 async function main() {
@@ -2135,26 +2171,37 @@ function readStdin() {
     setTimeout(() => resolve5(data), 3e3);
   });
 }
+var _cachedConventions = null;
+var _cachedConventionsPath = null;
+var _cachedConventionsMtimeMs = 0;
+var _conventionDefaults = {
+  knowledgeSourceFiles: ["CLAUDE.md", "MEMORY.md", "corrections.md"],
+  claudeDirName: ".claude"
+};
 function readConventions(cwd) {
-  const defaults = {
-    knowledgeSourceFiles: ["CLAUDE.md", "MEMORY.md", "corrections.md"],
-    claudeDirName: ".claude"
-  };
   try {
     const projectRoot = cwd ?? process.cwd();
     const configPath = join2(projectRoot, "massu.config.yaml");
-    if (!existsSync7(configPath)) return defaults;
+    if (!existsSync7(configPath)) return _conventionDefaults;
+    const mtimeMs = statSync2(configPath).mtimeMs;
+    if (_cachedConventions !== null && _cachedConventionsPath === configPath && _cachedConventionsMtimeMs === mtimeMs) {
+      return _cachedConventions;
+    }
     const content = readFileSync6(configPath, "utf-8");
     const parsed = parseYaml3(content);
-    if (!parsed || typeof parsed !== "object") return defaults;
+    if (!parsed || typeof parsed !== "object") return _conventionDefaults;
     const conventions = parsed.conventions;
-    if (!conventions || typeof conventions !== "object") return defaults;
-    return {
-      knowledgeSourceFiles: Array.isArray(conventions.knowledgeSourceFiles) ? conventions.knowledgeSourceFiles : defaults.knowledgeSourceFiles,
-      claudeDirName: typeof conventions.claudeDirName === "string" ? conventions.claudeDirName : defaults.claudeDirName
+    if (!conventions || typeof conventions !== "object") return _conventionDefaults;
+    const resolved = {
+      knowledgeSourceFiles: Array.isArray(conventions.knowledgeSourceFiles) ? conventions.knowledgeSourceFiles : _conventionDefaults.knowledgeSourceFiles,
+      claudeDirName: typeof conventions.claudeDirName === "string" ? conventions.claudeDirName : _conventionDefaults.claudeDirName
     };
+    _cachedConventions = resolved;
+    _cachedConventionsPath = configPath;
+    _cachedConventionsMtimeMs = mtimeMs;
+    return resolved;
   } catch {
-    return defaults;
+    return _conventionDefaults;
   }
 }
 function isKnowledgeSourceFile(filePath) {
@@ -2182,11 +2229,12 @@ function checkMemoryFileIntegrity(filePath) {
     if (lines.length > MAX_LINES) {
       issues.push(`MEMORY.md exceeds ${MAX_LINES} lines (currently ${lines.length}). Consider archiving old entries.`);
     }
-    const requiredSections = ["# Massu Memory", "## Key Learnings", "## Common Gotchas"];
-    for (const section of requiredSections) {
-      if (!content.includes(section)) {
-        issues.push(`Missing required section: "${section}"`);
-      }
+    if (!/^#\s+Memory(\s+Index)?\s*$/m.test(content)) {
+      issues.push("MEMORY.md missing top-level `# Memory Index` heading");
+    }
+    const linkLineCount = (content.match(/^- \[[^\]]+\]\([^)]+\.md\)/mg) ?? []).length;
+    if (linkLineCount === 0) {
+      issues.push("MEMORY.md has no `- [Title](file.md) \u2014 hook` index lines");
     }
   } catch (_e) {
   }

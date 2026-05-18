@@ -348,6 +348,22 @@ var RawConfigSchema = z.object({
   accessScopes: z.array(z.string()).optional(),
   domains: z.array(DomainConfigSchema).default([]),
   rules: z.array(PatternRuleConfigSchema).default([]),
+  // P-M-036 (plan-stage-d-medium-sweep): customer-authored CR-style
+  // governance rules. DISTINCT from `rules:` above (path-scoped lint hints
+  // used by pattern-scanner). At config-refresh time these entries are
+  // loaded into the `knowledge_rules` SQLite table with
+  // `source = 'customer-config'` so `massu_knowledge_rule` and the
+  // governance docs surface customer-defined rules alongside framework CRs.
+  governance_rules: z.array(
+    z.object({
+      id: z.string().min(1, "governance_rules[].id is required"),
+      title: z.string().min(1, "governance_rules[].title is required"),
+      description: z.string().min(1, "governance_rules[].description is required"),
+      vr_type: z.string().default("VR-CUSTOM"),
+      reference_path: z.string().optional(),
+      severity: z.enum(["critical", "high", "medium", "low", "info"]).default("medium")
+    }).passthrough()
+  ).default([]),
   analytics: AnalyticsConfigSchema,
   governance: GovernanceConfigSchema,
   security: SecurityConfigSchema,
@@ -466,6 +482,8 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     accessScopes: parsed.accessScopes,
     domains: parsed.domains,
     rules: parsed.rules,
+    // P-M-036: customer-authored CR-style governance rules.
+    governance_rules: parsed.governance_rules,
     analytics: parsed.analytics,
     governance: parsed.governance,
     security: parsed.security,
@@ -1021,6 +1039,12 @@ function initMemorySchema(db) {
       features TEXT DEFAULT '[]'
     );
   `);
+  const licenseCacheCols = db.prepare(`PRAGMA table_info(license_cache)`).all();
+  if (!licenseCacheCols.some((c) => c.name === "signed_payload_json")) {
+    db.exec(
+      `ALTER TABLE license_cache ADD COLUMN signed_payload_json TEXT NOT NULL DEFAULT ''`
+    );
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS failure_classes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1115,6 +1139,11 @@ function scoreFailureClasses(db, matchText, filePath, promptContext, weights) {
     }
   }
   return bestMatch;
+}
+
+// src/hooks/lib/write-hook-message.ts
+function writeHookMessage(message) {
+  process.stdout.write(JSON.stringify({ message }) + "\n");
 }
 
 // src/hooks/classify-failure.ts
@@ -1258,7 +1287,7 @@ function outputKnownPattern(match) {
     lines.push(`  Covered by: ${match.rules.join(", ")}`);
   }
   lines.push("  No new rules needed. Reference existing incident if logging.");
-  console.log(lines.join("\n"));
+  writeHookMessage(lines.join("\n"));
 }
 function outputSimilarPattern(match) {
   const lines = [];
@@ -1268,7 +1297,7 @@ function outputSimilarPattern(match) {
     lines.push(`  Check if existing rules cover this case: ${match.rules.join(", ")}`);
   }
   lines.push("  If genuinely new: create incident + prevention rule + enforcement.");
-  console.log(lines.join("\n"));
+  writeHookMessage(lines.join("\n"));
 }
 function outputNewPattern(fileName, match) {
   const lines = [];
@@ -1282,7 +1311,7 @@ function outputNewPattern(fileName, match) {
   lines.push("    1. INCIDENT REPORT");
   lines.push("    2. PREVENTION RULE (if new failure pattern)");
   lines.push("    3. ENFORCEMENT (hook or static check)");
-  console.log(lines.join("\n"));
+  writeHookMessage(lines.join("\n"));
 }
 function readStdin() {
   return new Promise((resolve3) => {

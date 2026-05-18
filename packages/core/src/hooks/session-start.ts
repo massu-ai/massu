@@ -14,8 +14,16 @@ import { readFileSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { parse as parseYaml } from 'yaml';
 import type Database from 'better-sqlite3';
-import { runDetection } from '../detect/index.ts';
-import { computeFingerprint } from '../detect/drift.ts';
+// P-E-013 (plan-stage-e-low-info-sweep, wave1-hooks:F-HOOK-010): the
+// detection layer + fingerprint helpers compose to ~280KB of compiled
+// bundle. Most session-start invocations DO NOT need them — the drift
+// banner only fires when (a) massu.config.yaml has a stored fingerprint
+// AND (b) we're past the trailing-grace window. Defer the load to that
+// branch via dynamic `await import()` so cold-start invocations skip
+// the cost entirely.
+// Compiled bundle size targets: pre-fix 311 KB; post-fix < 100 KB.
+type DetectionMod = typeof import('../detect/index.ts');
+type DriftMod = typeof import('../detect/drift.ts');
 import { isPidAlive } from '../lib/pidLiveness.ts';
 
 interface HookInput {
@@ -288,6 +296,14 @@ async function buildDriftBanner(): Promise<string> {
     // Plan #2 P4-006: skip the codebase introspector pass — the drift banner
     // only needs the fingerprint, not the introspected detail. Saves up to 2s
     // wall-clock from the hook's 5-second budget.
+    //
+    // P-E-013: dynamic-import the detection + drift modules ONLY here (inside
+    // the branch that needs them) so cold-start invocations that don't fire
+    // the banner skip the ~280 KB of compiled bundle.
+    const [{ runDetection }, { computeFingerprint }]: [DetectionMod, DriftMod] = await Promise.all([
+      import('../detect/index.ts'),
+      import('../detect/drift.ts'),
+    ]);
     const detection = await runDetection(process.cwd(), undefined, { skipIntrospect: true });
     const currentFp = computeFingerprint(detection);
     if (currentFp === storedFp) return '';

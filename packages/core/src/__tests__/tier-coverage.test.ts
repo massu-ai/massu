@@ -3,6 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { TOOL_TIER_MAP, type ToolTier } from '../license.ts';
+import { TOOL_DB_NEEDS } from '../tool-db-needs.ts';
 
 /**
  * P4-011: Tier coverage test.
@@ -32,6 +33,10 @@ const EXPECTED_TOOL_NAMES: string[] = [
   // --- Free tier: memory tools ---
   'memory_search',
   'memory_ingest',
+  // P-M-042 (plan-stage-d-medium-sweep): memory_backfill was registered
+  // in memory-tools.ts but missing from TOOL_TIER_MAP. Landed as Free
+  // since it serves the customer's MEMORY.md ingestion workflow.
+  'memory_backfill',
 
   // --- Free tier: regression tools ---
   'regression_risk',
@@ -180,6 +185,32 @@ describe('P4-011: Tier Coverage', () => {
     expect(count).toBeLessThanOrEqual(80);
     // Exact count check — update this when tools are added/removed
     expect(count).toBe(EXPECTED_TOOL_NAMES.length);
+  });
+
+  it('P-E-010: TOOL_TIER_MAP and TOOL_DB_NEEDS are bijective (every tier-mapped tool has DB needs declared)', () => {
+    // Stage E P-E-010 (wave1-mcp-tools:F-MCP-006). Without this, a new
+    // tool can be added to TOOL_TIER_MAP without a TOOL_DB_NEEDS entry
+    // and silently fail with `UnknownToolError` at dispatch time.
+    // Note: TOOL_DB_NEEDS keys are unprefixed base names (per
+    // tool-db-needs-completeness.test.ts pattern).
+    const tierBaseNames = new Set(Object.keys(TOOL_TIER_MAP));
+    const dbNeedsBaseNames = new Set(Object.keys(TOOL_DB_NEEDS));
+
+    const tierNotInDbNeeds = [...tierBaseNames].filter((n) => !dbNeedsBaseNames.has(n));
+    const dbNeedsNotInTier = [...dbNeedsBaseNames].filter((n) => !tierBaseNames.has(n));
+
+    if (tierNotInDbNeeds.length > 0 || dbNeedsNotInTier.length > 0) {
+      expect.fail(
+        `TOOL_TIER_MAP ↔ TOOL_DB_NEEDS bijection broken.\n` +
+          (tierNotInDbNeeds.length > 0
+            ? `In TIER_MAP but missing from DB_NEEDS:\n${tierNotInDbNeeds.map((n) => `  - ${n}`).join('\n')}\n`
+            : '') +
+          (dbNeedsNotInTier.length > 0
+            ? `In DB_NEEDS but missing from TIER_MAP:\n${dbNeedsNotInTier.map((n) => `  - ${n}`).join('\n')}\n`
+            : '') +
+          `\nEvery MCP tool MUST appear in both. Add the missing side to close the drift.`,
+      );
+    }
   });
 
   it('expected tool names list has no duplicates', () => {

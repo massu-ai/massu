@@ -39,7 +39,15 @@ const __dirname = dirname(__filename);
 const PKG_CORE = resolve(__dirname, '..');
 const PKG_ROOT = resolve(PKG_CORE, '..', '..');
 
-const ADAPTERS = ['rails', 'phoenix', 'aspnet', 'spring', 'go-chi'] as const;
+// P-M-032 (plan-stage-d-medium-sweep, commit 6944c11): goChi, phoenix, and
+// aspnet adapters were REMOVED from the source tree (see
+// packages/core/src/detect/codebase-introspector.ts:61). Their npm packages
+// are deprecated. The two remaining first-party framework adapters are
+// `rails` and `spring`. This list MUST stay in lockstep with the
+// `packages/adapter-*` workspaces and the `src/detect/adapters/*.ts`
+// source files — drift here causes prepublishOnly to fail with
+// "missing entry for adapter" (real drift surfaced by ef9a763 ceremony).
+const ADAPTERS = ['rails', 'spring'] as const;
 
 const HELPERS = [
   // module name (no extension) → src path (relative to PKG_CORE)
@@ -164,7 +172,7 @@ async function main(): Promise<void> {
   }
 
   // 3. Bundle each workspace adapter into core's dist/detect/adapters/.
-  console.log('[bundle-adapters] Bundling 5 workspace adapters into @massu/core/dist…');
+  console.log(`[bundle-adapters] Bundling ${ADAPTERS.length} workspace adapters into @massu/core/dist…`);
   for (const id of ADAPTERS) {
     const r = await bundleAdapter(id);
     results.push(r);

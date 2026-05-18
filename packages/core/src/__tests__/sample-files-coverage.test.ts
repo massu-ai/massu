@@ -16,10 +16,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { SAMPLE_EXTENSIONS, SAMPLE_TEST_FILE_PATTERNS } from '../detect/adapters/file-sampler.ts';
-import { goChiAdapter } from '../detect/adapters/go-chi.ts';
+// P-M-032 (plan-stage-d-medium-sweep): aspnet, phoenix, go-chi REMOVED.
 import { railsAdapter } from '../detect/adapters/rails.ts';
-import { phoenixAdapter } from '../detect/adapters/phoenix.ts';
-import { aspnetAdapter } from '../detect/adapters/aspnet.ts';
 import { springAdapter } from '../detect/adapters/spring.ts';
 import { pythonFlaskAdapter } from '../detect/adapters/python-flask.ts';
 import { pythonFastApiAdapter } from '../detect/adapters/python-fastapi.ts';
@@ -28,7 +26,7 @@ import { nextjsTrpcAdapter } from '../detect/adapters/nextjs-trpc.ts';
 import { swiftSwiftUiAdapter } from '../detect/adapters/swift-swiftui.ts';
 
 const ALL_ADAPTERS = [
-  goChiAdapter, railsAdapter, phoenixAdapter, aspnetAdapter, springAdapter,
+  railsAdapter, springAdapter,
   pythonFlaskAdapter, pythonFastApiAdapter, pythonDjangoAdapter, nextjsTrpcAdapter,
   swiftSwiftUiAdapter,
 ];

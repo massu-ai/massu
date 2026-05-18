@@ -5,7 +5,12 @@
 
 set -e
 
-CLAUDE_MD="/Users/operator/massu-internal/.claude/CLAUDE.md"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$REPO_ROOT" ] || [ ! -d "$REPO_ROOT" ]; then
+  echo "[ERROR] Not inside a git repository — run this script from a Massu checkout"
+  exit 1
+fi
+CLAUDE_MD="$REPO_ROOT/.claude/CLAUDE.md"
 MAX_CODE_BLOCK_LINES=10
 FAILED=0
 
@@ -58,7 +63,7 @@ while IFS= read -r ref; do
   if [ -n "$filepath" ]; then
     # Handle relative paths
     if [[ "$filepath" != /* ]]; then
-      fullpath="/Users/operator/massu-internal/.claude/$filepath"
+      fullpath="$REPO_ROOT/.claude/$filepath"
     else
       fullpath="$filepath"
     fi

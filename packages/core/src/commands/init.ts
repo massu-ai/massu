@@ -1,6 +1,14 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
+// @scanner-allow:large-file
+// P-M-031 (plan-stage-d-medium-sweep): `massu init` is a single end-to-end
+// install flow that must orchestrate detection → templating → .claude/
+// scaffolding → MCP wiring → permissions seeding → first-run smoke test.
+// Each phase is sequential and difficult to factor out without breaking
+// the atomicity invariant (partial inits are worse than no init). 1823 LOC
+// is structural; Check 21 prevents un-acknowledged growth above the cap.
+
 /**
  * `massu init` — One-command, detection-driven project setup.
  *
@@ -36,6 +44,7 @@ import { getConfig, resetConfig } from '../config.ts';
 import { installAll } from './install-commands.ts';
 import { readSettingsLocal, writeSettingsLocalAtomic } from '../lib/settings-local.ts';
 import { encodeMemoryDirName } from '../lib/memory-path.ts';
+import { HOOK_TIMEOUTS } from '../lib/hook-timeouts.ts';
 import {
   runDetection,
   type DetectionResult,
@@ -1092,6 +1101,13 @@ function hookCmd(version: string, hookName: string): string {
   return `npx -y @massu/core@${version} hook-runner ${hookName}`;
 }
 
+// P-E-021 (plan-stage-e-low-info-sweep): single source of truth for hook
+// timeouts. HOOK_TIMEOUTS imported above; this helper just provides a
+// safe default for any future hook not in the table.
+function getHookTimeout(name: string): number {
+  return HOOK_TIMEOUTS[name] ?? 5;
+}
+
 /**
  * Build the canonical Claude Code hooks configuration. The legacy
  * `hooksDir` parameter is now ignored; we emit `hook-runner` invocations
@@ -1104,40 +1120,41 @@ export function buildHooksConfig(_hooksDir?: string): HooksConfig {
     SessionStart: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'session-start'), timeout: 10 },
+          { type: 'command', command: hookCmd(version, 'session-start'), timeout: getHookTimeout('session-start') },
         ],
       },
     ],
     PreToolUse: [
+      // P-E-019 (plan-stage-e-low-info-sweep): consolidated PreToolUse
+      // gate. Single hook spawn covers BOTH security-gate (Bash
+      // dangerous-pattern + Write/Edit protected-path + Python
+      // dangerous-code) AND pre-delete-check (sentinel feature impact +
+      // Python import graph). Cuts ~200ms of cold-start spawn overhead
+      // per tool call. Matcher includes both Bash + Write so the single
+      // hook fires once for every operation either check cares about.
       {
-        matcher: 'Bash',
+        matcher: 'Bash|Write|Edit',
         hooks: [
-          { type: 'command', command: hookCmd(version, 'security-gate'), timeout: 5 },
-        ],
-      },
-      {
-        matcher: 'Bash|Write',
-        hooks: [
-          { type: 'command', command: hookCmd(version, 'pre-delete-check'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'pre-tool-use-gate'), timeout: getHookTimeout('pre-tool-use-gate') },
         ],
       },
     ],
     PostToolUse: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'post-tool-use'), timeout: 10 },
-          { type: 'command', command: hookCmd(version, 'quality-event'), timeout: 5 },
-          { type: 'command', command: hookCmd(version, 'cost-tracker'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'post-tool-use'), timeout: getHookTimeout('post-tool-use') },
+          { type: 'command', command: hookCmd(version, 'quality-event'), timeout: getHookTimeout('quality-event') },
+          { type: 'command', command: hookCmd(version, 'cost-tracker'), timeout: getHookTimeout('cost-tracker') },
         ],
       },
       {
         matcher: 'Edit|Write',
         hooks: [
-          { type: 'command', command: hookCmd(version, 'post-edit-context'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'post-edit-context'), timeout: getHookTimeout('post-edit-context') },
           // Auto-learning pipeline — classifies failures and detects fixes on
           // file changes. See Phase 5-6 of the autodetect plan.
-          { type: 'command', command: hookCmd(version, 'fix-detector'), timeout: 5 },
-          { type: 'command', command: hookCmd(version, 'classify-failure'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'fix-detector'), timeout: getHookTimeout('fix-detector') },
+          { type: 'command', command: hookCmd(version, 'classify-failure'), timeout: getHookTimeout('classify-failure') },
         ],
       },
       {
@@ -1145,32 +1162,32 @@ export function buildHooksConfig(_hooksDir?: string): HooksConfig {
         hooks: [
           // Incident + rule enforcement pipelines fire on Write-only (incidents
           // are authored as .md files; rules are enforced after new-file drops).
-          { type: 'command', command: hookCmd(version, 'incident-pipeline'), timeout: 5 },
-          { type: 'command', command: hookCmd(version, 'rule-enforcement-pipeline'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'incident-pipeline'), timeout: getHookTimeout('incident-pipeline') },
+          { type: 'command', command: hookCmd(version, 'rule-enforcement-pipeline'), timeout: getHookTimeout('rule-enforcement-pipeline') },
         ],
       },
     ],
     Stop: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'session-end'), timeout: 15 },
+          { type: 'command', command: hookCmd(version, 'session-end'), timeout: getHookTimeout('session-end') },
           // Session-end auto-learning aggregation (failure-class roll-up).
-          { type: 'command', command: hookCmd(version, 'auto-learning-pipeline'), timeout: 10 },
+          { type: 'command', command: hookCmd(version, 'auto-learning-pipeline'), timeout: getHookTimeout('auto-learning-pipeline') },
         ],
       },
     ],
     PreCompact: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'pre-compact'), timeout: 10 },
+          { type: 'command', command: hookCmd(version, 'pre-compact'), timeout: getHookTimeout('pre-compact') },
         ],
       },
     ],
     UserPromptSubmit: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'user-prompt'), timeout: 5 },
-          { type: 'command', command: hookCmd(version, 'intent-suggester'), timeout: 5 },
+          { type: 'command', command: hookCmd(version, 'user-prompt'), timeout: getHookTimeout('user-prompt') },
+          { type: 'command', command: hookCmd(version, 'intent-suggester'), timeout: getHookTimeout('intent-suggester') },
         ],
       },
     ],
@@ -1440,6 +1457,11 @@ Documentation: https://massu.ai/docs/getting-started/configuration
 // ============================================================
 
 function summarizeDetection(detection: DetectionResult): string {
+  // P-E-009 (plan-stage-e-low-info-sweep): surface the full detection
+  // result (framework + router + ORM + UI) instead of just
+  // "Typescript/next". Previously `Detected: Typescript/next` hid the
+  // router/orm/ui slots the detector populated — customers couldn't
+  // tell whether tRPC/Prisma/shadcn were recognized.
   const parts: string[] = [];
   const languages = Array.from(
     new Set(detection.manifests.map((m) => m.language))
@@ -1449,7 +1471,15 @@ function summarizeDetection(detection: DetectionResult): string {
     const dirs = detection.sourceDirs[lang]?.source_dirs ?? [];
     const dirSuffix = dirs.length > 0 ? ` in ${dirs.join(',')}` : '';
     const fwName = fw?.framework ?? 'no-framework';
-    parts.push(`${capitalize(lang)}/${fwName}${dirSuffix}`);
+    const slotParts: string[] = [];
+    const router = (fw as { router?: string } | undefined)?.router;
+    const orm = (fw as { orm?: string } | undefined)?.orm;
+    const ui = (fw as { ui?: string } | undefined)?.ui;
+    if (router && router !== 'none') slotParts.push(`router=${router}`);
+    if (orm && orm !== 'none') slotParts.push(`orm=${orm}`);
+    if (ui && ui !== 'none') slotParts.push(`ui=${ui}`);
+    const slotSuffix = slotParts.length > 0 ? ` (${slotParts.join(', ')})` : '';
+    parts.push(`${capitalize(lang)}/${fwName}${slotSuffix}${dirSuffix}`);
   }
   const mono = detection.monorepo.type;
   const monoSuffix = mono && mono !== 'single' ? ` [${mono} monorepo]` : '';

@@ -37,7 +37,17 @@ describe('hook-registry parity (DG-1)', () => {
     expect(registered).toEqual(sourceHooks);
   });
 
-  it('REGISTERED_HOOKS matches every hook referenced in buildHooksConfig()', () => {
+  it('every hook referenced in buildHooksConfig() is REGISTERED (P-E-019 relaxed to subset)', () => {
+    // P-E-019 (1.12.0): the consolidation of security-gate + pre-delete-check
+    // into pre-tool-use-gate means buildHooksConfig() emits a STRICT SUBSET
+    // of REGISTERED_HOOKS — the two consolidated hooks remain registered
+    // for back-compat with operator settings.json files that still
+    // reference them, but new installs no longer emit them.
+    //
+    // Drift-guard semantics preserved: every hook NAME emitted by
+    // buildHooksConfig MUST exist in REGISTERED_HOOKS (and thus have a
+    // src/hooks/<name>.ts file). The reverse direction (every registered
+    // hook must be emitted) is no longer required.
     const config = buildHooksConfig();
     const referenced = new Set<string>();
 
@@ -53,10 +63,18 @@ describe('hook-registry parity (DG-1)', () => {
       }
     }
 
-    const referencedSorted = [...referenced].sort();
-    const registered = [...REGISTERED_HOOKS].sort();
+    const registeredSet = new Set<string>(REGISTERED_HOOKS);
+    const unregistered = [...referenced].filter((h) => !registeredSet.has(h));
+    expect(unregistered, `unregistered hooks emitted by buildHooksConfig: ${unregistered.join(', ')}`).toEqual([]);
+  });
 
-    expect(referencedSorted).toEqual(registered);
+  it('back-compat hooks (security-gate, pre-delete-check) remain REGISTERED for legacy settings.json (P-E-019)', () => {
+    // Sanity: a customer with `pre-tool-use: security-gate` in their
+    // pre-1.12.0 settings.local.json keeps working — `hook-runner
+    // security-gate` still resolves to a real bundle.
+    expect([...REGISTERED_HOOKS]).toContain('security-gate');
+    expect([...REGISTERED_HOOKS]).toContain('pre-delete-check');
+    expect([...REGISTERED_HOOKS]).toContain('pre-tool-use-gate');
   });
 
   it('REGISTERED_HOOKS matches dist/hooks/*.js after build:hooks (when available)', () => {

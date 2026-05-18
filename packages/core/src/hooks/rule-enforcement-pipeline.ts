@@ -17,6 +17,7 @@
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { basename, resolve } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
+import { writeHookMessage } from './lib/write-hook-message.ts';
 
 interface HookInput {
   session_id: string;
@@ -139,7 +140,7 @@ async function main(): Promise<void> {
     lines.push('============================================================================');
     lines.push('');
 
-    console.log(lines.join('\n'));
+    writeHookMessage(lines.join('\n'));
   } catch {
     // Best-effort: never block Claude Code
   }

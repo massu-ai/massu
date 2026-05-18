@@ -166,7 +166,7 @@ if [ -d "$API_DIR" ]; then
     REL_PATH="${ROUTE_FILE#"$API_DIR"/}"
     # Skip known public or internally-authed routes
     case "$REL_PATH" in
-      contact/*|badge/*|sso/*|stripe/webhook/*|lemon-squeezy/webhook/*|license/activate/*|export/*|github-stars/*|auth/forgot-password/*)
+      contact/*|badge/*|sso/*|stripe/webhook/*|lemon-squeezy/webhook/*|license/activate/*|export/*|github-stars/*|auth/forgot-password/*|auth/rate-limit-probe/*)
         EXCLUDED_ROUTES=$((EXCLUDED_ROUTES + 1))
         continue
         ;;

@@ -84,6 +84,39 @@ else
   pass "types field absent (no .d.ts files shipped)"
 fi
 
+# Check 5 (P-E-006): Pattern scanner PASS
+echo "Check 5: Pattern Scanner (P-E-006)"
+if bash "$REPO_ROOT/scripts/massu-pattern-scanner.sh" >/dev/null 2>&1; then
+  pass "All 25 pattern checks PASS"
+else
+  fail "Pattern scanner reported violations (run massu-pattern-scanner.sh for details)"
+fi
+
+# Check 6 (P-E-006): Tier-coverage + TOOL_DB_NEEDS completeness tests PASS
+echo "Check 6: tier-coverage + tool-db-needs-completeness tests"
+if (cd "$REPO_ROOT/packages/core" && npx vitest run tier-coverage tool-db-needs-completeness 2>&1 | tail -5 | grep -q "passed"); then
+  pass "tier-coverage + tool-db-needs-completeness tests PASS"
+else
+  fail "tier-coverage or tool-db-needs-completeness tests FAIL (publish would ship a stale TOOL_DB_NEEDS manifest)"
+fi
+
+# Check 7 (P-E-006): .mcp.json pinned (no floating @massu/core)
+echo "Check 7: .mcp.json pin"
+if grep -qE '@massu/core@[0-9]+\.[0-9]+\.[0-9]+' "$REPO_ROOT/.mcp.json"; then
+  pass ".mcp.json pins @massu/core to a specific version"
+else
+  fail ".mcp.json is missing a specific @massu/core version pin (would resolve to npm latest, drift class)"
+fi
+
+# Check 8 (P-E-006): dist/ included in package.json files
+echo "Check 8: dist/ included in tarball"
+DIST_INCLUDED=$(node -e "const p=require('$PKG_JSON'); console.log(p.files && p.files.some(f => f.startsWith('dist/')) ? 'yes' : 'no')" 2>/dev/null)
+if [ "$DIST_INCLUDED" = "yes" ]; then
+  pass "dist/ included in package.json files array"
+else
+  fail "dist/ NOT included in package.json files array (tarball would be source-only)"
+fi
+
 echo ""
 if [ "$VIOLATIONS" -eq 0 ]; then
   echo -e "${GREEN}All prepublish checks passed${NC}"

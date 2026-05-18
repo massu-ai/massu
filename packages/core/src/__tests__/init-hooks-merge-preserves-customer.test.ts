@@ -96,9 +96,11 @@ describe('P-012: installHooks merges with customer hooks (no wholesale replace)'
     expect(merged.hooks.Custom[0].hooks[0].command).toBe('/customer/bin/never-touched.sh');
 
     // Massu's canonical hooks are also installed alongside.
+    // P-E-019 (1.12.0): security-gate + pre-delete-check are consolidated
+    // into pre-tool-use-gate. New installs emit only the consolidated
+    // hook.
     const allCommands = JSON.stringify(merged.hooks);
-    expect(allCommands).toContain('hook-runner security-gate');
-    expect(allCommands).toContain('hook-runner pre-delete-check');
+    expect(allCommands).toContain('hook-runner pre-tool-use-gate');
   });
 
   it('is idempotent — repeated installHooks does not duplicate Massu entries', () => {
@@ -109,10 +111,11 @@ describe('P-012: installHooks merges with customer hooks (no wholesale replace)'
     const settingsPath = resolve(fixtureDir, '.claude/settings.local.json');
     const merged = JSON.parse(readFileSync(settingsPath, 'utf-8'));
 
-    // Count occurrences of one canonical command — must be exactly 1 even
+    // P-E-019 (1.12.0): canonical PreToolUse hook is now pre-tool-use-gate.
+    // Count occurrences of the canonical command — must be exactly 1 even
     // after 3 installs.
     const raw = JSON.stringify(merged.hooks);
-    const matches = raw.match(/hook-runner security-gate/g) ?? [];
+    const matches = raw.match(/hook-runner pre-tool-use-gate/g) ?? [];
     expect(matches.length).toBe(1);
   });
 

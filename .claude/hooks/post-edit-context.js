@@ -346,6 +346,22 @@ var RawConfigSchema = z.object({
   accessScopes: z.array(z.string()).optional(),
   domains: z.array(DomainConfigSchema).default([]),
   rules: z.array(PatternRuleConfigSchema).default([]),
+  // P-M-036 (plan-stage-d-medium-sweep): customer-authored CR-style
+  // governance rules. DISTINCT from `rules:` above (path-scoped lint hints
+  // used by pattern-scanner). At config-refresh time these entries are
+  // loaded into the `knowledge_rules` SQLite table with
+  // `source = 'customer-config'` so `massu_knowledge_rule` and the
+  // governance docs surface customer-defined rules alongside framework CRs.
+  governance_rules: z.array(
+    z.object({
+      id: z.string().min(1, "governance_rules[].id is required"),
+      title: z.string().min(1, "governance_rules[].title is required"),
+      description: z.string().min(1, "governance_rules[].description is required"),
+      vr_type: z.string().default("VR-CUSTOM"),
+      reference_path: z.string().optional(),
+      severity: z.enum(["critical", "high", "medium", "low", "info"]).default("medium")
+    }).passthrough()
+  ).default([]),
   analytics: AnalyticsConfigSchema,
   governance: GovernanceConfigSchema,
   security: SecurityConfigSchema,
@@ -464,6 +480,8 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     accessScopes: parsed.accessScopes,
     domains: parsed.domains,
     rules: parsed.rules,
+    // P-M-036: customer-authored CR-style governance rules.
+    governance_rules: parsed.governance_rules,
     analytics: parsed.analytics,
     governance: parsed.governance,
     security: parsed.security,
@@ -558,6 +576,11 @@ function isInMiddlewareTree(dataDb, file) {
   return result !== void 0;
 }
 
+// src/hooks/lib/write-hook-message.ts
+function writeHookMessage(message) {
+  process.stdout.write(JSON.stringify({ message }) + "\n");
+}
+
 // src/hooks/post-edit-context.ts
 async function main() {
   try {
@@ -595,7 +618,7 @@ async function main() {
     } catch (_e) {
     }
     if (warnings.length > 0) {
-      console.log(`[Massu] ${warnings.join(" | ")}`);
+      writeHookMessage(`[Massu] ${warnings.join(" | ")}`);
     }
   } catch (_e) {
   }

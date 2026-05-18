@@ -8,6 +8,8 @@
 // surfaces suggestions to the user as a non-blocking hint.
 // ============================================================
 
+import { writeHookMessage } from './lib/write-hook-message.ts';
+
 // Force module mode for TypeScript (no external deps needed)
 export {};
 
@@ -109,9 +111,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    process.stdout.write(
-      `Tip: Use ${match.command} to ${match.description}.`
-    );
+    writeHookMessage(`Tip: Use ${match.command} to ${match.description}.`);
   } catch (_e) {
     // Best-effort: never block Claude Code
   }

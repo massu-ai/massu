@@ -25,6 +25,7 @@ import { tmpdir } from 'os';
 import { join, basename } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
 import { getMemoryDb, scoreFailureClasses } from '../memory-db.ts';
+import { writeHookMessage } from './lib/write-hook-message.ts';
 
 interface HookInput {
   session_id: string;
@@ -209,7 +210,7 @@ function outputKnownPattern(match: FailureClassMatch): void {
     lines.push(`  Covered by: ${match.rules.join(', ')}`);
   }
   lines.push('  No new rules needed. Reference existing incident if logging.');
-  console.log(lines.join('\n'));
+  writeHookMessage(lines.join('\n'));
 }
 
 function outputSimilarPattern(match: FailureClassMatch): void {
@@ -220,7 +221,7 @@ function outputSimilarPattern(match: FailureClassMatch): void {
     lines.push(`  Check if existing rules cover this case: ${match.rules.join(', ')}`);
   }
   lines.push('  If genuinely new: create incident + prevention rule + enforcement.');
-  console.log(lines.join('\n'));
+  writeHookMessage(lines.join('\n'));
 }
 
 function outputNewPattern(fileName: string, match: FailureClassMatch | null): void {
@@ -235,7 +236,7 @@ function outputNewPattern(fileName: string, match: FailureClassMatch | null): vo
   lines.push('    1. INCIDENT REPORT');
   lines.push('    2. PREVENTION RULE (if new failure pattern)');
   lines.push('    3. ENFORCEMENT (hook or static check)');
-  console.log(lines.join('\n'));
+  writeHookMessage(lines.join('\n'));
 }
 
 interface FailureClassMatch {

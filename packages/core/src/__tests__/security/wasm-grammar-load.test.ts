@@ -371,13 +371,20 @@ describe('WASM cache LRU eviction (F-011)', () => {
     writeFileSync(target, 'sentinel');
     symlinkSync(target, linkPath);
 
-    const origErr = console.error;
+    // P-M-035: tree-sitter-loader now writes to process.stderr instead of
+    // console.error so MCP server JSON-RPC stdout isn't corrupted on the
+    // import chain. Test must capture stderr writes accordingly.
+    const origWrite = process.stderr.write.bind(process.stderr);
     const errMsgs: string[] = [];
-    console.error = (msg: string) => { errMsgs.push(String(msg)); };
+    // @ts-expect-error overriding the bound write signature for capture
+    process.stderr.write = (chunk: string | Uint8Array) => {
+      errMsgs.push(typeof chunk === 'string' ? chunk : chunk.toString());
+      return true;
+    };
     try {
       mod._evictCacheForTest(0);
     } finally {
-      console.error = origErr;
+      process.stderr.write = origWrite;
     }
 
     const fs = require('fs');

@@ -347,6 +347,22 @@ var RawConfigSchema = z.object({
   accessScopes: z.array(z.string()).optional(),
   domains: z.array(DomainConfigSchema).default([]),
   rules: z.array(PatternRuleConfigSchema).default([]),
+  // P-M-036 (plan-stage-d-medium-sweep): customer-authored CR-style
+  // governance rules. DISTINCT from `rules:` above (path-scoped lint hints
+  // used by pattern-scanner). At config-refresh time these entries are
+  // loaded into the `knowledge_rules` SQLite table with
+  // `source = 'customer-config'` so `massu_knowledge_rule` and the
+  // governance docs surface customer-defined rules alongside framework CRs.
+  governance_rules: z.array(
+    z.object({
+      id: z.string().min(1, "governance_rules[].id is required"),
+      title: z.string().min(1, "governance_rules[].title is required"),
+      description: z.string().min(1, "governance_rules[].description is required"),
+      vr_type: z.string().default("VR-CUSTOM"),
+      reference_path: z.string().optional(),
+      severity: z.enum(["critical", "high", "medium", "low", "info"]).default("medium")
+    }).passthrough()
+  ).default([]),
   analytics: AnalyticsConfigSchema,
   governance: GovernanceConfigSchema,
   security: SecurityConfigSchema,
@@ -465,6 +481,8 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     accessScopes: parsed.accessScopes,
     domains: parsed.domains,
     rules: parsed.rules,
+    // P-M-036: customer-authored CR-style governance rules.
+    governance_rules: parsed.governance_rules,
     analytics: parsed.analytics,
     governance: parsed.governance,
     security: parsed.security,
@@ -620,6 +638,11 @@ function getFeatureImpact(db, filePaths) {
   };
 }
 
+// src/hooks/lib/write-hook-message.ts
+function writeHookMessage(message) {
+  process.stdout.write(JSON.stringify({ message }) + "\n");
+}
+
 // src/hooks/pre-delete-check.ts
 var PROJECT_ROOT2 = getProjectRoot();
 var KNOWLEDGE_PROTECTED_FILES = [
@@ -688,35 +711,24 @@ function extractDeletedFiles(input) {
   }
   return files;
 }
-async function main() {
+function runPreDeleteChecks(hookInput) {
+  const messages = [];
   try {
-    const input = await readStdin();
-    const hookInput = JSON.parse(input);
     const knowledgeWarning = checkKnowledgeFileProtection(hookInput);
     if (knowledgeWarning) {
-      process.stdout.write(JSON.stringify({ message: knowledgeWarning }));
-      process.exit(0);
-      return;
+      messages.push(knowledgeWarning);
+      return messages;
     }
     const deletedFiles = extractDeletedFiles(hookInput);
-    if (deletedFiles.length === 0) {
-      process.exit(0);
-      return;
-    }
+    if (deletedFiles.length === 0) return messages;
     const db = getDataDb();
-    if (!db) {
-      process.exit(0);
-      return;
-    }
+    if (!db) return messages;
     const SENTINEL_TABLE = t("sentinel");
     try {
       const tableExists = db.prepare(
         `SELECT name FROM sqlite_master WHERE type='table' AND name=?`
       ).get(SENTINEL_TABLE);
-      if (!tableExists) {
-        process.exit(0);
-        return;
-      }
+      if (!tableExists) return messages;
       const impact = getFeatureImpact(db, deletedFiles);
       if (impact.blocked) {
         const msg = [
@@ -737,7 +749,7 @@ async function main() {
         }
         msg.push("");
         msg.push("Create a migration plan before deleting these files.");
-        process.stdout.write(JSON.stringify({ message: msg.join("\n") }));
+        messages.push(msg.join("\n"));
       }
       const pyFiles = deletedFiles.filter((f) => f.endsWith(".py"));
       if (pyFiles.length > 0) {
@@ -757,8 +769,7 @@ async function main() {
               if (importers.length > 0) parts.push(`imported by ${importers.length} files`);
               if (routes.length > 0) parts.push(`defines ${routes.length} routes`);
               if (models.length > 0) parts.push(`defines ${models.length} models`);
-              const msg = `PYTHON IMPACT: "${pyFile}" ${parts.join(", ")}. Check dependents before deleting.`;
-              process.stdout.write(JSON.stringify({ message: msg }));
+              messages.push(`PYTHON IMPACT: "${pyFile}" ${parts.join(", ")}. Check dependents before deleting.`);
             }
           }
         } catch {
@@ -767,6 +778,16 @@ async function main() {
     } finally {
       db.close();
     }
+  } catch {
+  }
+  return messages;
+}
+async function main() {
+  try {
+    const input = await readStdin();
+    const hookInput = JSON.parse(input);
+    const messages = runPreDeleteChecks(hookInput);
+    for (const msg of messages) writeHookMessage(msg);
   } catch {
   }
   process.exit(0);
@@ -782,4 +803,9 @@ function readStdin() {
     setTimeout(() => resolve2(data), 400);
   });
 }
-main();
+if (process.argv[1]?.endsWith("pre-delete-check.js") || process.argv[1]?.endsWith("pre-delete-check")) {
+  main();
+}
+export {
+  runPreDeleteChecks
+};

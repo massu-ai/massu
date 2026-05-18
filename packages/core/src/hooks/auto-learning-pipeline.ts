@@ -21,6 +21,7 @@ import { existsSync, readFileSync, unlinkSync, readdirSync, statSync } from 'fs'
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
+import { writeHookMessage } from './lib/write-hook-message.ts';
 
 // P-H002 (plan-stage-c-high-batch): bound git-diff reads so monorepos with
 // 10MB+ working trees don't trigger Stop-hook timeout. Short-stat first,
@@ -185,7 +186,7 @@ async function main(): Promise<void> {
     lines.push('============================================================================');
     lines.push('');
 
-    console.log(lines.join('\n'));
+    writeHookMessage(lines.join('\n'));
 
     // Clean up flag file
     cleanup(flagPath);

@@ -16,6 +16,7 @@ import { existsSync } from 'fs';
 import { getFeatureImpact } from '../sentinel-db.ts';
 import { getProjectRoot, getResolvedPaths } from '../config.ts';
 import { t } from '../lib/sql-table-names.ts';
+import { writeHookMessage } from './lib/write-hook-message.ts';
 
 interface HookInput {
   session_id: string;
@@ -119,76 +120,57 @@ function extractDeletedFiles(input: HookInput): string[] {
   return files;
 }
 
-async function main(): Promise<void> {
+/**
+ * P-E-019 (plan-stage-e-low-info-sweep): pure check function exported so
+ * `pre-tool-use-gate.ts` can compose the security-gate + pre-delete-check
+ * pair into ONE spawned node process instead of two. Returns the list of
+ * messages to emit; caller is responsible for actually writing them via
+ * `writeHookMessage()`.
+ */
+export function runPreDeleteChecks(hookInput: HookInput): string[] {
+  const messages: string[] = [];
   try {
-    const input = await readStdin();
-    const hookInput = JSON.parse(input) as HookInput;
-
-    // P7-005: Check knowledge file protection before anything else
     const knowledgeWarning = checkKnowledgeFileProtection(hookInput);
     if (knowledgeWarning) {
-      process.stdout.write(JSON.stringify({ message: knowledgeWarning }));
-      process.exit(0);
-      return;
+      messages.push(knowledgeWarning);
+      return messages;
     }
 
     const deletedFiles = extractDeletedFiles(hookInput);
-    if (deletedFiles.length === 0) {
-      process.exit(0);
-      return;
-    }
+    if (deletedFiles.length === 0) return messages;
 
     const db = getDataDb();
-    if (!db) {
-      // No database available - can't check
-      process.exit(0);
-      return;
-    }
+    if (!db) return messages;
 
-    // The sentinel registry table name (defined by sentinel-db schema).
-    // P-H032: now config-driven via t() helper from lib/sql-table-names.ts.
     const SENTINEL_TABLE = t('sentinel');
-
     try {
-      // Check if any sentinel tables exist
       const tableExists = db.prepare(
         `SELECT name FROM sqlite_master WHERE type='table' AND name=?`
       ).get(SENTINEL_TABLE);
-
-      if (!tableExists) {
-        process.exit(0);
-        return;
-      }
+      if (!tableExists) return messages;
 
       const impact = getFeatureImpact(db, deletedFiles);
-
       if (impact.blocked) {
         const msg = [
           `SENTINEL IMPACT WARNING: Deleting ${deletedFiles.length} file(s) would affect features:`,
           '',
         ];
-
         if (impact.orphaned.length > 0) {
           msg.push(`ORPHANED (${impact.orphaned.length} features - no primary components left):`);
           for (const item of impact.orphaned) {
             msg.push(`  - ${item.feature.feature_key} [${item.feature.priority}]: ${item.feature.title}`);
           }
         }
-
         if (impact.degraded.length > 0) {
           msg.push(`DEGRADED (${impact.degraded.length} features - some components removed):`);
           for (const item of impact.degraded) {
             msg.push(`  - ${item.feature.feature_key}: ${item.feature.title}`);
           }
         }
-
         msg.push('');
         msg.push('Create a migration plan before deleting these files.');
-
-        // Output warning but don't block (user can proceed)
-        process.stdout.write(JSON.stringify({ message: msg.join('\n') }));
+        messages.push(msg.join('\n'));
       }
-      // Check Python import graph for deleted .py files
       const pyFiles = deletedFiles.filter(f => f.endsWith('.py'));
       if (pyFiles.length > 0) {
         try {
@@ -196,36 +178,42 @@ async function main(): Promise<void> {
             const importers = db.prepare(
               `SELECT source_file FROM ${t('py_imports')} WHERE target_file = ?`
             ).all(pyFile) as { source_file: string }[];
-
             const routes = db.prepare(
               `SELECT method, path FROM ${t('py_routes')} WHERE file = ?`
             ).all(pyFile) as { method: string; path: string }[];
-
             const models = db.prepare(
               `SELECT class_name FROM ${t('py_models')} WHERE file = ?`
             ).all(pyFile) as { class_name: string }[];
-
             if (importers.length > 0 || routes.length > 0 || models.length > 0) {
               const parts: string[] = [];
               if (importers.length > 0) parts.push(`imported by ${importers.length} files`);
               if (routes.length > 0) parts.push(`defines ${routes.length} routes`);
               if (models.length > 0) parts.push(`defines ${models.length} models`);
-
-              const msg = `PYTHON IMPACT: "${pyFile}" ${parts.join(', ')}. Check dependents before deleting.`;
-              process.stdout.write(JSON.stringify({ message: msg }));
+              messages.push(`PYTHON IMPACT: "${pyFile}" ${parts.join(', ')}. Check dependents before deleting.`);
             }
           }
         } catch {
-          // Python tables may not exist yet
+          // Python tables may not exist yet.
         }
       }
     } finally {
       db.close();
     }
   } catch {
+    // Hooks must never crash — return whatever messages we accumulated.
+  }
+  return messages;
+}
+
+async function main(): Promise<void> {
+  try {
+    const input = await readStdin();
+    const hookInput = JSON.parse(input) as HookInput;
+    const messages = runPreDeleteChecks(hookInput);
+    for (const msg of messages) writeHookMessage(msg);
+  } catch {
     // Hooks must never crash
   }
-
   process.exit(0);
 }
 
@@ -240,4 +228,11 @@ function readStdin(): Promise<string> {
   });
 }
 
-main();
+// Run main() only when invoked as a standalone hook (esbuild bundle entry).
+// Importing this module for `runPreDeleteChecks` does NOT trigger main().
+if (
+  process.argv[1]?.endsWith('pre-delete-check.js') ||
+  process.argv[1]?.endsWith('pre-delete-check')
+) {
+  main();
+}

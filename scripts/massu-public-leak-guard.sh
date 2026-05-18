@@ -63,10 +63,7 @@ ALLOWED_PATTERNS=(
   # Directories (full sync)
   '^packages/core/'
   '^packages/adapter-rails/'
-  '^packages/adapter-phoenix/'
-  '^packages/adapter-aspnet/'
   '^packages/adapter-spring/'
-  '^packages/adapter-go-chi/'
   '^examples/'
   '^scripts/'
   '^docs/getting-started/'

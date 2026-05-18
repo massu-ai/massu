@@ -212,16 +212,26 @@ CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
 INCIDENT_LOG="$CLAUDE_DIR/incidents/INCIDENT-LOG.md"
 
 if [ -f "$CLAUDE_MD" ] && [ -f "$INCIDENT_LOG" ]; then
-    # Extract "N incidents logged" from CLAUDE.md
-    claimed_count=$(grep -o '[0-9]* incidents logged' "$CLAUDE_MD" 2>/dev/null | grep -o '^[0-9]*' || echo "0")
+    # Extract "N incidents logged" from CLAUDE.md (default 0 if not present)
+    claimed_count=$(grep -o '[0-9]* incidents logged' "$CLAUDE_MD" 2>/dev/null | grep -o '^[0-9]*' | head -1)
+    [ -z "$claimed_count" ] && claimed_count="0"
 
-    # Extract highest ## Incident #N from INCIDENT-LOG.md
-    highest_incident=$(grep -o '## Incident #[0-9]*' "$INCIDENT_LOG" 2>/dev/null | grep -o '[0-9]*' | sort -n | tail -1 || echo "0")
+    # Count actual ## Incident #N or ### Incident #N entries under the "## Incidents"
+    # section ONLY (exclude template entries that live under "## Template").
+    # Use awk to track section context so the parser is robust against templates,
+    # severity tables, or summary table entries containing the literal "Incident #".
+    actual_incident_count=$(awk '
+        /^## Incidents/ { in_section=1; next }
+        /^## / && in_section { in_section=0 }
+        in_section && /^### Incident #[0-9]+/ { count++ }
+        in_section && /^## Incident #[0-9]+/ { count++ }
+        END { print count+0 }
+    ' "$INCIDENT_LOG")
 
-    if [ "$claimed_count" = "$highest_incident" ]; then
-        pass "Incident count matches: CLAUDE.md claims $claimed_count, INCIDENT-LOG has #$highest_incident"
+    if [ "$claimed_count" = "$actual_incident_count" ]; then
+        pass "Incident count matches: CLAUDE.md claims $claimed_count, INCIDENT-LOG has $actual_incident_count"
     else
-        fail "Incident count MISMATCH: CLAUDE.md claims $claimed_count incidents, but highest incident is #$highest_incident"
+        fail "Incident count MISMATCH: CLAUDE.md claims $claimed_count incidents, but INCIDENT-LOG has $actual_incident_count entries under '## Incidents' section"
     fi
 else
     if [ ! -f "$CLAUDE_MD" ]; then

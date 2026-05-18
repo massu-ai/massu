@@ -10,6 +10,8 @@
 // Must complete in <500ms.
 // ============================================================
 
+import { writeHookMessage } from './lib/write-hook-message.ts';
+
 // Force module mode for TypeScript (no external deps needed)
 export {};
 
@@ -98,40 +100,51 @@ function checkPythonContent(content: string): string | null {
   return null;
 }
 
-async function main(): Promise<void> {
+/**
+ * P-E-019 (plan-stage-e-low-info-sweep): pure check function exported so
+ * `pre-tool-use-gate.ts` can compose the security-gate + pre-delete-check
+ * pair into ONE spawned node process instead of two. Original standalone
+ * `main()` below remains for backward-compat (existing hook configs that
+ * still invoke `security-gate` directly).
+ */
+export function runSecurityGateChecks(hookInput: HookInput): string[] {
+  const messages: string[] = [];
   try {
-    const input = await readStdin();
-    const hookInput = JSON.parse(input) as HookInput;
     const { tool_name, tool_input } = hookInput;
 
     if (tool_name === 'Bash' && tool_input.command) {
       const violation = checkBashCommand(tool_input.command);
       if (violation) {
-        process.stdout.write(JSON.stringify({
-          message: `SECURITY GATE: Dangerous command pattern detected: ${violation}\nCommand: ${tool_input.command.slice(0, 200)}\nReview carefully before proceeding.`,
-        }));
+        messages.push(`SECURITY GATE: Dangerous command pattern detected: ${violation}\nCommand: ${tool_input.command.slice(0, 200)}\nReview carefully before proceeding.`);
       }
     }
 
     if ((tool_name === 'Write' || tool_name === 'Edit') && tool_input.file_path) {
       const violation = checkFilePath(tool_input.file_path);
       if (violation) {
-        process.stdout.write(JSON.stringify({
-          message: `SECURITY GATE: Attempt to write to protected file: ${violation}\nPath: ${tool_input.file_path}\nEnsure this is intentional and no secrets will be exposed.`,
-        }));
+        messages.push(`SECURITY GATE: Attempt to write to protected file: ${violation}\nPath: ${tool_input.file_path}\nEnsure this is intentional and no secrets will be exposed.`);
       }
     }
 
-    // Check Python file content for dangerous patterns (Write uses content, Edit uses new_string)
     const pyContent = tool_input.content || tool_input.new_string;
     if ((tool_name === 'Write' || tool_name === 'Edit') && tool_input.file_path?.endsWith('.py') && pyContent) {
       const pyViolation = checkPythonContent(pyContent);
       if (pyViolation) {
-        process.stdout.write(JSON.stringify({
-          message: `SECURITY GATE: Dangerous Python pattern detected: ${pyViolation}\nFile: ${tool_input.file_path}\nReview carefully before proceeding.`,
-        }));
+        messages.push(`SECURITY GATE: Dangerous Python pattern detected: ${pyViolation}\nFile: ${tool_input.file_path}\nReview carefully before proceeding.`);
       }
     }
+  } catch {
+    // Hooks must never crash — return whatever messages we accumulated.
+  }
+  return messages;
+}
+
+async function main(): Promise<void> {
+  try {
+    const input = await readStdin();
+    const hookInput = JSON.parse(input) as HookInput;
+    const messages = runSecurityGateChecks(hookInput);
+    for (const msg of messages) writeHookMessage(msg);
   } catch {
     // Hooks must never crash
   }
@@ -150,4 +163,11 @@ function readStdin(): Promise<string> {
   });
 }
 
-main();
+// Run main() only when invoked as a standalone hook (esbuild bundle entry).
+// Importing this module for `runSecurityGateChecks` does NOT trigger main().
+if (
+  process.argv[1]?.endsWith('security-gate.js') ||
+  process.argv[1]?.endsWith('security-gate')
+) {
+  main();
+}

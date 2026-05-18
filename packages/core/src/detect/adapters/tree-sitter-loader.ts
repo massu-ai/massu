@@ -310,9 +310,10 @@ function evictBeyondRetainCount(retain: number = getCacheRetainCount()): void {
     if (stat.isSymbolicLink() || !stat.isFile()) {
       // Skip — never automatically delete what could be an attacker-placed
       // symlink. Surface via stderr; user's cache dir is suspect.
-      console.error(
+      // P-M-035: stderr write, no console.* on hot paths.
+      process.stderr.write(
         `[tree-sitter-loader] cache eviction skipped non-regular file: ${path} ` +
-          `(possible symlink attack — see Phase 3.5 finding F-008).`,
+          `(possible symlink attack — see Phase 3.5 finding F-008).\n`,
       );
       continue;
     }
@@ -498,8 +499,9 @@ export async function loadGrammar(
   } catch (e) {
     // Cache write failure is non-fatal — we still have `body` in memory and
     // can load directly. Log to stderr per VR-USER-ERROR-MESSAGES style.
-    console.error(
-      `[tree-sitter-loader] cache write failed for ${language}: ${e instanceof Error ? e.message : String(e)} — loading directly from memory.`,
+    // P-M-035: stderr write, no console.* on hot paths.
+    process.stderr.write(
+      `[tree-sitter-loader] cache write failed for ${language}: ${e instanceof Error ? e.message : String(e)} — loading directly from memory.\n`,
     );
   }
 

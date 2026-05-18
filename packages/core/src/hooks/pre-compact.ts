@@ -29,10 +29,13 @@ async function main(): Promise<void> {
       // Ensure session exists
       createSession(db, session_id);
 
-      // 1. Get all observations for this session
-      const observations = db.prepare(
-        'SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC'
+      // 1. Get most recent 1000 observations for this session (LIMIT prevents PreCompact
+      //    timeout on long-running sessions per plan-stage-d-medium-sweep P-M-001).
+      //    DESC + LIMIT + JS-reverse preserves ASC ordering downstream while bounding rowcount.
+      const observationsDesc = db.prepare(
+        'SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch DESC LIMIT 1000'
       ).all(session_id) as Array<Record<string, unknown>>;
+      const observations = observationsDesc.reverse();
 
       // 2. Get user prompts
       const prompts = db.prepare(

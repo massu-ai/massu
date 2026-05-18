@@ -643,6 +643,37 @@ export function indexAllKnowledge(db: Database.Database): IndexStats {
       }
     }
 
+    // P-M-036 (plan-stage-d-medium-sweep): load customer-authored
+    // governance_rules from massu.config.yaml into knowledge_rules with
+    // source='customer-config'. Distinct from the framework's CR-* rules
+    // (source='framework') so `massu_knowledge_rule` and the governance
+    // docs can render them separately.
+    //
+    // Security-review M-5 hardening: customer rule_ids are FORCE-NAMESPACED
+    // with a `customer:` prefix before insertion. Closes the privilege-
+    // escalation path where a forked-repo `governance_rules:` entry could
+    // `INSERT OR REPLACE` over a framework CR-* row (e.g., CR-3 "Never
+    // commit secrets") and silently disable enforcement. The namespace
+    // separator is `:` which is structurally disallowed in framework rule
+    // IDs (always `CR-<digits>` form), so collisions are impossible.
+    const customerRules = getConfig().governance_rules ?? [];
+    const insertCustomerRule = db.prepare(
+      `INSERT OR REPLACE INTO knowledge_rules (rule_id, rule_text, vr_type, reference_path, severity, source)
+       VALUES (?, ?, ?, ?, ?, 'customer-config')`,
+    );
+    for (const rule of customerRules) {
+      const namespacedId = rule.id.startsWith('customer:')
+        ? rule.id
+        : `customer:${rule.id}`;
+      insertCustomerRule.run(
+        namespacedId,
+        `${rule.title}: ${rule.description}`,
+        rule.vr_type ?? 'VR-CUSTOM',
+        rule.reference_path ?? null,
+        rule.severity?.toUpperCase() ?? 'MEDIUM',
+      );
+    }
+
     // Build cross-references after all data inserted
     stats.edgesCreated = buildCrossReferences(db);
 

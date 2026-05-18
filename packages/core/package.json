@@ -1,11 +1,16 @@
 {
   "name": "@massu/core",
-  "version": "1.10.8",
+  "version": "1.12.0",
   "type": "module",
   "description": "AI Engineering Governance MCP Server - Session memory, knowledge system, feature registry, code intelligence, rule enforcement, tiered tooling (12 free / 73 total), 59 workflow commands, 11 agents, 20+ patterns",
-  "main": "src/server.ts",
+  "main": "./dist/cli.js",
+  "types": "./dist/adapter.d.ts",
   "exports": {
-    ".": "./src/server.ts",
+    ".": {
+      "types": "./dist/adapter.d.ts",
+      "import": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
     "./adapter": {
       "types": "./dist/adapter.d.ts",
       "import": "./dist/adapter.js",
@@ -22,18 +27,16 @@
     "build:adapter-types": "tsc -p tsconfig.adapter-types.json",
     "build:adapter-subpath": "tsx scripts/bundle-adapters.ts --subpath-only",
     "build:bundle-adapters": "tsx scripts/bundle-adapters.ts",
-    "build:cli": "esbuild --bundle --platform=node --format=esm --outfile=dist/cli.js src/cli.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --external:web-tree-sitter --external:tweetnacl --external:tar --external:smol-toml --external:vscode-languageserver-protocol --external:@massu/adapter-rails --external:@massu/adapter-phoenix --external:@massu/adapter-aspnet --external:@massu/adapter-spring --external:@massu/adapter-go-chi --banner:js='#!/usr/bin/env node\nimport{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
-    "build:hooks": "esbuild --bundle --platform=node --format=esm --outdir=dist/hooks src/hooks/*.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --external:web-tree-sitter --external:tweetnacl --external:tar --external:smol-toml --external:vscode-languageserver-protocol --external:@massu/adapter-rails --external:@massu/adapter-phoenix --external:@massu/adapter-aspnet --external:@massu/adapter-spring --external:@massu/adapter-go-chi --banner:js='import{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
-    "prepublishOnly": "bash ../../scripts/prepublish-check.sh && node ../../scripts/bundle-pubkey.mjs && node ../../scripts/bundle-license-pubkey.mjs && npm run build",
+    "build:cli": "esbuild --bundle --platform=node --format=esm --outfile=dist/cli.js src/cli.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --external:web-tree-sitter --external:tweetnacl --external:tar --external:smol-toml --external:vscode-languageserver-protocol --external:@massu/adapter-rails --external:@massu/adapter-spring --banner:js='#!/usr/bin/env node\nimport{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
+    "build:hooks": "esbuild --bundle --platform=node --format=esm --outdir=dist/hooks src/hooks/*.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --external:web-tree-sitter --external:tweetnacl --external:tar --external:smol-toml --external:vscode-languageserver-protocol --external:@massu/adapter-rails --external:@massu/adapter-spring --banner:js='import{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
+    "prepublishOnly": "bash ../../scripts/prepublish-check.sh && node ../../scripts/bundle-pubkey.mjs && node ../../scripts/bundle-license-pubkey.mjs && cp ../../CHANGELOG.md ./CHANGELOG.md && npm run build",
     "bench:watch": "tsx test/perf/watch-benchmark.ts"
   },
   "dependencies": {
     "@clack/prompts": "^0.9.1",
-    "@massu/adapter-aspnet": "^1.0.0",
-    "@massu/adapter-go-chi": "^1.0.0",
-    "@massu/adapter-phoenix": "^1.0.0",
     "@massu/adapter-rails": "^1.0.0",
     "@massu/adapter-spring": "^1.0.0",
+    "@massu/types": "1.12.0",
     "better-sqlite3": "^12.6.2",
     "chokidar": "^3.6.0",
     "fast-glob": "^3.3.0",
@@ -55,23 +58,17 @@
     "vitest": "^4.0.18"
   },
   "files": [
-    "src/**/*",
-    "!src/**/__tests__/**",
-    "!src/**/*.test.ts",
-    "!src/**/*.spec.ts",
-    "!**/.build/**",
-    "!**/.swiftpm/**",
-    "!**/node_modules/**",
-    "!**/__pycache__/**",
     "dist/**/*",
     "commands/**/*",
+    "!commands/README.md",
     "agents/**/*",
     "docs/**/*",
     "patterns/**/*",
     "protocols/**/*",
     "reference/**/*",
     "templates/**/*",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "mcp",

@@ -1,6 +1,15 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
+// @scanner-allow:large-file
+// P-M-031 (plan-stage-d-medium-sweep): this file is the central tool registry
+// and dispatch hub (~70 tool definitions × ~15 LOC each before handler
+// routing). 1195 LOC is structural — every tool needs a definition entry
+// plus dispatch wiring. Splitting requires the broader tool registry
+// overhaul tracked in master plan §Stage E. Check 21 prevents accidentally
+// adding 100 more tool entries; removing this marker requires the structural
+// refactor.
+
 import { readFileSync, existsSync } from 'fs';
 import { resolve, basename } from 'path';
 import { ensureWithinRoot } from './security-utils.ts';
@@ -324,7 +333,16 @@ export async function handleToolCall(
   name: string,
   args: Record<string, unknown>,
   dataDb?: Database.Database,
-  codegraphDb?: Database.Database
+  codegraphDb?: Database.Database,
+  /**
+   * plan-stage-d-medium-sweep P-M-010: when the dispatcher provides a cached
+   * memory.db handle, the handler reuses it; tests calling handleToolCall
+   * without this argument fall back to per-call open + close (preserving
+   * test isolation).
+   */
+  memoryDbCache?: Database.Database,
+  /** plan-stage-d-medium-sweep P-M-010: same pattern for knowledge.db. */
+  knowledgeDbCache?: Database.Database
 ): Promise<ToolResult> {
   // P3-017: Tier gate — check before any routing (ordering invariant step 1)
   const userTier = await getCurrentTier();
@@ -335,25 +353,29 @@ export async function handleToolCall(
 
   const pfx = prefix();
 
+  // plan-stage-d-medium-sweep P-M-010 helper: reuse the dispatcher's cached
+  // handle when available; otherwise fall back to the per-call open + close
+  // pattern. The fallback path preserves the existing test behavior.
+  async function withMemDb<T>(fn: (db: Database.Database) => T | Promise<T>): Promise<T> {
+    if (memoryDbCache) return fn(memoryDbCache);
+    const db = getMemoryDb();
+    try { return await fn(db); } finally { db.close(); }
+  }
+  async function withKnowledgeDb<T>(fn: (db: Database.Database) => T | Promise<T>): Promise<T> {
+    if (knowledgeDbCache) return fn(knowledgeDbCache);
+    const db = getKnowledgeDb();
+    try { return await fn(db); } finally { db.close(); }
+  }
+
   try {
     // Route memory tools to memory handler
     if (name.startsWith(pfx + '_memory_')) {
-      const memDb = getMemoryDb();
-      try {
-        return handleMemoryToolCall(name, args, memDb);
-      } finally {
-        memDb.close();
-      }
+      return withMemDb((memDb) => handleMemoryToolCall(name, args, memDb));
     }
 
     // Route observability tools to observability handler
     if (isObservabilityTool(name)) {
-      const memDb = getMemoryDb();
-      try {
-        return handleObservabilityToolCall(name, args, memDb);
-      } finally {
-        memDb.close();
-      }
+      return withMemDb((memDb) => handleObservabilityToolCall(name, args, memDb));
     }
 
     // Route docs tools to docs handler
@@ -368,69 +390,47 @@ export async function handleToolCall(
 
     // Route analytics layer tools
     if (isAnalyticsTool(name)) {
-      const memDb = getMemoryDb();
-      try { return handleAnalyticsToolCall(name, args, memDb); }
-      finally { memDb.close(); }
+      return withMemDb((memDb) => handleAnalyticsToolCall(name, args, memDb));
     }
     if (isCostTool(name)) {
-      const memDb = getMemoryDb();
-      try { return handleCostToolCall(name, args, memDb); }
-      finally { memDb.close(); }
+      return withMemDb((memDb) => handleCostToolCall(name, args, memDb));
     }
     if (isPromptTool(name)) {
-      const memDb = getMemoryDb();
-      try { return handlePromptToolCall(name, args, memDb); }
-      finally { memDb.close(); }
+      return withMemDb((memDb) => handlePromptToolCall(name, args, memDb));
     }
 
     // Route governance layer tools
     if (isAuditTool(name)) {
-      const memDb = getMemoryDb();
-      try { return handleAuditToolCall(name, args, memDb); }
-      finally { memDb.close(); }
+      return withMemDb((memDb) => handleAuditToolCall(name, args, memDb));
     }
     if (isValidationTool(name)) {
-      const memDb = getMemoryDb();
-      try { return handleValidationToolCall(name, args, memDb); }
-      finally { memDb.close(); }
+      return withMemDb((memDb) => handleValidationToolCall(name, args, memDb));
     }
     if (isAdrTool(name)) {
-      const memDb = getMemoryDb();
-      try { return handleAdrToolCall(name, args, memDb); }
-      finally { memDb.close(); }
+      return withMemDb((memDb) => handleAdrToolCall(name, args, memDb));
     }
 
     // Route security layer tools
     if (isSecurityTool(name)) {
-      const memDb = getMemoryDb();
-      try { return handleSecurityToolCall(name, args, memDb); }
-      finally { memDb.close(); }
+      return withMemDb((memDb) => handleSecurityToolCall(name, args, memDb));
     }
     if (isDependencyTool(name)) {
-      const memDb = getMemoryDb();
-      try { return handleDependencyToolCall(name, args, memDb); }
-      finally { memDb.close(); }
+      return withMemDb((memDb) => handleDependencyToolCall(name, args, memDb));
     }
 
     // Route enterprise layer tools
     // P-A-003: team-tool dispatch gated on cloud availability; if a stale client
     // still has the tool name cached, fall through to the unknown-tool branch.
     if (isTeamTool(name) && isCloudFeatureAvailable()) {
-      const memDb = getMemoryDb();
-      try { return handleTeamToolCall(name, args, memDb); }
-      finally { memDb.close(); }
+      return withMemDb((memDb) => handleTeamToolCall(name, args, memDb));
     }
     if (isRegressionTool(name)) {
-      const memDb = getMemoryDb();
-      try { return handleRegressionToolCall(name, args, memDb); }
-      finally { memDb.close(); }
+      return withMemDb((memDb) => handleRegressionToolCall(name, args, memDb));
     }
 
     // Route knowledge layer tools
     if (isKnowledgeTool(name)) {
-      const knowledgeDb = getKnowledgeDb();
-      try { return handleKnowledgeToolCall(name, args, knowledgeDb); }
-      finally { knowledgeDb.close(); }
+      return withKnowledgeDb((kdb) => handleKnowledgeToolCall(name, args, kdb));
     }
 
     // Route Python tools (uses dataDb only; codegraphDb not required).
@@ -444,9 +444,7 @@ export async function handleToolCall(
 
     // Route license tools
     if (isLicenseTool(name)) {
-      const memDb = getMemoryDb();
-      try { return await handleLicenseToolCall(name, args, memDb); }
-      finally { memDb.close(); }
+      return withMemDb((memDb) => handleLicenseToolCall(name, args, memDb));
     }
 
     // Match core tools by base name. Each codegraph-dependent core tool

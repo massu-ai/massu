@@ -14,6 +14,7 @@ import Database from 'better-sqlite3';
 import { matchRules } from '../rules.ts';
 import { isInMiddlewareTree } from '../middleware-tree.ts';
 import { getResolvedPaths, getProjectRoot } from '../config.ts';
+import { writeHookMessage } from './lib/write-hook-message.ts';
 
 interface HookInput {
   session_id: string;
@@ -70,7 +71,7 @@ async function main(): Promise<void> {
 
     // 3. Output warnings if any
     if (warnings.length > 0) {
-      console.log(`[Massu] ${warnings.join(' | ')}`);
+      writeHookMessage(`[Massu] ${warnings.join(' | ')}`);
     }
   } catch (_e) {
     // Best-effort: never block Claude Code

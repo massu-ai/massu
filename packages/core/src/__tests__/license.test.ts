@@ -100,7 +100,8 @@ function createTestDb(): Database.Database {
       tier TEXT NOT NULL,
       valid_until TEXT NOT NULL,
       last_validated TEXT NOT NULL,
-      features TEXT DEFAULT '[]'
+      features TEXT DEFAULT '[]',
+      signed_payload_json TEXT NOT NULL DEFAULT ''
     );
   `);
   return db;
@@ -513,12 +514,14 @@ describe('P3-029: annotateToolDefinitions()', () => {
     expect(annotated[0].annotations?.tier).toBe('enterprise');
   });
 
-  it('does NOT add prefix to free tool descriptions', () => {
+  it('adds [FREE] prefix to free tool descriptions (P-E-011)', () => {
+    // Stage E P-E-011 (wave1-mcp-tools:F-MCP-007): Free tools now carry
+    // an explicit [FREE] prefix for tier-listing symmetry.
     const defs = [
       { name: 'massu_sync', description: 'Synchronize indexes', inputSchema: { type: 'object' } },
     ];
     const annotated = annotateToolDefinitions(defs);
-    expect(annotated[0].description).toBe('Synchronize indexes');
+    expect(annotated[0].description).toBe('[FREE] Synchronize indexes');
     expect(annotated[0].annotations?.tier).toBe('free');
   });
 
@@ -557,12 +560,12 @@ describe('P3-029: annotateToolDefinitions()', () => {
     expect(annotated).toEqual([]);
   });
 
-  it('unknown tools default to free tier and get no label', () => {
+  it('unknown tools default to free tier and get the [FREE] label (P-E-011)', () => {
     const defs = [
       { name: 'massu_totally_new_tool', description: 'New tool', inputSchema: { type: 'object' } },
     ];
     const annotated = annotateToolDefinitions(defs);
-    expect(annotated[0].description).toBe('New tool');
+    expect(annotated[0].description).toBe('[FREE] New tool');
     expect(annotated[0].annotations?.tier).toBe('free');
   });
 

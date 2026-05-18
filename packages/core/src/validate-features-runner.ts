@@ -20,7 +20,20 @@ function main(): void {
   const dbPath = getResolvedPaths().dataDbPath;
 
   if (!existsSync(dbPath)) {
-    console.log('Sentinel: No data DB found - skipping feature validation (run sync first)');
+    // P-M-037 (plan-stage-d-medium-sweep): structured warning replaces silent
+    // skip. CR-39 contract: customer must see that validation didn't run.
+    // The telemetry event lets ops alert on "validation never ran in N days"
+    // (Vercel / Sentry breadcrumb scope; emitter is logged once at process
+    // boundary so the CLI's stderr stream remains readable for humans).
+    process.stderr.write(
+      JSON.stringify({
+        level: 'warn',
+        event: 'validation_skipped_no_db',
+        reason: 'data_db_not_found',
+        message: 'Sentinel: No data DB found - skipping feature validation (run sync first)',
+        dbPath,
+      }) + '\n',
+    );
     process.exit(0);
   }
 
@@ -29,7 +42,16 @@ function main(): void {
     db = new Database(dbPath, { readonly: true });
     db.pragma('journal_mode = WAL');
   } catch (error) {
-    console.log('Sentinel: Could not open data DB - skipping feature validation');
+    // P-M-037: structured warning replaces silent skip.
+    process.stderr.write(
+      JSON.stringify({
+        level: 'warn',
+        event: 'validation_skipped_no_db',
+        reason: 'data_db_open_failed',
+        message: 'Sentinel: Could not open data DB - skipping feature validation',
+        error: error instanceof Error ? error.message : String(error),
+      }) + '\n',
+    );
     process.exit(0);
   }
 
@@ -40,7 +62,7 @@ function main(): void {
     ).get();
 
     if (!tableExists) {
-      console.log('Sentinel: Feature registry not initialized - skipping (run sync first)');
+      process.stderr.write('Sentinel: Feature registry not initialized - skipping (run sync first)\n');
       process.exit(0);
     }
 
@@ -50,7 +72,7 @@ function main(): void {
     ).get() as { count: number };
 
     if (totalActive.count === 0) {
-      console.log('Sentinel: No active features registered - skipping validation');
+      process.stderr.write('Sentinel: No active features registered - skipping validation\n');
       process.exit(0);
     }
 
@@ -77,24 +99,24 @@ function main(): void {
       }
     }
 
-    console.log(`Sentinel: ${totalActive.count} active features, checking primary components...`);
+    process.stderr.write(`Sentinel: ${totalActive.count} active features, checking primary components...\n`);
 
     if (missingFeatures.length === 0) {
-      console.log('Sentinel: All active features have living primary components. PASS');
+      process.stderr.write('Sentinel: All active features have living primary components. PASS\n');
       process.exit(0);
     } else {
-      console.error(`Sentinel: ${missingFeatures.length} features have MISSING primary components:`);
+      process.stderr.write(`Sentinel: ${missingFeatures.length} features have MISSING primary components:\n`);
       for (const f of missingFeatures) {
-        console.error(`  [${f.priority}] ${f.feature_key}: ${f.title}`);
-        console.error(`    Missing: ${f.missing_file}`);
+        process.stderr.write(`  [${f.priority}] ${f.feature_key}: ${f.title}\n`);
+        process.stderr.write(`    Missing: ${f.missing_file}\n`);
       }
 
       const criticalCount = missingFeatures.filter(f => f.priority === 'critical').length;
       if (criticalCount > 0) {
-        console.error(`\nFAIL: ${criticalCount} CRITICAL features are orphaned. Fix before committing.`);
+        process.stderr.write(`\nFAIL: ${criticalCount} CRITICAL features are orphaned. Fix before committing.\n`);
         process.exit(1);
       } else {
-        console.warn(`\nWARN: ${missingFeatures.length} features are orphaned (non-critical). Consider updating registry.`);
+        process.stderr.write(`\nWARN: ${missingFeatures.length} features are orphaned (non-critical). Consider updating registry.\n`);
         // Non-critical orphans are warnings, not blockers
         process.exit(0);
       }

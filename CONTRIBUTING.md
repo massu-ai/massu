@@ -105,6 +105,41 @@ All three functions must be wired into `packages/core/src/tools.ts`.
 4. **Clear description** — Explain what your change does and why
 5. **No breaking changes** — Or clearly document them in the PR description
 
+## Local Development Troubleshooting
+
+### `better-sqlite3` native binding missing
+
+**Symptom**: 695+ test failures in `packages/core` with `db.close()`
+undefined in `afterEach` cleanup; `Error: Cannot find module
+'@better-sqlite3/...'`.
+
+**Cause**: When Node version changes (e.g. upgrade from 22 → 26) or
+when `node_modules` was created on a different machine architecture
+(ARM vs x86_64), the prebuilt `better-sqlite3` native binding mismatch
+causes silent failures.
+
+**Fix**: rebuild from source:
+
+```bash
+cd packages/core
+npm rebuild better-sqlite3
+```
+
+Reference: R-011 — never misdiagnose as Node incompat without testing
+on a working version first.
+
+### Pattern Scanner BSD-awk noise on macOS
+
+**Symptom**: `bash scripts/massu-pattern-scanner.sh` emits awk noise on
+macOS.
+
+**Cause**: macOS ships BSD awk; older versions of the scanner used
+GNU-style `\(` escapes.
+
+**Fix**: The scanner (as of @massu/core@1.12.0, plan
+`plan-stage-e-low-info-sweep` P-E-003) auto-detects `gawk` when
+available. If you still see noise, install GNU awk: `brew install gawk`.
+
 ## Reporting Issues
 
 - Use [GitHub Issues](https://github.com/massu-ai/massu/issues) to report bugs

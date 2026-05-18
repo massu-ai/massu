@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 import{createRequire as __cr}from"module";const require=__cr(import.meta.url);
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
 
 // src/hooks/fix-detector.ts
 import { execFileSync } from "child_process";
@@ -341,6 +347,22 @@ var RawConfigSchema = z.object({
   accessScopes: z.array(z.string()).optional(),
   domains: z.array(DomainConfigSchema).default([]),
   rules: z.array(PatternRuleConfigSchema).default([]),
+  // P-M-036 (plan-stage-d-medium-sweep): customer-authored CR-style
+  // governance rules. DISTINCT from `rules:` above (path-scoped lint hints
+  // used by pattern-scanner). At config-refresh time these entries are
+  // loaded into the `knowledge_rules` SQLite table with
+  // `source = 'customer-config'` so `massu_knowledge_rule` and the
+  // governance docs surface customer-defined rules alongside framework CRs.
+  governance_rules: z.array(
+    z.object({
+      id: z.string().min(1, "governance_rules[].id is required"),
+      title: z.string().min(1, "governance_rules[].title is required"),
+      description: z.string().min(1, "governance_rules[].description is required"),
+      vr_type: z.string().default("VR-CUSTOM"),
+      reference_path: z.string().optional(),
+      severity: z.enum(["critical", "high", "medium", "low", "info"]).default("medium")
+    }).passthrough()
+  ).default([]),
   analytics: AnalyticsConfigSchema,
   governance: GovernanceConfigSchema,
   security: SecurityConfigSchema,
@@ -459,6 +481,8 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     accessScopes: parsed.accessScopes,
     domains: parsed.domains,
     rules: parsed.rules,
+    // P-M-036: customer-authored CR-style governance rules.
+    governance_rules: parsed.governance_rules,
     analytics: parsed.analytics,
     governance: parsed.governance,
     security: parsed.security,
@@ -487,6 +511,11 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     };
   }
   return _config;
+}
+
+// src/hooks/lib/write-hook-message.ts
+function writeHookMessage(message) {
+  process.stdout.write(JSON.stringify({ message }) + "\n");
 }
 
 // src/hooks/fix-detector.ts
@@ -538,6 +567,64 @@ function getSessionFlagPath(sessionId) {
   }
   return join(dir, `fixes-${sessionId.slice(0, 12)}.jsonl`);
 }
+function _stateDir() {
+  const dir = join(tmpdir(), "massu-fix-detector-state");
+  if (!existsSync2(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+function _cwdHash(cwd) {
+  let h = 5381;
+  for (let i = 0; i < cwd.length; i++) {
+    h = (h << 5) + h + cwd.charCodeAt(i) | 0;
+  }
+  return Math.abs(h).toString(36);
+}
+function isGitWorkTreeFast(cwd) {
+  try {
+    const cachePath = join(_stateDir(), `worktree-${_cwdHash(cwd)}.json`);
+    if (existsSync2(cachePath)) {
+      const cached = JSON.parse(readFileSync2(cachePath, "utf-8"));
+      const ageMs = Date.now() - cached.ts;
+      if (ageMs < 36e5) return cached.isWorkTree;
+    }
+    let isWorkTree = false;
+    try {
+      execFileSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd, timeout: 500, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
+      isWorkTree = true;
+    } catch {
+      isWorkTree = false;
+    }
+    try {
+      appendFileSync(cachePath, "");
+      const fs = __require("fs");
+      fs.writeFileSync(cachePath, JSON.stringify({ isWorkTree, ts: Date.now() }));
+    } catch {
+    }
+    return isWorkTree;
+  } catch {
+    return false;
+  }
+}
+function _disabledFlagPath(sessionId) {
+  return join(_stateDir(), `disabled-${sessionId.slice(0, 12)}.flag`);
+}
+function isSessionAutoDisabled(sessionId) {
+  try {
+    return existsSync2(_disabledFlagPath(sessionId));
+  } catch {
+    return false;
+  }
+}
+function markSessionAutoDisabled(sessionId, elapsedMs) {
+  try {
+    const fs = __require("fs");
+    fs.writeFileSync(_disabledFlagPath(sessionId), `disabled: previous git diff took ${elapsedMs}ms
+`);
+  } catch {
+  }
+}
 async function main() {
   try {
     const input = await readStdin();
@@ -563,11 +650,20 @@ async function main() {
       return;
     }
     const root = getProjectRoot();
+    if (!isGitWorkTreeFast(root) || isSessionAutoDisabled(hookInput.session_id)) {
+      process.exit(0);
+      return;
+    }
     let diff = "";
     try {
+      const startMs = Date.now();
       diff = execFileSync("git", ["diff", "--", filePath], { cwd: root, timeout: 3e3, encoding: "utf-8" });
       if (!diff) {
         diff = execFileSync("git", ["diff", "HEAD", "--", filePath], { cwd: root, timeout: 3e3, encoding: "utf-8" });
+      }
+      const elapsedMs = Date.now() - startMs;
+      if (elapsedMs > 2e3) {
+        markSessionAutoDisabled(hookInput.session_id, elapsedMs);
       }
     } catch {
       process.exit(0);
@@ -597,7 +693,7 @@ async function main() {
     appendFileSync(flagPath, JSON.stringify(signal) + "\n");
     const lines = readFileSync2(flagPath, "utf-8").split("\n").filter(Boolean);
     if (lines.length === 1) {
-      console.log(
+      writeHookMessage(
         `[Massu Auto-Learning] Bug fix detected in ${filePath} (signals: ${detected.join(", ")}). The auto-learning pipeline will prompt you at session end to create an incident report, derive a prevention rule, and add enforcement.`
       );
     }

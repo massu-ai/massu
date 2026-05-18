@@ -56,11 +56,9 @@ import { swiftSwiftUiAdapter } from './adapters/swift-swiftui.ts';
 // block (verified via debug instrumentation 2026-05-08 against the
 // 1.5.4 published bundle).
 import { pythonFlaskAdapter } from './adapters/python-flask.ts';
-import { goChiAdapter } from './adapters/go-chi.ts';
 import { railsAdapter } from './adapters/rails.ts';
-import { phoenixAdapter } from './adapters/phoenix.ts';
-import { aspnetAdapter } from './adapters/aspnet.ts';
 import { springAdapter } from './adapters/spring.ts';
+// P-M-032 (plan-stage-d-medium-sweep): goChi/phoenix/aspnet adapters REMOVED.
 import type { CodebaseAdapter, AdapterResolved } from './adapters/types.ts';
 
 // ============================================================
@@ -91,10 +89,7 @@ const FIRST_PARTY_ADAPTERS: CodebaseAdapter[] = [
   pythonFlaskAdapter,
   nextjsTrpcAdapter,
   swiftSwiftUiAdapter,
-  goChiAdapter,
   railsAdapter,
-  phoenixAdapter,
-  aspnetAdapter,
   springAdapter,
 ];
 

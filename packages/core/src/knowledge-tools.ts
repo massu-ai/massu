@@ -1,6 +1,17 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
+// @scanner-allow:large-file
+// P-M-031 (plan-stage-d-medium-sweep): this file is currently 1413 LOC and
+// exceeds the 1000 LOC cap enforced by pattern-scanner Check 21. The
+// structural drift-guard (Check 21 itself, shipped in 1.11.0) prevents any
+// NEW file from exceeding the cap without an explicit allowlist marker.
+// The mechanical decomposition into knowledge-tools/{search,rules,...}.ts
+// sub-modules is deferred to Stage E so the security-critical P-M items
+// ship un-coupled from a high-risk refactor across 30+ handler functions
+// and the 68-test license suite. Removing this marker requires shipping
+// the sub-module split — there is no alternative escape path.
+
 import Database from 'better-sqlite3';
 import type { ToolDefinition, ToolResult } from './tools.ts';
 import { indexIfStale } from './knowledge-indexer.ts';

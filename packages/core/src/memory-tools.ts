@@ -254,7 +254,7 @@ function handleDetail(args: Record<string, unknown>, db: Database.Database): Too
 
   const placeholders = ids.map(() => '?').join(',');
   const observations = db.prepare(
-    `SELECT * FROM observations WHERE id IN (${placeholders}) ORDER BY created_at_epoch ASC`
+    `SELECT * FROM observations WHERE id IN (${placeholders}) ORDER BY created_at_epoch ASC LIMIT 10000`
   ).all(...ids) as Array<Record<string, unknown>>;
 
   if (observations.length === 0) {

@@ -145,6 +145,19 @@ CONTENT_SCAN_SELF_REFERENCE_FILES_PUBLIC_REPO=(
   # NOT internal ones).
   'scripts/diff-commands-vs-docs.sh'
   'scripts/massu-pattern-scanner.sh'
+  # plan-stage-d P-M-040: docs-triage-pending allowlist file legitimately
+  # enumerates `massu-internal-` command filenames as the canonical list
+  # of internal-only commands the pattern scanner Check 24 will permit
+  # not-yet-documented. Synced to public via sync-public.sh:171.
+  '.claude/commands/.docs-triage-pending.txt'
+  # packages/core/CHANGELOG.md is the published-package CHANGELOG (copy of
+  # root CHANGELOG.md, written by prepublishOnly hook in package.json).
+  # Inherits the same self-reference exemption as root CHANGELOG.md above.
+  'packages/core/CHANGELOG.md'
+  # plan-2026-05-18-pre-push-ci-parity P1-002: extracted CI sync-check script
+  # enumerates the secret patterns (TRADE-SECRET, Stripe regex, Supabase ref)
+  # as part of its job — the in-mirror grep needs the literal pattern.
+  'scripts/ci-sync-check.sh'
 )
 
 # Files under website/content/** whose job IS to mention forbidden

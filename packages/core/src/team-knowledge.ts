@@ -39,9 +39,11 @@ export function updateExpertise(
   developerId: string,
   sessionId: string
 ): void {
+  // LIMIT 10000 caps per-session observations (P-DG-001).
   const fileChanges = db.prepare(`
     SELECT DISTINCT files_involved FROM observations
     WHERE session_id = ? AND type IN ('file_change', 'feature', 'bugfix', 'refactor')
+    LIMIT 10000
   `).all(sessionId) as Array<{ files_involved: string }>;
 
   const modules = new Set<string>();
@@ -91,6 +93,7 @@ export function detectConflicts(
   developerB: string;
   conflictType: string;
 }> {
+  // LIMIT 10000 caps conflict pairs over the window (P-DG-001).
   const conflicts = db.prepare(`
     SELECT so1.file_path,
            so1.developer_id as developer_a,
@@ -103,6 +106,7 @@ export function detectConflicts(
       AND so1.created_at >= datetime('now', ?)
       AND so2.created_at >= datetime('now', ?)
     GROUP BY so1.file_path, so1.developer_id, so2.developer_id
+    LIMIT 10000
   `).all(`-${daysBack} days`, `-${daysBack} days`) as Array<{
     file_path: string;
     developer_a: string;
@@ -325,11 +329,14 @@ function handleTeamExpertise(args: Record<string, unknown>, db: Database.Databas
     return text(lines.join('\n'));
   }
 
+  // LIMIT 10000 caps per-module developer-expertise listing (P-DG-001) —
+  // even a large team has dozens; 10000 is multiple orders beyond.
   const experts = db.prepare(`
     SELECT developer_id, expertise_score, session_count, observation_count, last_active
     FROM developer_expertise
     WHERE module = ?
     ORDER BY expertise_score DESC
+    LIMIT 10000
   `).all(targetModule) as Array<Record<string, unknown>>;
 
   if (experts.length === 0) {

@@ -718,22 +718,49 @@ check25_scan() {
     esac
     # Awk pass extracts `.prepare(... ).all()` chains, checks whether the
     # captured SQL contains LIMIT, and emits violations.
-    hits=$(awk '
-      # Strip inline /* ... */ comments to avoid false hits in prose.
-      function strip_comments(s) { gsub(/\/\*[^*]*\*+([^/*][^*]*\*+)*\//, "", s); return s }
+    #
+    # CI-vs-local drift fix (2026-05-18 ceremony post-mortem): the original
+    # script used a /*...*/ comment-strip regex that BSD awk parses as
+    # "nonterminated character class" and silently exits → 0 output → no
+    # violations counted. On Linux/gawk it parsed correctly and surfaced
+    # 6 real violations the local pre-push had been missing. Two structural
+    # changes here:
+    #   1. Drop the /*...*/ strip — it was load-bearing only for prose that
+    #      contained SQL inside a block comment, which we don't have in
+    #      this codebase. (Verified by post-fix grep across packages/core/src.)
+    #   2. Replace `\s` (gawk-specific shorthand) with `[[:space:]]` (POSIX
+    #      character class — works on BSD awk AND gawk identically).
+    hits=$("$AWK" '
+      # Block-comment state machine (skips JSDoc / multi-line block comments
+      # so prose mentioning `.prepare(` does NOT false-positive). Works on
+      # BSD awk + gawk identically — no /*...*/ regex needed.
+      #
+      # IMPORTANT: only OPEN a block if not already in one. Without the
+      # `!in_block` guard, a JSDoc continuation line containing the literal
+      # `/*` (e.g. `python/*.ts` glob in prose) would spuriously re-open
+      # the state machine, leading to lines AFTER the real */ being
+      # treated as code instead of comment.
+      !in_block && /\/\*/ && !/\*\// { in_block = 1; next }
+      in_block {
+        if (/\*\//) in_block = 0
+        next
+      }
+      # Skip pure-comment single-line patterns:
+      #   - lines that begin with `//` or `*` (JSDoc continuation lines)
+      /^[[:space:]]*\/\// { next }
+      /^[[:space:]]*\*/ { next }
       # Track allowlist disable comments on preceding lines.
-      /eslint-disable-next-line[^\n]*massu\/no-unbounded-sql-all/ { allow = NR + 1 }
+      /eslint-disable-next-line.*massu\/no-unbounded-sql-all/ { allow = NR + 1 }
       /\.prepare\(/ { buf = $0; line_start = NR; collecting = 1; next }
       collecting {
         buf = buf "\n" $0
         if (/\.all\(/) {
           collecting = 0
           if (NR == allow || line_start == allow) next
-          tmp = strip_comments(buf)
-          # Crude SELECT? + LIMIT? grep.
-          if (tmp ~ /[Ss][Ee][Ll][Ee][Cc][Tt]/ &&
-              tmp !~ /[Cc][Oo][Uu][Nn][Tt]\s*\(/ &&
-              tmp !~ /[Ll][Ii][Mm][Ii][Tt]\s*(\$|\?|:|[0-9])/) {
+          # SELECT? + LIMIT?-presence test. POSIX [[:space:]] is portable.
+          if (buf ~ /[Ss][Ee][Ll][Ee][Cc][Tt]/ &&
+              buf !~ /[Cc][Oo][Uu][Nn][Tt][[:space:]]*\(/ &&
+              buf !~ /[Ll][Ii][Mm][Ii][Tt][[:space:]]*([$?:]|[0-9])/) {
             print FILENAME ":" line_start ":" buf
           }
         }
@@ -756,6 +783,75 @@ if [ "$CHECK25_VIOLATIONS" -gt 0 ]; then
   rm -f /tmp/massu-check25-violations.log
 else
   pass "All .prepare(SELECT ...).all() chains carry LIMIT (or are allowlisted)"
+fi
+
+# -------------------------------------------------------
+# Check 26: Pre-push ↔ CI parity (plan-2026-05-18-pre-push-ci-parity P3-002)
+# -------------------------------------------------------
+# CR-50 / VR-CI-PARITY. Closes the structural bug class where CI catches
+# failure modes that local pre-push-light cannot (2026-05-18 incident: 4 CI-only
+# failure modes on SHA b26fbb1). Two sub-checks:
+#   26a: every scripts/ci-*.sh is referenced from pre-push-light.sh OR has
+#        '# CI-ONLY:' first-comment AND is in CI_ONLY_SCRIPTS_BASH allowlist.
+#   26b: no .github/workflows/*.yml (excluding WORKFLOW_FILE_EXCLUSIONS mirror)
+#        has a multi-line shell block (>5 lines) that doesn't delegate to
+#        scripts/ci-*.sh.
+# -------------------------------------------------------
+echo "Check 26: Pre-push ↔ CI parity (CR-50 / VR-CI-PARITY)"
+CHECK26_VIOLATIONS=0
+
+# 26a: scripts/ci-*.sh policy. CI_ONLY_SCRIPTS_BASH MUST mirror
+# packages/core/src/__tests__/ci-prepush-parity.test.ts:CI_ONLY_SCRIPTS — the
+# drift-guard test asserts byte-equivalence of the two arrays.
+CI_ONLY_SCRIPTS_BASH="ci-fresh-install.sh ci-config-drift.sh"
+for ci_script in scripts/ci-*.sh; do
+  [ -e "$ci_script" ] || continue
+  script_base=$(basename "$ci_script")
+  if grep -q "$script_base" scripts/pre-push-light.sh; then
+    continue  # referenced — OK
+  fi
+  if head -3 "$ci_script" | grep -qE '^#[[:space:]]*CI-ONLY:'; then
+    if echo " $CI_ONLY_SCRIPTS_BASH " | grep -q " $script_base "; then
+      continue  # explicit opt-out + on allowlist — OK
+    fi
+    fail "Check 26: $ci_script has '# CI-ONLY:' comment but is NOT in CI_ONLY_SCRIPTS allowlist (add to scripts/massu-pattern-scanner.sh CI_ONLY_SCRIPTS_BASH AND packages/core/src/__tests__/ci-prepush-parity.test.ts:CI_ONLY_SCRIPTS — must mirror)"
+    CHECK26_VIOLATIONS=$((CHECK26_VIOLATIONS + 1))
+    continue
+  fi
+  fail "Check 26: $ci_script not referenced in pre-push-light.sh and no '# CI-ONLY:' opt-out comment"
+  CHECK26_VIOLATIONS=$((CHECK26_VIOLATIONS + 1))
+done
+
+# 26b: workflow YAML inline-shell-block scan. Exclusion list MUST mirror
+# WORKFLOW_FILE_EXCLUSIONS in ci-prepush-parity.test.ts.
+CI_INLINE_OFFENDERS=""
+for workflow in .github/workflows/*.yml; do
+  [ -e "$workflow" ] || continue
+  base=$(basename "$workflow")
+  case "$base" in
+    ci.public.yml|apply-ruleset.yml|branch-protection-audit.yml|leak-guard.yml|leak-guard-retro.yml|leak-guard-scheduled.yml|leak-guard-source-of-truth.yml)
+      continue ;;  # see WORKFLOW_FILE_EXCLUSIONS in ci-prepush-parity.test.ts for rationale per entry
+  esac
+  # Match all YAML block-scalar variants: `run: |`, `run: |-`, `run: |+`, `run: >`,
+  # `run: >-`, `run: >+`. A previous regex (`run: |` only) missed `|-` chomping
+  # variants — would silently bypass Check 26 (HIGH arch finding 2026-05-18).
+  OFFENDER=$(awk -v file="$base" '
+    /^[[:space:]]+run:[[:space:]]*[|>][+-]?[[:space:]]*$/ { in_block=1; line_count=0; first_line=NR; found_script=0; next }
+    in_block && /^[[:space:]]+[a-z_-]+:/ { if (line_count > 5 && !found_script) print file ":" first_line ":+" line_count; in_block=0; found_script=0; next }
+    in_block { line_count++; if ($0 ~ /bash scripts\/ci-/) found_script=1 }
+    END { if (in_block && line_count > 5 && !found_script) print file ":" first_line ":+" line_count }
+  ' "$workflow")
+  if [ -n "$OFFENDER" ]; then
+    CI_INLINE_OFFENDERS+="$OFFENDER "
+  fi
+done
+if [ -n "$CI_INLINE_OFFENDERS" ]; then
+  fail "Check 26: CI workflow(s) have inline shell blocks >5 lines not delegating to scripts/ci-*.sh: $CI_INLINE_OFFENDERS"
+  CHECK26_VIOLATIONS=$((CHECK26_VIOLATIONS + 1))
+fi
+
+if [ "$CHECK26_VIOLATIONS" -eq 0 ]; then
+  pass "Check 26: Pre-push ↔ CI parity"
 fi
 
 # -------------------------------------------------------

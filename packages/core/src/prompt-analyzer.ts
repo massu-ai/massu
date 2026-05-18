@@ -109,8 +109,11 @@ export function detectOutcome(
  * Analyze prompts from a session and store outcomes.
  */
 export function analyzeSessionPrompts(db: Database.Database, sessionId: string): number {
+  // LIMIT 10000 caps per-session prompt count (P-DG-001). A single Claude
+  // Code session realistically has dozens to hundreds of prompts; 10k is
+  // multiple orders of magnitude beyond observed maxima.
   const prompts = db.prepare(
-    'SELECT prompt_text, prompt_number FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC'
+    'SELECT prompt_text, prompt_number FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC LIMIT 10000'
   ).all(sessionId) as Array<{ prompt_text: string; prompt_number: number }>;
 
   if (prompts.length === 0) return 0;

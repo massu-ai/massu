@@ -724,7 +724,7 @@ function getFeatureImpact(db, filePaths) {
   const affectedFeatureIds = /* @__PURE__ */ new Set();
   for (const filePath of filePaths) {
     const links = db.prepare(
-      `SELECT feature_id FROM ${t("sentinel_components")} WHERE component_file = ?`
+      `SELECT feature_id FROM ${t("sentinel_components")} WHERE component_file = ? LIMIT 10000`
     ).all(filePath);
     for (const link of links) {
       affectedFeatureIds.add(link.feature_id);
@@ -737,7 +737,7 @@ function getFeatureImpact(db, filePaths) {
     const feature = getFeatureById(db, featureId);
     if (!feature || feature.status !== "active") continue;
     const allComponents = db.prepare(
-      `SELECT component_file, is_primary FROM ${t("sentinel_components")} WHERE feature_id = ?`
+      `SELECT component_file, is_primary FROM ${t("sentinel_components")} WHERE feature_id = ? LIMIT 10000`
     ).all(featureId);
     const affected = allComponents.filter((c) => fileSet.has(c.component_file));
     const remaining = allComponents.filter((c) => !fileSet.has(c.component_file));
@@ -883,13 +883,13 @@ function runPreDeleteChecks(hookInput) {
         try {
           for (const pyFile of pyFiles) {
             const importers = db.prepare(
-              `SELECT source_file FROM ${t("py_imports")} WHERE target_file = ?`
+              `SELECT source_file FROM ${t("py_imports")} WHERE target_file = ? LIMIT 10000`
             ).all(pyFile);
             const routes = db.prepare(
-              `SELECT method, path FROM ${t("py_routes")} WHERE file = ?`
+              `SELECT method, path FROM ${t("py_routes")} WHERE file = ? LIMIT 10000`
             ).all(pyFile);
             const models = db.prepare(
-              `SELECT class_name FROM ${t("py_models")} WHERE file = ?`
+              `SELECT class_name FROM ${t("py_models")} WHERE file = ? LIMIT 10000`
             ).all(pyFile);
             if (importers.length > 0 || routes.length > 0 || models.length > 0) {
               const parts = [];

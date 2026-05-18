@@ -69,7 +69,7 @@ async function main(): Promise<void> {
             try {
               const placeholders = fileRefs.map(() => '?').join(',');
               const matches = kdb.prepare(
-                `SELECT DISTINCT file_path FROM knowledge_documents WHERE file_path IN (${placeholders})`
+                `SELECT DISTINCT file_path FROM knowledge_documents WHERE file_path IN (${placeholders}) LIMIT 10000`
               ).all(...fileRefs) as Array<{ file_path: string }>;
               if (matches.length > 0) {
                 addObservation(db, session_id, 'discovery',

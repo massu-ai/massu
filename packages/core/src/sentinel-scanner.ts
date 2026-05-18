@@ -113,10 +113,13 @@ function scanTrpcProcedures(dataDb: Database.Database): DiscoveredFeature[] {
   const features: DiscoveredFeature[] = [];
   const featureMap = new Map<string, DiscoveredFeature>();
 
+  // LIMIT 100000 caps the full-codebase procedure scan (P-DG-001) —
+  // realistic project tRPC procedure count is in the hundreds.
   const procedures = dataDb.prepare(`
     SELECT router_name, procedure_name, procedure_type, router_file
     FROM ${t('trpc_procedures')}
     ORDER BY router_name, procedure_name
+    LIMIT 100000
   `).all() as { router_name: string; procedure_name: string; procedure_type: string; router_file: string }[];
 
   for (const proc of procedures) {
@@ -170,10 +173,13 @@ function scanTrpcProcedures(dataDb: Database.Database): DiscoveredFeature[] {
 function scanPageRoutes(dataDb: Database.Database): DiscoveredFeature[] {
   const features: DiscoveredFeature[] = [];
 
+  // LIMIT 100000 caps the page-deps scan (P-DG-001) — even a large
+  // Next.js app caps in the low thousands of pages.
   const pages = dataDb.prepare(`
     SELECT page_file, route, portal, components, hooks, routers
     FROM ${t('page_deps')}
     ORDER BY route
+    LIMIT 100000
   `).all() as { page_file: string; route: string; portal: string; components: string; hooks: string; routers: string }[];
 
   for (const page of pages) {

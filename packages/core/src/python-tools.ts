@@ -196,7 +196,7 @@ function handlePyImports(args: Record<string, unknown>, dataDb: Database.Databas
         if (depth > maxDepth || visited.has(f)) return;
         visited.add(f);
         const imports = dataDb.prepare(
-          `SELECT target_file, imported_names FROM ${t('py_imports')} WHERE source_file = ?`
+          `SELECT target_file, imported_names FROM ${t('py_imports')} WHERE source_file = ? LIMIT 10000`
         ).all(f) as { target_file: string; imported_names: string }[];
         for (const imp of imports) {
           const indent = '  '.repeat(depth);
@@ -208,7 +208,7 @@ function handlePyImports(args: Record<string, unknown>, dataDb: Database.Databas
       traverse(file, 0);
     } else {
       const imports = dataDb.prepare(
-        `SELECT target_file, import_type, imported_names, line FROM ${t('py_imports')} WHERE source_file = ? ORDER BY line`
+        `SELECT target_file, import_type, imported_names, line FROM ${t('py_imports')} WHERE source_file = ? ORDER BY line LIMIT 10000`
       ).all(file) as { target_file: string; import_type: string; imported_names: string; line: number }[];
       lines.push(`## Imports from ${file} (${imports.length} edges)`);
       for (const imp of imports) {
@@ -218,7 +218,7 @@ function handlePyImports(args: Record<string, unknown>, dataDb: Database.Databas
     }
   } else if (importedBy) {
     const importers = dataDb.prepare(
-      `SELECT source_file, imported_names, line FROM ${t('py_imports')} WHERE target_file = ? ORDER BY source_file`
+      `SELECT source_file, imported_names, line FROM ${t('py_imports')} WHERE target_file = ? ORDER BY source_file LIMIT 10000`
     ).all(importedBy) as { source_file: string; imported_names: string; line: number }[];
     lines.push(`## Files importing ${importedBy} (${importers.length} edges)`);
     for (const imp of importers) {
@@ -504,7 +504,7 @@ function handlePyImpact(args: Record<string, unknown>, dataDb: Database.Database
 
   // 1. Who imports this file
   const importedBy = dataDb.prepare(
-    `SELECT source_file FROM ${t('py_imports')} WHERE target_file = ?`
+    `SELECT source_file FROM ${t('py_imports')} WHERE target_file = ? LIMIT 10000`
   ).all(file) as { source_file: string }[];
   lines.push(`### Imported By (${importedBy.length} files)`);
   for (const imp of importedBy.slice(0, 20)) {
@@ -513,7 +513,7 @@ function handlePyImpact(args: Record<string, unknown>, dataDb: Database.Database
 
   // 2. Routes in this file
   const routes = dataDb.prepare(
-    `SELECT method, path, function_name FROM ${t('py_routes')} WHERE file = ?`
+    `SELECT method, path, function_name FROM ${t('py_routes')} WHERE file = ? LIMIT 10000`
   ).all(file) as { method: string; path: string; function_name: string }[];
   if (routes.length > 0) {
     lines.push(`\n### Routes Defined (${routes.length})`);
@@ -522,9 +522,9 @@ function handlePyImpact(args: Record<string, unknown>, dataDb: Database.Database
     }
   }
 
-  // 3. Models in this file
+  // 3. Models in this file. LIMIT 10000 per file (P-DG-001).
   const models = dataDb.prepare(
-    `SELECT class_name, table_name FROM ${t('py_models')} WHERE file = ?`
+    `SELECT class_name, table_name FROM ${t('py_models')} WHERE file = ? LIMIT 10000`
   ).all(file) as { class_name: string; table_name: string }[];
   if (models.length > 0) {
     lines.push(`\n### Models Defined (${models.length})`);
@@ -538,7 +538,7 @@ function handlePyImpact(args: Record<string, unknown>, dataDb: Database.Database
   if (routeIds.length > 0) {
     const placeholders = routeIds.map(() => '?').join(',');
     const callers = dataDb.prepare(
-      `SELECT DISTINCT frontend_file FROM ${t('py_route_callers')} WHERE route_id IN (${placeholders})`
+      `SELECT DISTINCT frontend_file FROM ${t('py_route_callers')} WHERE route_id IN (${placeholders}) LIMIT 100000`
     ).all(...routeIds.map(r => r.id)) as { frontend_file: string }[];
     if (callers.length > 0) {
       lines.push(`\n### Frontend Callers (${callers.length} files)`);
@@ -589,7 +589,7 @@ function handlePyContext(args: Record<string, unknown>, dataDb: Database.Databas
   }
 
   // Routes
-  const routes = dataDb.prepare(`SELECT method, path, function_name, line FROM ${t('py_routes')} WHERE file = ?`)
+  const routes = dataDb.prepare(`SELECT method, path, function_name, line FROM ${t('py_routes')} WHERE file = ? LIMIT 10000`)
     .all(file) as { method: string; path: string; function_name: string; line: number }[];
   if (routes.length > 0) {
     lines.push('\n### Routes');
@@ -599,7 +599,7 @@ function handlePyContext(args: Record<string, unknown>, dataDb: Database.Databas
   }
 
   // Models
-  const models = dataDb.prepare(`SELECT class_name, table_name, line FROM ${t('py_models')} WHERE file = ?`)
+  const models = dataDb.prepare(`SELECT class_name, table_name, line FROM ${t('py_models')} WHERE file = ? LIMIT 10000`)
     .all(file) as { class_name: string; table_name: string; line: number }[];
   if (models.length > 0) {
     lines.push('\n### Models');

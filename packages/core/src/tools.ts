@@ -525,9 +525,10 @@ function handleSync(dataDb: Database.Database, codegraphDb: Database.Database): 
 function handleContext(file: string, dataDb: Database.Database, codegraphDb: Database.Database): ToolResult {
   const lines: string[] = [];
 
-  // 1. CodeGraph context
+  // 1. CodeGraph context. LIMIT 10000 caps node count per file (P-DG-001) —
+  // realistic single-file node count is hundreds.
   const nodes = codegraphDb.prepare(
-    "SELECT name, kind, start_line, end_line FROM nodes WHERE file_path = ? ORDER BY start_line"
+    "SELECT name, kind, start_line, end_line FROM nodes WHERE file_path = ? ORDER BY start_line LIMIT 10000"
   ).all(file) as { name: string; kind: string; start_line: number; end_line: number }[];
 
   if (nodes.length > 0) {
@@ -674,8 +675,10 @@ function handleContext(file: string, dataDb: Database.Database, codegraphDb: Dat
 
         if (relevantCRs.length > 0) {
           const placeholders = relevantCRs.map(() => '?').join(',');
+          // LIMIT 10000 caps CR lookup count (P-DG-001) — the IN clause has
+          // ≤10 entries (slice(0,10) above); 10000 is many orders beyond.
           const crRules = knowledgeDb.prepare(
-            `SELECT rule_id, rule_text, vr_type FROM knowledge_rules WHERE rule_id IN (${placeholders})`
+            `SELECT rule_id, rule_text, vr_type FROM knowledge_rules WHERE rule_id IN (${placeholders}) LIMIT 10000`
           ).all(...relevantCRs) as { rule_id: string; rule_text: string; vr_type: string }[];
 
           if (crRules.length > 0) {
@@ -785,8 +788,10 @@ function handleTrpcMap(args: Record<string, unknown>, dataDb: Database.Database)
   const lines: string[] = [];
 
   if (args.uncoupled) {
+    // LIMIT 10000 caps the uncoupled-procedure listing (P-DG-001) — total
+    // tRPC procedure count is in the hundreds.
     const uncoupled = dataDb.prepare(
-      `SELECT router_name, procedure_name, procedure_type, router_file FROM ${t('trpc_procedures')} WHERE has_ui_caller = 0 ORDER BY router_name, procedure_name`
+      `SELECT router_name, procedure_name, procedure_type, router_file FROM ${t('trpc_procedures')} WHERE has_ui_caller = 0 ORDER BY router_name, procedure_name LIMIT 10000`
     ).all() as { router_name: string; procedure_name: string; procedure_type: string; router_file: string }[];
 
     lines.push(`## Uncoupled Procedures (${uncoupled.length} total)`);
@@ -802,8 +807,9 @@ function handleTrpcMap(args: Record<string, unknown>, dataDb: Database.Database)
       lines.push(`- ${proc.procedure_name} (${proc.procedure_type})`);
     }
   } else if (args.router) {
+    // LIMIT 10000 caps procedures per router (P-DG-001) — single router has dozens.
     const procs = dataDb.prepare(
-      `SELECT id, procedure_name, procedure_type, has_ui_caller FROM ${t('trpc_procedures')} WHERE router_name = ? ORDER BY procedure_name`
+      `SELECT id, procedure_name, procedure_type, has_ui_caller FROM ${t('trpc_procedures')} WHERE router_name = ? ORDER BY procedure_name LIMIT 10000`
     ).all(args.router as string) as { id: number; procedure_name: string; procedure_type: string; has_ui_caller: number }[];
 
     lines.push(`## Router: ${args.router} (${procs.length} procedures)`);
@@ -813,8 +819,9 @@ function handleTrpcMap(args: Record<string, unknown>, dataDb: Database.Database)
       const status = proc.has_ui_caller ? '' : ' [NO UI CALLERS]';
       lines.push(`### ${args.router}.${proc.procedure_name} (${proc.procedure_type})${status}`);
 
+      // LIMIT 10000 caps call sites per procedure (P-DG-001).
       const callSites = dataDb.prepare(
-        `SELECT file, line, call_pattern FROM ${t('trpc_call_sites')} WHERE procedure_id = ?`
+        `SELECT file, line, call_pattern FROM ${t('trpc_call_sites')} WHERE procedure_id = ? LIMIT 10000`
       ).all(proc.id) as { file: string; line: number; call_pattern: string }[];
 
       if (callSites.length > 0) {
@@ -828,8 +835,9 @@ function handleTrpcMap(args: Record<string, unknown>, dataDb: Database.Database)
       lines.push('');
     }
   } else if (args.procedure) {
+    // LIMIT 10000 caps cross-router occurrences of a single procedure name (P-DG-001).
     const procs = dataDb.prepare(
-      `SELECT id, router_name, router_file, procedure_type, has_ui_caller FROM ${t('trpc_procedures')} WHERE procedure_name = ? ORDER BY router_name`
+      `SELECT id, router_name, router_file, procedure_type, has_ui_caller FROM ${t('trpc_procedures')} WHERE procedure_name = ? ORDER BY router_name LIMIT 10000`
     ).all(args.procedure as string) as { id: number; router_name: string; router_file: string; procedure_type: string; has_ui_caller: number }[];
 
     lines.push(`## Procedure "${args.procedure}" found in ${procs.length} routers`);
@@ -839,8 +847,9 @@ function handleTrpcMap(args: Record<string, unknown>, dataDb: Database.Database)
       lines.push(`### ${proc.router_name}.${args.procedure} (${proc.procedure_type})`);
       lines.push(`File: ${proc.router_file}`);
 
+      // LIMIT 10000 caps call sites per procedure (P-DG-001).
       const callSites = dataDb.prepare(
-        `SELECT file, line, call_pattern FROM ${t('trpc_call_sites')} WHERE procedure_id = ?`
+        `SELECT file, line, call_pattern FROM ${t('trpc_call_sites')} WHERE procedure_id = ? LIMIT 10000`
       ).all(proc.id) as { file: string; line: number; call_pattern: string }[];
 
       if (callSites.length > 0) {
@@ -892,12 +901,14 @@ function handleCouplingCheck(args: Record<string, unknown>, dataDb: Database.Dat
 
   let uncoupledProcs;
   if (stagedFiles) {
+    // LIMIT 10000 caps result set (P-DG-001) — staged-file count is dozens; uncoupled subset smaller.
     uncoupledProcs = dataDb.prepare(
-      `SELECT router_name, procedure_name, procedure_type, router_file FROM ${t('trpc_procedures')} WHERE has_ui_caller = 0 AND router_file IN (${stagedFiles.map(() => '?').join(',')})`
+      `SELECT router_name, procedure_name, procedure_type, router_file FROM ${t('trpc_procedures')} WHERE has_ui_caller = 0 AND router_file IN (${stagedFiles.map(() => '?').join(',')}) LIMIT 10000`
     ).all(...stagedFiles) as { router_name: string; procedure_name: string; procedure_type: string; router_file: string }[];
   } else {
+    // LIMIT 10000 caps full-codebase uncoupled-procedure scan (P-DG-001).
     uncoupledProcs = dataDb.prepare(
-      `SELECT router_name, procedure_name, procedure_type, router_file FROM ${t('trpc_procedures')} WHERE has_ui_caller = 0`
+      `SELECT router_name, procedure_name, procedure_type, router_file FROM ${t('trpc_procedures')} WHERE has_ui_caller = 0 LIMIT 10000`
     ).all() as { router_name: string; procedure_name: string; procedure_type: string; router_file: string }[];
   }
 
@@ -915,14 +926,17 @@ function handleCouplingCheck(args: Record<string, unknown>, dataDb: Database.Dat
     lines.push('');
   }
 
+  // LIMIT 10000 caps page-file scan (P-DG-001) — Next.js app-router page
+  // count realistically caps in the hundreds.
   const allPages = codegraphDb.prepare(
-    "SELECT path FROM files WHERE path LIKE 'src/app/%/page.tsx' OR path = 'src/app/page.tsx'"
+    "SELECT path FROM files WHERE path LIKE 'src/app/%/page.tsx' OR path = 'src/app/page.tsx' LIMIT 10000"
   ).all() as { path: string }[];
 
   const pageImports = new Set<string>();
   for (const page of allPages) {
+    // LIMIT 10000 caps imports per page (P-DG-001) — realistic per-page import count is dozens.
     const imports = dataDb.prepare(
-      `SELECT target_file FROM ${t('imports')} WHERE source_file = ?`
+      `SELECT target_file FROM ${t('imports')} WHERE source_file = ? LIMIT 10000`
     ).all(page.path) as { target_file: string }[];
     for (const imp of imports) {
       pageImports.add(imp.target_file);
@@ -932,8 +946,9 @@ function handleCouplingCheck(args: Record<string, unknown>, dataDb: Database.Dat
   let componentFiles: { path: string }[];
   if (stagedFiles) {
     const placeholders = stagedFiles.map(() => '?').join(',');
+    // LIMIT 10000 caps staged-file intersection (P-DG-001).
     componentFiles = codegraphDb.prepare(
-      `SELECT path FROM files WHERE path LIKE 'src/components/%' AND path IN (${placeholders})`
+      `SELECT path FROM files WHERE path LIKE 'src/components/%' AND path IN (${placeholders}) LIMIT 10000`
     ).all(...stagedFiles) as { path: string }[];
   } else {
     componentFiles = [];
@@ -1008,8 +1023,9 @@ function handleImpact(file: string, dataDb: Database.Database, codegraphDb: Data
   const fileDomain = classifyFile(file);
   lines.push(`### Domain: ${fileDomain}`);
 
+  // LIMIT 10000 caps imports per file (P-DG-001).
   const imports = dataDb.prepare(
-    `SELECT target_file FROM ${t('imports')} WHERE source_file = ?`
+    `SELECT target_file FROM ${t('imports')} WHERE source_file = ? LIMIT 10000`
   ).all(file) as { target_file: string }[];
 
   const crossings: string[] = [];

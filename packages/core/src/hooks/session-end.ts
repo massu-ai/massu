@@ -38,14 +38,16 @@ async function main(): Promise<void> {
       // Ensure session exists
       createSession(db, session_id);
 
-      // 1. Get all observations for this session
+      // 1. Get all observations for this session. LIMIT 10000 caps per-session
+      // observation count (P-DG-001) — a long session has thousands; 10000 is
+      // multiple orders beyond realistic.
       const observations = db.prepare(
-        'SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC'
+        'SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC LIMIT 10000'
       ).all(session_id) as Array<Record<string, unknown>>;
 
-      // 2. Get user prompts
+      // 2. Get user prompts. LIMIT 10000 caps per-session prompts (P-DG-001).
       const prompts = db.prepare(
-        'SELECT prompt_text FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC'
+        'SELECT prompt_text FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC LIMIT 10000'
       ).all(session_id) as Array<{ prompt_text: string }>;
 
       // 3. Generate structured summary from observations

@@ -108,7 +108,7 @@ export function findCrossDomainImports(dataDb: Database.Database): {
 
   const srcPattern = srcPrefix + '/%';
   const imports = dataDb.prepare(
-    `SELECT source_file, target_file FROM ${t('imports')} WHERE source_file LIKE ? AND target_file LIKE ?`
+    `SELECT source_file, target_file FROM ${t('imports')} WHERE source_file LIKE ? AND target_file LIKE ? LIMIT 10000`
   ).all(srcPattern, srcPattern) as { source_file: string; target_file: string }[];
 
   const crossings: {

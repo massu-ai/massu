@@ -63,7 +63,7 @@ export function calculateQualityScore(
   const categories = getCategories();
 
   const observations = db.prepare(
-    'SELECT type, detail FROM observations WHERE session_id = ?'
+    'SELECT type, detail FROM observations WHERE session_id = ? LIMIT 10000'
   ).all(sessionId) as Array<{ type: string; detail: string }>;
 
   let score = 50; // Base score
@@ -117,11 +117,13 @@ export function storeQualityScore(
  * Backfill quality scores for sessions that don't have them.
  */
 export function backfillQualityScores(db: Database.Database): number {
+  // LIMIT 100000 caps total un-scored sessions (P-DG-001).
   const sessions = db.prepare(`
     SELECT DISTINCT s.session_id
     FROM sessions s
     LEFT JOIN session_quality_scores q ON s.session_id = q.session_id
     WHERE q.session_id IS NULL
+    LIMIT 100000
   `).all() as Array<{ session_id: string }>;
 
   let backfilled = 0;
@@ -236,11 +238,13 @@ function handleQualityScore(args: Record<string, unknown>, db: Database.Database
 function handleQualityTrend(args: Record<string, unknown>, db: Database.Database, retried = false): ToolResult {
   const days = (args.days as number) ?? 30;
 
+  // LIMIT 100000 caps total scores over the window (P-DG-001).
   const scores = db.prepare(`
     SELECT session_id, score, security_score, architecture_score, coupling_score, test_score, rule_compliance_score, created_at
     FROM session_quality_scores
     WHERE created_at >= datetime('now', ?)
     ORDER BY created_at ASC
+    LIMIT 100000
   `).all(`-${days} days`) as Array<{
     session_id: string;
     score: number;
@@ -284,10 +288,13 @@ function handleQualityTrend(args: Record<string, unknown>, db: Database.Database
 function handleQualityReport(args: Record<string, unknown>, db: Database.Database, retried = false): ToolResult {
   const days = (args.days as number) ?? 30;
 
+  // LIMIT 10000 caps the time-windowed quality-score scan (P-DG-001) —
+  // even daily scores across years cap in the thousands.
   const scores = db.prepare(`
     SELECT score, security_score, architecture_score, coupling_score, test_score, rule_compliance_score
     FROM session_quality_scores
     WHERE created_at >= datetime('now', ?)
+    LIMIT 10000
   `).all(`-${days} days`) as Array<Record<string, number>>;
 
   if (scores.length === 0) {

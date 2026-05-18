@@ -690,7 +690,7 @@ export function dequeuePendingSync(
 ): Array<{ id: number; payload: string; retry_count: number }> {
   // First, discard items that have exceeded max retries
   const stale = db.prepare(
-    'SELECT id, retry_count, last_error FROM pending_sync WHERE retry_count >= 10'
+    'SELECT id, retry_count, last_error FROM pending_sync WHERE retry_count >= 10 LIMIT 10000'
   ).all() as Array<{ id: number; retry_count: number; last_error: string | null }>;
   if (stale.length > 0) {
     const ids = stale.map(s => s.id);
@@ -1145,6 +1145,7 @@ export function getSessionsByTask(db: Database.Database, taskId: string): Array<
     SELECT session_id, status, started_at, ended_at, plan_phase
     FROM sessions WHERE task_id = ?
     ORDER BY started_at_epoch DESC
+    LIMIT 10000
   `).all(taskId) as Array<{
     session_id: string; status: string; started_at: string;
     ended_at: string | null; plan_phase: string | null;
@@ -1156,13 +1157,13 @@ export function getSessionsByTask(db: Database.Database, taskId: string): Array<
  */
 export function getCrossTaskProgress(db: Database.Database, taskId: string): Record<string, string> {
   const sessions = db.prepare(`
-    SELECT session_id FROM sessions WHERE task_id = ?
+    SELECT session_id FROM sessions WHERE task_id = ? LIMIT 10000
   `).all(taskId) as Array<{ session_id: string }>;
 
   const merged: Record<string, string> = {};
   for (const session of sessions) {
     const summaries = db.prepare(`
-      SELECT plan_progress FROM session_summaries WHERE session_id = ?
+      SELECT plan_progress FROM session_summaries WHERE session_id = ? LIMIT 10000
     `).all(session.session_id) as Array<{ plan_progress: string }>;
 
     for (const summary of summaries) {

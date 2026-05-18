@@ -131,12 +131,15 @@ export function storeSessionCost(
  * Backfill cost data from transcript files.
  */
 export function backfillSessionCosts(db: Database.Database): number {
-  // Check for sessions without cost data
+  // Check for sessions without cost data. LIMIT 100000 caps the backfill
+  // candidate set (P-DG-001) — a developer machine accumulates thousands
+  // of sessions over years; 100000 is multiple orders beyond realistic.
   const sessions = db.prepare(`
     SELECT DISTINCT s.session_id
     FROM sessions s
     LEFT JOIN session_costs c ON s.session_id = c.session_id
     WHERE c.session_id IS NULL
+    LIMIT 100000
   `).all() as Array<{ session_id: string }>;
 
   // Backfilling requires transcript data which may not be available

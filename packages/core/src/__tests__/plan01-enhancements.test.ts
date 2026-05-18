@@ -5,6 +5,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { resolve } from 'path';
 import { unlinkSync, existsSync, writeFileSync, mkdirSync } from 'fs';
+import { tmpdir } from 'os';
+
+// Scratch dirs live under os.tmpdir() — never inside the source tree.
+// Source-tree scratch races with pattern-scanner self-test which globs
+// packages/core/src/** in parallel.
+const VALIDATION_TMP_DIR = resolve(tmpdir(), 'massu-validation-test-' + Math.random().toString(36).slice(2));
+const SECURITY_TMP_DIR = resolve(tmpdir(), 'massu-security-test-' + Math.random().toString(36).slice(2));
 
 // P1: Analytics
 import { calculateQualityScore, storeQualityScore, backfillQualityScores, type QualityBreakdown } from '../analytics.ts';
@@ -373,7 +380,7 @@ describe('PLAN-01: Memory Enhancements', () => {
 
     it('validates a file with ctx.prisma violation if prisma checks are configured', () => {
       // Create temp file with violation
-      const tmpDir = resolve(__dirname, '../test-validation-tmp');
+      const tmpDir = VALIDATION_TMP_DIR;
       if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
       mkdirSync(resolve(tmpDir, 'server/api/routers'), { recursive: true });
       writeFileSync(resolve(tmpDir, 'server/api/routers/test-router.ts'), 'const result = ctx.prisma.orders.findMany();');
@@ -424,7 +431,7 @@ describe('PLAN-01: Memory Enhancements', () => {
   // =================================================================
   describe('P3-001: Security Scoring', () => {
     it('scores a clean file as 0 risk', () => {
-      const tmpDir = resolve(__dirname, '../test-security-tmp');
+      const tmpDir = SECURITY_TMP_DIR;
       if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
       writeFileSync(resolve(tmpDir, 'clean.ts'), 'export function hello() { return "world"; }');
 
@@ -436,7 +443,7 @@ describe('PLAN-01: Memory Enhancements', () => {
     });
 
     it('detects hardcoded credentials', () => {
-      const tmpDir = resolve(__dirname, '../test-security-tmp');
+      const tmpDir = SECURITY_TMP_DIR;
       if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
       writeFileSync(resolve(tmpDir, 'risky.ts'), 'const password = "supersecretpassword123";');
 

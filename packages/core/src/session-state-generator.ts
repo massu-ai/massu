@@ -16,7 +16,7 @@ export function generateCurrentMd(db: Database.Database, sessionId: string): str
   if (!session) return '# Session State\n\nNo active session found.\n';
 
   const observations = db.prepare(
-    'SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC'
+    'SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC LIMIT 10000'
   ).all(sessionId) as Array<Record<string, unknown>>;
 
   const summary = db.prepare(

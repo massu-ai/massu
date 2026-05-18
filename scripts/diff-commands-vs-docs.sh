@@ -19,7 +19,18 @@ set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 COMMANDS_DIR="$REPO_ROOT/.claude/commands"
-DOCS_DIR="$REPO_ROOT/website/content/docs/commands"
+# Internal repo: `website/content/docs/commands/<name>.mdx`.
+# Public mirror (sync-public.sh:113-116): same files synced to
+# `docs/commands/<name>.mdx`. Detect either layout so this script works
+# in both repos without modification (Sync Check CI test runs against
+# the public mirror — `/tmp/massu-public-check/`).
+if [ -d "$REPO_ROOT/website/content/docs/commands" ]; then
+  DOCS_DIR="$REPO_ROOT/website/content/docs/commands"
+elif [ -d "$REPO_ROOT/docs/commands" ]; then
+  DOCS_DIR="$REPO_ROOT/docs/commands"
+else
+  DOCS_DIR="$REPO_ROOT/website/content/docs/commands"
+fi
 ALLOWLIST="$REPO_ROOT/.claude/commands/.docs-triage-pending.txt"
 
 if [ ! -d "$COMMANDS_DIR" ]; then

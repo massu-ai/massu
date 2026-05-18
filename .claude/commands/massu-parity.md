@@ -7,8 +7,6 @@ name: massu-parity
 
 # Massu Parity: Feature Parity Check
 
-> **Config lookup (framework-aware)**: This command reads `config.framework.type` and `config.verification.<primary_language>` from `massu.config.yaml` to choose the right verification commands. Hardcoded references below to `packages/core`, `tools.ts`, `vitest`, `VR-TOOL-REG`, and `VR-HOOK-BUILD` are **MCP-project specific** and only apply when `config.framework.type === 'mcp'` (or `languages.typescript.runtime === 'mcp'`). For other projects, substitute: type-check → `config.verification.<primary_language>.type`, tests → `.test`, build → `.build`, lint → `.lint`. See `.claude/reference/vr-verification-reference.md` for the config-driven VR-* catalog.
-
 ## Purpose
 
 Deep comparison between two systems, components, or versions to identify feature gaps, content drift, and update needs. Covers multiple layers -- source code, configuration, commands, hooks, tests, and operational tooling.

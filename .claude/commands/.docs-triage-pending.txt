@@ -1,0 +1,39 @@
+# P-M-040 (plan-stage-d-medium-sweep) triage-pending allowlist.
+#
+# Commands listed below currently have NO docs page at
+# website/content/docs/commands/<name>.mdx. Each entry is awaiting an
+# operator triage decision: PUBLICIZE (write a docs page) or
+# INTERNALIZE (rename to massu-internal-*).
+#
+# Removing a name from this allowlist requires either:
+#   (a) Writing the docs page at website/content/docs/commands/<name>.mdx
+#       (PUBLICIZE), OR
+#   (b) Renaming the source to .claude/commands/massu-internal-<name>.md
+#       (INTERNALIZE — also remove from this allowlist).
+#
+# Per the plan §490-491 + CLAUDE.md classification, the recommended split:
+#   PUBLICIZE: autoresearch, checkpoint, data, production-verify, rollback
+#   INTERNALIZE: article-review, command-health, command-improve, full-audit,
+#                infra-audit, learning-audit, new-pattern, perf, security,
+#                type-mismatch-audit, ui-audit
+#
+# Resolved by: plan-stage-d-medium-sweep P-M-040 (operator-coordinated, may
+# defer to 1.11.2 per plan §785 risk register).
+#
+# Format: one base-name per line. `#` lines and blank lines ignored.
+massu-article-review
+massu-autoresearch
+massu-checkpoint
+massu-command-health
+massu-command-improve
+massu-data
+massu-full-audit
+massu-infra-audit
+massu-learning-audit
+massu-new-pattern
+massu-perf
+massu-production-verify
+massu-rollback
+massu-security
+massu-type-mismatch-audit
+massu-ui-audit

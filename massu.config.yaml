@@ -11,18 +11,20 @@ framework:
   router: none
   orm: none
   ui: none
-  primary: javascript
+  primary: typescript
   languages:
     javascript:
       source_dirs:
         - website
         - scripts
+        - eslint-rules
     typescript:
       test_framework: vitest
       source_dirs:
         - website
         - packages
         - scripts
+        - .
 paths:
   source: website
   aliases:
@@ -52,7 +54,7 @@ verification:
     build: cd website && npm run build
     lint: cd website && npx eslint .
 detection:
-  fingerprint: 5646fa23d7a3f2aeb4eb9cfc0dbd6e9f7f4f98787631d650625b31b4ad5f1c66
+  fingerprint: 77072ac20da3b1d3cc03c03f2f70c52003b41531de42d6d15304e9c9f79394f9
 analytics:
   quality:
     weights:

@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import { tmpdir } from 'os';
 import { getConfig, getProjectRoot, getResolvedPaths, resetConfig } from '../config.ts';
 
 /**
@@ -14,7 +15,10 @@ import { getConfig, getProjectRoot, getResolvedPaths, resetConfig } from '../con
  * This file focuses on core mechanics: caching, defaults, resolved paths, etc.
  */
 
-const TEST_DIR = resolve(__dirname, '../test-config-core-tmp');
+// Scratch dir lives under os.tmpdir() — never inside the source tree.
+// Source-tree scratch races with pattern-scanner / leak-guard / generalization
+// scanners that glob packages/core/src/** in parallel test runs.
+const TEST_DIR = resolve(tmpdir(), 'massu-config-core-test-' + Math.random().toString(36).slice(2));
 const CONFIG_PATH = resolve(TEST_DIR, 'massu.config.yaml');
 
 function writeConfig(yaml: string) {

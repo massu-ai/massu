@@ -119,8 +119,11 @@ export function getFileChain(
   db: Database.Database,
   filePath: string
 ): Array<Record<string, unknown>> {
+  // LIMIT 10000 caps audit-chain length per file (P-DG-001) — a file's
+  // edit chain caps in the thousands across years; 10000 is multiple
+  // orders beyond realistic.
   return db.prepare(
-    'SELECT * FROM audit_log WHERE file_path = ? ORDER BY timestamp ASC'
+    'SELECT * FROM audit_log WHERE file_path = ? ORDER BY timestamp ASC LIMIT 10000'
   ).all(filePath) as Array<Record<string, unknown>>;
 }
 

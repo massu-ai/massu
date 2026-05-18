@@ -305,10 +305,13 @@ function handleSecurityScore(args: Record<string, unknown>, db: Database.Databas
   }
 
   if (sessionId) {
+    // LIMIT 10000 caps per-session scored-file count (P-DG-001) — a
+    // session scans hundreds of files at most; 10000 is multiple orders beyond.
     const scores = db.prepare(`
       SELECT file_path, risk_score, findings FROM security_scores
       WHERE session_id = ?
       ORDER BY risk_score DESC
+      LIMIT 10000
     `).all(sessionId) as Array<Record<string, unknown>>;
 
     if (scores.length === 0) {

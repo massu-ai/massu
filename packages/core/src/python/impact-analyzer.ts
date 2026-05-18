@@ -27,12 +27,12 @@ export function analyzePythonImpact(dataDb: Database.Database, file: string): Py
 
   // 2. Routes defined in this file
   const routes = dataDb.prepare(
-    `SELECT method, path, function_name FROM ${t('py_routes')} WHERE file = ?`
+    `SELECT method, path, function_name FROM ${t('py_routes')} WHERE file = ? LIMIT 10000`
   ).all(file) as { method: string; path: string; function_name: string }[];
 
   // 3. Models defined in this file
   const models = dataDb.prepare(
-    `SELECT class_name, table_name FROM ${t('py_models')} WHERE file = ?`
+    `SELECT class_name, table_name FROM ${t('py_models')} WHERE file = ? LIMIT 10000`
   ).all(file) as { class_name: string; table_name: string | null }[];
 
   // 4. Frontend callers (via routes in this file)
@@ -41,14 +41,14 @@ export function analyzePythonImpact(dataDb: Database.Database, file: string): Py
   if (routeIds.length > 0) {
     const placeholders = routeIds.map(() => '?').join(',');
     const callers = dataDb.prepare(
-      `SELECT DISTINCT frontend_file FROM ${t('py_route_callers')} WHERE route_id IN (${placeholders})`
+      `SELECT DISTINCT frontend_file FROM ${t('py_route_callers')} WHERE route_id IN (${placeholders}) LIMIT 10000`
     ).all(...routeIds.map(r => r.id)) as { frontend_file: string }[];
     frontendCallers.push(...callers.map(c => c.frontend_file));
   }
 
   // 5. Domain crossings
   const imports = dataDb.prepare(
-    `SELECT target_file FROM ${t('py_imports')} WHERE source_file = ?`
+    `SELECT target_file FROM ${t('py_imports')} WHERE source_file = ? LIMIT 10000`
   ).all(file) as { target_file: string }[];
 
   const domainCrossings = imports
@@ -71,8 +71,10 @@ function collectTransitiveImporters(dataDb: Database.Database, file: string, max
   const queue = [file];
   let depth = 0;
 
+  // LIMIT 10000 caps per-target fan-in (P-DG-001). Tree walk bound by
+  // maxDepth ensures overall traversal is bounded.
   const importerStmt = dataDb.prepare(
-    `SELECT source_file FROM ${t('py_imports')} WHERE target_file = ?`
+    `SELECT source_file FROM ${t('py_imports')} WHERE target_file = ? LIMIT 10000`
   );
 
   while (queue.length > 0 && depth < maxDepth) {

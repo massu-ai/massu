@@ -167,9 +167,11 @@ async function main(): Promise<void> {
           if (isTestRunnerCommand(command)) {
             const counts = parseTestRunOutput(tool_response ?? '');
             if (counts) {
+              // LIMIT 10000 caps active-feature count (P-DG-001) — a healthy
+              // project has dozens; 10000 is multiple orders beyond realistic.
               const modifiedFeatures = db
                 .prepare(
-                  'SELECT feature_key FROM feature_health WHERE modifications_since_test > 0',
+                  'SELECT feature_key FROM feature_health WHERE modifications_since_test > 0 LIMIT 10000',
                 )
                 .all() as Array<{ feature_key: string }>;
               for (const row of modifiedFeatures) {

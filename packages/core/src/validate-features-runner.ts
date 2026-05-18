@@ -76,13 +76,16 @@ function main(): void {
       process.exit(0);
     }
 
-    // Check for orphaned features (active features with missing primary component files)
+    // Check for orphaned features (active features with missing primary
+    // component files). LIMIT 100000 caps total active features (P-DG-001) —
+    // multiple orders beyond realistic project size.
     const orphaned = db.prepare(`
       SELECT s.feature_key, s.title, s.priority, c.component_file
       FROM ${t('sentinel')} s
       JOIN ${t('sentinel_components')} c ON c.feature_id = s.id AND c.is_primary = 1
       WHERE s.status = 'active'
       ORDER BY s.priority DESC, s.domain, s.feature_key
+      LIMIT 100000
     `).all() as { feature_key: string; title: string; priority: string; component_file: string }[];
 
     const missingFeatures: { feature_key: string; title: string; priority: string; missing_file: string }[] = [];

@@ -2028,7 +2028,7 @@ async function main() {
             const counts = parseTestRunOutput(tool_response ?? "");
             if (counts) {
               const modifiedFeatures = db.prepare(
-                "SELECT feature_key FROM feature_health WHERE modifications_since_test > 0"
+                "SELECT feature_key FROM feature_health WHERE modifications_since_test > 0 LIMIT 10000"
               ).all();
               for (const row of modifiedFeatures) {
                 recordTestResult(db, row.feature_key, counts.passing, counts.failing);

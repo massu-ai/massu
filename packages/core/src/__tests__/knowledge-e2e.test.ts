@@ -37,7 +37,9 @@ afterAll(() => {
 });
 
 describe('Full Pipeline: Index -> Query -> Verify', () => {
-  it('indexes, searches, and returns results matching source files', () => {
+  // Knowledge indexer walks .claude/ + scans all markdown — can take
+  // 4-10s on slower runners. 30s gives headroom without masking hangs.
+  it('indexes, searches, and returns results matching source files', { timeout: 30_000 }, () => {
     // Step 1: Index
     const stats = indexAllKnowledge(db);
     expect(stats.filesIndexed).toBeGreaterThan(0);

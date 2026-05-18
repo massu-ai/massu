@@ -62,7 +62,7 @@ function traceImports(
   visited.add(startFile);
 
   const imports = dataDb.prepare(
-    `SELECT target_file, imported_names FROM ${t('imports')} WHERE source_file = ?`
+    `SELECT target_file, imported_names FROM ${t('imports')} WHERE source_file = ? LIMIT 10000`
   ).all(startFile) as { target_file: string; imported_names: string }[];
 
   for (const imp of imports) {
@@ -118,7 +118,7 @@ function findTablesFromRouters(routerNames: string[], dataDb: Database.Database)
   // Look up router files from the tRPC index
   for (const routerName of routerNames) {
     const procs = dataDb.prepare(
-      `SELECT DISTINCT router_file FROM ${t('trpc_procedures')} WHERE router_name = ?`
+      `SELECT DISTINCT router_file FROM ${t('trpc_procedures')} WHERE router_name = ? LIMIT 10000`
     ).all(routerName) as { router_file: string }[];
 
     for (const proc of procs) {
@@ -153,9 +153,11 @@ export function buildPageDeps(dataDb: Database.Database, codegraphDb: Database.D
   // Clear existing data
   dataDb.exec(`DELETE FROM ${t('page_deps')}`);
 
-  // Find all page.tsx files from CodeGraph
+  // Find all page.tsx files from CodeGraph. LIMIT 10000 is far above the
+  // largest project we expect (Next.js app router with 10k page routes is
+  // hypothetical). LIMIT is required by P-DG-001 (massu/no-unbounded-sql-all).
   const pages = codegraphDb.prepare(
-    "SELECT path FROM files WHERE path LIKE 'src/app/%/page.tsx' OR path = 'src/app/page.tsx'"
+    "SELECT path FROM files WHERE path LIKE 'src/app/%/page.tsx' OR path = 'src/app/page.tsx' LIMIT 10000"
   ).all() as { path: string }[];
 
   const insertStmt = dataDb.prepare(
@@ -227,10 +229,11 @@ export function findAffectedPages(dataDb: Database.Database, file: string): Page
   const directPage = getPageChain(dataDb, file);
   if (directPage) return [directPage];
 
-  // Find all pages that import this file (directly or transitively)
-  // First, find who imports this file
+  // Find all pages that import this file (directly or transitively).
+  // First, find who imports this file. LIMIT 5000 per call is far above
+  // the largest realistic fan-in for a single source file (P-DG-001).
   const importers = dataDb.prepare(
-    `SELECT source_file FROM ${t('imports')} WHERE target_file = ?`
+    `SELECT source_file FROM ${t('imports')} WHERE target_file = ? LIMIT 5000`
   ).all(file) as { source_file: string }[];
 
   const affectedFiles = new Set<string>([file, ...importers.map(i => i.source_file)]);
@@ -244,8 +247,10 @@ export function findAffectedPages(dataDb: Database.Database, file: string): Page
   while (frontier.length > 0 && depth < maxDepth) {
     const next: string[] = [];
     for (const f of frontier) {
+      // Per-node fan-in bound (P-DG-001). maxDepth=10 × LIMIT 5000 caps
+      // overall traversal at 50k worst-case (in practice << 1k).
       const upstreamImporters = dataDb.prepare(
-        `SELECT source_file FROM ${t('imports')} WHERE target_file = ?`
+        `SELECT source_file FROM ${t('imports')} WHERE target_file = ? LIMIT 5000`
       ).all(f) as { source_file: string }[];
 
       for (const imp of upstreamImporters) {

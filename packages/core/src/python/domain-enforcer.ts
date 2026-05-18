@@ -44,8 +44,10 @@ export function findPythonDomainViolations(dataDb: Database.Database): DomainVio
   const domains = config.python?.domains || [];
   if (domains.length === 0) return [];
 
+  // LIMIT 100000 caps total imports scanned (P-DG-001). Even a very large
+  // Python codebase rarely exceeds 50k import edges.
   const imports = dataDb.prepare(
-    `SELECT source_file, target_file FROM ${t('py_imports')}`
+    `SELECT source_file, target_file FROM ${t('py_imports')} LIMIT 100000`
   ).all() as { source_file: string; target_file: string }[];
 
   const violations: DomainViolation[] = [];
@@ -75,7 +77,7 @@ export function findPythonDomainViolations(dataDb: Database.Database): DomainVio
  */
 export function getPythonFilesInDomain(dataDb: Database.Database, domainName: string): string[] {
   const allFiles = dataDb.prepare(
-    `SELECT DISTINCT source_file as f FROM ${t('py_imports')} UNION SELECT DISTINCT target_file as f FROM ${t('py_imports')}`
+    `SELECT DISTINCT source_file as f FROM ${t('py_imports')} UNION SELECT DISTINCT target_file as f FROM ${t('py_imports')} LIMIT 10000`
   ).all() as { f: string }[];
 
   return allFiles

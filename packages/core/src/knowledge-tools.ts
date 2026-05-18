@@ -437,10 +437,11 @@ function handleRule(db: Database.Database, args: Record<string, unknown>): ToolR
       }
     }
 
-    // Get linked incidents
+    // Get linked incidents. LIMIT 5000 caps incidents-linked-to-CR fan-in
+    // (P-DG-001 / no-unbounded-sql-all).
     if (withIncidents) {
       const edges = db.prepare(
-        "SELECT source_id FROM knowledge_edges WHERE target_type = 'cr' AND target_id = ? AND source_type = 'incident'"
+        "SELECT source_id FROM knowledge_edges WHERE target_type = 'cr' AND target_id = ? AND source_type = 'incident' LIMIT 5000"
       ).all(ruleId) as { source_id: string }[];
 
       if (edges.length > 0) {
@@ -459,9 +460,11 @@ function handleRule(db: Database.Database, args: Record<string, unknown>): ToolR
       }
     }
   } else if (keyword) {
-    // Search by keyword
+    // Search by keyword. LIMIT 1000 caps the result surface — total
+    // canonical rules count is in the dozens; 1000 is far above any
+    // realistic match (P-DG-001 / no-unbounded-sql-all).
     const rules = db.prepare(
-      'SELECT * FROM knowledge_rules WHERE rule_text LIKE ? OR rule_id LIKE ? ORDER BY rule_id'
+      'SELECT * FROM knowledge_rules WHERE rule_text LIKE ? OR rule_id LIKE ? ORDER BY rule_id LIMIT 1000'
     ).all(`%${keyword}%`, `%${keyword}%`) as {
       rule_id: string; rule_text: string; vr_type: string; reference_path: string;
     }[];
@@ -524,9 +527,10 @@ function handleIncident(db: Database.Database, args: Record<string, unknown>): T
     if (incident.user_quote) lines.push(`| **User Quote** | ${incident.user_quote.replace(/\|/g, '\\|')} |`);
     lines.push('');
 
-    // Show linked CRs
+    // Show linked CRs. LIMIT 5000 caps CRs-per-incident fan-out
+    // (P-DG-001 / no-unbounded-sql-all).
     const edges = db.prepare(
-      "SELECT target_id FROM knowledge_edges WHERE source_type = 'incident' AND source_id = ? AND target_type = 'cr'"
+      "SELECT target_id FROM knowledge_edges WHERE source_type = 'incident' AND source_id = ? AND target_type = 'cr' LIMIT 5000"
     ).all(String(incidentNum)) as { target_id: string }[];
 
     if (edges.length > 0) {
@@ -588,8 +592,11 @@ function handleSchemaCheck(db: Database.Database, args: Record<string, unknown>)
   const lines: string[] = [];
 
   if (table) {
+    // LIMIT 1000 caps known mismatches per table (P-DG-001). A single
+    // table legitimately has <10 mismatches; 1000 is multiple orders
+    // beyond realistic.
     const mismatches = db.prepare(
-      'SELECT * FROM knowledge_schema_mismatches WHERE table_name = ?'
+      'SELECT * FROM knowledge_schema_mismatches WHERE table_name = ? LIMIT 1000'
     ).all(table) as { table_name: string; wrong_column: string; correct_column: string; source: string }[];
 
     if (mismatches.length > 0) {
@@ -608,8 +615,9 @@ function handleSchemaCheck(db: Database.Database, args: Record<string, unknown>)
   }
 
   if (column) {
+    // LIMIT 1000 caps known mismatches per column (P-DG-001).
     const mismatches = db.prepare(
-      'SELECT * FROM knowledge_schema_mismatches WHERE wrong_column = ?'
+      'SELECT * FROM knowledge_schema_mismatches WHERE wrong_column = ? LIMIT 1000'
     ).all(column) as { table_name: string; wrong_column: string; correct_column: string; source: string }[];
 
     if (mismatches.length > 0) {
@@ -664,9 +672,11 @@ function handlePattern(db: Database.Database, args: Record<string, unknown>): To
     `patterns-quickref`,
   ];
 
-  // First: get chunks from domain-specific pattern files
+  // First: get chunks from domain-specific pattern files. LIMIT 1000
+  // caps the document-list scan (P-DG-001) — knowledge_documents has
+  // dozens of entries; 1000 is multiple orders beyond realistic.
   const docs = db.prepare(
-    "SELECT id, file_path, title FROM knowledge_documents WHERE category = 'patterns' OR category = 'reference' OR category = 'root'"
+    "SELECT id, file_path, title FROM knowledge_documents WHERE category = 'patterns' OR category = 'reference' OR category = 'root' LIMIT 1000"
   ).all() as { id: number; file_path: string; title: string }[];
 
   const relevantDocs = docs.filter(d =>
@@ -720,10 +730,12 @@ function handlePattern(db: Database.Database, args: Record<string, unknown>): To
   }
 
   if (!topic && relevantDocs.length > 0) {
-    // Show all sections from the domain pattern file
+    // Show all sections from the domain pattern file. LIMIT 5000 caps
+    // section count per document (P-DG-001) — a single pattern file
+    // has dozens of sections; 5000 is multiple orders beyond realistic.
     for (const doc of relevantDocs.slice(0, 2)) {
       const chunks = db.prepare(
-        "SELECT heading, content, chunk_type FROM knowledge_chunks WHERE document_id = ? AND chunk_type = 'section' ORDER BY line_start"
+        "SELECT heading, content, chunk_type FROM knowledge_chunks WHERE document_id = ? AND chunk_type = 'section' ORDER BY line_start LIMIT 5000"
       ).all(doc.id) as { heading: string; content: string; chunk_type: string }[];
 
       lines.push(`### From: ${claudeDir}/${doc.file_path}`);
@@ -797,9 +809,11 @@ function handleVerification(db: Database.Database, args: Record<string, unknown>
     if (vr.catches) lines.push(`| **Catches** | ${vr.catches} |`);
     if (vr.category) lines.push(`| **Category** | ${vr.category} |`);
   } else if (situation) {
-    // Search use_when field
+    // Search use_when field. LIMIT 1000 caps verification search results
+    // (P-DG-001) — VR-* set has ~25 entries; 1000 is multiple orders
+    // beyond realistic.
     const results = db.prepare(
-      'SELECT * FROM knowledge_verifications WHERE use_when LIKE ? OR vr_type LIKE ? OR catches LIKE ? ORDER BY vr_type'
+      'SELECT * FROM knowledge_verifications WHERE use_when LIKE ? OR vr_type LIKE ? OR catches LIKE ? ORDER BY vr_type LIMIT 1000'
     ).all(`%${situation}%`, `%${situation}%`, `%${situation}%`) as {
       vr_type: string; command: string; expected: string; use_when: string; catches: string;
     }[];
@@ -859,14 +873,16 @@ function handleGraph(db: Database.Database, args: Record<string, unknown>): Tool
     lines.push('');
 
     for (const entity of currentLevel) {
-      // Find outgoing edges
+      // Find outgoing edges. LIMIT 5000 caps per-node fan-out
+      // (P-DG-001) — knowledge graph traversal.
       const outgoing = db.prepare(
-        'SELECT target_type, target_id, edge_type FROM knowledge_edges WHERE source_type = ? AND source_id = ?'
+        'SELECT target_type, target_id, edge_type FROM knowledge_edges WHERE source_type = ? AND source_id = ? LIMIT 5000'
       ).all(entity.type, entity.id) as { target_type: string; target_id: string; edge_type: string }[];
 
-      // Find incoming edges
+      // Find incoming edges. LIMIT 5000 caps per-node fan-in
+      // (P-DG-001) — knowledge graph traversal.
       const incoming = db.prepare(
-        'SELECT source_type, source_id, edge_type FROM knowledge_edges WHERE target_type = ? AND target_id = ?'
+        'SELECT source_type, source_id, edge_type FROM knowledge_edges WHERE target_type = ? AND target_id = ? LIMIT 5000'
       ).all(entity.type, entity.id) as { source_type: string; source_id: string; edge_type: string }[];
 
       for (const edge of outgoing) {
@@ -960,13 +976,16 @@ function handleCommand(db: Database.Database, args: Record<string, unknown>): To
       lines.push(chunk.content);
     }
   } else if (keyword) {
-    // Search commands
+    // Search commands. LIMIT 1000 caps command-search results (P-DG-001) —
+    // command chunks total ~50 in this codebase; 1000 is multiple orders
+    // beyond realistic.
     const results = db.prepare(`
       SELECT kc.heading, kc.content, kd.file_path, kd.title
       FROM knowledge_chunks kc
       JOIN knowledge_documents kd ON kd.id = kc.document_id
       WHERE kc.chunk_type = 'command' AND (kc.content LIKE ? OR kc.heading LIKE ?)
       ORDER BY kc.heading
+      LIMIT 1000
     `).all(`%${keyword}%`, `%${keyword}%`) as {
       heading: string; content: string; file_path: string; title: string;
     }[];
@@ -979,13 +998,14 @@ function handleCommand(db: Database.Database, args: Record<string, unknown>): To
       lines.push(`- **${r.heading}** (${claudeDir}/${r.file_path}): ${preview}...`);
     }
   } else {
-    // List all commands
+    // List all commands. LIMIT 1000 caps total command listing (P-DG-001).
     const commands = db.prepare(`
       SELECT kc.heading, kd.file_path, kd.description
       FROM knowledge_chunks kc
       JOIN knowledge_documents kd ON kd.id = kc.document_id
       WHERE kc.chunk_type = 'command'
       ORDER BY kc.heading
+      LIMIT 1000
     `).all() as { heading: string; file_path: string; description: string }[];
 
     lines.push(`## All Commands (${commands.length} total)`);
@@ -1118,9 +1138,11 @@ function handlePlan(db: Database.Database, args: Record<string, unknown>): ToolR
     if (doc.description) lines.push(`**Description**: ${doc.description}`);
     lines.push('');
 
-    // Get plan items
+    // Get plan items. LIMIT 5000 caps plan-item count per plan (P-DG-001) —
+    // a single plan has dozens-to-hundreds of items; 5000 is multiple
+    // orders beyond realistic.
     const items = db.prepare(
-      "SELECT heading, content FROM knowledge_chunks WHERE document_id = ? AND metadata LIKE '%plan_item_id%' ORDER BY heading"
+      "SELECT heading, content FROM knowledge_chunks WHERE document_id = ? AND metadata LIKE '%plan_item_id%' ORDER BY heading LIMIT 5000"
     ).all(doc.id) as { heading: string; content: string }[];
 
     if (items.length > 0) {
@@ -1152,9 +1174,11 @@ function handlePlan(db: Database.Database, args: Record<string, unknown>): ToolR
       lines.push(fileRefs.content.substring(0, 500));
     }
   } else if (status) {
-    // Filter plans by status
+    // Filter plans by status. LIMIT 1000 caps plan-list per status
+    // (P-DG-001) — total plan count is dozens; 1000 is multiple orders
+    // beyond realistic.
     const docs = db.prepare(
-      "SELECT kd.file_path, kd.title, kc.content FROM knowledge_chunks kc JOIN knowledge_documents kd ON kd.id = kc.document_id WHERE kd.category = 'plan' AND kc.heading = 'IMPLEMENTATION STATUS' AND kc.content LIKE ? ORDER BY kd.file_path DESC"
+      "SELECT kd.file_path, kd.title, kc.content FROM knowledge_chunks kc JOIN knowledge_documents kd ON kd.id = kc.document_id WHERE kd.category = 'plan' AND kc.heading = 'IMPLEMENTATION STATUS' AND kc.content LIKE ? ORDER BY kd.file_path DESC LIMIT 1000"
     ).all(`%${status}%`) as { file_path: string; title: string; content: string }[];
 
     lines.push(`## Plans with status "${status}" (${docs.length} found)`);
@@ -1272,7 +1296,7 @@ function handleGaps(db: Database.Database, args: Record<string, unknown>): ToolR
   } else if (checkType === 'patterns') {
     // Check if domains have pattern documentation
     const patternDocs = db.prepare(
-      "SELECT file_path, title FROM knowledge_documents WHERE category = 'patterns'"
+      "SELECT file_path, title FROM knowledge_documents WHERE category = 'patterns' LIMIT 10000"
     ).all() as { file_path: string; title: string }[];
 
     const documentedDomains = new Set(patternDocs.map(d => d.title.replace('-patterns', '').replace(' Patterns', '').toLowerCase()));
@@ -1287,7 +1311,7 @@ function handleGaps(db: Database.Database, args: Record<string, unknown>): ToolR
       dataDb = getDataDb();
 
       const domains = dataDb.prepare(
-        `SELECT DISTINCT domain FROM ${t('sentinel')} WHERE status = 'active' ORDER BY domain`
+        `SELECT DISTINCT domain FROM ${t('sentinel')} WHERE status = 'active' ORDER BY domain LIMIT 10000`
       ).all() as { domain: string }[];
 
       for (const d of domains) {

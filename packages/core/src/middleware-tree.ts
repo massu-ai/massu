@@ -31,7 +31,7 @@ export function buildMiddlewareTree(dataDb: Database.Database): number {
     const current = queue.shift()!;
 
     const imports = dataDb.prepare(
-      `SELECT target_file FROM ${t('imports')} WHERE source_file = ?`
+      `SELECT target_file FROM ${t('imports')} WHERE source_file = ? LIMIT 10000`
     ).all(current) as { target_file: string }[];
 
     for (const imp of imports) {

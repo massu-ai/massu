@@ -314,11 +314,14 @@ function handleValidateFile(args: Record<string, unknown>, db: Database.Database
 function handleValidationReport(args: Record<string, unknown>, db: Database.Database): ToolResult {
   const days = (args.days as number) ?? 7;
 
+  // LIMIT 100000 caps the validation-history scan (P-DG-001) — even
+  // months of daily validation runs cap in the tens of thousands.
   const results = db.prepare(`
     SELECT file_path, passed, rules_violated, created_at
     FROM validation_results
     WHERE created_at >= datetime('now', ?)
     ORDER BY created_at DESC
+    LIMIT 100000
   `).all(`-${days} days`) as Array<Record<string, unknown>>;
 
   if (results.length === 0) {

@@ -1067,7 +1067,7 @@ function enqueueSyncPayload(db, payload) {
 }
 function dequeuePendingSync(db, limit = 10) {
   const stale = db.prepare(
-    "SELECT id, retry_count, last_error FROM pending_sync WHERE retry_count >= 10"
+    "SELECT id, retry_count, last_error FROM pending_sync WHERE retry_count >= 10 LIMIT 10000"
   ).all();
   if (stale.length > 0) {
     const ids = stale.map((s) => s.id);
@@ -1191,7 +1191,7 @@ function generateCurrentMd(db, sessionId) {
   const session = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get(sessionId);
   if (!session) return "# Session State\n\nNo active session found.\n";
   const observations = db.prepare(
-    "SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC"
+    "SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC LIMIT 10000"
   ).all(sessionId);
   const summary = db.prepare(
     "SELECT * FROM session_summaries WHERE session_id = ? ORDER BY created_at_epoch DESC LIMIT 1"
@@ -1632,7 +1632,7 @@ function calculateQualityScore(db, sessionId) {
   const weights = getWeights();
   const categories = getCategories();
   const observations = db.prepare(
-    "SELECT type, detail FROM observations WHERE session_id = ?"
+    "SELECT type, detail FROM observations WHERE session_id = ? LIMIT 10000"
   ).all(sessionId);
   let score = 50;
   const breakdown = Object.fromEntries(
@@ -1674,6 +1674,7 @@ function backfillQualityScores(db) {
     FROM sessions s
     LEFT JOIN session_quality_scores q ON s.session_id = q.session_id
     WHERE q.session_id IS NULL
+    LIMIT 100000
   `).all();
   let backfilled = 0;
   for (const session of sessions) {
@@ -1824,7 +1825,7 @@ function detectOutcome(followUpPrompts, assistantResponses) {
 }
 function analyzeSessionPrompts(db, sessionId) {
   const prompts = db.prepare(
-    "SELECT prompt_text, prompt_number FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC"
+    "SELECT prompt_text, prompt_number FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC LIMIT 10000"
   ).all(sessionId);
   if (prompts.length === 0) return 0;
   let stored = 0;
@@ -1869,10 +1870,10 @@ async function main() {
     try {
       createSession(db, session_id);
       const observations = db.prepare(
-        "SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC"
+        "SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC LIMIT 10000"
       ).all(session_id);
       const prompts = db.prepare(
-        "SELECT prompt_text FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC"
+        "SELECT prompt_text FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC LIMIT 10000"
       ).all(session_id);
       const summary = buildSummaryFromObservations(observations, prompts);
       addSummary(db, session_id, summary);

@@ -266,11 +266,14 @@ function handleFeatureHealth(args: Record<string, unknown>, db: Database.Databas
 function handleRegressionCheck(_args: Record<string, unknown>, db: Database.Database): ToolResult {
   const thresholds = getHealthThresholds();
 
+  // LIMIT 10000 caps the modified-feature listing (P-DG-001) — a healthy
+  // project has dozens of features; 10000 is multiple orders beyond.
   const recentlyModified = db.prepare(`
     SELECT feature_key, health_score, modifications_since_test, tests_failing, last_modified, last_tested
     FROM feature_health
     WHERE modifications_since_test > 0
     ORDER BY modifications_since_test DESC
+    LIMIT 10000
   `).all() as Array<Record<string, unknown>>;
 
   if (recentlyModified.length === 0) {

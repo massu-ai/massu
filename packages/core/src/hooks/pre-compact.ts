@@ -39,7 +39,7 @@ async function main(): Promise<void> {
 
       // 2. Get user prompts
       const prompts = db.prepare(
-        'SELECT prompt_text FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC'
+        'SELECT prompt_text FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC LIMIT 10000'
       ).all(session_id) as Array<{ prompt_text: string }>;
 
       // 3. Generate mid-session summary snapshot

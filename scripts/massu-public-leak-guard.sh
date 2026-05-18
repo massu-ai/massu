@@ -64,6 +64,12 @@ ALLOWED_PATTERNS=(
   '^packages/core/'
   '^packages/adapter-rails/'
   '^packages/adapter-spring/'
+  # P-E-025 follow-on: @massu/types is now a public npm package; sync-public.sh
+  # PUBLIC_DIRS includes it. ALLOWED_PATTERNS must match.
+  '^packages/types/'
+  # P-DG-001 (plan-stage-d-medium-sweep): custom ESLint rule lives in repo-root
+  # eslint-rules/ and is sync'd to public via sync-public.sh PUBLIC_DIRS.
+  '^eslint-rules/'
   '^examples/'
   '^scripts/'
   '^docs/getting-started/'

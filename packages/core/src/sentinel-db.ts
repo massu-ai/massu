@@ -188,21 +188,27 @@ export function getFeaturesByDomain(db: Database.Database, domain: string): Feat
 }
 
 export function getFeaturesByFile(db: Database.Database, filePath: string): Feature[] {
+  // LIMIT 1000 caps the per-file fan-in (P-DG-001). A single file
+  // legitimately impacts dozens of features at the high end; 1000 is
+  // multiple orders of magnitude beyond realistic.
   const rows = db.prepare(`
     SELECT DISTINCT s.* FROM ${t('sentinel')} s
     JOIN ${t('sentinel_components')} c ON c.feature_id = s.id
     WHERE c.component_file = ?
     ORDER BY s.feature_key
+    LIMIT 1000
   `).all(filePath) as Record<string, unknown>[];
   return rows.map(toFeature);
 }
 
 export function getFeaturesByRoute(db: Database.Database, route: string): Feature[] {
+  // LIMIT 1000 caps per-route fan-in (P-DG-001).
   const rows = db.prepare(`
     SELECT DISTINCT s.* FROM ${t('sentinel')} s
     JOIN ${t('sentinel_pages')} p ON p.feature_id = s.id
     WHERE p.page_route = ?
     ORDER BY s.feature_key
+    LIMIT 1000
   `).all(route) as Record<string, unknown>[];
   return rows.map(toFeature);
 }
@@ -234,7 +240,10 @@ export function getFeatureDetail(db: Database.Database, featureKeyOrId: string |
 // ============================================================
 
 export function getOrphanedFeatures(db: Database.Database): Feature[] {
-  // Active features with no living primary component files
+  // Active features with no living primary component files. LIMIT 10000
+  // caps the total orphan count surface (P-DG-001) — a healthy project
+  // has 0; >10000 indicates a catastrophic source-tree event the operator
+  // would want to see separately, not via this helper.
   const features = db.prepare(`
     SELECT s.* FROM ${t('sentinel')} s
     WHERE s.status = 'active'
@@ -243,6 +252,7 @@ export function getOrphanedFeatures(db: Database.Database): Feature[] {
       WHERE c.feature_id = s.id AND c.is_primary = 1
     )
     ORDER BY s.domain, s.feature_key
+    LIMIT 10000
   `).all() as Record<string, unknown>[];
   return features.map(toFeature);
 }
@@ -254,7 +264,7 @@ export function getFeatureImpact(db: Database.Database, filePaths: string[]): Im
   // Find all features linked to these files
   for (const filePath of filePaths) {
     const links = db.prepare(
-      `SELECT feature_id FROM ${t('sentinel_components')} WHERE component_file = ?`
+      `SELECT feature_id FROM ${t('sentinel_components')} WHERE component_file = ? LIMIT 10000`
     ).all(filePath) as { feature_id: number }[];
     for (const link of links) {
       affectedFeatureIds.add(link.feature_id);
@@ -270,7 +280,7 @@ export function getFeatureImpact(db: Database.Database, filePaths: string[]): Im
     if (!feature || feature.status !== 'active') continue;
 
     const allComponents = db.prepare(
-      `SELECT component_file, is_primary FROM ${t('sentinel_components')} WHERE feature_id = ?`
+      `SELECT component_file, is_primary FROM ${t('sentinel_components')} WHERE feature_id = ? LIMIT 10000`
     ).all(featureId) as { component_file: string; is_primary: number }[];
 
     const affected = allComponents.filter(c => fileSet.has(c.component_file));
@@ -549,9 +559,13 @@ export function checkParity(db: Database.Database, oldFiles: string[], newFiles:
 export function clearAutoDiscoveredFeatures(db: Database.Database): void {
   // Only clear features that were auto-discovered (not manually registered)
   // We use the changelog to distinguish: auto-discovered ones have changed_by = 'scanner'
+  // LIMIT 10000 caps the auto-discovered feature scan (P-DG-001) —
+  // realistic feature count per project is dozens; 10000 is multiple
+  // orders beyond.
   const autoIds = db.prepare(`
     SELECT DISTINCT feature_id FROM ${t('sentinel_changelog')}
     WHERE changed_by = 'scanner' AND change_type = 'created'
+    LIMIT 10000
   `).all() as { feature_id: number }[];
 
   // Don't delete features that also have manual changes

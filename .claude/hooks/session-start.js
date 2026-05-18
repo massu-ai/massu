@@ -9053,12 +9053,12 @@ function getFailedAttempts(db, query, limit = 20) {
 }
 function getCrossTaskProgress(db, taskId) {
   const sessions = db.prepare(`
-    SELECT session_id FROM sessions WHERE task_id = ?
+    SELECT session_id FROM sessions WHERE task_id = ? LIMIT 10000
   `).all(taskId);
   const merged = {};
   for (const session of sessions) {
     const summaries = db.prepare(`
-      SELECT plan_progress FROM session_summaries WHERE session_id = ?
+      SELECT plan_progress FROM session_summaries WHERE session_id = ? LIMIT 10000
     `).all(session.session_id);
     for (const summary of summaries) {
       try {

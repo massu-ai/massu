@@ -855,6 +855,57 @@ if [ "$CHECK26_VIOLATIONS" -eq 0 ]; then
 fi
 
 # -------------------------------------------------------
+# Check 27: Security-sensitive env vars must use a guard helper
+#          (plan-2026-05-18-security-medium-sweep P6-001 / CR-51)
+# -------------------------------------------------------
+# Closes the structural bug class where the same security-sensitive env var
+# is read with `?? ''` silent-fallback in one route and explicit-throw in
+# another (M-1 finding 2026-05-18: IP_HASH_PEPPER read in two ways across
+# evidence/[id]/download/route.ts and license/activate/route.ts).
+#
+# Three-layer enforcement (this check is layer 1):
+#   27a: process.env.<NAME>_(PEPPER|SECRET|KEY) outside the guard file glob
+#        — caller MUST go through a dedicated lib/<purpose>/<purpose>-guard.ts
+#   27b: any `process.env.<NAME> ?? <literal>` pattern in a security-sensitive
+#        path emits a WARN (silent-fallback is the original M-1 footgun).
+#
+# Framework-required keys (NEXTAUTH_SECRET, STRIPE_*, SUPABASE_*, NEXT_PUBLIC_*)
+# are EXEMPT — they're platform contracts, not Massu security primitives.
+# -------------------------------------------------------
+echo "Check 27: Security-sensitive env vars use guard helper (CR-51 / VR-PEPPER-GUARD)"
+CHECK27_VIOLATIONS=0
+
+if [ -d website/src ]; then
+  # 27a: bare reads of *_PEPPER outside the guard helper. The helper file
+  # glob covers any current/future lib/<purpose>/<purpose>-guard.ts module.
+  # Test files (__tests__/) are exempt: drift-guard tests + integration tests
+  # that vi.stubEnv legitimately reference the env var name.
+  CHECK27A_HITS=$(grep -rnE 'process\.env\.[A-Z][A-Z0-9_]*_(PEPPER)\b' website/src/ --include='*.ts' --include='*.tsx' 2>/dev/null \
+    | grep -vE 'website/src/lib/[a-z-]+/[a-z-]+-guard\.ts' \
+    | grep -vE 'website/src/__tests__/' || true)
+  if [ -n "$CHECK27A_HITS" ]; then
+    fail "Check 27a: *_PEPPER env var read outside guard helper. Use requireIpHashPepper() / hashIpWithPepper() from @/lib/ip/pepper-guard. Offenders:"
+    echo "$CHECK27A_HITS" | sed 's/^/    /' >&2
+    CHECK27_VIOLATIONS=$((CHECK27_VIOLATIONS + 1))
+  fi
+
+  # 27b: silent-fallback patterns adjacent to *_PEPPER / *_SECRET / *_KEY.
+  # Excludes framework-required platform keys.
+  CHECK27B_HITS=$(grep -rnE 'process\.env\.[A-Z][A-Z0-9_]*_(PEPPER|SECRET|KEY)[[:space:]]*\?\?[[:space:]]*['\''"]' website/src/ --include='*.ts' --include='*.tsx' 2>/dev/null \
+    | grep -vE 'process\.env\.(NEXTAUTH_SECRET|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|SUPABASE_SERVICE_ROLE_KEY|NEXT_PUBLIC_[A-Z_]+)' \
+    | grep -vE 'website/src/__tests__/' || true)
+  if [ -n "$CHECK27B_HITS" ]; then
+    fail "Check 27b: security-sensitive env var read with '?? <literal>' silent-fallback. Promote to a dedicated guard helper (fail-closed in production). Offenders:"
+    echo "$CHECK27B_HITS" | sed 's/^/    /' >&2
+    CHECK27_VIOLATIONS=$((CHECK27_VIOLATIONS + 1))
+  fi
+fi
+
+if [ "$CHECK27_VIOLATIONS" -eq 0 ]; then
+  pass "Check 27: Security-sensitive env vars use guard helper"
+fi
+
+# -------------------------------------------------------
 # Check 21: File-size cap on packages/core/src TypeScript modules
 #          (plan-stage-d-medium-sweep P-M-031)
 # -------------------------------------------------------

@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.12.2] - 2026-05-18
+
+**Security MEDIUM sweep (`plan-2026-05-18-security-medium-sweep`)**. Closes the 5 MEDIUM findings from the post-1.12.0 `massu-security-reviewer` audit-loop with structural drift-guards for each. M-1 IP_HASH_PEPPER consistency (silent-fallback vs throw class), M-2 webhook POST schema symmetry, M-3 Lemon Squeezy webhook idempotency parity with Stripe, M-4 v1 audit UUID echo redaction, M-5 SSO IdP host allowlist (precondition for SSO re-enable). New CR-51 + VR-PEPPER-GUARD + pattern-scanner Check 27.
+
+### Added
+
+- **M-1 / CR-51 / VR-PEPPER-GUARD** — `website/src/lib/ip/pepper-guard.ts` exporting `requireIpHashPepper()` + `hashIpWithPepper(ip, { length: 16 | 32 })` as the SOLE allowed reader of the IP hash pepper env var. Production fail-closed via `MissingPepperError`; documented test override via `MASSU_TEST_ALLOW_EMPTY_PEPPER=1`. Closes the structural drift class where `evidence/[id]/download/route.ts:21` silent-fallback diverged from `license/activate/route.ts:34-40` throw.
+- **M-2 / VR-SCHEMA-SYMMETRY** — `webhookCreateSchema` in `src/lib/validations.ts`, symmetric to `webhookUpdateSchema`. `description` capped at 500 chars on BOTH schemas (CR-9 bypass-prevention). `route-schema-symmetry.test.ts` drift-guard scans every `app/api/v1/**/route.ts` POST/PATCH/PUT handler for `*Schema.safeParse` invocation.
+- **M-3 / VR-LS-IDEMPOTENCY** — migration `042_lemon_squeezy_webhook_events.sql` + `lemon_squeezy_event_apply(p_event_id, p_event_type, p_payload, ...)` RPC returning TEXT `processing_status` (`processed_ok` | `duplicate_ignored` | `permanent_failure` | `transient_failure`). Route handler maps each status to HTTP 200/200/422/500 — 422 stops LS retries on permanent failures (Stripe's BOOLEAN return can't carry this contract). Down migration shipped alongside (`.down.sql`) per §6.5 Rollback Plan.
+- **M-4 / VR-V1-NO-UUID-LEAK** — `v1-error-response-no-uuid-leak.test.ts` drift-guard scanning every `app/api/v1/**/route.ts` source for caller-controlled UUID interpolation in error/note response surfaces (`apiError`, `note =`, etc.). `${auth.orgId}` self-echo explicitly permitted (caller's auth context already binds them).
+- **M-5 / VR-SSO-IDP-ALLOWLIST** — `website/src/lib/sso/idp-allowlist.ts` with `SSO_IDP_HOSTS_BY_PROVIDER` constant + `validateSsoUrlAgainstProvider(provider, ssoUrl)` + `inferSsoProviderFromUrl(ssoUrl)`. TLD-aware wildcard host match (`*.okta.com` does NOT match `evil-okta.com`); HTTPS-only scheme enforcement. Covers Okta, Auth0, Azure AD (microsoftonline.com + .us), Google Workspace. Generic OIDC deferred to `plan-B.3-followup` SSO re-enable.
+- **`MASSU_SSO_ALLOWLIST_LOG_ONLY` env-flag** for the M-5 staged rollout — `isSsoAllowlistLogOnly()` in `sso-flag.ts`. Operator runs 24h log-only post-deploy to monitor false-positives before flipping to enforcing.
+- **`scripts/massu-pattern-scanner.sh` Check 27** — bash drift-guard for security-sensitive env-var patterns. 27a flags raw `process.env.<NAME>_PEPPER` outside `lib/<purpose>/<purpose>-guard.ts`; 27b flags any `process.env.<NAME>_(PEPPER|SECRET|KEY) ?? <literal>` silent-fallback adjacent to such reads (framework-platform keys exempt).
+- **CR-51** canonical rule in `.claude/CLAUDE.md`: security-sensitive env vars must use a dedicated guard helper. Three-layer enforcement: pattern-scanner Check 27 + vitest drift-guard + the guard helper is the ONLY allowed reader.
+- 5 new vitest drift-guards: `ip-pepper-guard-usage.test.ts`, `route-schema-symmetry.test.ts`, `lemon-squeezy-event-atomic.test.ts`, `v1-error-response-no-uuid-leak.test.ts`, `sso-idp-allowlist.test.ts` (+23 happy/negative/integration cases for M-5 alone).
+
+### Changed
+
+- **Lemon Squeezy webhook route (`src/app/api/lemon-squeezy/webhook/route.ts`)** — 4 handlers (`handleOrderCreated`, `handleLicenseKeyCreated`, `handleOrderRefunded`, `handleSubscriptionCancelled`) refactored to dispatch through `lemon_squeezy_event_apply` RPC. Direct `from('book_purchases').insert` / `from('organizations').update` calls REMOVED from the route. Pre-RPC test-mode mismatch rejection now returns `permanent_failure` (HTTP 422) instead of throwing.
+- **`src/app/api/v1/audit/route.ts:66`** — `${actor}` UUID echo dropped from non-empty-org-no-rows note. New message: "No audit entries for the actor filter in this org. Verify the user is a member of org ${auth.orgId}." Eliminates the UUID-existence-probe side-channel for authenticated API-key holders.
+- **`src/app/api/sso/route.ts`** — invokes `inferSsoProviderFromUrl(ssoConfig.sso_url)` before constructing `redirect_url`. Non-allowlisted host returns 502 with `X-SSO-Validation-Failure: idp-host-not-allowlisted` (or logs-only under `MASSU_SSO_ALLOWLIST_LOG_ONLY=1`).
+- **`src/app/api/sso/callback/route.ts:exchangeOidcCode`** — same allowlist guard applied BEFORE any outbound `fetch()` to the IdP token endpoint. Closes the SSRF-to-IdP vector at the callback layer (P5-007).
+- **`scripts/massu-security-scanner.sh` Check 6** — RLS coverage scanner now excludes `*.down.sql` rollback scripts (CR-46 structural fix; the literal "CREATE TABLE" only appears in their explanatory comments).
+- **`website/src/data/stats.ts`** — Database Tables 44 → 45 (new `lemon_squeezy_webhook_events`), Canonical Rules 16 → 17 (new CR-51). Marketing count drift-guard covers both.
+- **`website/src/__tests__/changelog-parse.test.ts:EXPECTED_COUNT`** bumped 40 → 41.
+- **`website/src/__tests__/migration-grant-discipline.test.ts:SERVICE_ROLE_ONLY_TABLES`** adds `lemon_squeezy_webhook_events: '042_lemon_squeezy_webhook_events.sql'`.
+
+### Fixed
+
+- Pre-existing `plan-token-changelog-coverage.test.ts` PTCC-03 failure surfaced during the loop — 3 post-tag chore-commit plan-tokens (`plan-stage-d-medium-sweep`, `plan-stage-e-low-info-sweep`, `plan-2026-05-16-prelaunch-audit`) added to the documented-divergence allowlist with the same rationale pattern as the existing `plan-stage-c-high-batch` entry.
+
 ## [1.12.1] - 2026-05-18
 
 **Pre-push ↔ CI parity (`plan-2026-05-18-pre-push-ci-parity`)**. Closes the structural drift class surfaced 2026-05-18 when SHA `b26fbb1` passed `pre-push-light` locally but failed CI on 4 distinct gates spread across 3 separate workflow YAMLs (`@massu/types/dist` missing → `ci.yml`, `eslint-rules/` missing from `PUBLIC_DIRS` → `sync-check.yml`, `diff-commands-vs-docs.sh` hardcoded path → `sync-check.yml`, Tarball E2E adapter list stale → `ci.yml`). The two operator-pushed fix attempts `8c6b843` + `d3164f7` fixed the specific instances but left the bug class wide open. This release closes the CLASS via three-layer enforcement.

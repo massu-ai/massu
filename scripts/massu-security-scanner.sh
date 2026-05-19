@@ -209,7 +209,10 @@ if [ -d "$MIGRATIONS_DIR" ]; then
         warn "  Missing RLS: $TABLE_NAME (${MIGRATION_FILE##*/})"
       fi
     done < <(grep -E 'CREATE TABLE' "$MIGRATION_FILE" 2>/dev/null || true)
-  done < <(find "$MIGRATIONS_DIR" -name "*.sql" -type f | sort)
+    # Rollback scripts (.down.sql) DROP tables — they should never be scanned
+    # for RLS coverage. The literal "CREATE TABLE" only appears in their
+    # explanatory header comments referencing the corresponding UP migration.
+  done < <(find "$MIGRATIONS_DIR" -name "*.sql" -not -name "*.down.sql" -type f | sort)
 fi
 if [ "$TOTAL_TABLES" -eq 0 ]; then
   pass "No tables to check in migrations (skipped)"

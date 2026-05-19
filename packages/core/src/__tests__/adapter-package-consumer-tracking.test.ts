@@ -81,7 +81,19 @@ describe('adapter packages have at least one external consumer (P-M-032)', () =>
       const ownPackageRoot = path.join(PACKAGES_DIR, `adapter-${id}`)
       const refs: string[] = []
       function walk(dir: string): void {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        // ENOENT-tolerant scan: other concurrently-running tests
+        // (`config-detected.test.ts` creates/destroys
+        // `packages/core/src/test-config-detected-tmp`) can race against
+        // this walk under vitest parallelism. Treat a missing-during-scan
+        // directory as "no refs here" rather than crashing the suite.
+        let entries: fs.Dirent[]
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true })
+        } catch (err: unknown) {
+          if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return
+          throw err
+        }
+        for (const entry of entries) {
           const full = path.join(dir, entry.name)
           if (entry.isDirectory()) {
             if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.next') continue
@@ -95,7 +107,13 @@ describe('adapter packages have at least one external consumer (P-M-032)', () =>
             if (full.startsWith(ownPackageRoot)) continue
             // Skip test fixtures that mention the package name as data only.
             if (full.includes('__tests__') || full.endsWith('.test.ts')) continue
-            const src = fs.readFileSync(full, 'utf-8')
+            let src: string
+            try {
+              src = fs.readFileSync(full, 'utf-8')
+            } catch (err: unknown) {
+              if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') continue
+              throw err
+            }
             if (src.includes(`'${pkgName}'`) || src.includes(`"${pkgName}"`)) {
               refs.push(rel)
             }

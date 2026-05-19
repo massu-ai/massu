@@ -98,8 +98,28 @@ function firstCommentLines(scriptPath: string, n: number): string {
   return content.split('\n').slice(0, n).join('\n');
 }
 
+/**
+ * Detect whether we're running inside the authoritative internal repo
+ * (vs. inside the public-mirror tree produced by `scripts/sync-public.sh`
+ * for sync-check verification). The internal repo carries `website/` and
+ * `docs/`; the public mirror does NOT. Used to gate orphan-style asserts
+ * that assume internal-tree workflow layout.
+ *
+ * Plan-2026-05-18-security-medium-sweep P8-001 follow-up — the orphan
+ * check otherwise fails on `ci.public.yml` in the mirror because
+ * `sync-public.sh` renames it to `ci.yml` (line 117 of sync-public.sh).
+ */
+const IS_INTERNAL_REPO = existsSync(resolve(REPO_ROOT, 'website')) && existsSync(resolve(REPO_ROOT, 'docs'));
+
 describe('ci-prepush-parity (P3-001 drift-guard for CR-50 / VR-CI-PARITY)', () => {
   it('WORKFLOW_FILE_EXCLUSIONS entries all exist on disk (no orphans)', () => {
+    if (!IS_INTERNAL_REPO) {
+      // Sync-mirror tree: EXCLUSIONS list is internal-tree-authoritative.
+      // In the mirror, `ci.public.yml` is renamed to `ci.yml` by
+      // `scripts/sync-public.sh:117`, so it doesn't physically exist.
+      // The orphan check is meaningful only against the live internal tree.
+      return;
+    }
     const missing: string[] = [];
     for (const entry of WORKFLOW_FILE_EXCLUSIONS) {
       const path = resolve(WORKFLOWS_DIR, entry);

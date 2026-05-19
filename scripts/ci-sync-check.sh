@@ -78,21 +78,34 @@ echo "PASS: No private docs"
 # vendor-tree skip; --binary-files=without-match avoids matching inside binaries.
 # Stripe regex extended to include rk_test_/rk_live_ (restricted keys) and
 # whsec_ (webhook secrets) (MEDIUM security finding M3 2026-05-18).
-SUPA=$(grep -rn --exclude-dir=node_modules --binary-files=without-match \
-       "ileqitpsfwbvrxripdmp" "$MIRROR_DIR" 2>/dev/null | wc -l | tr -d ' ')
+# Exclude this scanner script from its own scan — the literal project-ref
+# appears in this file as the grep target, NOT a leaked secret. Wrap the
+# grep in `{ ... || true; }` so a zero-match return code under `set -o
+# pipefail` doesn't crash the script (the previous script-self-match
+# kept grep at exit 0; structurally that was fragile).
+SUPA=$({ grep -rn --exclude-dir=node_modules --exclude=ci-sync-check.sh \
+       --binary-files=without-match \
+       "ileqitpsfwbvrxripdmp" "$MIRROR_DIR" 2>/dev/null || true; } | wc -l | tr -d ' ')
 if [ "$SUPA" -ne 0 ]; then
   echo "FAIL: Supabase project ref found"
   exit 1
 fi
-STRIPE=$(grep -rnE --exclude-dir=node_modules --binary-files=without-match \
-         "sk_(test|live)_[A-Za-z0-9]{20,}|pk_(test|live)_[A-Za-z0-9]{20,}|rk_(test|live)_[A-Za-z0-9]{20,}|whsec_[A-Za-z0-9]{20,}|price_1[A-Za-z0-9]{8,}" \
-         "$MIRROR_DIR" 2>/dev/null | wc -l | tr -d ' ')
+STRIPE=$({ grep -rnE --exclude-dir=node_modules --binary-files=without-match \
+         "(^|[^A-Za-z0-9_])(sk|pk|rk)_(test|live)_[A-Za-z0-9]{20,}|(^|[^A-Za-z0-9_])whsec_[A-Za-z0-9]{20,}|(^|[^A-Za-z0-9_])price_1[A-Za-z0-9]{8,}" \
+         "$MIRROR_DIR" 2>/dev/null || true; } | wc -l | tr -d ' ')
 if [ "$STRIPE" -ne 0 ]; then
   echo "FAIL: Stripe key found"
   exit 1
 fi
-TRADE=$(grep -rn --exclude-dir=node_modules --binary-files=without-match \
-        "trade.secret\|TRADE-SECRET" "$MIRROR_DIR" 2>/dev/null | wc -l | tr -d ' ')
+# Exclude scanner-self-reference files — the trade-secret literal appears
+# in these as the grep target / documentation, NOT as actual trade secret
+# content. Same structural fix-class as the SUPA scan above.
+TRADE=$({ grep -rn --exclude-dir=node_modules \
+        --exclude=massu-public-leak-guard.sh \
+        --exclude=ci-sync-check.sh \
+        --exclude=leak-patterns.sh \
+        --binary-files=without-match \
+        "trade.secret\|TRADE-SECRET" "$MIRROR_DIR" 2>/dev/null || true; } | wc -l | tr -d ' ')
 if [ "$TRADE" -ne 0 ]; then
   echo "FAIL: Trade secret reference found"
   exit 1

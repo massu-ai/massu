@@ -199,6 +199,55 @@ grep -rn "[bad_pattern]" src/ && echo "VIOLATION: [description]" && exit 1
 
 ---
 
+## Section 6: Interactive Rule-Candidate Funnel (v0.2 — plan-v0.2-interactive-rule-approval)
+
+**Verify the real-time correction-→-rule pipeline is healthy.**
+
+The v0.2 funnel runs alongside v0.1 (post-loop reflection). v0.2 catches corrections at the moment they happen; v0.1 catches anything v0.2 missed. Healthy funnel = `source=interactive` rows growing, `source=post-loop-reflection` rows shrinking toward zero.
+
+### 6.1 Funnel Metrics
+
+| Metric | Source | Healthy target |
+|---|---|---|
+| `candidates_emitted_7d` | `SELECT COUNT(*) FROM audit_log WHERE event_type='rule_candidate_emitted' AND timestamp > datetime('now', '-7 days')` | > 0 (if zero, either no corrections occurred OR the detector is broken — both worth surfacing) |
+| `candidates_promoted_7d` | `... WHERE event_type='rule_promoted' AND ...` | ≥ 30% of emitted (lower = noisy detector OR operator-disengagement) |
+| `candidates_dismissed_7d` | `... WHERE event_type='rule_dismissed' AND ...` | ≤ 50% of emitted (higher = detector too aggressive) |
+| `candidates_orphaned` | `find .massu/rule-candidates/ -name '*.json' -mtime +14` | == 0 (orphans are action-debt) |
+| `rules_with_recurrence` | `SELECT COUNT(*) FROM audit_log WHERE event_type='rule_promoted' AND json_extract(metadata, '$.recurrence_count') > 0` | == 0 (CR-53 invariant — non-zero = promoted rule isn't preventing recurrence) |
+| `dismissal_blacklisted_signals` | `SELECT signal, dismissal_count FROM prompt_outcomes_signal_blacklist` | distribution healthy (no single signal dominating) |
+
+### 6.2 Source-Tag Split
+
+Report rows by source so v0.2 effectiveness can be measured against v0.1:
+
+```sql
+SELECT
+  COALESCE(json_extract(metadata, '$.source'), 'unknown') as source,
+  COUNT(*) as n
+FROM audit_log
+WHERE event_type IN ('rule_promoted', 'rule_dismissed')
+  AND timestamp > datetime('now', '-30 days')
+GROUP BY source;
+```
+
+Over time `interactive` should dominate. If `post-loop-reflection` grows while `interactive` shrinks, the v0.2 detector is failing — surface as a gap.
+
+### 6.3 VR-INTERACTIVE-LEARNING
+
+Run the dual-channel CR-53 effectiveness evaluator + the funnel metrics SQL:
+
+```
+cd packages/core && npm test -- rule-promotion-effectiveness
+```
+
+Triggered after any change to:
+- `packages/core/src/rule-candidate-*.ts`
+- `packages/core/src/rule-promotion-effectiveness.ts`
+- `.claude/commands/massu-rule.md`
+- `.claude/commands/massu-learning-audit.md` (this file)
+
+---
+
 ## Completion Criteria
 
 - [ ] All CRs have >= 1 memory entry
@@ -207,5 +256,6 @@ grep -rn "[bad_pattern]" src/ && echo "VIOLATION: [description]" && exit 1
 - [ ] Session stats reviewed, quality >= target
 - [ ] All gaps remediated
 - [ ] pattern-scanner.sh exits 0
+- [ ] **Section 6 (v0.2 funnel)**: `candidates_emitted_7d > 0`, `candidates_orphaned == 0`, `rules_with_recurrence == 0`, source-tag split shows `interactive` growing
 
 **Remember: Auto-learning is not optional. Every incident that recurs proves CR-34 failed.**

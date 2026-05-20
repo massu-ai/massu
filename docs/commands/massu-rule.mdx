@@ -1,0 +1,60 @@
+---
+title: "/massu-rule"
+description: "Inspect, approve, or dismiss rule candidates emitted by the v0.2 interactive rule-approval hook."
+---
+
+# /massu-rule
+
+Surface, review, and act on rule-candidate sidecars written by the `UserPromptSubmit` hook whenever a user correction prompt scores ≥60 on the rule-candidate detector. The slash command is the **single authoring surface** for new rules — pattern-scanner checks, CR rows, custom-destination entries, and `corrections.md` appends ALL flow through `applyRuleCandidate()` so files can never be edited piecemeal.
+
+## When to Use
+
+- Stderr nudge appeared: `[RULE CANDIDATE] N rule candidate(s) pending (/massu-rule list)`
+- After giving Claude a correction you want to land as a durable rule
+- Periodically, to clear the backlog and keep the funnel honest
+
+## Subcommands
+
+| Subcommand | Purpose |
+|---|---|
+| `list` | List pending candidates: hash, score, age, classification preview, signals fired |
+| `show <id>` | Full six-section preview (correction text + reacting-to + proposed rule + destination + enforcement + conflicts). Must be run once per session before `approve` |
+| `approve <id>` | Atomic write of the proposed rule to its classified destination. Idempotent on duplicate `prompt_hash` |
+| `dismiss <id> [--reason "..."]` | Discard the candidate and downweight the signals that fired (≥5 dismissals → permanent blacklist) |
+| `recurrence` | Report rules whose `recurrence_count > 0` — CR-53 candidates that need strengthening |
+
+## How Candidates Get Emitted
+
+The `UserPromptSubmit` hook scores every user prompt against nine signals (strong correction phrase, negation+instruction within 8-word window, prior-turn Edit/Write, bugfix/refactor category, prompt length, running correction streak, plus three exclusion signals). Score ≥60 writes a sidecar JSON at `.massu/rule-candidates/<prompt_hash>.json`. Sha-keyed filenames mean retries are idempotent.
+
+A one-line stderr nudge fires when the candidate count grows since the last surfaced count — discoverable without polluting the model's prompt context.
+
+## Destinations
+
+The slash command classifies each candidate against this rubric (first match wins):
+
+1. **`pattern-scanner`** — correction text contains a literal-grepable token (`'foo_bar'`, file extension, regex pattern, `*.sh`/`*.ts` filename in the same sentence)
+2. **`claude-md-cr`** — correction wording is about process / protocol / "always X before Y" / "must X" / "never X" and affects multiple existing CRs or files
+3. **`corrections-md`** — default catchall; appends to `memory/corrections.md` + writes `memory/feedback_<slug>.md`
+4. **`custom-destination`** — project-configured via `massu.config.yaml > autoLearning.customDestinations` (Massu framework is generalized; project-specific destinations are config-driven)
+
+## Atomic Write Contract
+
+Every approve runs as a single SQLite transaction:
+
+1. INSERT `audit_log` row with `event_type='rule_promoted'` and `metadata.prompt_hash`. UNIQUE INDEX on `(event_type, json_extract(metadata, '$.prompt_hash'))` is the idempotency lock — a second approve of the same hash is a no-op.
+2. Edit the destination file(s) per the rubric.
+3. Append `- [Title](feedback_<slug>.md) — hook` line to `memory/MEMORY.md` (canonical path resolved via `encodeMemoryDirName(getProjectRoot())`).
+4. Delete the candidate sidecar.
+
+On ANY step error: SQLite ROLLBACK + per-file restore via snapshot-set (NEW files unlinked, existing files re-written), candidate left in place for retry, failure appended to `.massu/rule-candidates/.failures.jsonl`.
+
+## CR-53: Auto-Learned Rules Must Be Effective
+
+Every promoted rule starts with `metadata.recurrence_count: 0`. When `post-tool-use.ts` sees a scanner rule fire on a previously-corrected file path within 24h, it increments the recurrence count. A vitest drift-guard FAILs CI when any `rule_promoted` row older than 7 days has `recurrence_count > 0` — meaning the auto-learned rule did not prevent the bug class it was promoted to enforce. Allowlist via `MASSU_KNOWN_RULE_LIMITATIONS` for documented exceptions.
+
+## Related Commands
+
+- [`/massu-bearings`](/docs/commands/massu-bearings) — surface candidate count alongside session state
+- [`/massu-create-plan`](/docs/commands/massu-create-plan) — promote a candidate to a full plan when the rule needs design work
+- [`/massu-commit`](/docs/commands/massu-commit) — checks for unconsumed rule candidates before locking the commit

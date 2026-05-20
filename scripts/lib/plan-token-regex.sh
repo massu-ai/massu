@@ -27,6 +27,28 @@
 # `grep -E` and `awk` honor). Do NOT add `^` here — callers anchor as needed.
 export PLAN_TOKEN_REGEX='(feat|fix|chore|docs)\(plan-[a-z0-9._-]+\)'
 
+# Plain plan-token regex — the bare `plan-<slug>` form (no surrounding type-paren
+# wrapper). Used for plan-file `**Plan Token**:` line extraction and for CLI args
+# accepted by scripts/massu-loop-completion-gate.sh.
+#
+# Plan reference: plan-loop-multi-perspective-enforcement (CR-46 consolidation —
+# the gate script and helpers source THIS file rather than redefining their own
+# pattern). Note: this is the gate-context regex; commit-subject contexts still
+# use PLAN_TOKEN_REGEX above. The two serve different parsing surfaces.
+#
+# Consumers:
+#   - scripts/massu-loop-completion-gate.sh (CLI arg validation)
+#   - scripts/lib/loop-completion-helpers.sh:loop_token_from_plan_path
+#
+# Hardening (Phase 1.5 security review HIGH-3, LOW-5):
+#   - First char after `plan-` MUST be [a-z0-9] (rejects `plan-.`, `plan-..`).
+#   - Last char MUST be [a-z0-9] (rejects `plan-foo.`, trailing separators).
+#   - Inner chars allow [a-z0-9._-] for compatibility with existing tokens.
+#   - The grep -E `^...$` anchors are line-anchored — callers MUST validate
+#     "no newline characters" separately when the token comes from untrusted
+#     input. See plan_token_strict_check() in loop-completion-helpers.sh.
+export PLAIN_PLAN_TOKEN_REGEX='^plan-[a-z0-9]([a-z0-9._-]*[a-z0-9])?$'
+
 # extract_plan_tokens_from_range <git-range>
 #
 # Reads commit subjects in the given git range and emits unique plan-tokens

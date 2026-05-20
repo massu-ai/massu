@@ -199,6 +199,16 @@ const AutoLearningConfigSchema = z.object({
     requirePreventionRule: z.boolean().default(true),
     requireEnforcement: z.boolean().default(true),
   }).default({}),
+  // plan-v0.2-interactive-rule-approval P-D-008 / P-D-009: project-configured
+  // custom destinations for the rule-candidate funnel. The classifier matches
+  // a candidate to one of these entries when none of the framework
+  // destinations (pattern-scanner / claude-md-cr / corrections-md) apply.
+  customDestinations: z.array(z.object({
+    name: z.string(),
+    path: z.string(),
+    triggerKeywords: z.array(z.string()).default([]),
+    template: z.string(),
+  })).default([]),
 }).optional();
 export type AutoLearningConfig = z.infer<typeof AutoLearningConfigSchema>;
 

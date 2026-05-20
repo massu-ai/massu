@@ -99,6 +99,25 @@ analytics:
       - undo
       - incorrect
     max_turns_for_success: 2
+# plan-v0.2-interactive-rule-approval P-D-008: project-configured rule
+# destinations. Massu is generalized — project-specific destinations
+# (e.g. brand-voice.md, security/runbook.md) are config-driven, NEVER
+# framework-baked. Empty array is the default (no custom destinations);
+# uncomment + edit the example below to opt in. The `template` field is
+# rendered via the RCE-safe template-renderer.ts with the allowed-vars
+# set {date, slug, score, signals_csv, prompt_preview, destination_name}.
+autoLearning:
+  customDestinations: []
+  # Example (commented):
+  # - name: brand-voice
+  #   path: docs/brand-voice.md
+  #   triggerKeywords:
+  #     - brand voice
+  #     - copywriting tone
+  #   template: |
+  #     ## ${date}
+  #     ${prompt_preview}
+  #     - source: interactive rule approval
 governance:
   audit:
     formats:

@@ -175,7 +175,17 @@ var AutoLearningConfigSchema = z.object({
     requireIncidentReport: z.boolean().default(true),
     requirePreventionRule: z.boolean().default(true),
     requireEnforcement: z.boolean().default(true)
-  }).default({})
+  }).default({}),
+  // plan-v0.2-interactive-rule-approval P-D-008 / P-D-009: project-configured
+  // custom destinations for the rule-candidate funnel. The classifier matches
+  // a candidate to one of these entries when none of the framework
+  // destinations (pattern-scanner / claude-md-cr / corrections-md) apply.
+  customDestinations: z.array(z.object({
+    name: z.string(),
+    path: z.string(),
+    triggerKeywords: z.array(z.string()).default([]),
+    template: z.string()
+  })).default([])
 }).optional();
 var CloudConfigSchema = z.object({
   enabled: z.boolean().default(false),
@@ -562,6 +572,66 @@ function getMemoryDb() {
   initMemorySchema(db);
   return db;
 }
+function migrateAuditLogCheckExtension(db) {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_log'").get();
+  if (!row) return;
+  const expected = [
+    "code_change",
+    "rule_enforced",
+    "approval",
+    "review",
+    "commit",
+    "compaction",
+    "rule_candidate_emitted",
+    "rule_promoted",
+    "rule_dismissed"
+  ];
+  const checkClauseMatch = row.sql.match(/event_type\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*event_type\s+IN\s*\(([\s\S]*?)\)\s*\)/i);
+  if (checkClauseMatch) {
+    const values = (checkClauseMatch[1].match(/'([^']+)'/g) ?? []).map((s) => s.slice(1, -1));
+    if (expected.every((v) => values.includes(v))) return;
+  }
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.exec("BEGIN TRANSACTION");
+    db.exec(`
+      CREATE TABLE audit_log_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        timestamp TEXT DEFAULT (datetime('now')),
+        event_type TEXT NOT NULL CHECK(event_type IN (
+          'code_change', 'rule_enforced', 'approval', 'review', 'commit', 'compaction',
+          'rule_candidate_emitted', 'rule_promoted', 'rule_dismissed'
+        )),
+        actor TEXT NOT NULL DEFAULT 'ai' CHECK(actor IN ('ai', 'human', 'hook', 'agent')),
+        model_id TEXT,
+        file_path TEXT,
+        change_type TEXT CHECK(change_type IN ('create', 'edit', 'delete')),
+        rules_in_effect TEXT,
+        approval_status TEXT CHECK(approval_status IN ('auto_approved', 'human_approved', 'pending', 'denied')),
+        evidence TEXT,
+        metadata TEXT,
+        FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+      );
+      INSERT INTO audit_log_new SELECT * FROM audit_log;
+      DROP TABLE audit_log;
+      ALTER TABLE audit_log_new RENAME TO audit_log;
+      CREATE INDEX IF NOT EXISTS idx_al_session ON audit_log(session_id);
+      CREATE INDEX IF NOT EXISTS idx_al_file ON audit_log(file_path);
+      CREATE INDEX IF NOT EXISTS idx_al_event ON audit_log(event_type);
+      CREATE INDEX IF NOT EXISTS idx_al_timestamp ON audit_log(timestamp DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_rule_promoted
+        ON audit_log (event_type, json_extract(metadata, '$.prompt_hash'))
+        WHERE event_type = 'rule_promoted';
+    `);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+}
 function initMemorySchema(db) {
   db.exec(`
     -- Sessions table (linked to Claude Code session IDs)
@@ -851,7 +921,10 @@ function initMemorySchema(db) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL,
       timestamp TEXT DEFAULT (datetime('now')),
-      event_type TEXT NOT NULL CHECK(event_type IN ('code_change', 'rule_enforced', 'approval', 'review', 'commit', 'compaction')),
+      event_type TEXT NOT NULL CHECK(event_type IN (
+        'code_change', 'rule_enforced', 'approval', 'review', 'commit', 'compaction',
+        'rule_candidate_emitted', 'rule_promoted', 'rule_dismissed'
+      )),
       actor TEXT NOT NULL DEFAULT 'ai' CHECK(actor IN ('ai', 'human', 'hook', 'agent')),
       model_id TEXT,
       file_path TEXT,
@@ -866,7 +939,21 @@ function initMemorySchema(db) {
     CREATE INDEX IF NOT EXISTS idx_al_file ON audit_log(file_path);
     CREATE INDEX IF NOT EXISTS idx_al_event ON audit_log(event_type);
     CREATE INDEX IF NOT EXISTS idx_al_timestamp ON audit_log(timestamp DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_rule_promoted
+      ON audit_log (event_type, json_extract(metadata, '$.prompt_hash'))
+      WHERE event_type = 'rule_promoted';
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS prompt_outcomes_signal_blacklist (
+      signal TEXT PRIMARY KEY,
+      dismissal_count INTEGER NOT NULL DEFAULT 0,
+      first_dismissed_at TEXT DEFAULT (datetime('now')),
+      last_dismissed_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_psb_count
+      ON prompt_outcomes_signal_blacklist(dismissal_count DESC);
+  `);
+  migrateAuditLogCheckExtension(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS validation_results (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1134,7 +1221,126 @@ function linkSessionToTask(db, sessionId, taskId) {
 }
 
 // src/hooks/user-prompt.ts
-import { existsSync as existsSync3 } from "fs";
+import { existsSync as existsSync3, mkdirSync as mkdirSync2, writeFileSync, readFileSync as readFileSync2, readdirSync, openSync, fstatSync, readSync, closeSync } from "fs";
+import { join } from "path";
+
+// src/rule-candidate-detector.ts
+var CORRECTION_DISMISSAL_PATTERN = /\b(nevermind|never\s+mind|forget\s+it|ignore\s+(that|it)|actually\s+you('?re|\s+were)\s+right|on\s+second\s+thought|no\s+wait|scratch\s+that|disregard|abandon\s+(that|it))\b/i;
+var RULE_CANDIDATE_THRESHOLD = 60;
+var STRONG_CORRECTION_PHRASES = [
+  "that's wrong",
+  "thats wrong",
+  "that is wrong",
+  "incorrect",
+  "you broke",
+  "you missed",
+  "this is wrong",
+  "should be",
+  "not what i asked",
+  "not what i wanted"
+];
+var NEGATION_TOKENS = /\b(no|not|never|don't|dont|wrong|incorrect)\b/i;
+var INSTRUCTION_TOKENS = /\b(instead|use\s+\w+|make\s+it|should\s+be|actually|change\s+\w+)\b/i;
+var SIGNAL_BASE_WEIGHTS = {
+  strong_correction_phrase: 40,
+  negation_plus_instruction: 30,
+  prior_edit_or_write: 25,
+  bugfix_or_refactor_category: 15,
+  prompt_length_gt_10: 10,
+  running_correction_streak: 15,
+  short_length_floor: -50,
+  slash_command_excluded: -100,
+  dismissal_phrase_excluded: -100
+};
+function hasNegationPlusInstructionWithinWindow(prompt, windowWords) {
+  const words = prompt.split(/\s+/);
+  const negIdx = [];
+  const instIdx = [];
+  for (let i = 0; i < words.length; i++) {
+    if (NEGATION_TOKENS.test(words[i])) negIdx.push(i);
+    const slice = words.slice(i, i + 3).join(" ");
+    if (INSTRUCTION_TOKENS.test(slice)) instIdx.push(i);
+  }
+  for (const n of negIdx) {
+    for (const inst of instIdx) {
+      if (Math.abs(n - inst) <= windowWords) return true;
+    }
+  }
+  return false;
+}
+function applyDismissal(base, dismissalCount) {
+  if (dismissalCount >= 5) return 0;
+  if (dismissalCount > 0 && base > 0) return Math.max(0, base - dismissalCount * 10);
+  return base;
+}
+function scoreCorrectionPrompt(inputs) {
+  const { prompt, priorAssistantTurn, priorOutcomes, category, blacklist } = inputs;
+  const promptLower = prompt.toLowerCase();
+  const trimmed = prompt.trim();
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  const signals = [];
+  const addSignal = (name, evidence) => {
+    const baseWeight = SIGNAL_BASE_WEIGHTS[name];
+    const applied = applyDismissal(baseWeight, blacklist?.get(name) ?? 0);
+    signals.push({ name, baseWeight, applied, evidence });
+  };
+  if (/^\/\w+/.test(trimmed)) {
+    addSignal("slash_command_excluded", "starts with /");
+    return { score: SIGNAL_BASE_WEIGHTS.slash_command_excluded, signals, emitCandidate: false };
+  }
+  if (CORRECTION_DISMISSAL_PATTERN.test(prompt)) {
+    addSignal("dismissal_phrase_excluded", "matched CORRECTION_DISMISSAL_PATTERN");
+    return { score: SIGNAL_BASE_WEIGHTS.dismissal_phrase_excluded, signals, emitCandidate: false };
+  }
+  if (words.length < 4) {
+    addSignal("short_length_floor", `${words.length} words < 4`);
+  }
+  for (const phrase of STRONG_CORRECTION_PHRASES) {
+    if (promptLower.includes(phrase)) {
+      addSignal("strong_correction_phrase", `matched "${phrase}"`);
+      break;
+    }
+  }
+  if (hasNegationPlusInstructionWithinWindow(prompt, 8)) {
+    addSignal("negation_plus_instruction", "negation + instructional token within 8-word window");
+  }
+  if (priorAssistantTurn?.hadEditOrWrite) {
+    addSignal("prior_edit_or_write", "prior assistant turn contained Edit/Write/Bash");
+  }
+  if (category === "bugfix" || category === "refactor") {
+    addSignal("bugfix_or_refactor_category", `category=${category}`);
+  }
+  if (words.length > 10) {
+    addSignal("prompt_length_gt_10", `${words.length} words > 10`);
+  }
+  if (priorOutcomes && priorOutcomes.lastCorrectionsNeeded >= 1) {
+    addSignal("running_correction_streak", `lastCorrectionsNeeded=${priorOutcomes.lastCorrectionsNeeded}`);
+  }
+  const score = signals.reduce((sum, s) => sum + s.applied, 0);
+  return {
+    score,
+    signals,
+    emitCandidate: score >= RULE_CANDIDATE_THRESHOLD
+  };
+}
+
+// src/prompt-analyzer.ts
+import { createHash } from "crypto";
+function categorizePrompt(promptText) {
+  const lower = promptText.toLowerCase();
+  if (/\b(fix|bug|error|broken|issue|crash|fail)\b/.test(lower)) return "bugfix";
+  if (/\b(refactor|rename|move|extract|cleanup|reorganize)\b/.test(lower)) return "refactor";
+  if (/\b(what|how|why|where|when|explain|describe|tell me)\b/.test(lower)) return "question";
+  if (/^\/\w+/.test(promptText.trim())) return "command";
+  if (/\b(add|create|implement|build|new|feature)\b/.test(lower)) return "feature";
+  return "feature";
+}
+function hashPrompt(promptText) {
+  const normalized = promptText.toLowerCase().replace(/\s+/g, " ").trim();
+  return createHash("sha256").update(normalized).digest("hex").slice(0, 16);
+}
+
+// src/hooks/user-prompt.ts
 async function main() {
   try {
     const input = await readStdin();
@@ -1207,12 +1413,147 @@ async function main() {
         }
       } catch (_memoryNagErr) {
       }
+      try {
+        const priorTurn = detectPriorAssistantTurn(hookInput.transcript_path);
+        const lastOutcome = db.prepare(
+          "SELECT corrections_needed FROM prompt_outcomes WHERE session_id = ? ORDER BY id DESC LIMIT 1"
+        ).get(session_id);
+        const blacklist = readSignalBlacklist(db);
+        const scoreResult = scoreCorrectionPrompt({
+          prompt,
+          priorAssistantTurn: { hadEditOrWrite: priorTurn.hadEditOrWrite },
+          priorOutcomes: lastOutcome ? { lastCorrectionsNeeded: lastOutcome.corrections_needed } : void 0,
+          category: categorizePrompt(prompt),
+          blacklist
+        });
+        const candidateDir = join(hookInput.cwd, ".massu", "rule-candidates");
+        if (scoreResult.emitCandidate) {
+          mkdirSync2(candidateDir, { recursive: true });
+          const promptHash = hashPrompt(prompt);
+          const candidatePath = join(candidateDir, `${promptHash}.json`);
+          if (!existsSync3(candidatePath)) {
+            writeFileSync(candidatePath, JSON.stringify({
+              prompt,
+              prompt_hash: promptHash,
+              score: scoreResult.score,
+              signals: scoreResult.signals,
+              prior_turn_files: priorTurn.files,
+              timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+              session_id
+            }, null, 2));
+          }
+        }
+        if (existsSync3(candidateDir)) {
+          const candidates = readdirSync(candidateDir).filter(
+            (f) => f.endsWith(".json") && !f.startsWith(".")
+          );
+          const candidateCount = candidates.length;
+          const surfacedPath = join(candidateDir, ".last-surfaced");
+          let lastSurfaced = 0;
+          if (existsSync3(surfacedPath)) {
+            const raw = readFileSync2(surfacedPath, "utf-8").trim();
+            const parsed = parseInt(raw, 10);
+            if (!Number.isNaN(parsed)) lastSurfaced = parsed;
+          }
+          if (candidateCount > lastSurfaced) {
+            process.stderr.write(
+              `
+[RULE CANDIDATE] ${candidateCount} rule candidate(s) pending (\`/massu-rule list\`)
+
+`
+            );
+            writeFileSync(surfacedPath, String(candidateCount));
+          }
+        }
+      } catch (candidateErr) {
+        try {
+          const dir = join(hookInput.cwd, ".massu", "rule-candidates");
+          if (!existsSync3(dir)) mkdirSync2(dir, { recursive: true });
+          const logPath = join(dir, ".detector-failures.jsonl");
+          const pre = existsSync3(logPath) ? readFileSync2(logPath, "utf-8") : "";
+          const sep = pre && !pre.endsWith("\n") ? "\n" : "";
+          writeFileSync(logPath, pre + sep + JSON.stringify({
+            session_id,
+            prompt_excerpt: prompt.slice(0, 200),
+            error: candidateErr instanceof Error ? candidateErr.message : String(candidateErr),
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          }) + "\n", "utf-8");
+        } catch {
+        }
+      }
     } finally {
       db.close();
     }
   } catch (_e) {
   }
   process.exit(0);
+}
+function detectPriorAssistantTurn(transcriptPath) {
+  try {
+    if (!transcriptPath || !existsSync3(transcriptPath)) {
+      return { hadEditOrWrite: false, files: [] };
+    }
+    if (!transcriptPath.includes("/.claude/projects/")) {
+      return { hadEditOrWrite: false, files: [] };
+    }
+    const fd = openSync(transcriptPath, "r");
+    let buf;
+    try {
+      const stats = fstatSync(fd);
+      const readLen = Math.min(stats.size, 200 * 1024);
+      const offset = stats.size - readLen;
+      buf = Buffer.alloc(readLen);
+      readSync(fd, buf, 0, readLen, offset);
+    } finally {
+      closeSync(fd);
+    }
+    const lines = buf.toString("utf-8").split("\n").filter(Boolean);
+    const files = [];
+    let hadEditOrWrite = false;
+    let foundAssistant = false;
+    const WRITE_BASH = /\b(sed\s+-i|tee\s|printf\s.*?>|cat\s+<<.*?>|>>?\s*['"\w/.-]+)/;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      let entry = null;
+      try {
+        entry = JSON.parse(lines[i]);
+      } catch {
+        continue;
+      }
+      if (!entry || typeof entry !== "object") continue;
+      if (entry.type === "user" && foundAssistant) break;
+      if (entry.type !== "assistant") continue;
+      foundAssistant = true;
+      const content = entry.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        if (!block || typeof block !== "object") continue;
+        const b = block;
+        if (b.type !== "tool_use") continue;
+        const name = String(b.name ?? "");
+        if (name === "Edit" || name === "Write" || name === "NotebookEdit") {
+          hadEditOrWrite = true;
+          const fp = b.input?.file_path;
+          if (typeof fp === "string") files.push(fp);
+        } else if (name === "Bash") {
+          const cmd = String(b.input?.command ?? "");
+          if (WRITE_BASH.test(cmd)) hadEditOrWrite = true;
+        }
+      }
+    }
+    return { hadEditOrWrite, files: [...new Set(files)] };
+  } catch (_e) {
+    return { hadEditOrWrite: false, files: [] };
+  }
+}
+function readSignalBlacklist(db) {
+  try {
+    const rows = db.prepare(
+      "SELECT signal, dismissal_count FROM prompt_outcomes_signal_blacklist LIMIT 10000"
+    ).all();
+    return new Map(rows.map((r) => [r.signal, r.dismissal_count]));
+  } catch (_e) {
+    return /* @__PURE__ */ new Map();
+  }
 }
 function extractFileReferences(prompt) {
   const filePattern = /(?:^|\s)((?:src|packages|lib)\/[\w./-]+\.(?:ts|tsx|js|jsx|md))/g;

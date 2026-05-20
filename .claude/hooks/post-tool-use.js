@@ -181,7 +181,17 @@ var AutoLearningConfigSchema = z.object({
     requireIncidentReport: z.boolean().default(true),
     requirePreventionRule: z.boolean().default(true),
     requireEnforcement: z.boolean().default(true)
-  }).default({})
+  }).default({}),
+  // plan-v0.2-interactive-rule-approval P-D-008 / P-D-009: project-configured
+  // custom destinations for the rule-candidate funnel. The classifier matches
+  // a candidate to one of these entries when none of the framework
+  // destinations (pattern-scanner / claude-md-cr / corrections-md) apply.
+  customDestinations: z.array(z.object({
+    name: z.string(),
+    path: z.string(),
+    triggerKeywords: z.array(z.string()).default([]),
+    template: z.string()
+  })).default([])
 }).optional();
 var CloudConfigSchema = z.object({
   enabled: z.boolean().default(false),
@@ -568,6 +578,66 @@ function getMemoryDb() {
   initMemorySchema(db);
   return db;
 }
+function migrateAuditLogCheckExtension(db) {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_log'").get();
+  if (!row) return;
+  const expected = [
+    "code_change",
+    "rule_enforced",
+    "approval",
+    "review",
+    "commit",
+    "compaction",
+    "rule_candidate_emitted",
+    "rule_promoted",
+    "rule_dismissed"
+  ];
+  const checkClauseMatch = row.sql.match(/event_type\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*event_type\s+IN\s*\(([\s\S]*?)\)\s*\)/i);
+  if (checkClauseMatch) {
+    const values = (checkClauseMatch[1].match(/'([^']+)'/g) ?? []).map((s) => s.slice(1, -1));
+    if (expected.every((v) => values.includes(v))) return;
+  }
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.exec("BEGIN TRANSACTION");
+    db.exec(`
+      CREATE TABLE audit_log_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        timestamp TEXT DEFAULT (datetime('now')),
+        event_type TEXT NOT NULL CHECK(event_type IN (
+          'code_change', 'rule_enforced', 'approval', 'review', 'commit', 'compaction',
+          'rule_candidate_emitted', 'rule_promoted', 'rule_dismissed'
+        )),
+        actor TEXT NOT NULL DEFAULT 'ai' CHECK(actor IN ('ai', 'human', 'hook', 'agent')),
+        model_id TEXT,
+        file_path TEXT,
+        change_type TEXT CHECK(change_type IN ('create', 'edit', 'delete')),
+        rules_in_effect TEXT,
+        approval_status TEXT CHECK(approval_status IN ('auto_approved', 'human_approved', 'pending', 'denied')),
+        evidence TEXT,
+        metadata TEXT,
+        FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+      );
+      INSERT INTO audit_log_new SELECT * FROM audit_log;
+      DROP TABLE audit_log;
+      ALTER TABLE audit_log_new RENAME TO audit_log;
+      CREATE INDEX IF NOT EXISTS idx_al_session ON audit_log(session_id);
+      CREATE INDEX IF NOT EXISTS idx_al_file ON audit_log(file_path);
+      CREATE INDEX IF NOT EXISTS idx_al_event ON audit_log(event_type);
+      CREATE INDEX IF NOT EXISTS idx_al_timestamp ON audit_log(timestamp DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_rule_promoted
+        ON audit_log (event_type, json_extract(metadata, '$.prompt_hash'))
+        WHERE event_type = 'rule_promoted';
+    `);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+}
 function initMemorySchema(db) {
   db.exec(`
     -- Sessions table (linked to Claude Code session IDs)
@@ -857,7 +927,10 @@ function initMemorySchema(db) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL,
       timestamp TEXT DEFAULT (datetime('now')),
-      event_type TEXT NOT NULL CHECK(event_type IN ('code_change', 'rule_enforced', 'approval', 'review', 'commit', 'compaction')),
+      event_type TEXT NOT NULL CHECK(event_type IN (
+        'code_change', 'rule_enforced', 'approval', 'review', 'commit', 'compaction',
+        'rule_candidate_emitted', 'rule_promoted', 'rule_dismissed'
+      )),
       actor TEXT NOT NULL DEFAULT 'ai' CHECK(actor IN ('ai', 'human', 'hook', 'agent')),
       model_id TEXT,
       file_path TEXT,
@@ -872,7 +945,21 @@ function initMemorySchema(db) {
     CREATE INDEX IF NOT EXISTS idx_al_file ON audit_log(file_path);
     CREATE INDEX IF NOT EXISTS idx_al_event ON audit_log(event_type);
     CREATE INDEX IF NOT EXISTS idx_al_timestamp ON audit_log(timestamp DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_rule_promoted
+      ON audit_log (event_type, json_extract(metadata, '$.prompt_hash'))
+      WHERE event_type = 'rule_promoted';
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS prompt_outcomes_signal_blacklist (
+      signal TEXT PRIMARY KEY,
+      dismissal_count INTEGER NOT NULL DEFAULT 0,
+      first_dismissed_at TEXT DEFAULT (datetime('now')),
+      last_dismissed_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_psb_count
+      ON prompt_outcomes_signal_blacklist(dismissal_count DESC);
+  `);
+  migrateAuditLogCheckExtension(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS validation_results (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1878,8 +1965,66 @@ function storeSecurityScore(db, sessionId, filePath, riskScore, findings) {
 }
 
 // src/hooks/post-tool-use.ts
-import { readFileSync as readFileSync6, existsSync as existsSync7, statSync as statSync2 } from "fs";
+import { readFileSync as readFileSync6, writeFileSync, existsSync as existsSync7, mkdirSync as mkdirSync2, statSync as statSync2 } from "fs";
 import { join as join2 } from "path";
+
+// src/lib/recurrence-incrementer.ts
+var ANSI = /\x1b\[[0-9;]*m/g;
+var FAIL_LINE = /^\s+FAIL:\s*(.*)$/;
+var FILE_TOKEN = /[\w./-]+\.(?:ts|tsx|js|jsx|sh|md|yaml|yml|json)\b/g;
+function incrementRecurrenceCountsForScannerFailures(db, sessionId, scannerStdout) {
+  const stripped = scannerStdout.replace(ANSI, "");
+  const lines = stripped.split("\n");
+  const failedFiles = /* @__PURE__ */ new Set();
+  for (const line of lines) {
+    const m = line.match(FAIL_LINE);
+    if (!m) continue;
+    const matches = m[1].match(FILE_TOKEN);
+    if (matches) {
+      for (const f of matches) failedFiles.add(f);
+    }
+  }
+  if (failedFiles.size === 0) return 0;
+  const sessionEdits = db.prepare(`
+    SELECT DISTINCT file_path FROM audit_log
+    WHERE session_id = ?
+      AND event_type = 'code_change'
+      AND change_type IN ('edit', 'create')
+      AND timestamp > datetime('now', '-24 hours')
+    LIMIT 10000
+  `).all(sessionId);
+  const sessionFiles = new Set(
+    sessionEdits.map((r) => r.file_path).filter((p) => Boolean(p))
+  );
+  if (sessionFiles.size === 0) return 0;
+  const intersection = /* @__PURE__ */ new Set();
+  for (const f of failedFiles) {
+    if (sessionFiles.has(f)) {
+      intersection.add(f);
+    } else {
+      for (const sf of sessionFiles) {
+        if (sf.endsWith("/" + f) || f.endsWith("/" + sf)) {
+          intersection.add(sf);
+          break;
+        }
+      }
+    }
+  }
+  if (intersection.size === 0) return 0;
+  const updateStmt = db.prepare(`
+    UPDATE audit_log
+    SET metadata = json_set(metadata, '$.recurrence_count', COALESCE(json_extract(metadata, '$.recurrence_count'), 0) + 1)
+    WHERE event_type = 'rule_promoted'
+      AND file_path = ?
+      AND timestamp > datetime('now', '-7 days')
+  `);
+  let updates = 0;
+  for (const f of intersection) {
+    const r = updateStmt.run(f);
+    updates += r.changes;
+  }
+  return updates;
+}
 
 // src/memory-file-ingest.ts
 import { readFileSync as readFileSync5, existsSync as existsSync6, readdirSync } from "fs";
@@ -2087,6 +2232,31 @@ async function main() {
           }
         }
       } catch (_knowledgeErr) {
+      }
+      try {
+        if (tool_name === "Bash") {
+          const command = tool_input.command ?? "";
+          if (/massu-pattern-scanner\.sh/.test(command)) {
+            const stdout = tool_response ?? "";
+            incrementRecurrenceCountsForScannerFailures(db, session_id, stdout);
+          }
+        }
+      } catch (err) {
+        try {
+          const projectRoot = process.cwd();
+          const dir = join2(projectRoot, ".massu", "rule-candidates");
+          if (!existsSync7(dir)) mkdirSync2(dir, { recursive: true });
+          const logPath = join2(dir, ".cr53-increment-failures.jsonl");
+          const pre = existsSync7(logPath) ? readFileSync6(logPath, "utf-8") : "";
+          const sep = pre && !pre.endsWith("\n") ? "\n" : "";
+          writeFileSync(logPath, pre + sep + JSON.stringify({
+            session_id,
+            scanner_output_excerpt: (tool_response ?? "").slice(0, 200),
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          }) + "\n", "utf-8");
+        } catch {
+        }
       }
     } finally {
       db.close();

@@ -15,7 +15,12 @@ function p(baseName: string): string {
 }
 
 export interface AuditEntry {
-  eventType: 'code_change' | 'rule_enforced' | 'approval' | 'review' | 'commit' | 'compaction';
+  // plan-v0.2-interactive-rule-approval P-C-001: extended 6 → 9 values to
+  // mirror the audit_log CHECK constraint (memory-db.ts:405). TypeScript-side
+  // union must stay in lockstep with the SQL CHECK — drift-guard test
+  // `audit-log-event-type-migration.test.ts` enforces both directions.
+  eventType: 'code_change' | 'rule_enforced' | 'approval' | 'review' | 'commit' | 'compaction'
+    | 'rule_candidate_emitted' | 'rule_promoted' | 'rule_dismissed';
   actor: 'ai' | 'human' | 'hook' | 'agent';
   filePath?: string;
   changeType?: 'create' | 'edit' | 'delete';

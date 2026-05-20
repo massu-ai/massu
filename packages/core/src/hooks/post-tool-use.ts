@@ -14,8 +14,9 @@ import { logAuditEntry } from '../audit-trail.ts';
 import { trackModification, recordTestResult } from '../regression-detector.ts';
 import { validateFile, storeValidationResult } from '../validation-engine.ts';
 import { scoreFileSecurity, storeSecurityScore } from '../security-scorer.ts';
-import { readFileSync, existsSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'fs';
 import { join } from 'path';
+import { incrementRecurrenceCountsForScannerFailures } from '../lib/recurrence-incrementer.ts';
 // P-E-018 (plan-stage-e-low-info-sweep): defer yaml dependency load
 // until first parse call. Most hook invocations don't need YAML
 // parsing (the massu.config.yaml read happens only when the relevant
@@ -238,6 +239,41 @@ async function main(): Promise<void> {
         }
       } catch (_knowledgeErr) {
         // Best-effort: never block post-tool-use
+      }
+
+      // plan-v0.2-interactive-rule-approval P-D-011: CR-53 Layer 2
+      // recurrence-count increment. When the pattern-scanner runs and emits
+      // a `  FAIL:` line on a file we ALSO touched in the current session,
+      // increment `metadata.recurrence_count` on the corresponding
+      // `rule_promoted` audit_log row. A non-zero count after 7 days means
+      // the auto-learned rule did not prevent the recurrence — the CR-53
+      // drift-guard test FAILs CI on that condition.
+      try {
+        if (tool_name === 'Bash') {
+          const command = (tool_input.command as string) ?? '';
+          if (/massu-pattern-scanner\.sh/.test(command)) {
+            const stdout = tool_response ?? '';
+            incrementRecurrenceCountsForScannerFailures(db, session_id, stdout);
+          }
+        }
+      } catch (err) {
+        // P-D-011 contract: silent in-hook failure but surface via the
+        // .cr53-increment-failures.jsonl observability channel so the
+        // CR-53 drift-guard catches non-empty failure log within 7 days.
+        try {
+          const projectRoot = process.cwd();
+          const dir = join(projectRoot, '.massu', 'rule-candidates');
+          if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+          const logPath = join(dir, '.cr53-increment-failures.jsonl');
+          const pre = existsSync(logPath) ? readFileSync(logPath, 'utf-8') : '';
+          const sep = pre && !pre.endsWith('\n') ? '\n' : '';
+          writeFileSync(logPath, pre + sep + JSON.stringify({
+            session_id,
+            scanner_output_excerpt: (tool_response ?? '').slice(0, 200),
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }) + '\n', 'utf-8');
+        } catch { /* truly best-effort */ }
       }
     } finally {
       db.close();

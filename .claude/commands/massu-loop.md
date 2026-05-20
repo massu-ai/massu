@@ -110,9 +110,31 @@ After completing the loop (zero gaps achieved), self-score against these checks 
 | Check | Pass condition |
 |-------|---------------|
 | `all_items_verified_with_proof` | Every plan item has VR-* verification output showing proof |
-| `multi_perspective_review_spawned` | At least one auditor subagent was spawned for verification |
+| `multi_perspective_review_spawned` | **Phase 1.5 mandatory** — loop refuses COMPLETE without evidence-file existence in `.massu/agent-results/` matching this plan's token. See `scripts/massu-loop-completion-gate.sh` (CR-52). Silent self-attestation is NOT sufficient. |
 | `gaps_reached_zero` | Final auditor pass returned `GAPS_DISCOVERED: 0` |
 | `memory_persisted` | AUTO-LEARNING PROTOCOL executed: at least one `massu_memory_ingest` call or memory file update |
+
+### Phase 1.5 Evidence Contract (CR-52 — STRUCTURAL)
+
+**The mark-complete step itself invokes `scripts/massu-loop-completion-gate.sh` and refuses on non-zero exit. Silent self-scoring is REPLACED by structural enforcement.**
+
+1. **Reviewer subagents**: Spawn ≥1 of the named reviewers in PARALLEL post-implementation:
+   - `massu-security-reviewer` — vulnerabilities, auth gaps, input validation, data exposure
+   - `massu-architecture-reviewer` — design issues, coupling, pattern compliance, scalability
+   - `massu-pattern-reviewer` — ESM compliance, config-driven patterns, TypeScript strict, test coverage
+   - `massu-ux-reviewer` — used by `/massu-loop-playwright` only (browser context)
+
+2. **Evidence-file write contract**: Each reviewer MUST write evidence JSON to:
+   ```
+   .massu/agent-results/<plan-token>-post-impl-<reviewer-type>-<iso-timestamp>.json
+   ```
+   With body fields: `{plan_token, reviewer_type, timestamp, gaps_discovered, gaps_fixed, findings: [...]}`
+
+3. **Completion gate** (before declaring COMPLETE):
+   ```bash
+   bash scripts/massu-loop-completion-gate.sh "${PLAN_TOKEN}"
+   ```
+   Non-zero exit BLOCKS the loop from declaring success. `MASSU_SKIP_COMPLETION_GATE=1` bypass available for audit-trail logged exceptions.
 
 **Format** (append one line -- do NOT overwrite the file):
 ```json

@@ -19,7 +19,7 @@ function p(baseName: string): string {
 /** Default success/failure indicators. Can be overridden via config.analytics.prompts */
 const DEFAULT_SUCCESS_INDICATORS = ['committed', 'approved', 'looks good', 'perfect', 'great', 'thanks'];
 const DEFAULT_FAILURE_INDICATORS = ['revert', 'wrong', "that's not", 'undo', 'incorrect'];
-const DEFAULT_ABANDON_PATTERNS = /\b(nevermind|forget it|skip|let's move on|different|instead)\b/i;
+export const DEFAULT_ABANDON_PATTERNS = /\b(nevermind|forget it|skip|let's move on|different|instead)\b/i;
 
 /**
  * Categorize a prompt by its intent.

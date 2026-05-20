@@ -43,7 +43,7 @@ After Loop Completes (Zero Gaps):
 - **Update pattern scanner**: Add new grep-able bad patterns to `scripts/pattern-scanner.sh`
 - **Codebase-wide search**: Verify no other instances of same bad pattern (CR-9)
 - **Consider new CR rule**: If a class of bug was found (not one-off), propose for CLAUDE.md
-- **Record user corrections**: If the user corrected any behavior during this loop, add structured entry to `memory/corrections.md` with date, wrong behavior, correction, and prevention rule
+- **Record user corrections**: If the user corrected any behavior during this loop, add structured entry to `memory/corrections.md` with date, wrong behavior, correction, and prevention rule. Before writing, resolve the MEMORY.md path via `encodeMemoryDirName(getProjectRoot())` (see `packages/core/src/lib/memory-path.ts:37`) and check that file for an existing `prompt_hash:` line matching this correction; if present, the entry was captured interactively (v0.2 — plan `plan-v0.2-interactive-rule-approval`) and this step is a no-op (CR-53 effectiveness invariant — see `.claude/CLAUDE.md`).
 
 **A loop that fixes 5 bugs but records 0 learnings is 80% wasted. The fixes are temporary; the learnings are permanent.**
 **A reflection that isn't persisted to memory is a learning that will be lost. Text output is not persistence.**

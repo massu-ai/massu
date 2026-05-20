@@ -8,8 +8,12 @@
 // ============================================================
 
 import { getMemoryDb, createSession, addUserPrompt, linkSessionToTask, autoDetectTaskId, addObservation } from '../memory-db.ts';
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, openSync, fstatSync, readSync, closeSync } from 'fs';
+import { join } from 'path';
+import type Database from 'better-sqlite3';
 import { getResolvedPaths } from '../config.ts';
+import { scoreCorrectionPrompt } from '../rule-candidate-detector.ts';
+import { categorizePrompt, hashPrompt } from '../prompt-analyzer.ts';
 
 interface HookInput {
   session_id: string;
@@ -107,6 +111,82 @@ async function main(): Promise<void> {
       } catch (_memoryNagErr) {
         // Best-effort: never block prompt capture
       }
+
+      // 7. Rule-candidate detector (plan-v0.2-interactive-rule-approval P-A-002 / P-A-006).
+      // Emits candidate JSON sidecars + a one-line stderr nudge when count grows.
+      try {
+        const priorTurn = detectPriorAssistantTurn(hookInput.transcript_path);
+        const lastOutcome = db.prepare(
+          'SELECT corrections_needed FROM prompt_outcomes WHERE session_id = ? ORDER BY id DESC LIMIT 1'
+        ).get(session_id) as { corrections_needed: number } | undefined;
+        const blacklist = readSignalBlacklist(db);
+
+        const scoreResult = scoreCorrectionPrompt({
+          prompt,
+          priorAssistantTurn: { hadEditOrWrite: priorTurn.hadEditOrWrite },
+          priorOutcomes: lastOutcome ? { lastCorrectionsNeeded: lastOutcome.corrections_needed } : undefined,
+          category: categorizePrompt(prompt),
+          blacklist,
+        });
+
+        const candidateDir = join(hookInput.cwd, '.massu', 'rule-candidates');
+        if (scoreResult.emitCandidate) {
+          mkdirSync(candidateDir, { recursive: true });
+          const promptHash = hashPrompt(prompt);
+          const candidatePath = join(candidateDir, `${promptHash}.json`);
+          // Sha-keyed file naming → idempotent on retry (plan §5 idempotency).
+          if (!existsSync(candidatePath)) {
+            writeFileSync(candidatePath, JSON.stringify({
+              prompt,
+              prompt_hash: promptHash,
+              score: scoreResult.score,
+              signals: scoreResult.signals,
+              prior_turn_files: priorTurn.files,
+              timestamp: new Date().toISOString(),
+              session_id,
+            }, null, 2));
+          }
+        }
+
+        // P-A-006: stderr nudge when candidate count grows since last-surfaced.
+        if (existsSync(candidateDir)) {
+          const candidates = readdirSync(candidateDir).filter(
+            f => f.endsWith('.json') && !f.startsWith('.')
+          );
+          const candidateCount = candidates.length;
+          const surfacedPath = join(candidateDir, '.last-surfaced');
+          let lastSurfaced = 0;
+          if (existsSync(surfacedPath)) {
+            const raw = readFileSync(surfacedPath, 'utf-8').trim();
+            const parsed = parseInt(raw, 10);
+            if (!Number.isNaN(parsed)) lastSurfaced = parsed;
+          }
+          if (candidateCount > lastSurfaced) {
+            process.stderr.write(
+              `\n[RULE CANDIDATE] ${candidateCount} rule candidate(s) pending (\`/massu-rule list\`)\n\n`
+            );
+            writeFileSync(surfacedPath, String(candidateCount));
+          }
+        }
+      } catch (candidateErr) {
+        // ARCH-07 fix: best-effort, never block prompt capture, BUT
+        // surface in-hook errors to the same dual-channel observability
+        // surface used by the CR-53 increment hook. Symmetry — neither
+        // detector swallow can fail silently in production.
+        try {
+          const dir = join(hookInput.cwd, '.massu', 'rule-candidates');
+          if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+          const logPath = join(dir, '.detector-failures.jsonl');
+          const pre = existsSync(logPath) ? readFileSync(logPath, 'utf-8') : '';
+          const sep = pre && !pre.endsWith('\n') ? '\n' : '';
+          writeFileSync(logPath, pre + sep + JSON.stringify({
+            session_id,
+            prompt_excerpt: prompt.slice(0, 200),
+            error: candidateErr instanceof Error ? candidateErr.message : String(candidateErr),
+            timestamp: new Date().toISOString(),
+          }) + '\n', 'utf-8');
+        } catch { /* truly best-effort */ }
+      }
     } finally {
       db.close();
     }
@@ -114,6 +194,90 @@ async function main(): Promise<void> {
     // Best-effort: never block Claude Code
   }
   process.exit(0);
+}
+
+/**
+ * Walk the most recent assistant turn in the JSONL transcript and detect whether
+ * it contained an Edit / Write / NotebookEdit tool call, or a Bash command that
+ * wrote to a file (sed -i, tee, cat > x, printf > x, append redirection).
+ * Reads only the tail (~200KB) to stay inside the 5s hook budget on long sessions.
+ */
+function detectPriorAssistantTurn(transcriptPath: string): { hadEditOrWrite: boolean; files: string[] } {
+  try {
+    if (!transcriptPath || !existsSync(transcriptPath)) {
+      return { hadEditOrWrite: false, files: [] };
+    }
+    // SEC-05: bind the transcript path to the known Claude Code projects
+    // tree. The hook input is user-controlled via Claude Code — refuse
+    // any path outside the expected prefix so a malicious transcript
+    // can't be pointed at a file we shouldn't be reading.
+    if (!transcriptPath.includes('/.claude/projects/')) {
+      return { hadEditOrWrite: false, files: [] };
+    }
+    const fd = openSync(transcriptPath, 'r');
+    let buf: Buffer;
+    try {
+      const stats = fstatSync(fd);
+      const readLen = Math.min(stats.size, 200 * 1024);
+      const offset = stats.size - readLen;
+      buf = Buffer.alloc(readLen);
+      readSync(fd, buf, 0, readLen, offset);
+    } finally {
+      closeSync(fd);
+    }
+
+    const lines = buf.toString('utf-8').split('\n').filter(Boolean);
+    const files: string[] = [];
+    let hadEditOrWrite = false;
+    let foundAssistant = false;
+    const WRITE_BASH = /\b(sed\s+-i|tee\s|printf\s.*?>|cat\s+<<.*?>|>>?\s*['"\w/.-]+)/;
+
+    type TranscriptEntry = { type?: string; message?: { content?: unknown } };
+    for (let i = lines.length - 1; i >= 0; i--) {
+      let entry: TranscriptEntry | null = null;
+      try { entry = JSON.parse(lines[i]) as TranscriptEntry; } catch { continue; }
+      if (!entry || typeof entry !== 'object') continue;
+      if (entry.type === 'user' && foundAssistant) break;
+      if (entry.type !== 'assistant') continue;
+
+      foundAssistant = true;
+      const content = entry.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        if (!block || typeof block !== 'object') continue;
+        const b = block as { type?: string; name?: string; input?: Record<string, unknown> };
+        if (b.type !== 'tool_use') continue;
+        const name = String(b.name ?? '');
+        if (name === 'Edit' || name === 'Write' || name === 'NotebookEdit') {
+          hadEditOrWrite = true;
+          const fp = b.input?.file_path;
+          if (typeof fp === 'string') files.push(fp);
+        } else if (name === 'Bash') {
+          const cmd = String(b.input?.command ?? '');
+          if (WRITE_BASH.test(cmd)) hadEditOrWrite = true;
+        }
+      }
+    }
+    return { hadEditOrWrite, files: [...new Set(files)] };
+  } catch (_e) {
+    return { hadEditOrWrite: false, files: [] };
+  }
+}
+
+/**
+ * Read the signal blacklist used by the rule-candidate detector. Table is created
+ * lazily by Phase C migrations; pre-migration we return an empty map.
+ */
+function readSignalBlacklist(db: Database.Database): ReadonlyMap<string, number> {
+  try {
+    // LIMIT 10000 per P-DG-001; realistic max is ~9 (one per SignalName).
+    const rows = db.prepare(
+      'SELECT signal, dismissal_count FROM prompt_outcomes_signal_blacklist LIMIT 10000'
+    ).all() as Array<{ signal: string; dismissal_count: number }>;
+    return new Map(rows.map(r => [r.signal, r.dismissal_count]));
+  } catch (_e) {
+    return new Map();
+  }
 }
 
 /**

@@ -113,6 +113,18 @@ If the plugin tools are unavailable, fall back to standalone `mcp__playwright__*
 
 ## PHASE 0: SETUP
 
+### 0.0 Record Loop-Start Timestamp (CR-52, when invoked with a plan-token)
+
+When invoked from `/massu-golden-path` Phase 2G (PLAN_TOKEN inherited), or when invoked standalone with an explicit plan-token argument, record the loop-start timestamp so the Phase 5.6 completion gate's mtime filter discriminates evidence written during THIS loop from prior runs:
+
+```bash
+if [ -n "${PLAN_TOKEN:-}" ]; then
+  bash -c 'source scripts/lib/loop-completion-helpers.sh && loop_start_record "${PLAN_TOKEN}"'
+fi
+```
+
+Skip this step when invoked with `--no-plan-token` (the completion gate is also skipped in that mode).
+
 ### 0.1 Initialize Report
 
 ```
@@ -540,6 +552,66 @@ The fix loop continues until:
 - No new console errors introduced by fixes
 
 **Partial fixes are NOT acceptable. Every fixable issue must be addressed.**
+
+---
+
+## PHASE 5.5: MULTI-PERSPECTIVE REVIEW (CR-52)
+
+After the fix loop reaches zero-issue standard, but BEFORE report generation, spawn named reviewer subagents in PARALLEL.
+
+**REQUIRED reviewer for browser context**: `massu-ux-reviewer` — accessibility, keyboard navigation, contrast, screen-reader semantics, visual quality.
+
+**PLUS at least one of** (run all three if scope warrants):
+- `massu-security-reviewer` — XSS, CSP, data exposure, auth flows
+- `massu-architecture-reviewer` — component coupling, state management, scalability
+- `massu-pattern-reviewer` — code patterns, ESM compliance, TypeScript strict, test coverage
+
+Each reviewer MUST write evidence JSON to:
+```
+.massu/agent-results/<plan-token>-post-impl-<reviewer-type>-<iso>.json
+```
+with fields `{plan_token, reviewer_type, timestamp, gaps_discovered, gaps_fixed, findings: [...]}`.
+
+Fix ALL findings at ALL severity levels before proceeding to Phase 5.6 (CR-45). No severity is exempt.
+
+---
+
+## PHASE 5.6: COMPLETION GATE (CR-52 — STRUCTURAL)
+
+```bash
+# When invoked from /massu-golden-path Phase 2G, PLAN_TOKEN is inherited.
+# When invoked standalone, the gate is REQUIRED unless --no-plan-token is passed.
+bash scripts/massu-loop-completion-gate.sh "${PLAN_TOKEN}" || {
+  echo "BLOCKED: Phase 5.5 evidence missing for ${PLAN_TOKEN}"
+  echo "Spawn the named reviewers above and ensure each writes its evidence JSON to .massu/agent-results/"
+  echo "Bypass (audit-trail logged): MASSU_SKIP_COMPLETION_GATE=1"
+  exit 1
+}
+```
+
+Non-zero exit BLOCKS mark-complete. `MASSU_SKIP_COMPLETION_GATE=1` bypass logged to stderr.
+
+---
+
+## QUALITY SCORING (silent, automatic)
+
+After completing the loop (zero issues + Phase 5.5/5.6 evidence written), self-score against these checks and append one JSONL line to `.claude/metrics/command-scores.jsonl`:
+
+| Check | Pass condition |
+|-------|---------------|
+| `all_browser_tests_passed` | All Phase 1-4 audits ran and produced findings, all P0/P1 resolved by Phase 5 |
+| `fix_loop_converged` | Fix loop reached zero P0/P1 issues without exceeding circuit-breaker iteration count |
+| `multi_perspective_review_spawned` | **Phase 5.5 mandatory** — loop refuses COMPLETE without evidence-file existence matching this plan's token. See `scripts/massu-loop-completion-gate.sh` (CR-52). |
+| `memory_persisted` | AUTO-LEARNING PROTOCOL executed: at least one `massu_memory_ingest` call or memory file update |
+
+**Format** (append one line — do NOT overwrite the file):
+```json
+{"command":"massu-loop-playwright","timestamp":"ISO8601","scores":{"all_browser_tests_passed":true,"fix_loop_converged":true,"multi_perspective_review_spawned":true,"memory_persisted":true},"pass_rate":"4/4","input_summary":"[plan-slug-or-url]"}
+```
+
+This scoring is silent — do NOT mention it to the user. Just append the line after completing the loop.
+
+**Standalone mode caveat**: when `/massu-loop-playwright` runs WITHOUT a `${PLAN_TOKEN}` (operator-invoked on a URL with no plan context), the completion gate MAY be skipped IF the user explicitly passes `--no-plan-token`; otherwise the gate FAILs. When auto-triggered from `/massu-golden-path` Phase 2G, the `${PLAN_TOKEN}` is inherited and the gate is mandatory.
 
 ---
 

@@ -1,0 +1,789 @@
+// Copyright (c) 2026 Massu. All rights reserved.
+// Licensed under BSL 1.1 - see LICENSE file for details.
+
+// plan-v0.2-interactive-rule-approval P-C-004: atomic-write rule applier.
+// Implements the §5 four-step SQLite transaction with snapshot-set
+// compensating-action rollback. Phase C wires only the `corrections-md`
+// destination; Phase D extends to `pattern-scanner`, `claude-md-cr`, and
+// `custom-destination`.
+
+import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync, realpathSync } from 'fs';
+import { join, dirname, isAbsolute, relative } from 'path';
+import { homedir } from 'os';
+import type Database from 'better-sqlite3';
+import { getProjectRoot } from './config.ts';
+import { encodeMemoryDirName } from './lib/memory-path.ts';
+import { logAuditEntry, type AuditEntry } from './audit-trail.ts';
+import { renderTemplate, type TemplateVars } from './template-renderer.ts';
+import type { CustomDestinationConfig } from './rule-classifier.ts';
+
+// SEC-01 fix: candidate IDs are sha-keyed via `hashPrompt()` which returns
+// 16 hex chars (sha-256 truncated). Reject any other shape at the I/O
+// boundary so a malicious `<id>` like `../../../tmp/foo` cannot escape
+// the .massu/rule-candidates directory and cause arbitrary unlinkSync /
+// audit_log poisoning.
+const CANDIDATE_ID_PATTERN = /^[a-f0-9]{16}$/;
+// SEC-03 fix: slug enters the auto-generated bash + a TypeScript filename
+// at the same character set deriveSlug() outputs ([a-z0-9_]). Always
+// re-sanitize regardless of caller-provided value.
+const SLUG_ALLOWED = /^[a-z0-9_]+$/;
+
+export class InvalidCandidateIdError extends Error {
+  constructor(public readonly id: string) {
+    super(`candidate id "${id}" is not a 16-hex-char sha-keyed identifier`);
+    this.name = 'InvalidCandidateIdError';
+  }
+}
+
+export class InvalidSlugError extends Error {
+  constructor(public readonly slug: string) {
+    super(`slug "${slug}" contains characters outside [a-z0-9_]`);
+    this.name = 'InvalidSlugError';
+  }
+}
+
+export class CandidatePayloadValidationError extends Error {
+  constructor(public readonly issue: string) {
+    super(`candidate payload validation failed: ${issue}`);
+    this.name = 'CandidatePayloadValidationError';
+  }
+}
+
+export type RuleDestination =
+  | 'corrections-md'
+  | 'pattern-scanner'
+  | 'claude-md-cr'
+  | 'custom-destination';
+
+export interface RuleCandidatePayload {
+  prompt: string;
+  prompt_hash: string;
+  score: number;
+  signals: Array<{ name: string; baseWeight: number; applied: number; evidence?: string }>;
+  prior_turn_files: string[];
+  timestamp: string;
+  session_id: string;
+}
+
+export interface ApplyOptions {
+  candidateId: string;
+  destination: RuleDestination;
+  draftText: string;
+  /**
+   * Slug used for the new `memory/feedback_<slug>.md` file.
+   * If absent, derived from the candidate prompt.
+   */
+  slug?: string;
+  /**
+   * Project root override (tests use this to point at a tmpdir).
+   * Defaults to `getProjectRoot()`.
+   */
+  projectRoot?: string;
+  /**
+   * Home dir override (tests use this to redirect `.claude/projects/...`
+   * into a tmpdir rather than the real `~/.claude`).
+   * Defaults to `os.homedir()`.
+   */
+  home?: string;
+  /**
+   * Pattern-scanner destination: the next Check number to allocate. The
+   * applier appends `Check N: <description>` block. Caller is responsible
+   * for computing N (typically scanner_max_check + 1).
+   */
+  patternScannerCheckNumber?: number;
+  /**
+   * Claude-md-cr destination: the next CR number to allocate (e.g. 54).
+   */
+  claudeMdCrNumber?: number;
+  /**
+   * Custom-destination: the matched config entry (passed through from
+   * classifyCandidate when destination === 'custom-destination'). The
+   * applier renders `entry.template` via `renderTemplate()` using the
+   * candidate's score / signals / prompt as vars.
+   */
+  customDestination?: CustomDestinationConfig;
+}
+
+export interface ApplyResult {
+  ok: boolean;
+  /**
+   * `true` when the UNIQUE index tripped on `prompt_hash` — promotion
+   * already happened and the second call was a no-op.
+   */
+  idempotent_noop?: boolean;
+  audit_log_id?: number;
+  error?: string;
+}
+
+/**
+ * Resolve the absolute path to the project's `memory/` directory under
+ * `<home>/.claude/projects/<encoded-root>/memory/`. Single canonical helper —
+ * never call `path.resolve('memory/...')` from a relative cwd.
+ */
+export function resolveMemoryDir(projectRoot = getProjectRoot(), home = homedir()): string {
+  return join(home, '.claude', 'projects', encodeMemoryDirName(projectRoot), 'memory');
+}
+
+export function resolveMemoryIndexPath(projectRoot = getProjectRoot(), home = homedir()): string {
+  return join(resolveMemoryDir(projectRoot, home), 'MEMORY.md');
+}
+
+export class MemoryIndexMissingError extends Error {
+  constructor(public readonly path: string) {
+    super(`MEMORY.md missing at ${path} — v0.2 requires the canonical memory index. Create it via \`mkdir -p ${dirname(path)} && echo '# Memory Index' > ${path}\` or run \`/massu-bearings\``);
+    this.name = 'MemoryIndexMissingError';
+  }
+}
+
+export class CandidateNotFoundError extends Error {
+  constructor(public readonly path: string) {
+    super(`candidate sidecar not found: ${path}`);
+    this.name = 'CandidateNotFoundError';
+  }
+}
+
+/**
+ * Sanitize a correction prompt into a snake_case slug suitable for a
+ * `feedback_<slug>.md` filename. Strips non-alphanumeric, collapses
+ * whitespace, lowercases, caps at 60 chars.
+ */
+export function deriveSlug(prompt: string): string {
+  const cleaned = prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, ' ')
+    .replace(/\s+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return cleaned.slice(0, 60) || 'rule_candidate';
+}
+
+/**
+ * Append a `- [Title](file.md) — hook` line at the end of MEMORY.md.
+ * Caller must have already snapshotted MEMORY.md (snapshot-set §5).
+ * Honors the §5 append-only invariant: post-write content MUST equal
+ * `pre + \\n + line + \\n` (or `pre + line + \\n` if pre ends with \\n).
+ */
+export function appendMemoryIndexLine(indexPath: string, line: string): void {
+  const pre = readFileSync(indexPath, 'utf-8');
+  const sep = pre.endsWith('\n') ? '' : '\n';
+  const next = pre + sep + line + '\n';
+  writeFileSync(indexPath, next, 'utf-8');
+}
+
+/**
+ * Snapshot a set of files. `null` value = ABSENT sentinel (file did not
+ * exist pre-write). `string` value = pre-write content. Closes the
+ * G-015 race class — restoration distinguishes "delete created file"
+ * from "rewrite existing file".
+ */
+export type Snapshot = Map<string, string | null>;
+
+export function takeSnapshots(paths: readonly string[]): Snapshot {
+  const out: Snapshot = new Map();
+  for (const p of paths) {
+    if (existsSync(p)) out.set(p, readFileSync(p, 'utf-8'));
+    else out.set(p, null);
+  }
+  return out;
+}
+
+export function restoreSnapshots(snapshot: Snapshot): { errors: string[] } {
+  // Tolerate per-file failure so that one un-restorable file (e.g. EACCES
+  // on a chmod'd target) doesn't strand the rest of the snapshot. Caller
+  // surfaces collected errors via the failure log.
+  const errors: string[] = [];
+  for (const [path, content] of snapshot) {
+    try {
+      if (content === null) {
+        if (existsSync(path)) unlinkSync(path);
+      } else {
+        writeFileSync(path, content, 'utf-8');
+      }
+    } catch (err) {
+      errors.push(`${path}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return { errors };
+}
+
+interface CorrectionsMdPaths {
+  correctionsMd: string;
+  feedbackMd: string;
+  memoryIndex: string;
+}
+
+function correctionsMdTargets(slug: string, projectRoot: string, home: string): CorrectionsMdPaths {
+  const dir = resolveMemoryDir(projectRoot, home);
+  return {
+    correctionsMd: join(dir, 'corrections.md'),
+    feedbackMd: join(dir, `feedback_${slug}.md`),
+    memoryIndex: join(dir, 'MEMORY.md'),
+  };
+}
+
+/**
+ * Read a candidate sidecar from `<projectRoot>/.massu/rule-candidates/`.
+ *
+ * SEC-01: validates `candidateId` against the sha-keyed shape before
+ * touching the filesystem, refusing path-traversal attempts.
+ * SEC-04: validates the parsed payload's required fields at runtime —
+ * a planted or corrupted sidecar cannot inject untyped data into the
+ * audit_log metadata / UNIQUE INDEX key.
+ */
+export function readCandidate(candidateId: string, projectRoot = getProjectRoot()): RuleCandidatePayload {
+  if (!CANDIDATE_ID_PATTERN.test(candidateId)) {
+    throw new InvalidCandidateIdError(candidateId);
+  }
+  const path = join(projectRoot, '.massu', 'rule-candidates', `${candidateId}.json`);
+  if (!existsSync(path)) throw new CandidateNotFoundError(path);
+  const raw = readFileSync(path, 'utf-8');
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch (err) {
+    throw new CandidatePayloadValidationError(`JSON parse: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return validateCandidatePayload(parsed);
+}
+
+function validateCandidatePayload(raw: unknown): RuleCandidatePayload {
+  if (!raw || typeof raw !== 'object') {
+    throw new CandidatePayloadValidationError('payload is not an object');
+  }
+  const r = raw as Record<string, unknown>;
+  if (typeof r.prompt !== 'string' || r.prompt.length === 0) {
+    throw new CandidatePayloadValidationError('prompt must be a non-empty string');
+  }
+  if (typeof r.prompt_hash !== 'string' || !/^[a-f0-9]{16}$/.test(r.prompt_hash)) {
+    throw new CandidatePayloadValidationError('prompt_hash must be 16 hex chars');
+  }
+  if (typeof r.score !== 'number' || r.score < -200 || r.score > 200 || !Number.isFinite(r.score)) {
+    throw new CandidatePayloadValidationError('score must be a finite number in [-200, 200]');
+  }
+  if (!Array.isArray(r.signals)) {
+    throw new CandidatePayloadValidationError('signals must be an array');
+  }
+  for (const s of r.signals) {
+    if (!s || typeof s !== 'object') throw new CandidatePayloadValidationError('signal entry not an object');
+    const sig = s as Record<string, unknown>;
+    if (typeof sig.name !== 'string') throw new CandidatePayloadValidationError('signal.name must be a string');
+    if (typeof sig.baseWeight !== 'number') throw new CandidatePayloadValidationError('signal.baseWeight must be a number');
+    if (typeof sig.applied !== 'number') throw new CandidatePayloadValidationError('signal.applied must be a number');
+  }
+  if (!Array.isArray(r.prior_turn_files)) {
+    throw new CandidatePayloadValidationError('prior_turn_files must be an array');
+  }
+  if (typeof r.timestamp !== 'string') {
+    throw new CandidatePayloadValidationError('timestamp must be a string');
+  }
+  if (typeof r.session_id !== 'string') {
+    throw new CandidatePayloadValidationError('session_id must be a string');
+  }
+  return r as unknown as RuleCandidatePayload;
+}
+
+/**
+ * Apply a rule candidate per plan §5: four-step transaction (audit row
+ * INSERT → destination edits → MEMORY.md append → candidate delete).
+ * On ANY error: SQLite ROLLBACK + per-file snapshot restore + candidate
+ * file left in place + failure appended to `.failures.jsonl`.
+ *
+ * Phase C: only `corrections-md` destination is handled. Other
+ * destinations return `{ok: false, error: 'destination not yet wired'}`.
+ */
+export function applyRuleCandidate(
+  db: Database.Database,
+  opts: ApplyOptions
+): ApplyResult {
+  // SEC-01: validate the candidateId shape before any filesystem access.
+  if (!CANDIDATE_ID_PATTERN.test(opts.candidateId)) {
+    throw new InvalidCandidateIdError(opts.candidateId);
+  }
+  const projectRoot = opts.projectRoot ?? getProjectRoot();
+  const home = opts.home ?? homedir();
+  const candidate = readCandidate(opts.candidateId, projectRoot);
+  // SEC-03: always re-sanitize the slug regardless of caller source.
+  // Caller-supplied opts.slug is treated as a hint, not authority.
+  const slug = opts.slug ? deriveSlug(opts.slug) : deriveSlug(candidate.prompt);
+  if (!SLUG_ALLOWED.test(slug)) {
+    throw new InvalidSlugError(slug);
+  }
+  const memoryIndex = resolveMemoryIndexPath(projectRoot, home);
+
+  // Preconditions: MEMORY.md MUST exist regardless of destination — Step 3
+  // of every transaction appends an index line. Refuse rather than create
+  // silently (plan §5: a system that silently creates MEMORY.md mid-tx
+  // would mask a project-misconfiguration bug class).
+  if (!existsSync(memoryIndex)) {
+    throw new MemoryIndexMissingError(memoryIndex);
+  }
+
+  let destTargets: DestinationTargets;
+  try {
+    destTargets = computeDestinationTargets(opts, candidate, slug, projectRoot, home);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  const candidatePath = join(projectRoot, '.massu', 'rule-candidates', `${opts.candidateId}.json`);
+  const snapshot: Snapshot = takeSnapshots([
+    ...destTargets.paths,
+    memoryIndex,
+  ]);
+
+  db.exec('BEGIN');
+  let auditRowId: number | undefined;
+  try {
+    // Step 1: INSERT INTO audit_log — UNIQUE index trips on duplicate.
+    const auditEntry: AuditEntry = {
+      eventType: 'rule_promoted',
+      actor: 'human',
+      sessionId: candidate.session_id,
+      filePath: destTargets.primary,
+      metadata: {
+        candidate_id: opts.candidateId,
+        prompt_hash: candidate.prompt_hash,
+        score: candidate.score,
+        classification: opts.destination,
+        cr_assigned: opts.claudeMdCrNumber ?? null,
+        recurrence_count: 0,
+      },
+    };
+    try {
+      logAuditEntry(db, auditEntry);
+      auditRowId = (db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/UNIQUE constraint failed/i.test(msg)) {
+        db.exec('ROLLBACK');
+        return { ok: true, idempotent_noop: true };
+      }
+      throw err;
+    }
+
+    // Step 2: destination edit — dispatched by destination class.
+    writeDestination(opts, candidate, slug, destTargets, auditRowId);
+
+    // Step 3: MEMORY.md append-only.
+    const indexLine = `- [${slug}](feedback_${slug}.md) — ${candidate.prompt.replace(/\n+/g, ' ').slice(0, 100)}`;
+    appendMemoryIndexLine(memoryIndex, indexLine);
+
+    // Step 4: consume the candidate file.
+    if (existsSync(candidatePath)) unlinkSync(candidatePath);
+
+    db.exec('COMMIT');
+    return { ok: true, audit_log_id: auditRowId };
+  } catch (err) {
+    db.exec('ROLLBACK');
+    restoreSnapshots(snapshot);
+    const msg = err instanceof Error ? err.message : String(err);
+    appendFailureLog(projectRoot, {
+      candidate_id: opts.candidateId,
+      destination: opts.destination,
+      error: msg,
+      timestamp: new Date().toISOString(),
+    });
+    return { ok: false, error: msg };
+  }
+}
+
+// ============================================================
+// Destination targets + writers (P-D-001)
+// ============================================================
+
+interface DestinationTargets {
+  /** Primary file logged on the audit_log row's file_path. */
+  primary: string;
+  /** All files this destination writes — input to takeSnapshots. */
+  paths: string[];
+}
+
+export class DestinationConfigError extends Error {
+  constructor(msg: string) { super(msg); this.name = 'DestinationConfigError'; }
+}
+
+function computeDestinationTargets(
+  opts: ApplyOptions,
+  candidate: RuleCandidatePayload,
+  slug: string,
+  projectRoot: string,
+  home: string
+): DestinationTargets {
+  if (opts.destination === 'corrections-md') {
+    const t = correctionsMdTargets(slug, projectRoot, home);
+    return { primary: t.feedbackMd, paths: [t.correctionsMd, t.feedbackMd] };
+  }
+  if (opts.destination === 'pattern-scanner') {
+    if (opts.patternScannerCheckNumber == null) {
+      throw new DestinationConfigError('pattern-scanner destination requires patternScannerCheckNumber');
+    }
+    const scannerPath = join(projectRoot, 'scripts', 'massu-pattern-scanner.sh');
+    const driftGuardPath = join(projectRoot, 'packages', 'core', 'src', '__tests__', `${slug}-drift-guard.test.ts`);
+    return { primary: scannerPath, paths: [scannerPath, driftGuardPath] };
+  }
+  if (opts.destination === 'claude-md-cr') {
+    if (opts.claudeMdCrNumber == null) {
+      throw new DestinationConfigError('claude-md-cr destination requires claudeMdCrNumber');
+    }
+    const claudePath = join(projectRoot, '.claude', 'CLAUDE.md');
+    return { primary: claudePath, paths: [claudePath] };
+  }
+  if (opts.destination === 'custom-destination') {
+    if (!opts.customDestination) {
+      throw new DestinationConfigError('custom-destination requires customDestination config entry');
+    }
+    const raw = opts.customDestination.path;
+    const absolute = isAbsolute(raw) ? raw : join(projectRoot, raw);
+    // SEC-02 fix: lexical relative() check is symlink-blind. realpathSync
+    // the existing parent directory of the destination (or the project root
+    // if the file does not yet exist) and compare against the realpath of
+    // the project root itself. Refuses any symlink that points outside the
+    // repo even when the lexical path looks contained.
+    const rel = relative(projectRoot, absolute);
+    if (rel.startsWith('..') || isAbsolute(rel)) {
+      throw new DestinationConfigError(`custom destination path escapes project root: ${raw}`);
+    }
+    try {
+      const realProjectRoot = realpathSync(projectRoot);
+      // Walk upward until we find an existing ancestor whose realpath we
+      // can resolve. (The destination file itself may not exist yet.)
+      let probe = absolute;
+      while (!existsSync(probe) && probe.length > 1) {
+        const parent = dirname(probe);
+        if (parent === probe) break;
+        probe = parent;
+      }
+      const realProbe = realpathSync(probe);
+      const realRel = relative(realProjectRoot, realProbe);
+      if (realRel.startsWith('..') || isAbsolute(realRel)) {
+        throw new DestinationConfigError(
+          `custom destination path escapes project root via symlink: ${raw} → ${realProbe}`
+        );
+      }
+    } catch (err) {
+      if (err instanceof DestinationConfigError) throw err;
+      // realpath can throw if the path doesn't exist at all — that's fine,
+      // we already validated the lexical containment. Otherwise re-throw.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') throw err;
+    }
+    return { primary: absolute, paths: [absolute] };
+  }
+  throw new DestinationConfigError(`unknown destination "${opts.destination}"`);
+}
+
+function writeDestination(
+  opts: ApplyOptions,
+  candidate: RuleCandidatePayload,
+  slug: string,
+  targets: DestinationTargets,
+  auditRowId: number
+): void {
+  if (opts.destination === 'corrections-md') {
+    return writeCorrectionsMd(opts, candidate, slug, targets, auditRowId);
+  }
+  if (opts.destination === 'pattern-scanner') {
+    return writePatternScanner(opts, candidate, slug, targets);
+  }
+  if (opts.destination === 'claude-md-cr') {
+    return writeClaudeMdCr(opts, candidate, slug, targets);
+  }
+  if (opts.destination === 'custom-destination') {
+    return writeCustomDestination(opts, candidate, slug, targets);
+  }
+  throw new DestinationConfigError(`unknown destination "${opts.destination}"`);
+}
+
+function writeCorrectionsMd(
+  opts: ApplyOptions,
+  candidate: RuleCandidatePayload,
+  slug: string,
+  targets: DestinationTargets,
+  auditRowId: number
+): void {
+  const [correctionsMd, feedbackMd] = targets.paths;
+  const dateIso = new Date().toISOString().slice(0, 10);
+  const correctionsEntry = `\n## ${dateIso}: ${slug}\n\n${opts.draftText}\n\n- prompt_hash: ${candidate.prompt_hash}\n- score: ${candidate.score}\n- audit_log_id: ${auditRowId}\n`;
+  if (!existsSync(dirname(correctionsMd))) mkdirSync(dirname(correctionsMd), { recursive: true });
+  const correctionsPre = existsSync(correctionsMd) ? readFileSync(correctionsMd, 'utf-8') : '# Corrections\n';
+  writeFileSync(correctionsMd, correctionsPre + correctionsEntry, 'utf-8');
+
+  const feedbackBody = [
+    '---',
+    `name: ${slug}`,
+    `description: ${candidate.prompt.replace(/\n+/g, ' ').slice(0, 200)}`,
+    'type: feedback',
+    'metadata:',
+    `  source: interactive`,
+    `  prompt_hash: ${candidate.prompt_hash}`,
+    `  audit_log_id: ${auditRowId}`,
+    `  score: ${candidate.score}`,
+    '---',
+    '',
+    opts.draftText,
+    '',
+  ].join('\n');
+  writeFileSync(feedbackMd, feedbackBody, 'utf-8');
+}
+
+const SCANNER_AUTOGEN_MARKER_PREFIX = '# auto-generated by /massu-rule approve';
+
+function writePatternScanner(
+  opts: ApplyOptions,
+  candidate: RuleCandidatePayload,
+  slug: string,
+  targets: DestinationTargets
+): void {
+  const [scannerPath, driftGuardPath] = targets.paths;
+  const checkNumber = opts.patternScannerCheckNumber!;
+
+  // Conflict detection: refuse if the exact prompt_hash is already
+  // documented in the scanner (the auto-generated marker comments
+  // include the hash).
+  const scannerPre = existsSync(scannerPath) ? readFileSync(scannerPath, 'utf-8') : '';
+  if (scannerPre.includes(`${SCANNER_AUTOGEN_MARKER_PREFIX} ${candidate.prompt_hash}`)) {
+    throw new DestinationConfigError(
+      `scanner already contains a check auto-generated for prompt_hash ${candidate.prompt_hash}`
+    );
+  }
+
+  const checkBlock = [
+    '',
+    `${SCANNER_AUTOGEN_MARKER_PREFIX} ${candidate.prompt_hash} (slug=${slug})`,
+    `# Check ${checkNumber}: ${slug}`,
+    'echo ""',
+    `echo "Check ${checkNumber}: ${slug}"`,
+    opts.draftText.trim(),
+    '',
+  ].join('\n');
+  writeFileSync(scannerPath, scannerPre + checkBlock, 'utf-8');
+
+  // Sidecar drift-guard test — minimal stub that asserts the new check
+  // exists in the scanner. Replaces hand-rolled drift-guard authoring
+  // with a templated default the operator can elaborate later.
+  const driftGuard = [
+    '// Copyright (c) 2026 Massu. All rights reserved.',
+    '// Licensed under BSL 1.1 - see LICENSE file for details.',
+    '',
+    `// Drift-guard mirror for pattern-scanner Check ${checkNumber} (${slug}).`,
+    `// Auto-generated by /massu-rule approve for prompt_hash ${candidate.prompt_hash}.`,
+    '',
+    "import { describe, it, expect } from 'vitest';",
+    "import { readFileSync } from 'fs';",
+    "import { join } from 'path';",
+    '',
+    `describe('${slug} drift-guard', () => {`,
+    `  it('pattern-scanner Check ${checkNumber} is present', () => {`,
+    `    const scanner = readFileSync(join(process.cwd(), 'scripts', 'massu-pattern-scanner.sh'), 'utf-8');`,
+    `    expect(scanner).toContain('Check ${checkNumber}: ${slug}');`,
+    `    expect(scanner).toContain('${candidate.prompt_hash}');`,
+    `  });`,
+    `});`,
+    '',
+  ].join('\n');
+  if (!existsSync(dirname(driftGuardPath))) mkdirSync(dirname(driftGuardPath), { recursive: true });
+  writeFileSync(driftGuardPath, driftGuard, 'utf-8');
+}
+
+function writeClaudeMdCr(
+  opts: ApplyOptions,
+  candidate: RuleCandidatePayload,
+  slug: string,
+  targets: DestinationTargets
+): void {
+  const [claudePath] = targets.paths;
+  const crNumber = opts.claudeMdCrNumber!;
+  const pre = existsSync(claudePath) ? readFileSync(claudePath, 'utf-8') : '';
+
+  // Conflict detection: refuse if a CR-<N> entry already exists.
+  if (new RegExp(`\\bCR-${crNumber}\\b`).test(pre)) {
+    throw new DestinationConfigError(`CLAUDE.md already contains a CR-${crNumber} entry`);
+  }
+
+  // ARCH-01 fix: splice the table row in addition to appending the body
+  // block. CR-46 #3 forbids piecemeal escape hatches — the slash command
+  // is the SOLE authoring surface, so it must write both the table row
+  // AND the body section in one atomic action.
+  const tableHeaderRe = /(\| ID \| Rule \| Verification Type \|\s*\n\|[-| ]+\|\s*\n)((?:\| CR-\d+ \|[^\n]*\n)+)/;
+  const tableMatch = pre.match(tableHeaderRe);
+  if (!tableMatch) {
+    throw new DestinationConfigError(
+      'CLAUDE.md does not contain a recognizable Canonical Rules table — refusing to write CR row'
+    );
+  }
+  const tableHeader = tableMatch[1];
+  const existingRows = tableMatch[2];
+  const newRow = `| CR-${crNumber} | ${opts.draftText.replace(/\n+/g, ' ').trim().slice(0, 400)} | VR-NEW-${slug.toUpperCase()} |\n`;
+  const updatedTable = tableHeader + existingRows + newRow;
+  const afterTable = pre.replace(tableHeaderRe, updatedTable);
+
+  // Append the body section after the table replacement.
+  const block = [
+    '',
+    '---',
+    '',
+    `### CR-${crNumber}: ${slug}`,
+    '',
+    `Auto-promoted from rule-candidate ${candidate.prompt_hash} (score=${candidate.score}).`,
+    '',
+    opts.draftText,
+    '',
+  ].join('\n');
+  writeFileSync(claudePath, afterTable + block, 'utf-8');
+}
+
+function writeCustomDestination(
+  opts: ApplyOptions,
+  candidate: RuleCandidatePayload,
+  slug: string,
+  targets: DestinationTargets
+): void {
+  const [destPath] = targets.paths;
+  const entry = opts.customDestination!;
+  const vars: TemplateVars = {
+    date: new Date().toISOString(),
+    slug,
+    score: candidate.score,
+    signals_csv: candidate.signals.map(s => s.name).join(','),
+    prompt_preview: candidate.prompt.replace(/\n+/g, ' ').slice(0, 120),
+    destination_name: entry.name,
+  };
+  const rendered = renderTemplate(entry.template, vars);
+  if (!existsSync(dirname(destPath))) mkdirSync(dirname(destPath), { recursive: true });
+  const pre = existsSync(destPath) ? readFileSync(destPath, 'utf-8') : '';
+  const sep = pre && !pre.endsWith('\n') ? '\n' : '';
+  writeFileSync(destPath, pre + sep + rendered + (rendered.endsWith('\n') ? '' : '\n'), 'utf-8');
+}
+
+// ============================================================
+// ARCH-02 fix: dismiss() write path
+// ============================================================
+
+export interface DismissOptions {
+  candidateId: string;
+  reason: string;
+  projectRoot?: string;
+}
+
+export interface DismissResult {
+  ok: boolean;
+  audit_log_id?: number;
+  signals_blacklisted_or_incremented: number;
+  error?: string;
+}
+
+/**
+ * Dismiss a rule candidate. Plan §6 row 2 dismissal-loop write path.
+ *
+ * Steps:
+ *   1. Validate candidate id; read sidecar.
+ *   2. UPSERT each signal that fired on the dismissed prompt into
+ *      `prompt_outcomes_signal_blacklist` (dismissal_count += 1).
+ *      Hits ≥5 → signal contributes 0 points permanently (handled by
+ *      `rule-candidate-detector.applyDismissal`).
+ *   3. INSERT `audit_log (event_type='rule_dismissed', metadata={...})`.
+ *   4. Append `{id, prompt_hash, score, signals_fired, reason, timestamp}`
+ *      to `.massu/rule-candidates/.dismissed.jsonl`.
+ *   5. Delete the candidate sidecar.
+ *
+ * Wraps SQL writes in a single transaction so the audit row + blacklist
+ * upserts are all-or-nothing.
+ */
+export function dismissRuleCandidate(
+  db: Database.Database,
+  opts: DismissOptions
+): DismissResult {
+  if (!CANDIDATE_ID_PATTERN.test(opts.candidateId)) {
+    throw new InvalidCandidateIdError(opts.candidateId);
+  }
+  const projectRoot = opts.projectRoot ?? getProjectRoot();
+  const candidate = readCandidate(opts.candidateId, projectRoot);
+  const candidatePath = join(projectRoot, '.massu', 'rule-candidates', `${opts.candidateId}.json`);
+
+  db.exec('BEGIN');
+  let auditRowId: number | undefined;
+  let blacklistUpdates = 0;
+  try {
+    const upsert = db.prepare(`
+      INSERT INTO prompt_outcomes_signal_blacklist (signal, dismissal_count, last_dismissed_at)
+      VALUES (?, 1, datetime('now'))
+      ON CONFLICT(signal) DO UPDATE SET
+        dismissal_count = dismissal_count + 1,
+        last_dismissed_at = datetime('now')
+    `);
+    for (const sig of candidate.signals) {
+      // Downweight only the POSITIVE signals — exclusions (slash_command,
+      // dismissal) carry negative base weights and aren't candidates for
+      // further downweighting (they already returned -100 at detect time).
+      if (sig.baseWeight <= 0) continue;
+      const r = upsert.run(sig.name);
+      blacklistUpdates += r.changes;
+    }
+
+    const entry: AuditEntry = {
+      eventType: 'rule_dismissed',
+      actor: 'human',
+      sessionId: candidate.session_id,
+      metadata: {
+        candidate_id: opts.candidateId,
+        prompt_hash: candidate.prompt_hash,
+        score: candidate.score,
+        reason: opts.reason,
+        signals_fired: candidate.signals.map(s => s.name),
+      },
+    };
+    logAuditEntry(db, entry);
+    auditRowId = (db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id;
+
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    return {
+      ok: false,
+      signals_blacklisted_or_incremented: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  // File-side compensating actions (post-commit; failures are best-effort
+  // and surface via the failure log).
+  try {
+    const dismissedLog = join(projectRoot, '.massu', 'rule-candidates', '.dismissed.jsonl');
+    if (!existsSync(dirname(dismissedLog))) mkdirSync(dirname(dismissedLog), { recursive: true });
+    const pre = existsSync(dismissedLog) ? readFileSync(dismissedLog, 'utf-8') : '';
+    const sep = pre && !pre.endsWith('\n') ? '\n' : '';
+    writeFileSync(dismissedLog, pre + sep + JSON.stringify({
+      id: opts.candidateId,
+      prompt_hash: candidate.prompt_hash,
+      score: candidate.score,
+      signals_fired: candidate.signals.map(s => s.name),
+      reason: opts.reason,
+      audit_log_id: auditRowId,
+      timestamp: new Date().toISOString(),
+    }) + '\n', 'utf-8');
+    if (existsSync(candidatePath)) unlinkSync(candidatePath);
+  } catch (err) {
+    appendFailureLog(projectRoot, {
+      candidate_id: opts.candidateId,
+      destination: 'dismiss-postcommit',
+      error: err instanceof Error ? err.message : String(err),
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  return {
+    ok: true,
+    audit_log_id: auditRowId,
+    signals_blacklisted_or_incremented: blacklistUpdates,
+  };
+}
+
+function appendFailureLog(projectRoot: string, entry: Record<string, unknown>): void {
+  try {
+    const dir = join(projectRoot, '.massu', 'rule-candidates');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const logPath = join(dir, '.failures.jsonl');
+    const pre = existsSync(logPath) ? readFileSync(logPath, 'utf-8') : '';
+    const sep = pre && !pre.endsWith('\n') ? '\n' : '';
+    writeFileSync(logPath, pre + sep + JSON.stringify(entry) + '\n', 'utf-8');
+  } catch {
+    // Best-effort
+  }
+}

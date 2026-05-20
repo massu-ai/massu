@@ -1373,8 +1373,8 @@ async function main() {
         if (fileRefs.length > 0) {
           const knowledgeDbPath = getResolvedPaths().knowledgeDbPath;
           if (knowledgeDbPath && existsSync3(knowledgeDbPath)) {
-            const Database2 = (await import("better-sqlite3")).default;
-            const kdb = new Database2(knowledgeDbPath, { readonly: true });
+            const BetterSqlite3Ctor = (await import("better-sqlite3")).default;
+            const kdb = new BetterSqlite3Ctor(knowledgeDbPath, { readonly: true });
             try {
               const placeholders = fileRefs.map(() => "?").join(",");
               const matches = kdb.prepare(

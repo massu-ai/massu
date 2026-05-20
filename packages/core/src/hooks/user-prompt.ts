@@ -68,8 +68,12 @@ async function main(): Promise<void> {
         if (fileRefs.length > 0) {
           const knowledgeDbPath = getResolvedPaths().knowledgeDbPath;
           if (knowledgeDbPath && existsSync(knowledgeDbPath)) {
-            const Database = (await import('better-sqlite3')).default;
-            const kdb = new Database(knowledgeDbPath, { readonly: true });
+            // PR-01 (Phase 1.5 pattern review): renamed local from `Database`
+            // to `BetterSqlite3Ctor` to avoid shadowing the imported
+            // `import type Database from 'better-sqlite3'` at top-of-file
+            // (used by the readSignalBlacklist parameter type below).
+            const BetterSqlite3Ctor = (await import('better-sqlite3')).default;
+            const kdb = new BetterSqlite3Ctor(knowledgeDbPath, { readonly: true });
             try {
               const placeholders = fileRefs.map(() => '?').join(',');
               const matches = kdb.prepare(

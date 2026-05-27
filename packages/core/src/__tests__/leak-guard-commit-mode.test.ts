@@ -15,8 +15,10 @@
  * each, then invokes `scripts/massu-public-leak-guard.sh` with the
  * commit SHA. Asserts:
  *   - Clean fixture (no trigger): scanner exits 0.
- *   - Leak fixture (literal \bhedge\b): scanner exits 1 with the
- *     trigger word visible in the violation output.
+ *   - Leak fixture (generic CONFIDENTIAL catalog pattern): scanner exits 1
+ *     with the trigger word visible in the violation output. Uses a generic
+ *     pattern (not an operator-only one) so the test verifies the same
+ *     mechanism in the public-mirror CI where operator patterns are absent.
  *   - Mixed fixture (trigger embedded in clean prose): scanner exits 1
  *     (regression check for tokenizer correctness across paragraph
  *     boundaries).
@@ -116,8 +118,8 @@ describe('leak-guard commit-mode (plan-leak-guard-range-mode-verify P-B-002)', (
   })
 
   it('leak fixture: scanner exits 1 with trigger word in violation output', () => {
-    // Path `packages/core/...` is allowed; content contains literal \bhedge\b
-    // trigger; scanner should FAIL on content check.
+    // Path `packages/core/...` is allowed; content contains the generic
+    // CONFIDENTIAL catalog trigger; scanner should FAIL on content check.
     const sha = commitFixture('expected-leak.md', 'packages/core/some-leak-doc.md')
     const result = runLeakGuardCommitMode(sha)
     expect(
@@ -130,7 +132,7 @@ describe('leak-guard commit-mode (plan-leak-guard-range-mode-verify P-B-002)', (
     expect(
       combined,
       'violation output should reference the content trigger',
-    ).toMatch(/example-project|content|trigger|violat/i)
+    ).toMatch(/confidential|content|trigger|violat/i)
   })
 
   it('mixed fixture: scanner exits 1 (regression for tokenizer across paragraph boundaries)', () => {

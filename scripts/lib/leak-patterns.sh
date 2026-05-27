@@ -53,18 +53,17 @@ CONTENT_PATTERNS=(
   'reports/gap-analysis/'
   # Internal-only command prefix
   'massu-internal-'
-  # User-machine paths (a leaked /Users/operator/... discloses the
-  # contributor username + local layout)
-  '/Users/operator/'
-  # Customer / downstream-consumer name leaks. `example-project` is a private
-  # trading project that was the original test bed for many massu
-  # features — its name should NEVER appear in public source. Word-
-  # boundary anchors avoid false positives like "hedged" or "hedgehog".
-  '\bhedge\b'
-  '\bexample_svc\b'
-  '\bexample-svc\b'
-  '\bexample-api\b'
 )
+
+# Operator-specific patterns (local-machine paths + private-project names)
+# live in an INTERNAL-ONLY companion file that is NOT synced to the public
+# OSS repo — publishing those detection literals would itself disclose the
+# operator's username + private project name. Source it IF PRESENT: in the
+# internal context the patterns are appended; in the public mirror the file
+# is absent and the source is skipped (graceful absence by design).
+_massu_op_patterns="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/leak-patterns-operator.sh"
+[ -f "$_massu_op_patterns" ] && source "$_massu_op_patterns"
+unset _massu_op_patterns
 
 # Raw-SHA pattern — applies ONLY to the website-content scanner, NOT the
 # public-repo guard (the public repo legitimately cites its own commit

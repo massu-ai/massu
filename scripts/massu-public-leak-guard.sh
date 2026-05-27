@@ -2,8 +2,8 @@
 # massu-public-leak-guard — public-repo leak enforcer (path + content scan).
 #
 # Purpose: this is the PUBLIC repo (github.com/massu-ai/massu, visibility=PUBLIC).
-# Per the manifest at /Users/operator/massu-internal/scripts/PUBLIC_MANIFEST.md
-# (and a copy embedded below for portability), only specific paths are allowed
+# Per the manifest at scripts/PUBLIC_MANIFEST.md in the internal repo
+# (massu-internal; a copy is embedded below for portability), only specific paths are allowed
 # to be committed. Any commit touching paths OUTSIDE the allowlist is REJECTED
 # with an explanatory error message. Layered with content scans for trade-
 # secret markers, internal doc cross-references, and customer-name leaks.
@@ -318,7 +318,7 @@ if [ ${#denied_violations[@]} -gt 0 ] || [ ${#violations[@]} -gt 0 ] || [ ${#con
 
   echo "  What to do:" >&2
   echo "    1. If this work belongs in the INTERNAL repo, commit it" >&2
-  echo "       at /Users/operator/massu-internal/ instead of here." >&2
+  echo "       in your internal massu-internal checkout instead of here." >&2
   echo "    2. If this work belongs in PUBLIC and the path should be" >&2
   echo "       allowed, update PUBLIC_MANIFEST.md and the allowlist in" >&2
   echo "       scripts/massu-public-leak-guard.sh together — they MUST" >&2

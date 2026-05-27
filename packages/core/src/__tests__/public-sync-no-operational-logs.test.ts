@@ -19,11 +19,19 @@
 
 import { describe, it, expect } from 'vitest';
 import { execSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+
+// `scripts/sync-public.sh` is excluded from the public-sync mirror (it's the
+// sync engine itself), so its presence marks the internal repo. The .gitignore
+// rule + sync-exclude assertions verify internal-repo prevention config; in the
+// public mirror they're vacuous and skip. The "no tracked logs" invariant holds
+// in BOTH repos and runs unconditionally. (Same graceful-absence pattern as
+// auto-learning-mirror-drift-guard.test.ts.)
+const inInternalRepo = existsSync(join(repoRoot, 'scripts', 'sync-public.sh'));
 
 describe('public-sync: no internal operational logs (incident 2026-05-27)', () => {
   it('no *.log file under scripts/ is git-tracked', () => {
@@ -37,12 +45,12 @@ describe('public-sync: no internal operational logs (incident 2026-05-27)', () =
     expect(tracked, `Operational logs must be gitignored, not tracked: ${tracked.join(', ')}`).toEqual([]);
   });
 
-  it('.gitignore excludes scripts/hooks/*.log', () => {
+  it.skipIf(!inInternalRepo)('.gitignore excludes scripts/hooks/*.log', () => {
     const gitignore = readFileSync(join(repoRoot, '.gitignore'), 'utf-8');
     expect(gitignore).toMatch(/^scripts\/hooks\/\*\.log\s*$/m);
   });
 
-  it('sync-public.sh excludes hooks/*.log from the public scripts copy', () => {
+  it.skipIf(!inInternalRepo)('sync-public.sh excludes hooks/*.log from the public scripts copy', () => {
     const sync = readFileSync(join(repoRoot, 'scripts', 'sync-public.sh'), 'utf-8');
     expect(sync).toContain("--exclude='hooks/*.log'");
   });

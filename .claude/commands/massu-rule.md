@@ -20,6 +20,22 @@ This is plan-v0.2-interactive-rule-approval (`docs/plans/2026-05-20-v0.2-interac
 
 ---
 
+## Tier requirement (Requires Pro)
+
+Auto-learning (rule-candidate **emission** + rule **promotion**) is a **Pro+** feature. The command and these docs are free to view, but:
+
+- **Candidate emission** only happens at Pro or above — Free sessions write no candidate sidecars (the hook emits a one-time upgrade note instead), so `list`/`show` will be empty.
+- **`approve`** refuses at Free: it surfaces the generic upgrade message (`Auto-learning … is a Pro feature. … Upgrade at https://massu.ai/pricing`) and writes nothing. The gate is enforced structurally inside `applyRuleCandidate()` — DO NOT hand-edit a destination file to bypass it.
+- **`list`**, **`show`**, **`dismiss`**, and **`recurrence`** stay available regardless of tier (read + cleanup after a downgrade).
+
+Confirm entitlement before approving — this hard-fails for sub-Pro:
+
+```bash
+npx massu license check --min pro || exit 1
+```
+
+---
+
 ## Workflow Position
 
 ```

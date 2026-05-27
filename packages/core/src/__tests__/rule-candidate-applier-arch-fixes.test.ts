@@ -23,6 +23,7 @@ import {
 } from '../rule-candidate-applier.ts';
 import { encodeMemoryDirName } from '../lib/memory-path.ts';
 import type { CustomDestinationConfig } from '../rule-classifier.ts';
+import { _setCachedTierForTest, _resetCachedTier } from '../license.ts';
 
 let tmpHome: string;
 let tmpProjectRoot: string;
@@ -69,18 +70,20 @@ function writeCandidate(hash = 'abc123def4567890'): string {
 describe('Phase 1.5 architecture-fix tests', () => {
   beforeEach(() => {
     setup();
+    // CR-54: applyRuleCandidate is tier-gated (Pro+). Seed Pro so promotion runs.
+    _setCachedTierForTest('pro');
     db = new Database(':memory:');
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     initMemorySchema(db);
     db.prepare(`INSERT INTO sessions (session_id, started_at, started_at_epoch) VALUES ('session-arch', datetime('now'), 0)`).run();
   });
-  afterEach(() => { db.close(); teardown(); });
+  afterEach(() => { _resetCachedTier(); db.close(); teardown(); });
 
   describe('ARCH-01: claude-md-cr splices the Canonical Rules table', () => {
-    it('inserts a new row in the table AND appends body section', () => {
+    it('inserts a new row in the table AND appends body section', async () => {
       const id = writeCandidate();
-      const result = applyRuleCandidate(db, {
+      const result = await applyRuleCandidate(db, {
         candidateId: id, destination: 'claude-md-cr',
         draftText: 'Every X must Y for class of bug Z.',
         slug: 'cr_table_test', claudeMdCrNumber: 53,
@@ -96,10 +99,10 @@ describe('Phase 1.5 architecture-fix tests', () => {
       expect(claude).toContain('### CR-53: cr_table_test');
     });
 
-    it('refuses when CLAUDE.md has no Canonical Rules table', () => {
+    it('refuses when CLAUDE.md has no Canonical Rules table', async () => {
       writeFileSync(join(tmpProjectRoot, '.claude', 'CLAUDE.md'), '# CLAUDE.md\n\n(no table here)\n', 'utf-8');
       const id = writeCandidate();
-      const result = applyRuleCandidate(db, {
+      const result = await applyRuleCandidate(db, {
         candidateId: id, destination: 'claude-md-cr', draftText: 'body',
         slug: 'no_table', claudeMdCrNumber: 99,
         projectRoot: tmpProjectRoot, home: tmpHome,
@@ -169,7 +172,7 @@ describe('Phase 1.5 architecture-fix tests', () => {
   });
 
   describe('SEC-02: realpathSync symlink-bypass guard', () => {
-    it('refuses a custom-destination path that resolves OUTSIDE the project root via symlink', () => {
+    it('refuses a custom-destination path that resolves OUTSIDE the project root via symlink', async () => {
       // Create a target outside the project root
       const outsideDir = mkdtempSync(join(tmpdir(), 'outside-'));
       try {
@@ -184,7 +187,7 @@ describe('Phase 1.5 architecture-fix tests', () => {
           template: '${date}\n',
         };
         const id = writeCandidate();
-        const result = applyRuleCandidate(db, {
+        const result = await applyRuleCandidate(db, {
           candidateId: id, destination: 'custom-destination', draftText: 'body',
           slug: 'sec02', customDestination: dangerous,
           projectRoot: tmpProjectRoot, home: tmpHome,
@@ -198,14 +201,14 @@ describe('Phase 1.5 architecture-fix tests', () => {
   });
 
   describe('SEC-03: opts.slug is always re-sanitized', () => {
-    it('caller-supplied slug with shell-injection chars is sanitized', () => {
+    it('caller-supplied slug with shell-injection chars is sanitized', async () => {
       const id = writeCandidate();
       // Write the scanner script + a recognizable Canonical Rules table
       // (test fixture for pattern-scanner destination)
       mkdirSync(join(tmpProjectRoot, 'scripts'), { recursive: true });
       writeFileSync(join(tmpProjectRoot, 'scripts', 'massu-pattern-scanner.sh'), '#!/usr/bin/env bash\n', 'utf-8');
       mkdirSync(join(tmpProjectRoot, 'packages', 'core', 'src', '__tests__'), { recursive: true });
-      const result = applyRuleCandidate(db, {
+      const result = await applyRuleCandidate(db, {
         candidateId: id, destination: 'pattern-scanner',
         draftText: 'echo safe',
         slug: '$(rm -rf $HOME) && echo pwned',   // shell-injection attempt
@@ -222,25 +225,25 @@ describe('Phase 1.5 architecture-fix tests', () => {
   });
 
   describe('SEC-04: candidate payload runtime validation', () => {
-    it('throws CandidatePayloadValidationError on malformed prompt_hash', () => {
+    it('throws CandidatePayloadValidationError on malformed prompt_hash', async () => {
       const path = join(tmpProjectRoot, '.massu', 'rule-candidates', 'abc123def4567890.json');
       writeFileSync(path, JSON.stringify({
         prompt: 'x', prompt_hash: 'not-hex-not-16', score: 50, signals: [],
         prior_turn_files: [], timestamp: 'iso', session_id: 's',
       }), 'utf-8');
-      expect(() => applyRuleCandidate(db, {
+      await expect(applyRuleCandidate(db, {
         candidateId: 'abc123def4567890', destination: 'corrections-md', draftText: 'b',
         projectRoot: tmpProjectRoot, home: tmpHome,
-      })).toThrow(CandidatePayloadValidationError);
+      })).rejects.toThrow(CandidatePayloadValidationError);
     });
 
-    it('throws on missing required fields', () => {
+    it('throws on missing required fields', async () => {
       const path = join(tmpProjectRoot, '.massu', 'rule-candidates', 'abc123def4567890.json');
       writeFileSync(path, JSON.stringify({ prompt: 'x' }), 'utf-8');
-      expect(() => applyRuleCandidate(db, {
+      await expect(applyRuleCandidate(db, {
         candidateId: 'abc123def4567890', destination: 'corrections-md', draftText: 'b',
         projectRoot: tmpProjectRoot, home: tmpHome,
-      })).toThrow(CandidatePayloadValidationError);
+      })).rejects.toThrow(CandidatePayloadValidationError);
     });
   });
 });

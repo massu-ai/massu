@@ -10,6 +10,18 @@ name: massu-ui-audit
 
 # Massu UI Audit: Comprehensive UI/UX Review
 
+## Tier requirement (Requires Pro)
+
+This command is a **Pro+** feature. Confirm entitlement before running — the gate hard-fails for sub-Pro:
+
+```bash
+npx massu license check --min pro || exit 1
+```
+
+On a non-zero exit the command STOPS immediately and surfaces the upgrade message (`… is a Pro feature. … Upgrade at https://massu.ai/pricing`). Do not proceed past this gate without a Pro (or higher) license.
+
+---
+
 ## MANDATORY LOOP CONTROLLER (EXECUTE THIS - DO NOT SKIP)
 
 **This section is the EXECUTION ENTRY POINT. You MUST follow these steps exactly.**

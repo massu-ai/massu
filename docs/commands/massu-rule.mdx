@@ -7,6 +7,8 @@ description: "Inspect, approve, or dismiss rule candidates emitted by the v0.2 i
 
 Surface, review, and act on rule-candidate sidecars written by the `UserPromptSubmit` hook whenever a user correction prompt scores ≥60 on the rule-candidate detector. The slash command is the **single authoring surface** for new rules — pattern-scanner checks, CR rows, custom-destination entries, and `corrections.md` appends ALL flow through `applyRuleCandidate()` so files can never be edited piecemeal.
 
+> **Requires Pro.** Auto-learning — candidate **emission** and rule **promotion** — is a Pro feature. The command and this page are free to view, but on the free tier no candidates are emitted and `approve` surfaces an upgrade prompt instead of writing. `list`, `show`, `dismiss`, and `recurrence` remain available on any tier. Upgrade at [massu.ai/pricing](/pricing).
+
 ## When to Use
 
 - Stderr nudge appeared: `[RULE CANDIDATE] N rule candidate(s) pending (/massu-rule list)`

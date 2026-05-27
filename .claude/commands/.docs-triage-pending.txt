@@ -22,13 +22,9 @@
 #
 # Format: one base-name per line. `#` lines and blank lines ignored.
 massu-article-review
-massu-autoresearch
 massu-checkpoint
-massu-command-health
-massu-command-improve
 massu-data
 massu-full-audit
-massu-infra-audit
 massu-learning-audit
 massu-new-pattern
 massu-perf

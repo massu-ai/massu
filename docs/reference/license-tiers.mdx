@@ -45,6 +45,9 @@ Everything in Free, plus advanced memory, knowledge, analytics, cost, prompt ana
 | **Observability** | `session_replay`, `prompt_analysis`, `tool_patterns`, `session_stats` | Session replay, tool patterns, and statistics |
 | **Documentation** | `docs_audit`, `docs_coverage` | Documentation audit and coverage |
 | **Python Intelligence** | `py_imports`, `py_routes`, `py_coupling`, `py_models`, `py_migrations`, `py_domains`, `py_impact`, `py_context` | Full-stack Python analysis: FastAPI routes, SQLAlchemy models, Alembic migrations, and cross-language coupling detection |
+| **Auto-Learning / Rule Promotion** | `/massu-rule` (candidate detection + promotion) | Turn your corrections into enforced rules — the hook detects correction-shaped prompts and `/massu-rule approve` promotes them to pattern-scanner checks, CR rows, or `corrections.md` entries. Pro = local to your machine. |
+
+The `/massu-rule` command and its documentation are free to view, but candidate **emission** and rule **promotion** require Pro or above. On the free tier the command runs but has nothing to act on, and `approve` surfaces an upgrade prompt rather than writing.
 
 ### Team Tier (9 additional tools)
 
@@ -54,6 +57,8 @@ Everything in Pro, plus feature registry and team collaboration tools.
 |----------|-------|-------------|
 | **Sentinel** | `sentinel_search`, `sentinel_detail`, `sentinel_impact`, `sentinel_validate`, `sentinel_register`, `sentinel_parity` | Feature registration, validation, impact, and parity checking |
 | **Team Knowledge** | `team_search`, `team_expertise`, `team_conflicts` | Expertise tracking and conflict detection |
+
+On the Team tier, auto-learning is designed to become **shared** — a promoted rule propagates across the team rather than staying local to one machine. Shared rule propagation is on the roadmap; today auto-learning is local to your machine on both Pro and Team.
 
 ### Enterprise Tier (8 additional tools)
 

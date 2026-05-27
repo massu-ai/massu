@@ -14,6 +14,8 @@ import type Database from 'better-sqlite3';
 import { getResolvedPaths } from '../config.ts';
 import { scoreCorrectionPrompt } from '../rule-candidate-detector.ts';
 import { categorizePrompt, hashPrompt } from '../prompt-analyzer.ts';
+import { getCachedTierReadOnly } from '../license.ts';
+import { entitledForAutoLearning, autoLearningUpgradeMessage } from '../auto-learning-entitlement.ts';
 
 interface HookInput {
   session_id: string;
@@ -135,20 +137,42 @@ async function main(): Promise<void> {
 
         const candidateDir = join(hookInput.cwd, '.massu', 'rule-candidates');
         if (scoreResult.emitCandidate) {
-          mkdirSync(candidateDir, { recursive: true });
-          const promptHash = hashPrompt(prompt);
-          const candidatePath = join(candidateDir, `${promptHash}.json`);
-          // Sha-keyed file naming → idempotent on retry (plan §5 idempotency).
-          if (!existsSync(candidatePath)) {
-            writeFileSync(candidatePath, JSON.stringify({
-              prompt,
-              prompt_hash: promptHash,
-              score: scoreResult.score,
-              signals: scoreResult.signals,
-              prior_turn_files: priorTurn.files,
-              timestamp: new Date().toISOString(),
-              session_id,
-            }, null, 2));
+          // CR-54 (plan-2026-05-27-tier-gate-auto-learning): candidate
+          // emission is a Pro+ feature. Read the tier from the local cache
+          // ONLY — getCachedTierReadOnly() never touches the network, so the
+          // hook stays well inside its 5s budget. Reuse the hook's open db
+          // handle (no second SQLite open). Fail-closed → 'free' on any miss.
+          const cachedTier = getCachedTierReadOnly(db);
+          if (entitledForAutoLearning(cachedTier)) {
+            mkdirSync(candidateDir, { recursive: true });
+            const promptHash = hashPrompt(prompt);
+            const candidatePath = join(candidateDir, `${promptHash}.json`);
+            // Sha-keyed file naming → idempotent on retry (plan §5 idempotency).
+            if (!existsSync(candidatePath)) {
+              writeFileSync(candidatePath, JSON.stringify({
+                prompt,
+                prompt_hash: promptHash,
+                score: scoreResult.score,
+                signals: scoreResult.signals,
+                prior_turn_files: priorTurn.files,
+                timestamp: new Date().toISOString(),
+                session_id,
+              }, null, 2));
+            }
+          } else {
+            // Sub-Pro: skip the write + emit a ONE-TIME upgrade note, gated
+            // by a `.last-tier-nudge` marker (mirrors the `.last-surfaced`
+            // one-shot below). We DON'T re-nudge every prompt.
+            const nudgePath = join(candidateDir, '.last-tier-nudge');
+            if (!existsSync(nudgePath)) {
+              mkdirSync(candidateDir, { recursive: true });
+              // Single SoT (CR-46 #3): the upgrade message comes from
+              // autoLearningUpgradeMessage() — never re-hardcoded here.
+              process.stderr.write(
+                `\n[RULE CANDIDATE] ${autoLearningUpgradeMessage(cachedTier)}\n\n`
+              );
+              writeFileSync(nudgePath, new Date().toISOString());
+            }
           }
         }
 
@@ -185,7 +209,9 @@ async function main(): Promise<void> {
           const sep = pre && !pre.endsWith('\n') ? '\n' : '';
           writeFileSync(logPath, pre + sep + JSON.stringify({
             session_id,
-            prompt_excerpt: prompt.slice(0, 200),
+            // Security review (plan-2026-05-27): log the prompt HASH, never a
+            // raw prompt excerpt — the failure log must not persist PII/secrets.
+            prompt_hash: hashPrompt(prompt),
             error: candidateErr instanceof Error ? candidateErr.message : String(candidateErr),
             timestamp: new Date().toISOString(),
           }) + '\n', 'utf-8');

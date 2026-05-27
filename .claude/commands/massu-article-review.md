@@ -10,6 +10,18 @@ name: massu-article-review
 
 # Massu Article Review: Technical Article Analysis Protocol
 
+## Tier requirement (Requires Pro)
+
+This command is a **Pro+** feature. Confirm entitlement before running — the gate hard-fails for sub-Pro:
+
+```bash
+npx massu license check --min pro || exit 1
+```
+
+On a non-zero exit the command STOPS immediately and surfaces the upgrade message (`… is a Pro feature. … Upgrade at https://massu.ai/pricing`). Do not proceed past this gate without a Pro (or higher) license.
+
+---
+
 ## Objective
 
 Analyze technical articles, blog posts, and documentation to extract actionable insights for project development. Produce structured summaries with cost/benefit scoring and automatic comparison to current project approaches.

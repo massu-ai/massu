@@ -8,6 +8,18 @@ name: massu-learning-audit
 
 # Massu Learning Audit: Auto-Learning Effectiveness Validation
 
+## Tier requirement (Requires Pro)
+
+This command is a **Pro+** feature. Confirm entitlement before running — the gate hard-fails for sub-Pro:
+
+```bash
+npx massu license check --min pro || exit 1
+```
+
+On a non-zero exit the command STOPS immediately and surfaces the upgrade message (`… is a Pro feature. … Upgrade at https://massu.ai/pricing`). Do not proceed past this gate without a Pro (or higher) license.
+
+---
+
 ## Objective
 
 Validate that the CR-34 auto-learning protocol is working effectively by checking:

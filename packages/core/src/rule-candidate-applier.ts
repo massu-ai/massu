@@ -16,6 +16,7 @@ import { encodeMemoryDirName } from './lib/memory-path.ts';
 import { logAuditEntry, type AuditEntry } from './audit-trail.ts';
 import { renderTemplate, type TemplateVars } from './template-renderer.ts';
 import type { CustomDestinationConfig } from './rule-classifier.ts';
+import { assertAutoLearningEntitled } from './auto-learning-entitlement.ts';
 
 // SEC-01 fix: candidate IDs are sha-keyed via `hashPrompt()` which returns
 // 16 hex chars (sha-256 truncated). Reject any other shape at the I/O
@@ -118,6 +119,13 @@ export interface ApplyResult {
   idempotent_noop?: boolean;
   audit_log_id?: number;
   error?: string;
+  /**
+   * `true` when the promotion was refused because the current tier is below
+   * the auto-learning minimum (Pro). On refusal, ZERO DB/file mutation
+   * occurs — the gate runs before `takeSnapshots`/`BEGIN`. The `error` field
+   * carries the generic upgrade message (CR-54).
+   */
+  tier_refused?: boolean;
 }
 
 /**
@@ -310,10 +318,19 @@ function validateCandidatePayload(raw: unknown): RuleCandidatePayload {
  *          `idempotent_noop=true` when the UNIQUE INDEX on
  *          `audit_log.metadata.prompt_hash` trips (rule already promoted).
  */
-export function applyRuleCandidate(
+export async function applyRuleCandidate(
   db: Database.Database,
   opts: ApplyOptions
-): ApplyResult {
+): Promise<ApplyResult> {
+  // CR-54 (plan-2026-05-27-tier-gate-auto-learning): auto-learning promotion
+  // is a Pro+ feature. Resolve entitlement INSIDE the chokepoint (the caller
+  // cannot inject a forged tier) and refuse BEFORE any candidate read,
+  // snapshot, or BEGIN — zero DB/file mutation on refusal. Fail-closed.
+  const ent = await assertAutoLearningEntitled();
+  if (!ent.entitled) {
+    return { ok: false, error: ent.message, tier_refused: true };
+  }
+
   // SEC-01: validate the candidateId shape before any filesystem access.
   if (!CANDIDATE_ID_PATTERN.test(opts.candidateId)) {
     throw new InvalidCandidateIdError(opts.candidateId);

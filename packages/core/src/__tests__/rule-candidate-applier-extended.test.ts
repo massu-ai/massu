@@ -17,6 +17,7 @@ import {
 } from '../rule-candidate-applier.ts';
 import { encodeMemoryDirName } from '../lib/memory-path.ts';
 import type { CustomDestinationConfig } from '../rule-classifier.ts';
+import { _setCachedTierForTest, _resetCachedTier } from '../license.ts';
 
 let tmpHome: string;
 let tmpProjectRoot: string;
@@ -70,6 +71,8 @@ function writeCandidate(payload: Partial<RuleCandidatePayload> = {}): string {
 describe('rule-candidate-applier (extended destinations)', () => {
   beforeEach(() => {
     setup();
+    // CR-54: applyRuleCandidate is tier-gated (Pro+). Seed Pro so promotion runs.
+    _setCachedTierForTest('pro');
     db = new Database(':memory:');
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
@@ -77,12 +80,12 @@ describe('rule-candidate-applier (extended destinations)', () => {
     db.prepare(`INSERT INTO sessions (session_id, started_at, started_at_epoch) VALUES ('session-xyz', datetime('now'), 0)`).run();
   });
 
-  afterEach(() => { db.close(); teardown(); });
+  afterEach(() => { _resetCachedTier(); db.close(); teardown(); });
 
   describe('pattern-scanner destination', () => {
-    it('happy path: appends Check block + writes drift-guard sidecar', () => {
+    it('happy path: appends Check block + writes drift-guard sidecar', async () => {
       const id = writeCandidate();
-      const result = applyRuleCandidate(db, {
+      const result = await applyRuleCandidate(db, {
         candidateId: id,
         destination: 'pattern-scanner',
         draftText: 'grep -RnE "yaml\\.(load|parse)\\(readFileSync" packages/core/src/ && fail "use getConfig()"',
@@ -105,15 +108,15 @@ describe('rule-candidate-applier (extended destinations)', () => {
       expect(driftContent).toContain('abc123def4567890');
     });
 
-    it('conflict-detection: refuses a second approve for same prompt_hash', () => {
+    it('conflict-detection: refuses a second approve for same prompt_hash', async () => {
       const id = writeCandidate();
-      applyRuleCandidate(db, {
+      await applyRuleCandidate(db, {
         candidateId: id, destination: 'pattern-scanner',
         draftText: 'grep -q foo packages/core/src/', slug: 'no_direct_yaml_load',
         patternScannerCheckNumber: 30, projectRoot: tmpProjectRoot, home: tmpHome,
       });
       writeCandidate();  // re-create the sidecar so the second call reaches Step 2
-      const result = applyRuleCandidate(db, {
+      const result = await applyRuleCandidate(db, {
         candidateId: id, destination: 'pattern-scanner',
         draftText: 'grep -q foo packages/core/src/', slug: 'no_direct_yaml_load',
         patternScannerCheckNumber: 31, projectRoot: tmpProjectRoot, home: tmpHome,
@@ -123,7 +126,7 @@ describe('rule-candidate-applier (extended destinations)', () => {
       expect(result.idempotent_noop).toBe(true);
     });
 
-    it('snapshot-set: drift-guard sidecar deleted on rollback (NEW file)', () => {
+    it('snapshot-set: drift-guard sidecar deleted on rollback (NEW file)', async () => {
       const id = writeCandidate();
       // Pre-fill MEMORY.md as read-only to force a Step-3 failure.
       const memoryIndex = join(tmpHome, '.claude', 'projects', encodeMemoryDirName(tmpProjectRoot), 'memory', 'MEMORY.md');
@@ -133,7 +136,7 @@ describe('rule-candidate-applier (extended destinations)', () => {
       if (writable) { chmodSync(memoryIndex, 0o644); return; }
 
       try {
-        const result = applyRuleCandidate(db, {
+        const result = await applyRuleCandidate(db, {
           candidateId: id, destination: 'pattern-scanner',
           draftText: 'grep -q foo /', slug: 'snapshot_test',
           patternScannerCheckNumber: 50, projectRoot: tmpProjectRoot, home: tmpHome,
@@ -154,9 +157,9 @@ describe('rule-candidate-applier (extended destinations)', () => {
   });
 
   describe('claude-md-cr destination', () => {
-    it('happy path: appends CR-N body section', () => {
+    it('happy path: appends CR-N body section', async () => {
       const id = writeCandidate();
-      const result = applyRuleCandidate(db, {
+      const result = await applyRuleCandidate(db, {
         candidateId: id, destination: 'claude-md-cr',
         draftText: 'Every approve must reference a plan token in the audit_log metadata.',
         slug: 'audit_log_plan_token', claudeMdCrNumber: 99,
@@ -170,12 +173,12 @@ describe('rule-candidate-applier (extended destinations)', () => {
       expect(claude).toContain('Every approve must reference a plan token');
     });
 
-    it('conflict-detection: refuses when CR-N already exists in CLAUDE.md', () => {
+    it('conflict-detection: refuses when CR-N already exists in CLAUDE.md', async () => {
       // Pre-seed an existing CR-50 entry
       const claudePath = join(tmpProjectRoot, '.claude', 'CLAUDE.md');
       writeFileSync(claudePath, readFileSync(claudePath, 'utf-8') + '\n### CR-50: pre-existing\n', 'utf-8');
       const id = writeCandidate();
-      const result = applyRuleCandidate(db, {
+      const result = await applyRuleCandidate(db, {
         candidateId: id, destination: 'claude-md-cr', draftText: 'body',
         slug: 'collision', claudeMdCrNumber: 50,
         projectRoot: tmpProjectRoot, home: tmpHome,
@@ -200,11 +203,11 @@ describe('rule-candidate-applier (extended destinations)', () => {
       template: '## ${date}\n- score: ${score}\n- destination: ${destination_name}\n- preview: ${prompt_preview}\n',
     };
 
-    it('happy path: renders template at the configured path', () => {
+    it('happy path: renders template at the configured path', async () => {
       mkdirSync(join(tmpProjectRoot, 'docs'), { recursive: true });
       writeFileSync(join(tmpProjectRoot, 'docs', 'brand-voice.md'), '# Brand Voice\n', 'utf-8');
       const id = writeCandidate();
-      const result = applyRuleCandidate(db, {
+      const result = await applyRuleCandidate(db, {
         candidateId: id, destination: 'custom-destination',
         draftText: 'unused for custom-destination — template renders from candidate fields',
         slug: 'brand_voice_tweak', customDestination,
@@ -219,13 +222,13 @@ describe('rule-candidate-applier (extended destinations)', () => {
       expect(dest).toContain('- preview: use getConfig() instead of direct yaml.load');
     });
 
-    it('rejects paths that escape the project root', () => {
+    it('rejects paths that escape the project root', async () => {
       const escaping: CustomDestinationConfig = {
         ...customDestination,
         path: '../escape-attempt.md',
       };
       const id = writeCandidate();
-      const result = applyRuleCandidate(db, {
+      const result = await applyRuleCandidate(db, {
         candidateId: id, destination: 'custom-destination', draftText: 'body',
         slug: 'escape', customDestination: escaping,
         projectRoot: tmpProjectRoot, home: tmpHome,
@@ -234,7 +237,7 @@ describe('rule-candidate-applier (extended destinations)', () => {
       expect(result.error).toMatch(/escapes project root/);
     });
 
-    it('snapshot-set: NEW destination file deleted on rollback', () => {
+    it('snapshot-set: NEW destination file deleted on rollback', async () => {
       // No pre-existing dest file → it will be NEW during Step 2.
       const id = writeCandidate();
       const memoryIndex = join(tmpHome, '.claude', 'projects', encodeMemoryDirName(tmpProjectRoot), 'memory', 'MEMORY.md');
@@ -244,7 +247,7 @@ describe('rule-candidate-applier (extended destinations)', () => {
       if (writable) { chmodSync(memoryIndex, 0o644); return; }
       try {
         mkdirSync(join(tmpProjectRoot, 'docs'), { recursive: true });
-        const result = applyRuleCandidate(db, {
+        const result = await applyRuleCandidate(db, {
           candidateId: id, destination: 'custom-destination', draftText: 'body',
           slug: 'rollback', customDestination,
           projectRoot: tmpProjectRoot, home: tmpHome,
@@ -257,14 +260,14 @@ describe('rule-candidate-applier (extended destinations)', () => {
       }
     });
 
-    it('rejects custom destination whose template references disallowed var (RCE-guard)', () => {
+    it('rejects custom destination whose template references disallowed var (RCE-guard)', async () => {
       const dangerous: CustomDestinationConfig = {
         ...customDestination,
         template: 'safe prefix ${process.exit(1)} suffix',
       };
       mkdirSync(join(tmpProjectRoot, 'docs'), { recursive: true });
       const id = writeCandidate();
-      const result = applyRuleCandidate(db, {
+      const result = await applyRuleCandidate(db, {
         candidateId: id, destination: 'custom-destination', draftText: 'body',
         slug: 'rce_attempt', customDestination: dangerous,
         projectRoot: tmpProjectRoot, home: tmpHome,

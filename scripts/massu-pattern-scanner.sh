@@ -1051,6 +1051,118 @@ else
 fi
 
 # -------------------------------------------------------
+# Check 30: Auto-learning tier-gate wiring (CR-54 / VR-AUTO-LEARNING-TIER)
+# (plan-2026-05-27-tier-gate-auto-learning P1-009).
+# -------------------------------------------------------
+# Auto-learning (rule-candidate emission + promotion) is a Pro+ feature.
+# The gate lives at a single chokepoint reading a single source-of-truth
+# module. This check is the bash mirror of the vitest drift-guard
+# `auto-learning-tier-gate-drift-guard.test.ts` (vitest <-> scanner parity,
+# the CR-50/CR-52 convention). It asserts the three invariants:
+#   1. the promotion chokepoint references the entitlement SoT AND is async;
+#   2. the emission hook references the cache-only reader + predicate + the
+#      upgrade-message SoT (no re-hardcoded upgrade string);
+#   3. the SoT module pins the minimum tier to 'pro'.
+# A silent regression that drops the gate fails this check at pre-commit time.
+# -------------------------------------------------------
+echo ""
+echo "Check 30: Auto-learning tier-gate wiring (CR-54 / VR-AUTO-LEARNING-TIER)"
+CHECK30_VIOLATIONS=0
+CHECK30_ENTITLEMENT="$SRC_DIR/auto-learning-entitlement.ts"
+CHECK30_APPLIER="$SRC_DIR/rule-candidate-applier.ts"
+CHECK30_HOOK="$SRC_DIR/hooks/user-prompt.ts"
+
+# Invariant 3: SoT module exists and pins the minimum tier to 'pro'.
+if [ -f "$CHECK30_ENTITLEMENT" ]; then
+  if ! grep -qE "AUTO_LEARNING_MIN_TIER: ToolTier = 'pro'" "$CHECK30_ENTITLEMENT"; then
+    fail "Check 30: auto-learning-entitlement.ts does not pin AUTO_LEARNING_MIN_TIER to 'pro'"
+    CHECK30_VIOLATIONS=$((CHECK30_VIOLATIONS + 1))
+  fi
+else
+  fail "Check 30: auto-learning-entitlement.ts (entitlement SoT) is missing"
+  CHECK30_VIOLATIONS=$((CHECK30_VIOLATIONS + 1))
+fi
+
+# Invariant 1: the promotion chokepoint references the SoT AND is async.
+if [ -f "$CHECK30_APPLIER" ]; then
+  if ! grep -q "assertAutoLearningEntitled" "$CHECK30_APPLIER"; then
+    fail "Check 30: rule-candidate-applier.ts does not reference assertAutoLearningEntitled (gate removed?)"
+    CHECK30_VIOLATIONS=$((CHECK30_VIOLATIONS + 1))
+  fi
+  if ! grep -qE "export async function applyRuleCandidate" "$CHECK30_APPLIER"; then
+    fail "Check 30: applyRuleCandidate is not declared async (the gate is async-resolved)"
+    CHECK30_VIOLATIONS=$((CHECK30_VIOLATIONS + 1))
+  fi
+else
+  fail "Check 30: rule-candidate-applier.ts (promotion chokepoint) is missing"
+  CHECK30_VIOLATIONS=$((CHECK30_VIOLATIONS + 1))
+fi
+
+# Invariant 2: the emission hook references the cache-only reader + predicate.
+if [ -f "$CHECK30_HOOK" ]; then
+  if ! grep -q "getCachedTierReadOnly" "$CHECK30_HOOK"; then
+    fail "Check 30: hooks/user-prompt.ts does not reference getCachedTierReadOnly (emission gate removed?)"
+    CHECK30_VIOLATIONS=$((CHECK30_VIOLATIONS + 1))
+  fi
+  if ! grep -q "entitledForAutoLearning" "$CHECK30_HOOK"; then
+    fail "Check 30: hooks/user-prompt.ts does not reference entitledForAutoLearning (emission gate removed?)"
+    CHECK30_VIOLATIONS=$((CHECK30_VIOLATIONS + 1))
+  fi
+  # Single-SoT (CR-46 #3): the sub-Pro upgrade nudge MUST derive from
+  # autoLearningUpgradeMessage(), never a re-hardcoded string in the hook.
+  if ! grep -q "autoLearningUpgradeMessage" "$CHECK30_HOOK"; then
+    fail "Check 30: hooks/user-prompt.ts does not use autoLearningUpgradeMessage (upgrade text must come from the SoT, not be hardcoded)"
+    CHECK30_VIOLATIONS=$((CHECK30_VIOLATIONS + 1))
+  fi
+else
+  fail "Check 30: hooks/user-prompt.ts (emission hook) is missing"
+  CHECK30_VIOLATIONS=$((CHECK30_VIOLATIONS + 1))
+fi
+
+if [ "$CHECK30_VIOLATIONS" -eq 0 ]; then
+  pass "Check 30: Auto-learning tier-gate wiring intact"
+fi
+
+# Check 31: Command tier-gate wiring (CR-46 structural anti-regression).
+# -------------------------------------------------------
+# A Pro-gated slash command must not silently lose its gate. For every public
+# command file (.claude/commands/massu-*.md, excluding massu-internal-*) whose
+# body contains the gate marker "## Tier requirement (Requires", the SAME file
+# MUST also contain the gate line "license check --min". Marker implies gate.
+# This is the bash mirror of the vitest drift-guard
+# `command-tier-gate-drift-guard.test.ts` (vitest <-> scanner parity, the
+# CR-50 convention). A half-removed gate (marker kept, gate line dropped) fails
+# this check at pre-commit time. The command set is derived from the filesystem
+# (CR-46 / derive-from-SoT) so a newly-added gated command is covered too.
+# -------------------------------------------------------
+echo ""
+echo "Check 31: Command tier-gate wiring (CR-46)"
+CHECK31_MARKER="## Tier requirement (Requires"
+CHECK31_GATE="license check --min"
+CHECK31_DIR="$REPO_ROOT/.claude/commands"
+CHECK31_VIOLATIONS=0
+if [ -d "$CHECK31_DIR" ]; then
+  for cmd in "$CHECK31_DIR"/massu-*.md; do
+    [ -f "$cmd" ] || continue
+    case "$(basename "$cmd")" in
+      massu-internal-*) continue ;;
+    esac
+    if grep -qF "$CHECK31_MARKER" "$cmd"; then
+      if ! grep -qF "$CHECK31_GATE" "$cmd"; then
+        fail "Check 31: $(basename "$cmd") declares the Tier-requirement marker but is missing the '$CHECK31_GATE' gate line"
+        CHECK31_VIOLATIONS=$((CHECK31_VIOLATIONS + 1))
+      fi
+    fi
+  done
+else
+  fail "Check 31: commands dir not found at $CHECK31_DIR"
+  CHECK31_VIOLATIONS=$((CHECK31_VIOLATIONS + 1))
+fi
+if [ "$CHECK31_VIOLATIONS" -eq 0 ]; then
+  pass "Check 31: Command tier-gate wiring intact"
+fi
+
+# -------------------------------------------------------
 # Summary
 # -------------------------------------------------------
 echo ""

@@ -1340,6 +1340,175 @@ function hashPrompt(promptText) {
   return createHash("sha256").update(normalized).digest("hex").slice(0, 16);
 }
 
+// src/license.ts
+import { createHash as createHash2 } from "crypto";
+
+// src/security/license-response-verifier.ts
+import { createPublicKey, verify as cryptoVerify } from "crypto";
+
+// src/security/license-pubkey.generated.ts
+var LICENSE_PUBKEY_ED25519 = new Uint8Array([39, 136, 108, 146, 85, 233, 119, 252, 223, 226, 123, 155, 234, 168, 200, 150, 36, 249, 174, 6, 130, 146, 125, 196, 136, 224, 202, 150, 53, 228, 114, 15]);
+var LICENSE_PUBKEY_FINGERPRINT_HEX = "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475";
+var KNOWN_LICENSE_PUBKEY_FINGERPRINTS = /* @__PURE__ */ new Set([
+  "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475"
+]);
+
+// src/security/license-response-verifier.ts
+function verifyLicenseResponse(payload) {
+  if (!KNOWN_LICENSE_PUBKEY_FINGERPRINTS.has(LICENSE_PUBKEY_FINGERPRINT_HEX)) {
+    return {
+      kind: "error",
+      reason: `Bundled license pubkey fingerprint ${LICENSE_PUBKEY_FINGERPRINT_HEX} is not in the trusted allowlist. Possible build-time tamper.`
+    };
+  }
+  const sig = payload._signature;
+  const alg = payload._signature_alg;
+  const payloadKeys = payload._signature_payload_keys;
+  const sigPubkey = payload._signature_pubkey_fingerprint;
+  if (typeof sig !== "string" || sig.length === 0) {
+    return { kind: "missing_signature" };
+  }
+  if (alg !== "ed25519") {
+    return { kind: "error", reason: `Unsupported signature algorithm: ${alg}` };
+  }
+  if (!Array.isArray(payloadKeys) || payloadKeys.length === 0) {
+    return { kind: "error", reason: "Missing _signature_payload_keys" };
+  }
+  if (typeof sigPubkey === "string" && sigPubkey !== LICENSE_PUBKEY_FINGERPRINT_HEX) {
+    return { kind: "unknown_pubkey", got: sigPubkey };
+  }
+  const canonicalObj = {};
+  for (const k of payloadKeys) {
+    if (typeof k !== "string") continue;
+    canonicalObj[k] = payload[k];
+  }
+  const canonical = JSON.stringify(canonicalObj, [...payloadKeys].sort());
+  try {
+    const spkiPrefix = Buffer.from([
+      48,
+      42,
+      48,
+      5,
+      6,
+      3,
+      43,
+      101,
+      112,
+      3,
+      33,
+      0
+    ]);
+    const der = Buffer.concat([spkiPrefix, Buffer.from(LICENSE_PUBKEY_ED25519)]);
+    const pubkey = createPublicKey({ key: der, format: "der", type: "spki" });
+    const ok = cryptoVerify(
+      null,
+      Buffer.from(canonical, "utf-8"),
+      pubkey,
+      Buffer.from(sig, "base64")
+    );
+    return ok ? { kind: "valid" } : { kind: "bad_signature" };
+  } catch (err) {
+    return {
+      kind: "error",
+      reason: `Signature verification threw: ${err instanceof Error ? err.message : String(err)}`
+    };
+  }
+}
+function isLicenseSignatureRequired() {
+  return process.env.MASSU_REQUIRE_SIGNED_LICENSE === "true";
+}
+
+// src/license.ts
+var _warnedLicenseSig = false;
+function warnLicenseSigOnce(reason) {
+  if (_warnedLicenseSig) return;
+  _warnedLicenseSig = true;
+  process.stderr.write(
+    `[massu] WARNING: license-validate response is unsigned or signature invalid (${reason}). Acceptance permitted under transition mode. Operator: provision Supabase Edge Function LICENSE_RESPONSE_SIGNING_PRIVATE_KEY_B64 then set MASSU_REQUIRE_SIGNED_LICENSE=true to enforce strict mode.
+`
+  );
+}
+var TIER_LEVELS = {
+  free: 0,
+  pro: 1,
+  team: 2,
+  enterprise: 3
+};
+function tierLevel(tier) {
+  return TIER_LEVELS[tier] ?? 0;
+}
+var PLAN_TO_TIER_MAP = {
+  free: "free",
+  cloud_pro: "pro",
+  cloud_team: "team",
+  cloud_enterprise: "enterprise"
+};
+var IN_MEMORY_CACHE_TTL_MS = 15 * 60 * 1e3;
+var GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1e3;
+function readTrustedCache(cached) {
+  if (!cached.signed_payload_json) {
+    if (isLicenseSignatureRequired()) return null;
+    warnLicenseSigOnce("cache_unsigned_transition");
+    return {
+      tier: cached.tier,
+      validUntil: cached.valid_until,
+      features: JSON.parse(cached.features || "[]")
+    };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(cached.signed_payload_json);
+  } catch {
+    return null;
+  }
+  const result = verifyLicenseResponse(parsed);
+  if (result.kind !== "valid") return null;
+  const verifiedPlan = typeof parsed.plan === "string" ? parsed.plan : null;
+  const verifiedTierField = typeof parsed.tier === "string" ? parsed.tier : null;
+  const tier = verifiedPlan ? PLAN_TO_TIER_MAP[verifiedPlan] ?? "free" : verifiedTierField ?? "free";
+  const validUntil = typeof parsed.validUntil === "string" ? parsed.validUntil : "";
+  const features = Array.isArray(parsed.features) ? parsed.features : [];
+  return { tier, validUntil, features };
+}
+function getCachedTierReadOnly(memDb) {
+  const config = getConfig();
+  const apiKey = config.cloud?.apiKey;
+  if (!apiKey) return "free";
+  const ownsDb = !memDb;
+  const db = memDb ?? getMemoryDb();
+  try {
+    const keyHash = createHash2("sha256").update(apiKey).digest("hex");
+    const cached = db.prepare(
+      "SELECT tier, valid_until, last_validated, features, signed_payload_json FROM license_cache WHERE api_key_hash = ?"
+    ).get(keyHash);
+    if (!cached) return "free";
+    const trusted = readTrustedCache(cached);
+    if (!trusted) return "free";
+    const lastValidated = new Date(cached.last_validated);
+    const sevenDaysAgo = new Date(Date.now() - GRACE_PERIOD_MS);
+    if (!(lastValidated > sevenDaysAgo)) return "free";
+    return trusted.tier;
+  } catch {
+    return "free";
+  } finally {
+    if (ownsDb) {
+      try {
+        db.close();
+      } catch {
+      }
+    }
+  }
+}
+
+// src/auto-learning-entitlement.ts
+var AUTO_LEARNING_MIN_TIER = "pro";
+function entitledForAutoLearning(tier) {
+  return tierLevel(tier) >= tierLevel(AUTO_LEARNING_MIN_TIER);
+}
+function autoLearningUpgradeMessage(currentTier) {
+  return `Auto-learning (rule-candidate detection + /massu-rule promotion) is a Pro feature. Your tier: ${currentTier.toUpperCase()}. Upgrade at https://massu.ai/pricing`;
+}
+
 // src/hooks/user-prompt.ts
 async function main() {
   try {
@@ -1428,19 +1597,34 @@ async function main() {
         });
         const candidateDir = join(hookInput.cwd, ".massu", "rule-candidates");
         if (scoreResult.emitCandidate) {
-          mkdirSync2(candidateDir, { recursive: true });
-          const promptHash = hashPrompt(prompt);
-          const candidatePath = join(candidateDir, `${promptHash}.json`);
-          if (!existsSync3(candidatePath)) {
-            writeFileSync(candidatePath, JSON.stringify({
-              prompt,
-              prompt_hash: promptHash,
-              score: scoreResult.score,
-              signals: scoreResult.signals,
-              prior_turn_files: priorTurn.files,
-              timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-              session_id
-            }, null, 2));
+          const cachedTier = getCachedTierReadOnly(db);
+          if (entitledForAutoLearning(cachedTier)) {
+            mkdirSync2(candidateDir, { recursive: true });
+            const promptHash = hashPrompt(prompt);
+            const candidatePath = join(candidateDir, `${promptHash}.json`);
+            if (!existsSync3(candidatePath)) {
+              writeFileSync(candidatePath, JSON.stringify({
+                prompt,
+                prompt_hash: promptHash,
+                score: scoreResult.score,
+                signals: scoreResult.signals,
+                prior_turn_files: priorTurn.files,
+                timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+                session_id
+              }, null, 2));
+            }
+          } else {
+            const nudgePath = join(candidateDir, ".last-tier-nudge");
+            if (!existsSync3(nudgePath)) {
+              mkdirSync2(candidateDir, { recursive: true });
+              process.stderr.write(
+                `
+[RULE CANDIDATE] ${autoLearningUpgradeMessage(cachedTier)}
+
+`
+              );
+              writeFileSync(nudgePath, (/* @__PURE__ */ new Date()).toISOString());
+            }
           }
         }
         if (existsSync3(candidateDir)) {
@@ -1474,7 +1658,9 @@ async function main() {
           const sep = pre && !pre.endsWith("\n") ? "\n" : "";
           writeFileSync(logPath, pre + sep + JSON.stringify({
             session_id,
-            prompt_excerpt: prompt.slice(0, 200),
+            // Security review (plan-2026-05-27): log the prompt HASH, never a
+            // raw prompt excerpt — the failure log must not persist PII/secrets.
+            prompt_hash: hashPrompt(prompt),
             error: candidateErr instanceof Error ? candidateErr.message : String(candidateErr),
             timestamp: (/* @__PURE__ */ new Date()).toISOString()
           }) + "\n", "utf-8");

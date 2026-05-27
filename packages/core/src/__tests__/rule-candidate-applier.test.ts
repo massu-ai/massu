@@ -23,6 +23,7 @@ import {
   MemoryIndexMissingError,
 } from '../rule-candidate-applier.ts';
 import { encodeMemoryDirName } from '../lib/memory-path.ts';
+import { _setCachedTierForTest, _resetCachedTier } from '../license.ts';
 
 let tmpHome: string;
 let tmpProjectRoot: string;
@@ -69,6 +70,9 @@ function writeCandidate(payload: Partial<RuleCandidatePayload> = {}): string {
 describe('rule-candidate-applier', () => {
   beforeEach(() => {
     setupTmpFixture();
+    // CR-54: applyRuleCandidate is tier-gated (Pro+). Seed the in-memory tier
+    // cache to Pro so the existing four-destination promotion tests stay green.
+    _setCachedTierForTest('pro');
     db = new Database(':memory:');
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
@@ -77,14 +81,15 @@ describe('rule-candidate-applier', () => {
   });
 
   afterEach(() => {
+    _resetCachedTier();
     db.close();
     teardownTmpFixture();
   });
 
   describe('Scenario 1: happy path (corrections-md)', () => {
-    it('runs the 4-step transaction end-to-end', () => {
+    it('runs the 4-step transaction end-to-end', async () => {
       const id = writeCandidate();
-      const result = applyRuleCandidate(db, {
+      const result = await applyRuleCandidate(db, {
         candidateId: id,
         destination: 'corrections-md',
         draftText: 'Always use getConfig() from config.ts. Direct yaml.load bypasses caching.',
@@ -122,7 +127,7 @@ describe('rule-candidate-applier', () => {
   });
 
   describe('Scenario 2: rollback on Step-3 failure (MEMORY.md write blocked)', () => {
-    it('restores all snapshotted files and leaves candidate in place', () => {
+    it('restores all snapshotted files and leaves candidate in place', async () => {
       const id = writeCandidate();
       const memDir = resolveMemoryDir(tmpProjectRoot, tmpHome);
       const memoryIndexPath = join(memDir, 'MEMORY.md');
@@ -141,7 +146,7 @@ describe('rule-candidate-applier', () => {
       }
 
       try {
-        const result = applyRuleCandidate(db, {
+        const result = await applyRuleCandidate(db, {
           candidateId: id,
           destination: 'corrections-md',
           draftText: 'rule body',
@@ -182,9 +187,9 @@ describe('rule-candidate-applier', () => {
   });
 
   describe('Scenario 3: idempotency via duplicate prompt_hash', () => {
-    it('second call with same prompt_hash returns idempotent_noop', () => {
+    it('second call with same prompt_hash returns idempotent_noop', async () => {
       const id = writeCandidate();
-      const first = applyRuleCandidate(db, {
+      const first = await applyRuleCandidate(db, {
         candidateId: id,
         destination: 'corrections-md',
         draftText: 'rule body',
@@ -197,7 +202,7 @@ describe('rule-candidate-applier', () => {
       // Re-write the candidate sidecar (the first run deleted it) so the
       // re-applier reaches Step 1 and trips the UNIQUE index.
       writeCandidate();
-      const second = applyRuleCandidate(db, {
+      const second = await applyRuleCandidate(db, {
         candidateId: id,
         destination: 'corrections-md',
         draftText: 'rule body',
@@ -245,21 +250,21 @@ describe('rule-candidate-applier', () => {
   });
 
   describe('Preconditions and errors', () => {
-    it('refuses with MemoryIndexMissingError when MEMORY.md absent', () => {
+    it('refuses with MemoryIndexMissingError when MEMORY.md absent', async () => {
       const memDir = resolveMemoryDir(tmpProjectRoot, tmpHome);
       rmSync(join(memDir, 'MEMORY.md'));
       const id = writeCandidate();
-      expect(() => applyRuleCandidate(db, {
+      await expect(applyRuleCandidate(db, {
         candidateId: id,
         destination: 'corrections-md',
         draftText: 'body',
         projectRoot: tmpProjectRoot,
         home: tmpHome,
-      })).toThrow(MemoryIndexMissingError);
+      })).rejects.toThrow(MemoryIndexMissingError);
     });
 
-    it('throws CandidateNotFoundError on missing sidecar (valid id shape, file absent)', () => {
-      expect(() => applyRuleCandidate(db, {
+    it('throws CandidateNotFoundError on missing sidecar (valid id shape, file absent)', async () => {
+      await expect(applyRuleCandidate(db, {
         // SEC-01: id MUST be 16 hex chars; using a valid-shape id that
         // does not exist on disk exercises the file-not-found branch.
         candidateId: 'deadbeefcafe1234',
@@ -267,26 +272,26 @@ describe('rule-candidate-applier', () => {
         draftText: 'body',
         projectRoot: tmpProjectRoot,
         home: tmpHome,
-      })).toThrow(CandidateNotFoundError);
+      })).rejects.toThrow(CandidateNotFoundError);
     });
 
     it('throws InvalidCandidateIdError on malformed candidateId (path traversal guard)', async () => {
       const { InvalidCandidateIdError } = await import('../rule-candidate-applier.ts');
       for (const bogus of ['nonexistent', '../../../tmp/foo', 'A'.repeat(16), '../../../etc/passwd']) {
-        expect(() => applyRuleCandidate(db, {
+        await expect(applyRuleCandidate(db, {
           candidateId: bogus,
           destination: 'corrections-md',
           draftText: 'body',
           projectRoot: tmpProjectRoot,
           home: tmpHome,
-        })).toThrow(InvalidCandidateIdError);
+        })).rejects.toThrow(InvalidCandidateIdError);
       }
     });
 
-    it('non-corrections-md destinations require their config args', () => {
+    it('non-corrections-md destinations require their config args', async () => {
       const id = writeCandidate();
       // pattern-scanner without patternScannerCheckNumber
-      let result = applyRuleCandidate(db, {
+      let result = await applyRuleCandidate(db, {
         candidateId: id, destination: 'pattern-scanner', draftText: 'body',
         projectRoot: tmpProjectRoot, home: tmpHome,
       });
@@ -294,7 +299,7 @@ describe('rule-candidate-applier', () => {
       expect(result.error).toMatch(/patternScannerCheckNumber/);
 
       // claude-md-cr without claudeMdCrNumber
-      result = applyRuleCandidate(db, {
+      result = await applyRuleCandidate(db, {
         candidateId: id, destination: 'claude-md-cr', draftText: 'body',
         projectRoot: tmpProjectRoot, home: tmpHome,
       });
@@ -302,12 +307,60 @@ describe('rule-candidate-applier', () => {
       expect(result.error).toMatch(/claudeMdCrNumber/);
 
       // custom-destination without customDestination
-      result = applyRuleCandidate(db, {
+      result = await applyRuleCandidate(db, {
         candidateId: id, destination: 'custom-destination', draftText: 'body',
         projectRoot: tmpProjectRoot, home: tmpHome,
       });
       expect(result.ok).toBe(false);
       expect(result.error).toMatch(/customDestination/);
+    });
+  });
+
+  describe('CR-54: tier gate (Free refused / Pro works)', () => {
+    it('Free tier → refused with tier_refused; ZERO mutation', async () => {
+      _setCachedTierForTest('free');
+      const id = writeCandidate();
+      const memDir = resolveMemoryDir(tmpProjectRoot, tmpHome);
+      const memoryIndexPre = readFileSync(join(memDir, 'MEMORY.md'), 'utf-8');
+
+      const result = await applyRuleCandidate(db, {
+        candidateId: id,
+        destination: 'corrections-md',
+        draftText: 'Always use getConfig() instead of yaml.load.',
+        projectRoot: tmpProjectRoot,
+        home: tmpHome,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.tier_refused).toBe(true);
+      expect(result.error).toContain('https://massu.ai/pricing');
+
+      // No audit_log row.
+      const promoted = (db.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE event_type='rule_promoted'`).get() as { n: number }).n;
+      expect(promoted).toBe(0);
+      // No destination edit (corrections.md / feedback file never created).
+      expect(existsSync(join(memDir, 'corrections.md'))).toBe(false);
+      const slug = deriveSlug('this is wrong, use getConfig() instead of yaml.load');
+      expect(existsSync(join(memDir, `feedback_${slug}.md`))).toBe(false);
+      // MEMORY.md not appended.
+      expect(readFileSync(join(memDir, 'MEMORY.md'), 'utf-8')).toBe(memoryIndexPre);
+      // Candidate sidecar untouched (left in place).
+      expect(existsSync(join(tmpProjectRoot, '.massu', 'rule-candidates', `${id}.json`))).toBe(true);
+    });
+
+    it('Pro tier → promotion succeeds as before', async () => {
+      _setCachedTierForTest('pro');
+      const id = writeCandidate();
+      const result = await applyRuleCandidate(db, {
+        candidateId: id,
+        destination: 'corrections-md',
+        draftText: 'Always use getConfig() instead of yaml.load.',
+        projectRoot: tmpProjectRoot,
+        home: tmpHome,
+      });
+      expect(result.ok).toBe(true);
+      expect(result.tier_refused).toBeFalsy();
+      expect(result.audit_log_id).toBeGreaterThan(0);
     });
   });
 });

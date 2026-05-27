@@ -309,6 +309,8 @@ interface LicenseInfo {
 let cachedTier: LicenseInfo | null = null;
 let cachedTierTimestamp: number = 0;
 const IN_MEMORY_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+/** Offline grace window: a cached row not re-validated within this span drops to free. */
+const GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /**
  * Validate a license key against the cloud endpoint.
@@ -437,7 +439,7 @@ export async function validateLicense(apiKey: string): Promise<LicenseInfo> {
     // signed; an unsigned / tampered row drops straight to free tier.
     if (cached && trusted) {
       const lastValidated = new Date(cached.last_validated);
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const sevenDaysAgo = new Date(Date.now() - GRACE_PERIOD_MS);
 
       // P3-013: 7-day grace period
       if (lastValidated > sevenDaysAgo) {
@@ -487,6 +489,15 @@ export function updateLicenseCache(
   }
 }
 
+/** Shape of a license_cache row as read from SQLite. */
+interface LicenseCacheRow {
+  tier: string;
+  valid_until: string;
+  last_validated: string;
+  features: string;
+  signed_payload_json: string;
+}
+
 /**
  * P-M-023: read a license_cache row through the signed wire payload.
  * Returns the trusted LicenseInfo when the stored signature verifies, or
@@ -494,12 +505,7 @@ export function updateLicenseCache(
  * (MASSU_REQUIRE_SIGNED_LICENSE=true) rejects unsigned rows; transition
  * mode accepts them but emits a one-shot stderr warning.
  */
-function readTrustedCache(cached: {
-  tier: string;
-  valid_until: string;
-  features: string;
-  signed_payload_json: string;
-}): LicenseInfo | null {
+function readTrustedCache(cached: LicenseCacheRow): LicenseInfo | null {
   // Unsigned row (pre-P-M-023 or upstream-unsigned-during-transition).
   if (!cached.signed_payload_json) {
     if (isLicenseSignatureRequired()) return null;
@@ -560,6 +566,67 @@ export async function getCurrentTier(): Promise<ToolTier> {
   cachedTier = info;
   cachedTierTimestamp = Date.now();
   return info.tier;
+}
+
+/**
+ * Hook-safe, SYNCHRONOUS tier reader. NEVER calls the network — does one
+ * indexed SQLite read against `license_cache` and resolves the tier through
+ * the SAME signed-payload trust path as {@link validateLicense}
+ * ({@link readTrustedCache}). Used by short-lived hook processes
+ * (e.g. user-prompt) where the network path of {@link getCurrentTier}
+ * (10s timeout) would blow the <5s hook budget.
+ *
+ * Fail-closed at every branch: no API key, missing/unsigned-in-strict/
+ * tampered/parse-error row, or a row older than the 7-day grace window → `'free'`.
+ *
+ * @param memDb Optional caller-owned memory-db handle. When provided, the
+ *              reader reuses it (and does NOT close it — caller owns its
+ *              lifecycle) to avoid a second SQLite open inside a hook that
+ *              already has the connection open. When omitted, opens its own
+ *              via `getMemoryDb()` and closes it before returning.
+ */
+export function getCachedTierReadOnly(memDb?: import('better-sqlite3').Database): ToolTier {
+  const config = getConfig();
+  const apiKey = config.cloud?.apiKey;
+  if (!apiKey) return 'free';
+
+  const ownsDb = !memDb;
+  const db = memDb ?? getMemoryDb();
+  try {
+    const keyHash = createHash('sha256').update(apiKey).digest('hex');
+    const cached = db.prepare(
+      'SELECT tier, valid_until, last_validated, features, signed_payload_json FROM license_cache WHERE api_key_hash = ?'
+    ).get(keyHash) as LicenseCacheRow | undefined;
+
+    if (!cached) return 'free';
+
+    // Resolve through the signed-payload trust path (shared with
+    // validateLicense). For a SIGNED row the tier is re-derived from the
+    // verified payload, so editing the plain `tier` column is a no-op. In
+    // default transition mode (MASSU_REQUIRE_SIGNED_LICENSE unset) an UNSIGNED
+    // row's plain `tier` column is still trusted (one-shot warn) — same posture
+    // as validateLicense; this is the disclosed freemium-OSS threat model, not
+    // a regression. Strict mode rejects unsigned rows.
+    const trusted = readTrustedCache(cached);
+    if (!trusted) return 'free';
+
+    // Offline grace window: a row not re-validated within GRACE_PERIOD_MS
+    // drops to free (gated on last_validated, mirroring validateLicense's
+    // grace path — intentionally NOT a valid_until check; server-side
+    // /validate-key is the authoritative expiry boundary).
+    const lastValidated = new Date(cached.last_validated);
+    const sevenDaysAgo = new Date(Date.now() - GRACE_PERIOD_MS);
+    if (!(lastValidated > sevenDaysAgo)) return 'free';
+
+    return trusted.tier;
+  } catch {
+    // Any parse / DB / verify error → fail-closed.
+    return 'free';
+  } finally {
+    if (ownsDb) {
+      try { db.close(); } catch { /* best-effort */ }
+    }
+  }
 }
 
 /**
@@ -673,4 +740,15 @@ export async function handleLicenseToolCall(
 export function _resetCachedTier(): void {
   cachedTier = null;
   cachedTierTimestamp = 0;
+}
+
+/**
+ * Seed the in-memory tier cache (for testing only). Mirrors
+ * {@link _resetCachedTier}; lets async-path tests simulate a Pro/Team session
+ * without a live license server. The seeded value is honored by
+ * {@link getCurrentTier} for the in-memory TTL window.
+ */
+export function _setCachedTierForTest(tier: ToolTier): void {
+  cachedTier = { tier, validUntil: '', features: [] };
+  cachedTierTimestamp = Date.now();
 }

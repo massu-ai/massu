@@ -1,7 +1,7 @@
 ---
 name: massu-new-pattern
 description: "When user discovers a new pattern, says 'add this pattern', 'new pattern', or needs to formalize a recurring solution into the patterns library with approval"
-allowed-tools: Read(*), Write(*), Edit(*), Grep(*), Glob(*)
+allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 disable-model-invocation: true
 ---
 name: massu-new-pattern
@@ -9,6 +9,18 @@ name: massu-new-pattern
 > **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-14, CR-5, CR-12 enforced.
 
 # Massu New Pattern: Pattern Creation Protocol
+
+## Tier requirement (Requires Pro)
+
+This command is a **Pro+** feature. Confirm entitlement before running — the gate hard-fails for sub-Pro:
+
+```bash
+npx massu license check --min pro || exit 1
+```
+
+On a non-zero exit the command STOPS immediately and surfaces the upgrade message (`… is a Pro feature. … Upgrade at https://massu.ai/pricing`). Do not proceed past this gate without a Pro (or higher) license.
+
+---
 
 ## Objective
 

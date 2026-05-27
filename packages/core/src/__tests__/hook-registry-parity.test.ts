@@ -20,6 +20,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { REGISTERED_HOOKS, getExpectedHookFiles } from '../lib/hook-registry.ts';
 import { buildHooksConfig } from '../commands/init.ts';
+import { HOOK_NAME_TO_FILE, resolveHookFile } from '../commands/hook-runner.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -95,5 +96,58 @@ describe('hook-registry parity (DG-1)', () => {
 
   it('getExpectedHookFiles count matches REGISTERED_HOOKS length', () => {
     expect(getExpectedHookFiles().length).toBe(REGISTERED_HOOKS.length);
+  });
+
+  // 1.13.1 regression guard: closes the 4th parity edge.
+  //
+  // 1.13.0 shipped pre-tool-use-gate in REGISTERED_HOOKS + src/hooks +
+  // buildHooksConfig (all three existing parity assertions passed), but
+  // `commands/hook-runner.ts:HOOK_NAME_TO_FILE` was hand-maintained and
+  // missed the entry. The dispatcher then rejected every new install's
+  // PreToolUse hook with `Unknown hook`, blocking Bash/Edit/Write at
+  // the CC tool gate (catch-22: customer cannot edit settings.local.json
+  // to fix it because Edit is gated by the broken hook).
+  //
+  // Structural fix: HOOK_NAME_TO_FILE now derives from REGISTERED_HOOKS,
+  // so this drift is impossible by construction. This test pins both
+  // the derivation contract AND the specific regression.
+  it('HOOK_NAME_TO_FILE keys match REGISTERED_HOOKS (dispatcher parity)', () => {
+    const dispatcherKeys = Object.keys(HOOK_NAME_TO_FILE).sort();
+    const registered = [...REGISTERED_HOOKS].sort();
+    expect(dispatcherKeys).toEqual(registered);
+  });
+
+  it('HOOK_NAME_TO_FILE values match `${name}.js` for every registered hook', () => {
+    for (const name of REGISTERED_HOOKS) {
+      expect(HOOK_NAME_TO_FILE[name]).toBe(`${name}.js`);
+    }
+  });
+
+  it('resolveHookFile() succeeds for every hook emitted by buildHooksConfig() (closes 1.13.0 regression)', () => {
+    // Direct regression guard: every hook name the installer writes to
+    // customer settings.local.json MUST be dispatchable at fire-time.
+    // Skipped automatically if build artifacts aren't present (fresh
+    // checkout / pre-build CI step) — covered by the keys-parity test.
+    const distHooksDir = resolve(__dirname, '../../dist/hooks');
+    if (!existsSync(distHooksDir)) {
+      return;
+    }
+    const config = buildHooksConfig();
+    const emitted = new Set<string>();
+    for (const event of Object.values(config)) {
+      if (!Array.isArray(event)) continue;
+      for (const group of event) {
+        const hooks = (group as { hooks?: Array<{ command?: string }> }).hooks ?? [];
+        for (const hook of hooks) {
+          if (typeof hook.command !== 'string') continue;
+          const match = hook.command.match(/hook-runner\s+(\S+)/);
+          if (match) emitted.add(match[1]);
+        }
+      }
+    }
+    expect(emitted.size).toBeGreaterThan(0);
+    for (const name of emitted) {
+      expect(() => resolveHookFile(name)).not.toThrow();
+    }
   });
 });

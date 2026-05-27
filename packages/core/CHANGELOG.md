@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.13.1] - 2026-05-20
+
+**PreToolUse dispatcher SSOT promotion + hook docs drift closure**. Closes a customer-blocking regression introduced in 1.13.0: every fresh `npx -y @massu/core@1.13.0 init` wrote `npx -y @massu/core@1.13.0 hook-runner pre-tool-use-gate` into `.claude/settings.local.json` (the consolidated PreToolUse hook landed by P-E-019 in 1.12.0), but `commands/hook-runner.ts:HOOK_NAME_TO_FILE` was a hand-maintained map missing the entry. The dispatcher threw `Unknown hook: "pre-tool-use-gate"`, Claude Code interpreted the non-zero exit as a PreToolUse block, and Bash/Edit/Write were all gated — a catch-22 where the customer could not edit `settings.local.json` to repair the install because Edit itself was blocked. The existing 3-way parity tests (`hook-registry-parity.test.ts`) covered REGISTERED_HOOKS ↔ src/hooks/*.ts ↔ buildHooksConfig() but never asserted the 4th edge against the runtime dispatcher map.
+
+Structural fix per CR-46 / Rule 25: `HOOK_NAME_TO_FILE` is now derived from `REGISTERED_HOOKS` (`Object.fromEntries(REGISTERED_HOOKS.map(n => [n, `${n}.js`]))`) so every future hook landed in the registry automatically appears in the dispatcher. The bug class is structurally impossible by construction.
+
+### Fixed
+
+- **`packages/core/src/commands/hook-runner.ts:HOOK_NAME_TO_FILE`** — replaced the hand-maintained 16-entry map with a frozen derivation from `REGISTERED_HOOKS` (`lib/hook-registry.ts`). The dispatcher now exposes all 17 registered hooks including `pre-tool-use-gate`. Verified end-to-end: `node dist/cli.js hook-runner pre-tool-use-gate < /dev/null` → exit 0 (was exit 2 in 1.13.0 with "Unknown hook" stderr).
+
+### Added
+
+- **Three new parity-test cases** in `packages/core/src/__tests__/hook-registry-parity.test.ts`: (1) `HOOK_NAME_TO_FILE keys match REGISTERED_HOOKS (dispatcher parity)` — the 4th parity edge, asserts dispatcher cannot drift from the registry; (2) `HOOK_NAME_TO_FILE values match \`${name}.js\` for every registered hook` — pins the derivation shape contract; (3) `resolveHookFile() succeeds for every hook emitted by buildHooksConfig() (closes 1.13.0 regression)` — direct fire-time regression guard that every name the installer writes is dispatchable. Test count went 5 → 8 passing. Surrounding test surface (hook-runner + cli + init-hooks) unchanged at 78/78.
+- **Six previously-undocumented hook docs pages** in `website/content/docs/hooks/`: `pre-tool-use-gate.mdx`, `auto-learning-pipeline.mdx`, `fix-detector.mdx`, `classify-failure.mdx`, `incident-pipeline.mdx`, `rule-enforcement-pipeline.mdx`. The 1.13.0 dispatcher regression was able to ship in part because the consolidated `pre-tool-use-gate` hook (landed by P-E-019 in 1.12.0) had no documentation page — there was no /docs/hooks/pre-tool-use-gate URL to spot-check, and no reviewer was prompted to validate the runtime dispatch path. Closing the docs gap is part of the same structural close: every hook in `REGISTERED_HOOKS` now has a docs page.
+
+### Changed
+
+- **`website/content/docs/hooks/index.mdx`** — header "11 MCP lifecycle hooks" bumped to "17 MCP lifecycle hooks". The lifecycle table and detailed-documentation list both grew by 6 rows. The session-lifecycle ASCII diagram now includes the auto-learning pipeline chain (fix-detector → classify-failure → incident-pipeline → rule-enforcement-pipeline → auto-learning-pipeline at Stop).
+- **`website/src/__tests__/changelog-parse.test.ts:EXPECTED_COUNT`** bumped 42 → 43.
+
 ## [1.13.0] - 2026-05-20
 
 **v0.2 Interactive Rule-Approval (`plan-v0.2-interactive-rule-approval`)**. Closes the silent-self-attestation bug class in Massu's auto-learning system. v0.1 (`auto-learning.md:35-46`) was a protocol obligation the model self-enforces at `/massu-loop` end, audited post-hoc by `/massu-learning-audit`. v0.2 adds real-time correction detection (UserPromptSubmit hook, score-based threshold ≥60), side-channel rule-candidate funnel (`.massu/rule-candidates/<sha>.json`), explicit slash command `/massu-rule list|show|approve|dismiss|recurrence`, atomic write through `applyRuleCandidate()` helper with `audit_log` UNIQUE-INDEX idempotency, three-class rubric (`pattern-scanner | claude-md-cr | corrections-md`) + `autoLearning.customDestinations` config extension point. Three-layer structural enforcement: protocol gate (slash command + hook) + idempotency lock (`audit_log` UNIQUE INDEX) + drift-guard vitest (`rule-promotion-effectiveness.test.ts`). New canonical rule CR-53 codifies "auto-learned rules must be effective". Ships as `@massu/core@1.13.0` — new MCP-adjacent capability + new slash command + backwards-compatible `audit_log.event_type` CHECK extension (internal-process table, zero external schema consumers — minor justified per semver §7).

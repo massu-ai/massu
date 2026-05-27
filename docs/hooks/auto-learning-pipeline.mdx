@@ -1,0 +1,81 @@
+---
+title: "auto-learning-pipeline Hook"
+description: "Stop-hook forcing function that blocks session-end until any armed fix has produced a complete incident report → rule → enforcement chain"
+order: 17
+---
+
+# auto-learning-pipeline Hook
+
+The auto-learning-pipeline hook is the **forcing function** that makes Massu's auto-learning system work. It fires as a Stop hook at session end, reads the per-session arm state that `fix-detector` wrote, and surfaces a mandatory instruction-set if the chain is incomplete. Without this hook the chain would be advisory -- with it, no fix can end its session undocumented.
+
+## Trigger Event
+
+Fires as a Stop hook at session end. Claude Code dispatches Stop hooks before considering the session terminated, so any non-empty stdout message becomes the LAST thing Claude sees -- a hard prompt to finish the loop.
+
+## What It Does
+
+1. **Reads the per-session arm file** at `${tmpdir}/massu-fix-arm-<session_id>.jsonl`
+2. **Exits silently** if no fix was armed this session
+3. **Reads the classification state** at `${tmpdir}/massu-classification-<session_id>.jsonl`
+4. **For KNOWN classifications** -- exits silently. The fix referenced an existing rule, nothing more is owed.
+5. **For SIMILAR / NEW classifications**, checks whether the chain is complete:
+   - Was a `docs/incidents/*.md` file written this session? <!-- leak-guard-allow: documents the configurable default incident path, not an internal reference -->
+
+   - Was a `memory/feedback_*.md` file written this session?
+   - Does the rule include an enforcement section (drift-guard / pattern-scanner / CR / VR)?
+6. **If any step is missing**, outputs a structured FORCING INSTRUCTION to stdout telling Claude exactly what to do before the session is allowed to end
+7. **Cleans up** the per-session arm and classification files after a successful check
+
+## Position in the Auto-Learning Pipeline
+
+```
+fix-detector  →  classify-failure  →  Incident Report  →  Rule  →  Enforcement
+                                                                       ↓
+                                                       [auto-learning-pipeline]
+                                                       SESSION END CHECK
+                                                       (THIS HOOK)
+```
+
+## Example Input
+
+```json
+{
+  "session_id": "abc123-def456",
+  "hook_event_name": "Stop"
+}
+```
+
+## Example Output (incomplete chain)
+
+```json
+{
+  "message": "AUTO-LEARNING PIPELINE: Session cannot end -- fix detected but pipeline incomplete.\n\nFix-detector armed at:\n  - src/api/users.ts (score 0.91)\n  - src/lib/cache.ts (score 0.78)\n\nClassification: NEW (no matching failure class)\n\nMissing deliverables:\n  [✗] <incident-path>/<date>-<slug>.md  — incident report not written\n  [✗] <rule-path>/feedback_<slug>.md    — prevention rule not written\n  [✗] Enforcement                       — depends on rule\n\nDo NOT end the session until:\n  1. The incident report is written (sections: Incident, Root Cause, Resolution, Prevention)\n  2. The prevention rule is written with structural enforcement (drift-guard / pattern-scanner check / CR row)\n  3. Both are committed\n\nReference: CR-46 (enterprise-grade or not at all) -- bug fixes without rule + enforcement are tech debt principal."
+}
+```
+
+## Example Output (complete chain)
+
+No output. The hook exits with code 0 and writes nothing to stdout. Session-end proceeds normally.
+
+## Performance
+
+This hook must complete within 5 seconds (the Stop-hook timeout). It typically completes in well under 500ms because:
+
+- Reads two small tempfiles per session (arm + classification)
+- Greps `git log --since=session-start` for the matching file paths
+- No SQLite reads, no network calls
+- All file-existence checks are local `fs.existsSync`
+
+## Tips
+
+- The forcing message is shown to Claude, not to the user directly -- if you want to bypass for a specific session, the override is `MASSU_AUTOLEARNING_SKIP=1` in the environment, logged to `audit_log`
+- Treat the forcing message as a checklist, not a recommendation -- the whole reason this hook exists is that v0.1 self-attestation drifted, and CR-53 + the dual-channel evaluator now enforce non-zero recurrence as a structural gate
+- Inspect arm state mid-session: `cat ${TMPDIR}/massu-fix-arm-<session_id>.jsonl`
+
+## Related Documentation
+
+- [fix-detector](/docs/hooks/fix-detector) -- Stage 1: arms the pipeline
+- [classify-failure](/docs/hooks/classify-failure) -- Stage 2: routes KNOWN / SIMILAR / NEW
+- [incident-pipeline](/docs/hooks/incident-pipeline) -- Stage 3: triggers rule derivation
+- [rule-enforcement-pipeline](/docs/hooks/rule-enforcement-pipeline) -- Stage 4: surfaces enforcement placement
+- [session-end](/docs/hooks/session-end) -- Runs after this hook clears

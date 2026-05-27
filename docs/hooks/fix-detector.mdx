@@ -1,0 +1,74 @@
+---
+title: "fix-detector Hook"
+description: "Detects bug fixes during a session by analyzing git diffs of edited files and arms the auto-learning pipeline"
+order: 13
+---
+
+# fix-detector Hook
+
+The fix-detector hook is the first stage of Massu's auto-learning pipeline. It fires after every Edit or Write to a code file, runs a bounded `git diff` against the working tree, and looks for the structural fingerprint of a bug fix (issue number references, "fix" / "fixes" / "closes" keywords in the diff context, error-handling additions, etc.). When a fix-shape diff is detected, the hook sets session-level state so the rest of the auto-learning chain can trigger at session end.
+
+## Trigger Event
+
+Fires as a PostToolUse hook on:
+
+- `Edit` tool -- after a file modification
+- `Write` tool -- after a file replacement
+
+## What It Does
+
+1. **Reads the edited file path** from JSON stdin (`tool_input.file_path`)
+2. **Runs `git diff --shortstat`** on the file (defense-in-depth via `execFileSync` argv form, never shell-string)
+3. **Bounds the read** -- skips the full diff body if estimated bytes exceed `MAX_FULL_DIFF_BYTES` (2 MiB, ~25k lines). Monorepos with 10MB+ working trees would otherwise blow the Stop-hook timeout.
+4. **Scores fix-shape signals** -- issue/PR references, "fix"/"fixes"/"closes" verbs, error-handling additions, regression-test additions
+5. **Appends a signal entry** to the per-session arm file in `os.tmpdir()` if fix-shape passes threshold
+6. **Exits silently** -- no stdout output. The signal is consumed downstream by `classify-failure` and `auto-learning-pipeline`.
+
+## Position in the Auto-Learning Pipeline
+
+```
+[fix-detector]  →  classify-failure  →  Incident Report  →  Rule  →  Enforcement
+   THIS HOOK
+```
+
+The fix-detector is the arming step. It does not block, does not output, and does not surface to the user. Its only job is to set session-level state that the rest of the chain reads.
+
+## Example Input
+
+```json
+{
+  "session_id": "abc123-def456",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/Users/dev/project/src/api/users.ts"
+  }
+}
+```
+
+## Example Behavior
+
+The hook produces no stdout. Side effects:
+
+- Writes a JSON line to `${tmpdir}/massu-fix-arm-<session_id>.jsonl` containing the file path, diff stat summary, and fix-shape score.
+- This arm file is read at session-end by [auto-learning-pipeline](/docs/hooks/auto-learning-pipeline).
+
+## Performance
+
+This hook must complete within 1000ms. It achieves this with:
+
+- `git diff --shortstat` bounded to a single file (sub-100ms on typical repos)
+- Full diff body read only when shortstat says the file fits under 2 MiB
+- No network calls, no LLM calls
+- All scoring is regex-based on the diff text
+
+## Tips
+
+- The arm file is per-session (keyed on `session_id`) and is cleaned up at session-end
+- Disable globally via `autoLearning.enabled: false` in `massu.config.yaml`
+- See [classify-failure](/docs/hooks/classify-failure) for the next stage that scores the detected fix against known failure classes
+
+## Related Documentation
+
+- [classify-failure](/docs/hooks/classify-failure) -- Scores the detected fix as KNOWN / SIMILAR / NEW
+- [incident-pipeline](/docs/hooks/incident-pipeline) -- Triggers when a new incident report is written
+- [auto-learning-pipeline](/docs/hooks/auto-learning-pipeline) -- Stop-hook forcing function for the full chain

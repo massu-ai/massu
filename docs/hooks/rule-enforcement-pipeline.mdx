@@ -1,0 +1,79 @@
+---
+title: "rule-enforcement-pipeline Hook"
+description: "Detects when a new prevention rule is written and triggers the final enforcement-placement stage of the auto-learning pipeline"
+order: 16
+---
+
+# rule-enforcement-pipeline Hook
+
+The rule-enforcement-pipeline hook fires after every Write to a file matching `memory/feedback_*.md` (configurable). When a new prevention rule lands, it automatically triggers the final pipeline stage -- enforcement placement -- by surfacing a structured instruction for Claude to add the rule's machine check (pattern-scanner check, vitest drift-guard, CI gate, CLAUDE.md canonical-rule row, etc.).
+
+## Trigger Event
+
+Fires as a PostToolUse hook on `Write` only. Edits to existing feedback rules do not retrigger -- only new files do, matched by the configured rule path.
+
+## What It Does
+
+1. **Reads the written file path** from JSON stdin
+2. **Filters by path pattern** -- exits silently unless the path matches `autoLearning.rulePath` (default `memory/feedback_*.md`)
+3. **Reads the rule content** from the file
+4. **Parses the rule body** for enforcement signals -- "Drift-guard:", "Pattern scanner Check N:", "CR-N", "VR-XXX", "Pattern:", etc.
+5. **Detects gaps** -- if the rule body has no enforcement section, surfaces a strong nudge
+6. **Outputs a structured instruction** to stdout telling Claude which enforcement surface (pattern-scanner, vitest, CLAUDE.md, CI) to update
+
+## Position in the Auto-Learning Pipeline
+
+```
+fix-detector  →  classify-failure  →  Incident Report  →  Rule Derived  →  [ENFORCEMENT]
+                                                                            TRIGGERED BY THIS HOOK
+```
+
+## Example Input
+
+```json
+{
+  "session_id": "abc123-def456",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/Users/dev/project/memory/feedback_stale_cache_after_flush.md",
+    "content": "# Cache must be primed after Redis flush\n\n..."
+  }
+}
+```
+
+## Example Output (rule missing enforcement)
+
+```json
+{
+  "message": "RULE-ENFORCEMENT-PIPELINE: New rule detected at memory/feedback_stale_cache_after_flush.md.\n\nThe rule body does NOT include an enforcement section. Author one before the rule lands.\n\nPick the strongest available enforcement:\n  - Vitest drift-guard (`__tests__/<rule-slug>.test.ts`) — preferred for code-shape rules\n  - Pattern-scanner check (`scripts/massu-pattern-scanner.sh` Check N) — for grep-able anti-patterns\n  - CLAUDE.md canonical-rule row (CR-N) — for process / protocol rules\n  - CI gate (workflow check) — for build-time enforcement\n\nAdvisory-only rules (memory file with no machine check) violate CR-46 — choose enforcement, not exhortation."
+}
+```
+
+## Example Output (rule has enforcement)
+
+```json
+{
+  "message": "RULE-ENFORCEMENT-PIPELINE: New rule detected with enforcement section.\n\nDetected enforcement: vitest drift-guard at `__tests__/stale-cache-after-flush.test.ts`.\n\nVerify the drift-guard fails on the original incident shape (RED phase before GREEN)."
+}
+```
+
+## Performance
+
+This hook must complete within 500ms. It achieves this with:
+
+- Regex parsing of the rule body (no LLM call)
+- File-content read bounded by configured `autoLearning.maxRuleBytes` (default 32 KiB)
+- Early exit when the path does not match the configured rule directory
+
+## Tips
+
+- Configure `autoLearning.rulePath` in `massu.config.yaml` to match your convention (e.g., `docs/rules/`)
+- The hook is the final structural gate before the rule is considered "shipped" -- if it surfaces the no-enforcement warning, do not push without resolving
+- Advisory-only rules are explicitly rejected by CR-46 -- the rule body must include a machine check, not just a recommendation
+
+## Related Documentation
+
+- [fix-detector](/docs/hooks/fix-detector) -- The upstream arm
+- [classify-failure](/docs/hooks/classify-failure) -- The routing step
+- [incident-pipeline](/docs/hooks/incident-pipeline) -- The previous stage that triggered the rule write
+- [auto-learning-pipeline](/docs/hooks/auto-learning-pipeline) -- The Stop-hook forcing function for the full chain

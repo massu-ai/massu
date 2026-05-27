@@ -28,33 +28,26 @@ import { existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
+import { REGISTERED_HOOKS } from '../lib/hook-registry.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 /**
- * Closed enum of recognized hook names → compiled JS filename under `dist/hooks/`.
- * Keep in sync with `buildHooksConfig` in `commands/init.ts` and the source
- * files in `packages/core/src/hooks/`.
+ * Recognized hook names → compiled JS filename under `dist/hooks/`.
+ *
+ * Derived from `REGISTERED_HOOKS` (the single source of truth in
+ * `lib/hook-registry.ts`) so the dispatcher cannot drift from the
+ * installer / source / build-output triad that already passes 3-way
+ * parity. Closes the 1.13.0 regression where `pre-tool-use-gate` was
+ * added to REGISTERED_HOOKS + src/hooks + buildHooksConfig but the
+ * hand-maintained dispatcher map missed the entry, causing every new
+ * install's PreToolUse hook to throw `Unknown hook` and block
+ * Bash/Edit/Write at the CC tool gate.
  */
-export const HOOK_NAME_TO_FILE: Record<string, string> = {
-  'session-start': 'session-start.js',
-  'session-end': 'session-end.js',
-  'security-gate': 'security-gate.js',
-  'pre-delete-check': 'pre-delete-check.js',
-  'post-tool-use': 'post-tool-use.js',
-  'post-edit-context': 'post-edit-context.js',
-  'quality-event': 'quality-event.js',
-  'cost-tracker': 'cost-tracker.js',
-  'fix-detector': 'fix-detector.js',
-  'classify-failure': 'classify-failure.js',
-  'incident-pipeline': 'incident-pipeline.js',
-  'rule-enforcement-pipeline': 'rule-enforcement-pipeline.js',
-  'auto-learning-pipeline': 'auto-learning-pipeline.js',
-  'pre-compact': 'pre-compact.js',
-  'user-prompt': 'user-prompt.js',
-  'intent-suggester': 'intent-suggester.js',
-};
+export const HOOK_NAME_TO_FILE: Record<string, string> = Object.freeze(
+  Object.fromEntries(REGISTERED_HOOKS.map((name) => [name, `${name}.js`])),
+) as Record<string, string>;
 
 /**
  * Resolve the compiled hook file path for a given hook name.

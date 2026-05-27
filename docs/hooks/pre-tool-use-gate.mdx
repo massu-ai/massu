@@ -1,0 +1,73 @@
+---
+title: "pre-tool-use-gate Hook"
+description: "Consolidated PreToolUse single-spawn check combining security-gate + pre-delete-check into one node process to eliminate per-tool-call latency"
+order: 12
+---
+
+# pre-tool-use-gate Hook
+
+The pre-tool-use-gate hook is the canonical PreToolUse hook installed by Massu since version 1.12.0. It runs both the security-gate and pre-delete-check check pipelines in a single node process, eliminating roughly 200ms of per-tool-call latency that the previous two-spawn chain spent in cold-start spawn overhead.
+
+## Trigger Event
+
+Fires as a PreToolUse hook on every tool call. Composition is internal — the same `runSecurityGateChecks` and `runPreDeleteChecks` functions used by the standalone hooks are imported and invoked in sequence inside one node process.
+
+## What It Does
+
+1. **Reads the pending tool call** from JSON stdin (tool name + tool input)
+2. **Invokes `runSecurityGateChecks`** -- inspects Bash commands for dangerous patterns and Write/Edit targets for protected paths
+3. **Invokes `runPreDeleteChecks`** -- runs feature impact analysis when the pending operation is a deletion (rm, Edit/Write that empties a file, etc.)
+4. **Aggregates findings** -- merges any warnings from both pipelines
+5. **Outputs a single warning** to stdout if either pipeline flagged something
+6. **Exits silently** if the operation is safe under both pipelines
+
+This hook does not block execution -- it raises a warning that Claude Code should surface and act on before proceeding.
+
+## Background: P-E-019 Consolidation
+
+Before 1.12.0, Massu installs configured two separate PreToolUse hooks (`security-gate` and `pre-delete-check`) plus a `jq` postprocessor to merge their output. Each fired in its own node process per tool call, adding ~200ms of npx + node cold-start cost on top of the actual check work.
+
+P-E-019 (`plan-stage-e-low-info-sweep`, wave1-hooks:F-HOOK-012) merged the two into a single PreToolUse hook entry. The standalone `security-gate.ts` and `pre-delete-check.ts` source files preserve their own `main()` entrypoints so operator-installed `.claude/settings.local.json` files that still reference them individually keep working — but new installs (via `buildHooksConfig`) emit only this consolidated hook.
+
+## Example Input
+
+```json
+{
+  "session_id": "abc123-def456",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "rm -rf src/feature/legacy/"
+  }
+}
+```
+
+## Example Output (when either pipeline flags)
+
+```json
+{
+  "message": "PRE-TOOL-USE GATE WARNING:\n\nSecurity-gate flags:\n  - 'rm -rf' with broad path: destructive, irreversible\n\nPre-delete-check flags:\n  - src/feature/legacy/ is referenced by 14 feature manifests; deleting will break 3 entry points.\n\nReview before proceeding."
+}
+```
+
+## Example Output (safe operation)
+
+No output. The hook exits with code 0 and writes nothing to stdout.
+
+## Performance
+
+This hook must complete within 5 seconds (Claude Code's PreToolUse timeout). It typically completes in well under 500ms because:
+
+- Both check pipelines run in one node process (no second npx spawn)
+- The security-gate pipeline is pure string matching with no database access
+- The pre-delete-check pipeline reads the feature manifest database with a single SQLite query
+
+## Tips
+
+- The legacy `security-gate` and `pre-delete-check` hook names remain dispatchable via `hook-runner` for back-compat. Operators upgrading from pre-1.12.0 do not need to migrate; new installs emit only `pre-tool-use-gate`.
+- Configure additional protected paths or dangerous patterns via the same `massu.config.yaml` keys used by the standalone hooks (`security.protectedPaths`, `security.dangerousPatterns`).
+- The hook warns but does not block -- Claude Code decides whether to proceed.
+
+## Related Documentation
+
+- [security-gate](/docs/hooks/security-gate) -- The security-policy validation pipeline composed into this hook
+- [pre-delete-check](/docs/hooks/pre-delete-check) -- The feature-impact deletion check composed into this hook

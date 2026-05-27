@@ -1,0 +1,73 @@
+---
+title: "incident-pipeline Hook"
+description: "Detects when a new incident report is written and triggers automatic rule derivation as the next stage of the auto-learning pipeline"
+order: 15
+---
+
+# incident-pipeline Hook
+
+The incident-pipeline hook fires after every Write to a file matching the configured incident path (default `docs/incidents/*.md`, configurable via `autoLearning.incidentPath`). When a new incident report lands, it automatically triggers the next pipeline stage -- rule derivation -- by appending the incident to the matching failure class in the memory database and surfacing a structured instruction for Claude to author the prevention rule. {/* leak-guard-allow: documents the configurable default incident path, not an internal reference */}
+
+## Trigger Event
+
+Fires as a PostToolUse hook on `Write` only. Edits to existing incident reports do not retrigger -- only new files do, matched by the configured incident path.
+
+## What It Does
+
+1. **Reads the written file path** from JSON stdin
+2. **Filters by path pattern** -- exits silently unless the path matches `autoLearning.incidentPath` (default `docs/incidents/`) {/* leak-guard-allow: documents the configurable default incident path, not an internal reference */}
+3. **Reads the incident report content** from the file
+4. **Calls `scoreFailureClasses()`** to find the closest existing failure class for the incident
+5. **Either:**
+   - If a strong match exists, calls `appendIncidentToFailureClass()` -- updates the class with the new occurrence
+   - Otherwise, calls `addFailureClass()` -- creates a new failure class entry
+6. **Outputs a structured instruction** to stdout telling Claude to author the corresponding `memory/feedback_*.md` rule
+
+## Position in the Auto-Learning Pipeline
+
+```
+fix-detector  →  classify-failure  →  Incident Report  →  [RULE DERIVATION]  →  Enforcement
+                                                            TRIGGERED BY THIS HOOK
+```
+
+## Example Input
+
+```json
+{
+  "session_id": "abc123-def456",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/Users/dev/project/<incident-path>/<date>-<slug>.md",
+    "content": "## Incident: stale cache served after Redis flush\n\n..."
+  }
+}
+```
+
+## Example Output
+
+```json
+{
+  "message": "INCIDENT-PIPELINE: New incident report detected at <incident-path>/<date>-<slug>.md.\n\nNext step: derive the prevention rule. Author <rule-path>/feedback_<slug>.md describing:\n  - The mistake the rule prevents\n  - When to apply the rule (trigger conditions)\n  - The structural enforcement (test, scanner check, or CI gate)\n\nFailure class match: '<class-id>' (score 0.87). Consider extending the existing rule before authoring a new one."
+}
+```
+
+## Performance
+
+This hook must complete within 500ms. It achieves this with:
+
+- A single SQLite query for failure-class scoring
+- File-content read bounded by the configured `autoLearning.maxIncidentBytes` (default 64 KiB)
+- Early exit when the path does not match the configured incident directory
+
+## Tips
+
+- Configure `autoLearning.incidentPath` in `massu.config.yaml` to match your project's convention (e.g., `docs/postmortems/` instead of `docs/incidents/`) {/* leak-guard-allow: documents the configurable default incident path, not an internal reference */}
+- The hook reads the incident file you just wrote -- make sure incident reports use the canonical sections (`## Incident`, `## Root Cause`, `## Resolution`, `## Prevention`) so the scorer can find the right failure class
+- The "consider extending the existing rule" advice is not enforced -- it is a hint Claude can override when the new incident is genuinely novel
+
+## Related Documentation
+
+- [fix-detector](/docs/hooks/fix-detector) -- The upstream arm
+- [classify-failure](/docs/hooks/classify-failure) -- The scoring step that routes to NEW
+- [rule-enforcement-pipeline](/docs/hooks/rule-enforcement-pipeline) -- The next stage that fires when the rule is written
+- [auto-learning-pipeline](/docs/hooks/auto-learning-pipeline) -- The Stop-hook forcing function

@@ -1,0 +1,82 @@
+---
+title: "classify-failure Hook"
+description: "Scores detected bug fixes against known failure patterns and routes them through the appropriate incident-loop path (KNOWN / SIMILAR / NEW)"
+order: 14
+---
+
+# classify-failure Hook
+
+The classify-failure hook fires after every Edit or Write to a code file and scores the detected fix against Massu's stored failure-class library. Routing the fix through the right path -- skip the full incident loop for KNOWN patterns, check existing rules for SIMILAR, demand a fresh incident report for NEW -- is what prevents rule bloat. Without this hook every fix would mint a new rule, and the auto-learning pipeline would drown its own enforcement layer in noise.
+
+## Trigger Event
+
+Fires as a PostToolUse hook on:
+
+- `Edit` tool -- after a file modification
+- `Write` tool -- after a file replacement
+
+## What It Does
+
+1. **Reads the edited file path** from JSON stdin
+2. **Reads the fix-detector arm file** for this session from `os.tmpdir()`
+3. **Calls `scoreFailureClasses()`** -- compares the fix-shape signature against every stored failure class in the memory database
+4. **Classifies the score** against two thresholds:
+   - `score >= known threshold` → **KNOWN** -- references existing rules, no new deliverables
+   - `score >= similar threshold` → **SIMILAR** -- checks existing rules first, may extend rather than mint
+   - `score < similar threshold` → **NEW** -- full incident loop is mandatory
+5. **Writes the classification** to a session-scoped state file in `os.tmpdir()` for `auto-learning-pipeline` to read
+6. **Exits silently** -- no stdout output
+
+## Classification Thresholds
+
+| Classification | Score Range | What the Pipeline Does |
+|----------------|-------------|------------------------|
+| KNOWN | >= known_threshold | Reference existing rule. No incident report, no new feedback file. |
+| SIMILAR | >= similar_threshold | Try to extend an existing rule. May fall back to NEW if no rule fits. |
+| NEW | < similar_threshold | Mandatory: incident report → rule → enforcement. |
+
+Thresholds are configurable via `autoLearning.classificationThresholds` in `massu.config.yaml`.
+
+## Position in the Auto-Learning Pipeline
+
+```
+fix-detector  →  [classify-failure]  →  Incident Report  →  Rule  →  Enforcement
+                    THIS HOOK
+```
+
+## Example Input
+
+```json
+{
+  "session_id": "abc123-def456",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/Users/dev/project/src/api/auth.ts"
+  }
+}
+```
+
+## Example Behavior
+
+No stdout output. Side effect: writes a JSON line to `${tmpdir}/massu-classification-<session_id>.jsonl` containing `{ file_path, classification, score, matched_class_id? }`.
+
+## Performance
+
+This hook must complete within 1000ms. It achieves this with:
+
+- A single SQLite query over the failure-class table (typically <50 rows)
+- Pre-computed signature embeddings per failure class
+- Early exit if the fix-detector arm file is empty (no fix detected this turn)
+
+## Tips
+
+- Inspect the classification state via `cat ${TMPDIR}/massu-classification-<session_id>.jsonl` mid-session
+- Tune `classificationThresholds` in `massu.config.yaml` if you find rule bloat (lower the bar to KNOWN) or rule starvation (raise the bar)
+- The hook itself does not write rules -- it only routes. Rule derivation happens in [incident-pipeline](/docs/hooks/incident-pipeline)
+
+## Related Documentation
+
+- [fix-detector](/docs/hooks/fix-detector) -- The upstream hook that arms this classifier
+- [incident-pipeline](/docs/hooks/incident-pipeline) -- Where NEW-classified fixes get their incident report
+- [rule-enforcement-pipeline](/docs/hooks/rule-enforcement-pipeline) -- Where the derived rule gets placed into scanners / CLAUDE.md
+- [auto-learning-pipeline](/docs/hooks/auto-learning-pipeline) -- The Stop-hook forcing function that ensures the chain completes

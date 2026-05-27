@@ -136,7 +136,7 @@ Phase 1.5 multi-perspective review surfaced 5 security + 7 architecture findings
 
 ### Added
 
-- **`scripts/check-claude-md-{size,structure}.sh`** (P-E-001) now resolve repo root via `git rev-parse --show-toplevel` instead of hardcoded `/Users/operator/` paths — works for any operator regardless of `$USER`. Closes `wave2-pattern:F4`.
+- **`scripts/check-claude-md-{size,structure}.sh`** (P-E-001) now resolve repo root via `git rev-parse --show-toplevel` instead of hardcoded `/Users/<user>/` paths — works for any operator regardless of `$USER`. Closes `wave2-pattern:F4`.
 - **`scripts/kb-staleness-audit.sh`** (P-E-002) incident-count parser now uses awk-based context-aware count of `### Incident #N` entries under the `## Incidents` section, properly handles empty-template case. Closes `wave2-pattern:F5`.
 - **`scripts/massu-pattern-scanner.sh`** (P-E-003) adds `gawk` shim + replaces `\(` ERE escapes with `[(]` portable form. macOS BSD-awk noise reduced from ~80 lines to 0. Allow-directive bridging now persists through block-comment + blank lines (fixes false positive on `init.ts:655` yaml-parse directive at L650). Surfaced 2 real pre-existing violations (now also fixed below).
 - **`scripts/massu-pattern-scanner.sh`** (P-E-004) Check 10 replaced count-based check with per-file leak detection — matches `?.close()` and excludes comment-line references. Closes `wave1-mcp-tools:F-MCP-008` / `wave2-pattern:F8`.

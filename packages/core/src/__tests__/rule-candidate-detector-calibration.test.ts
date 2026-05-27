@@ -10,7 +10,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, writeFileSync, mkdtempSync, existsSync, rmSync } from 'fs';
-import { join } from 'path';
+import { join, resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { tmpdir, homedir } from 'os';
 import { scoreCorrectionPrompt, RULE_CANDIDATE_THRESHOLD } from '../rule-candidate-detector.ts';
 
@@ -218,8 +219,12 @@ body`;
 
   describe('live memory corpus (if present)', () => {
     it('parses every memory/feedback_*.md description without throwing', () => {
-      const memoryDir = join(homedir(), '.claude', 'projects',
-        '-Users-operator-massu-internal', 'memory');
+      // Derive the operator's memory dir generically from this repo's root —
+      // Claude Code encodes the project dir as the absolute path with '/' -> '-'.
+      // (Was hardcoded to a single operator's path; now works for any operator.)
+      const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+      const encodedProject = repoRoot.replace(/\//g, '-');
+      const memoryDir = join(homedir(), '.claude', 'projects', encodedProject, 'memory');
       if (!existsSync(memoryDir)) {
         // eslint-disable-next-line no-console
         console.log('[calibration] memory dir not present, skipping live corpus check');

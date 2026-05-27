@@ -15,8 +15,8 @@
 # .massu-skip-hook-install in the repo root before running npm install.
 #
 # History: created 2026-05-06 as part of the post-leak enterprise
-# defense layering. See ~/.claude/projects/-Users-operator-massu/
-# memory/feedback_public_repo_leak_guard.md for the incident.
+# defense layering. See the project memory rule
+# feedback_public_repo_leak_guard.md for the incident.
 
 set -euo pipefail
 

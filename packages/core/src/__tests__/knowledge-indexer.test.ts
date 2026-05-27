@@ -268,7 +268,7 @@ describe('categorizeFile (plan/docs)', () => {
 
   it('returns memory for memory dir paths', () => {
     // Memory paths include .claude/projects/ and /memory/
-    const memoryPath = '/Users/operator/.claude/projects/-Users-operator-massu-internal/memory/MEMORY.md';
+    const memoryPath = '/Users/dev/.claude/projects/-Users-dev-myproject/memory/MEMORY.md';
     expect(categorizeFile(memoryPath)).toBe('memory');
   });
 

@@ -156,7 +156,7 @@ Phase 1.5 multi-perspective review surfaced 5 security + 7 architecture findings
 ### Drift-guards (CR-46 compliance)
 
 - **`website/src/__tests__/eslint-warning-budget.test.ts`** (P-E-045) — ESLint budget pinned at 90 warnings + 0 errors. Future regressions FAIL the test. Reduction over time encouraged via budget DOWN-adjustment.
-- **`website/src/__tests__/generic-username-scripts.test.ts`** (P-E-046) — forbids `/Users/operator`, `/Users/operator`, and any `/home/<username>/` literal in any script under `scripts/`. Allowlist for leak-pattern scan targets.
+- **`website/src/__tests__/generic-username-scripts.test.ts`** (P-E-046) — forbids hardcoded operator home paths (`/Users/<user>/`, `/home/<username>/`) in any script under `scripts/`. Allowlist for leak-pattern scan targets.
 - **`website/src/__tests__/privacy-page-required-sections.test.ts`** (P-E-028 drift-guard) — 5 cases: GDPR present, CCPA present, "Do Not Sell or Share" disclosure, CCPA id anchor for deep-link, metadata description mentions both.
 - **`website/src/__tests__/logger-sanitize.test.ts`** (P-E-040 drift-guard) — 6 cases: ANSI CSI strip, OSC strip, CRLF replace, length truncate, non-string coercion, CRLF-injection attack returns single line.
 - **`website/src/__tests__/revenue-kill-switches.test.ts`** (P-E-042 drift-guard) — 17 cases (4 flags × 4 cases + 1 disabled-response shape) — default ON, explicit OFF values, fail-open on garbage, 503 response shape.

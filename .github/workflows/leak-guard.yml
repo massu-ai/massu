@@ -8,7 +8,7 @@ name: Leak Guard
 #
 # History: created 2026-05-06 after the docs/internal/ + reports/
 # leak (visible 2026-04-28→05-06, 377 clones / 86 unique-day actors).
-# See ~/.claude/projects/-Users-operator-massu/memory/
+# See ~/.claude/projects/-Users-ekoultra-massu/memory/
 # feedback_public_repo_leak_guard.md for the incident retrospective.
 #
 # When this workflow fails: investigate the violations in the job log.
@@ -109,7 +109,7 @@ jobs:
             echo ""
             echo "Remediation:"
             echo "  - If the file belongs in the INTERNAL repo, move the work"
-            echo "    to /Users/operator/massu-internal/ and re-push from there."
+            echo "    to /Users/ekoultra/massu-internal/ and re-push from there."
             echo "  - If the path SHOULD be allowed in public, update both"
             echo "    PUBLIC_MANIFEST.md (in internal) AND the allowlist in"
             echo "    scripts/massu-public-leak-guard.sh — together."

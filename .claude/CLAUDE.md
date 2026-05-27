@@ -76,7 +76,7 @@ AI Engineering Governance Platform - an MCP server with Claude Code integration.
 There are two registration patterns in use:
 
 **Pattern A: 3-function pattern (preferred for new modules)**
-Used by: analytics, cost-tracker, prompt-analyzer, audit-trail, validation-engine, adr-generator, security-scorer, dependency-scorer, team-knowledge, regression-detector, observability-tools
+Used by: analytics, cost-tracker, prompt-analyzer, audit-trail, validation-engine, adr-generator, security-scorer, dependency-scorer, team-knowledge, regression-detector, observability-tools, knowledge-tools, python-tools, license
 
 1. `getXToolDefinitions()` - Returns tool definitions
 2. `isXTool(name)` - Returns boolean for tool name matching
@@ -284,6 +284,7 @@ docs/plans/YYYY-MM-DD-feature-name.md
 | `security-scorer.ts` | `_security_` | Pro | YES |
 | `dependency-scorer.ts` | `_dependency_` | Pro | YES |
 | `knowledge-tools.ts` | `_knowledge_` (12 tools) | Pro | YES |
+| `python-tools.ts` | `_py_` (8 tools) | Pro | YES |
 | `team-knowledge.ts` | `_team_` (3 tools) | Team | YES |
 | `regression-detector.ts` | `_regression_` | Pro | YES |
 | `observability-tools.ts` | `_obs_` | Free | YES |
@@ -387,6 +388,7 @@ docs/plans/YYYY-MM-DD-feature-name.md
 | `/massu-status` | Read-only project health dashboard | **NO** |
 | `/massu-review` | Automated code review (PR or uncommitted) | **NO** |
 | `/massu-verify` | Run all VR-* verification checks with mandatory proof | **NO** |
+| `/massu-rule` | Inspect, approve, or dismiss auto-learned rule candidates | **YES** (writes rule on approve) |
 | `/massu-audit-deps` | Dependency audit (vulns, licenses, unused) | **NO** |
 | `/massu-changelog` | Generate changelog from commits | CHANGELOG.md only |
 | `/massu-hotfix` | Quick scoped fix workflow | **YES** (small fixes) |

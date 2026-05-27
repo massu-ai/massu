@@ -6,7 +6,7 @@ name: Leak Guard (Retro / Full-Tree)
 # in a push range only, per its `git rev-list --reverse "${BASE}..${HEAD}"`
 # loop). That layer cannot detect a leak that was committed BEFORE the
 # guard existed — and we discovered on 2026-05-07 that several pre-guard
-# commits had grandfathered references to docs/internal/, /Users/operator/,
+# commits had grandfathered references to docs/internal/, /Users/ekoultra/,
 # and customer-name fixtures that the per-commit gate silently permitted.
 #
 # This workflow closes that gap by running the SAME guard script in

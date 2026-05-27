@@ -11,7 +11,7 @@
 #   2. git init + commit --allow-empty (sync-public.sh requires .git)
 #   3. bash scripts/sync-public.sh <mirror>
 #   4. npm ci + npm run build:adapters + npm test in mirror
-#   5. Assertions: 59 commands, no website/, no private docs, no secrets,
+#   5. Assertions: public-command count (derived), no website/, no private docs, no secrets,
 #                  no sync-public.sh leak, hooks present
 #   6. Cleanup via trap (covers Ctrl+C / SIGTERM)
 #
@@ -51,10 +51,18 @@ npm run build:adapters
 npm test
 
 # Step 4: assertions.
+# Expected public-command count is DERIVED from the internal repo (count of
+# .claude/commands/massu-*.md minus massu-internal-*, mirroring exactly what
+# sync-public.sh copies at lines 201-204). Deriving — not hardcoding a magic
+# number — keeps this gate from breaking every time a public command is added or
+# removed (CR-46 / derive-from-filesystem). Was hardcoded `-ne 59`; silently
+# drifted to 60 when v0.2 added massu-rule.md and failed Sync Check undetected
+# until 2026-05-27.
 COUNT=$(ls "$MIRROR_DIR/.claude/commands/massu-"*.md 2>/dev/null | wc -l | tr -d ' ')
-echo "Command count: $COUNT"
-if [ "$COUNT" -ne 59 ]; then
-  echo "FAIL: Expected 59 commands, got $COUNT"
+EXPECTED=$(ls "$REPO_ROOT/.claude/commands/massu-"*.md 2>/dev/null | grep -cv '/massu-internal-')
+echo "Command count: $COUNT (expected $EXPECTED, derived from internal public commands)"
+if [ "$COUNT" -ne "$EXPECTED" ]; then
+  echo "FAIL: Expected $EXPECTED public commands in mirror, got $COUNT"
   exit 1
 fi
 

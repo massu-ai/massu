@@ -1,12 +1,22 @@
 ---
 name: massu-rollback
 description: "When user says 'rollback', 'revert this', 'undo changes', 'go back', or needs to safely undo code or database changes with state preservation"
-allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), mcp__supabase__DEV__*, mcp__supabase__NEW_PROD__*, mcp__supabase__OLD_PROD__*
+allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), mcp__supabase__*
 disable-model-invocation: true
 ---
 name: massu-rollback
 
 > **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-14, CR-5, CR-12 enforced.
+
+## Tier requirement (Requires Pro)
+
+The safe rollback protocol (multi-environment schema/data rollback with state
+preservation and integrity verification) is a **Pro** feature. Confirm entitlement
+before running — this hard-fails for sub-Pro:
+
+```bash
+npx massu license check --min pro || exit 1
+```
 
 # Massu Rollback: Safe Rollback Protocol
 
@@ -60,11 +70,19 @@ ROLLBACK VERIFICATION LOOP:
 
 ## SUPABASE ENVIRONMENTS
 
-| Environment | Project ID | MCP Tool Prefix |
-|-------------|------------|-----------------|
-| DEV | `gwqkbjymbarkufwvdmar` | `mcp__supabase__DEV__` |
-| OLD PROD | `hwaxogapihsqleyzpqtj` | `mcp__supabase__OLD_PROD__` |
-| NEW PROD | `cnfxxvrhhvjefyvpoqlq` | `mcp__supabase__NEW_PROD__` |
+Rollbacks run against **whatever Supabase MCP server(s) you configure** in your
+`.mcp.json`. Use the environment aliases you define there; the MCP tool names
+follow the form `mcp__supabase__<your-env-alias>__execute_sql`. Apply every
+rollback to EVERY environment you maintain so no environment drifts.
+
+| Environment (your alias) | MCP Tool Prefix |
+|--------------------------|-----------------|
+| `<dev>` | `mcp__supabase__<dev>__` |
+| `<staging>` | `mcp__supabase__<staging>__` |
+| `<prod>` | `mcp__supabase__<prod>__` |
+
+> Configure your Supabase MCP server(s) in `.mcp.json`; this command uses whatever
+> environment aliases you define.
 
 ---
 
@@ -345,7 +363,7 @@ ALTER TABLE [table] ALTER COLUMN [column] TYPE [old_type];
 ```
 
 ### 5.2 Apply Rollback Migration
-Apply to environments in order: DEV first, then OLD PROD, then NEW PROD
+Apply to environments in a safe order: lower environments first (e.g. dev), then staging, then production last — using your configured `.mcp.json` aliases.
 
 ```sql
 -- Always wrap in transaction
@@ -477,7 +495,7 @@ curl -I https://[production-url]/
 curl https://[production-url]/api/health
 
 # Monitor logs for errors
-# Use mcp__supabase__NEW_PROD__get_logs for each service
+# Use mcp__supabase__<your-prod-alias>__get_logs for each service
 ```
 
 ---

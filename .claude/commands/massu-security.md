@@ -1,12 +1,22 @@
 ---
 name: massu-security
 description: "When user says 'security audit', 'check security', 'RLS audit', 'XSS check', or needs a focused security review covering auth, secrets, injection, and OWASP top 10"
-allowed-tools: Bash(*), Read(*), Grep(*), Glob(*), mcp__supabase__DEV__*, mcp__supabase__NEW_PROD__*, mcp__supabase__OLD_PROD__*
+allowed-tools: Bash(*), Read(*), Grep(*), Glob(*), mcp__supabase__*
 disable-model-invocation: true
 ---
 name: massu-security
 
 > **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding. CR-14, CR-5, CR-12 enforced.
+
+## Tier requirement (Requires Enterprise)
+
+The deep multi-environment security audit (RLS/grants across every configured
+Supabase environment, OWASP coverage, injection sweeps) is an **Enterprise**
+feature. Confirm entitlement before running — this hard-fails for sub-Enterprise:
+
+```bash
+npx massu license check --min enterprise || exit 1
+```
 
 # Massu Security: Comprehensive Security Audit
 
@@ -71,11 +81,20 @@ SECURITY AUDIT LOOP:
 
 ## SUPABASE ENVIRONMENTS
 
-| Environment | Project ID | MCP Tool Prefix |
-|-------------|------------|-----------------|
-| DEV | `gwqkbjymbarkufwvdmar` | `mcp__supabase__DEV__` |
-| OLD PROD | `hwaxogapihsqleyzpqtj` | `mcp__supabase__OLD_PROD__` |
-| NEW PROD | `cnfxxvrhhvjefyvpoqlq` | `mcp__supabase__NEW_PROD__` |
+This audit runs against **whatever Supabase MCP server(s) you configure** in your
+`.mcp.json`. Use the environment aliases you define there — the audit covers every
+configured environment (e.g. dev / staging / prod). The MCP tool names follow the
+form `mcp__supabase__<your-env-alias>__execute_sql`; substitute your own aliases.
+
+| Environment (your alias) | MCP Tool Prefix |
+|--------------------------|-----------------|
+| `<dev>` | `mcp__supabase__<dev>__` |
+| `<staging>` | `mcp__supabase__<staging>__` |
+| `<prod>` | `mcp__supabase__<prod>__` |
+
+> Configure your Supabase MCP server(s) in `.mcp.json`; this command uses whatever
+> environment aliases you define. Run the RLS/grants checks below against EVERY
+> environment you maintain so no environment drifts.
 
 ---
 
@@ -470,9 +489,9 @@ npm audit --production --json | grep -i "critical\|high"
 ### Section 4: Database Security (RLS)
 | Environment | Tables with RLS | Policies | service_role Grants |
 |-------------|-----------------|----------|---------------------|
-| DEV | N/N | N | YES |
-| OLD PROD | N/N | N | YES |
-| NEW PROD | N/N | N | YES |
+| `<env-alias-1>` | N/N | N | YES |
+| `<env-alias-2>` | N/N | N | YES |
+| `<env-alias-N>` | N/N | N | YES |
 
 ### Section 5: Injection Prevention
 | Check | Result | Status |
@@ -558,7 +577,7 @@ After audit, update `session-state/CURRENT.md`:
 1. Run Section 1: Secrets & Credentials
 2. Run Section 2: Authentication
 3. Run Section 3: Authorization (tRPC)
-4. Run Section 4: Database Security (all 3 envs)
+4. Run Section 4: Database Security (every configured environment)
 5. Run Section 5: Injection Vulnerabilities
 6. Run Section 6: Data Exposure
 7. Run Section 7: Additional Checks

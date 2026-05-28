@@ -1,12 +1,22 @@
 ---
 name: massu-data
 description: "When user asks about data trends, metrics, analytics, funnel analysis, cohort comparison, entity counts, storage usage, or 'what happened' questions about the database"
-allowed-tools: Bash(*), Read(*), Grep(*), Glob(*), mcp__supabase__DEV__*, mcp__supabase__NEW_PROD__*, mcp__supabase__OLD_PROD__*
+allowed-tools: Bash(*), Read(*), Grep(*), Glob(*), mcp__supabase__*
 ---
 
 # Data Analysis
 
-Structured data analysis and query library for Massu databases.
+Structured data analysis and query library for your project databases.
+
+## Tier requirement (Requires Pro)
+
+The data-analysis query library (multi-environment querying, funnel/cohort
+analytics) is a **Pro** feature. Confirm entitlement before running — this
+hard-fails for sub-Pro:
+
+```bash
+npx massu license check --min pro || exit 1
+```
 
 ## Skill Contents
 
@@ -24,20 +34,24 @@ This skill is a folder. The following files are available for reference:
 ## Process
 
 1. **Understand the question** — What data does the user need?
-2. **Identify target database** — DEV (testing), NEW PROD (live data), OLD PROD (historical)
+2. **Identify target database** — pick the matching environment alias from your `.mcp.json`
 3. **Check for pre-built query** — Review `scripts/` for a matching SQL template
 4. **Verify schema** — Run VR-SCHEMA-PRE before any custom query
-5. **Execute query** — Use MCP `execute_sql` tool
+5. **Execute query** — Use the `mcp__supabase__<your-env-alias>__execute_sql` MCP tool
 6. **Present results** — Format as table with clear labels
 
 ## Database Selection
 
-| User Says | Database |
-|-----------|----------|
-| "production", "live", "real data" | NEW PROD |
-| "dev", "test", "local" | DEV |
-| "old prod", "historical" | OLD PROD |
-| No qualifier | NEW PROD (default) |
+Configure your Supabase MCP server(s) in `.mcp.json`; this command uses whatever
+environment aliases you define (e.g. `dev`, `staging`, `prod`). Map the user's
+intent to your own aliases:
+
+| User Says | Database (your alias) |
+|-----------|-----------------------|
+| "production", "live", "real data" | your production alias (default) |
+| "dev", "test", "local" | your dev alias |
+| "staging", "historical" | your staging/secondary alias |
+| No qualifier | your production alias (default) |
 
 ## Key Tables
 

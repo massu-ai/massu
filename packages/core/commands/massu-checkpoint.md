@@ -1,11 +1,19 @@
 ---
 name: massu-checkpoint
 description: "When user wants mid-implementation verification, says 'checkpoint', 'check progress', or needs a quality gate during a multi-phase plan"
-allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), mcp__supabase__DEV__*, mcp__supabase__NEW_PROD__*, mcp__supabase__OLD_PROD__*
+allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), mcp__supabase__*
 ---
 name: massu-checkpoint
 
-# Massu Checkpoint: Phase Boundary Audit Protocol
+## Tier requirement (Requires Pro)
+
+The mid-implementation checkpoint audit (multi-environment schema verification,
+subagent loop, plan-coverage gate) is a **Pro** feature. Confirm entitlement
+before running — this hard-fails for sub-Pro:
+
+```bash
+npx massu license check --min pro || exit 1
+```
 
 **Shared rules**: Read `.claude/commands/_shared-preamble.md` for POST-COMPACTION (CR-12), ENTERPRISE-GRADE (CR-14), AWS SECRETS (CR-5) rules.
 
@@ -77,7 +85,7 @@ Execute full 15-step checkpoint audit for current phase. Require ZERO gaps befor
 2. ALL steps executed - no shortcuts (includes Step 0: Plan Coverage)
 3. Proof required - show verification output
 4. Session state update mandatory - record checkpoint result
-5. All 3 DB environments verified (DEV, OLD PROD, NEW PROD)
+5. ALL configured DB environments verified (every alias in your `.mcp.json`)
 6. UI/UX verification required for UI changes
 7. Schema verification required - verify column names against real schema
 8. Plan Coverage required - ALL plan items verified at 100%
@@ -141,13 +149,21 @@ Read plan section for this phase. Extract requirements into checklist.
 
 ---
 
-### Step 2: QUERY Database (All 3 Environments)
+### Step 2: QUERY Database (Every Configured Environment)
 
-| Environment | Project ID | MCP Tool Prefix |
-|-------------|------------|-----------------|
-| DEV | `gwqkbjymbarkufwvdmar` | `mcp__supabase__DEV__` |
-| OLD PROD | `hwaxogapihsqleyzpqtj` | `mcp__supabase__OLD_PROD__` |
-| NEW PROD | `cnfxxvrhhvjefyvpoqlq` | `mcp__supabase__NEW_PROD__` |
+Query **whatever Supabase MCP server(s) you configure** in your `.mcp.json`. Use the
+environment aliases you define there; the MCP tool names follow the form
+`mcp__supabase__<your-env-alias>__execute_sql`. Verify EVERY environment you maintain
+so no environment drifts.
+
+| Environment (your alias) | MCP Tool Prefix |
+|--------------------------|-----------------|
+| `<dev>` | `mcp__supabase__<dev>__` |
+| `<staging>` | `mcp__supabase__<staging>__` |
+| `<prod>` | `mcp__supabase__<prod>__` |
+
+> Configure your Supabase MCP server(s) in `.mcp.json`; this command uses whatever
+> environment aliases you define.
 
 For EACH affected table, verify: table exists, columns match, RLS policies exist, grants present.
 
@@ -155,9 +171,9 @@ For EACH affected table, verify: table exists, columns match, RLS policies exist
 ### DB Verification: [TABLE]
 | Env | Exists | Columns | RLS | Grants | Status |
 |-----|--------|---------|-----|--------|--------|
-| DEV | YES | X/X | X policies | YES | PASS |
-| OLD PROD | YES | X/X | X policies | YES | PASS |
-| NEW PROD | YES | X/X | X policies | YES | PASS |
+| <dev> | YES | X/X | X policies | YES | PASS |
+| <staging> | YES | X/X | X policies | YES | PASS |
+| <prod> | YES | X/X | X policies | YES | PASS |
 ```
 
 ---
@@ -448,7 +464,7 @@ Re-run ENTIRE checkpoint from Step 1. Partial re-checks are NOT valid.
 | R-001 | [desc] | [VR-* proof] | VERIFIED |
 
 ### Summary
-- Database: DEV/OLD PROD/NEW PROD verified: PASS
+- Database: all configured environments verified: PASS
 - Pattern scanner exit 0: PASS
 - Build: PASS (Exit 0)
 - UI/UX: All checks passed
@@ -474,7 +490,7 @@ Verified:
 - Pattern scanner: PASS
 - Type check: 0 errors
 - Build: PASS
-- DB: DEV/OLD PROD/NEW PROD verified
+- DB: all configured environments verified
 
 Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
@@ -503,7 +519,7 @@ After checkpoint, update `session-state/CURRENT.md`:
 | Pattern scanner | PASS |
 | Type check | 0 errors |
 | Build | PASS |
-| DB (DEV/OLD PROD/NEW PROD) | PASS |
+| DB (all configured environments) | PASS |
 
 ### Files Changed
 - [file1.ts]

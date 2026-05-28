@@ -83,7 +83,7 @@ Use Playwright MCP against production URL:
 - Verify data loads and mutations work
 
 ### Database Changes
-Query PROD (`mcp__supabase__PROD__execute_sql`):
+Query your production environment (`mcp__supabase__<your-prod-alias>__execute_sql` — use the alias you configure in `.mcp.json`):
 ```sql
 -- Verify data flows, not just schema
 SELECT COUNT(*), MAX(created_at) FROM [table]

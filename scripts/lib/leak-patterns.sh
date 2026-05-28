@@ -53,6 +53,23 @@ CONTENT_PATTERNS=(
   'reports/gap-analysis/'
   # Internal-only command prefix
   'massu-internal-'
+  # Operator-specific Supabase MCP server aliases. Public command files MUST
+  # reference the user's OWN configured Supabase MCP server(s) via generic
+  # placeholders (e.g. `mcp__supabase__<your-env-alias>__...` or the wildcard
+  # `mcp__supabase__*`) — NOT a concrete operator-named environment alias.
+  # This GENERIC signal flags any concrete `mcp__supabase__<ALIAS>__` reference
+  # (alphanumeric/underscore alias, e.g. a concrete environment name) without
+  # disclosing the operator's exact ref-IDs (those live in the sync-excluded
+  # leak-patterns-operator.sh). Placeholder forms with `<`/`>` or `*` are NOT
+  # matched (those characters fall outside the alias character class), so the
+  # generic genericized docs pass clean. Closes incident
+  # docs/incidents/2026-05-27-supabase-projectid-public-leak.md.
+  'mcp__supabase__[A-Za-z0-9_]+__'
+  # Supabase project-host URLs embed the 20-char project-ref ID. A bare 20-char
+  # token regex is too false-positive-prone, but anchored to the `.supabase.co`
+  # host suffix it reliably flags a leaked DB/API host (e.g.
+  # `<ref>.supabase.co`) without matching arbitrary hex/base32 blobs.
+  '[a-z0-9]{20}\.supabase\.co'
 )
 
 # Operator-specific patterns (local-machine paths + private-project names)
@@ -128,6 +145,14 @@ CONTENT_SCAN_SELF_REFERENCE_FILES_PUBLIC_REPO=(
   'packages/core/src/__tests__/fixtures/leak-guard-commit-mode/expected-mixed.md'
   'packages/core/src/__tests__/fixtures/leak-guard-commit-mode/expected-clean.md'
   'packages/core/src/__tests__/leak-guard-commit-mode.test.ts'
+  # Supabase MCP-alias leak-guard drift-guard (incident 2026-05-27): the FAKE
+  # fixture intentionally contains a Supabase MCP alias (`mcp__supabase__FAKEENV__`
+  # + fake id) to exercise the generic pattern; the test file references the
+  # generic pattern literal + a fake alias in a comment. Both must be exempt so
+  # the public-sync verifier accepts them while the generic pattern keeps
+  # blocking real alias references in non-fixture files.
+  'packages/core/src/__tests__/fixtures/leak-guard-commit-mode/expected-supabase-alias-leak.md'
+  'packages/core/src/__tests__/supabase-alias-leak-guard.test.ts'
   # plan-public-content-leak-guard P-A-006: shared pattern catalog and
   # the new website-content scanner are synced to public via
   # scripts/sync-public.sh:53 (`rsync -a --delete scripts/`). Both

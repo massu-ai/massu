@@ -1,7 +1,7 @@
 ---
 name: massu-production-verify
 description: "When user says 'verify production', 'is it working', 'production check', or after a deploy to verify features are actually working in production — not just deployed"
-allowed-tools: Bash(*), Read(*), Grep(*), Glob(*), mcp__supabase__NEW_PROD__*, mcp__supabase__DEV__*, mcp__plugin_playwright_playwright__*, mcp__claude_ai_Vercel__get_deployment, mcp__claude_ai_Vercel__get_runtime_logs, mcp__claude_ai_Vercel__list_deployments, mcp__claude_ai_Vercel__web_fetch_vercel_url
+allowed-tools: Bash(*), Read(*), Grep(*), Glob(*), mcp__supabase__*, mcp__plugin_playwright_playwright__*, mcp__claude_ai_Vercel__get_deployment, mcp__claude_ai_Vercel__get_runtime_logs, mcp__claude_ai_Vercel__list_deployments, mcp__claude_ai_Vercel__web_fetch_vercel_url
 ---
 name: massu-production-verify
 
@@ -17,9 +17,14 @@ Code existing, builds passing, and deploys succeeding prove NOTHING about whethe
 
 ---
 
+> **Environment aliases**: Configure your Supabase MCP server(s) in `.mcp.json`; this
+> command uses whatever environment aliases you define. Below, "production" / "PROD"
+> means your configured production alias and "DEV" means your dev alias — substitute
+> your own (`mcp__supabase__<your-env-alias>__execute_sql`).
+
 ## NON-NEGOTIABLE RULES
 
-- **Proof from production, not dev** — queries must hit NEW PROD database, URLs must hit production deployment
+- **Proof from production, not dev** — queries must hit your PRODUCTION database, URLs must hit production deployment
 - **Data, not structure** — verifying a table exists is NOT the same as verifying data flows through it
 - **End-to-end, not component** — verify the full chain: trigger -> process -> store -> display
 - **Every feature, every deploy** — no exceptions for "simple" changes

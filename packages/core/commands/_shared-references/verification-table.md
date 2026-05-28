@@ -44,9 +44,13 @@
 
 ## Database Environments
 
-| Environment | Description | MCP Tool Prefix |
-|-------------|-------------|-----------------|
-| DEV | Local development, testing | `mcp__supabase__DEV__` |
-| PROD | Production database | `mcp__supabase__PROD__` |
+Configure your Supabase MCP server(s) in `.mcp.json`; the commands use whatever
+environment aliases you define. The MCP tool names follow the form
+`mcp__supabase__<your-env-alias>__execute_sql`.
 
-> **Note**: Project-specific Supabase project IDs should be configured in the project's CLAUDE.md or `.env` file, not in shared references.
+| Environment (your alias) | Description | MCP Tool Prefix |
+|--------------------------|-------------|-----------------|
+| `<dev>` | Local development, testing | `mcp__supabase__<dev>__` |
+| `<prod>` | Production database | `mcp__supabase__<prod>__` |
+
+> **Note**: Project-specific Supabase project IDs and environment aliases should be configured in your `.mcp.json` (and optionally documented in the project's CLAUDE.md), not in shared references.

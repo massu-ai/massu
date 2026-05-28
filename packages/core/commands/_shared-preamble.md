@@ -80,29 +80,34 @@ Code Quality: PASS + Plan Coverage: FAIL = NOT COMPLETE.
 
 ALWAYS run VR-SCHEMA-PRE before using any column name.
 
-## MANDATORY 3-ENVIRONMENT SCHEMA SYNC (CR-36, Incident #27)
+## MANDATORY MULTI-ENVIRONMENT SCHEMA SYNC (CR-36, Incident #27)
 
-**ALL database migrations (ALTER TABLE, CREATE TABLE, DROP COLUMN, etc.) MUST be applied to ALL 3 environments in the SAME session.**
+**ALL database migrations (ALTER TABLE, CREATE TABLE, DROP COLUMN, etc.) MUST be applied to EVERY configured environment in the SAME session.**
 
-| Order | Environment | MCP Tool Prefix |
-|-------|-------------|-----------------|
-| 1 | NEW PROD | `mcp__supabase__NEW_PROD__execute_sql` |
-| 2 | DEV | `mcp__supabase__DEV__execute_sql` |
-| 3 | OLD PROD | `mcp__supabase__OLD_PROD__execute_sql` |
+Configure your Supabase MCP server(s) in `.mcp.json`; this command uses whatever
+environment aliases you define. Apply migrations to every environment you maintain,
+in a safe order (lower environments first, production last). The MCP tool names
+follow the form `mcp__supabase__<your-env-alias>__execute_sql`.
+
+| Order | Environment (your alias) | MCP Tool Prefix |
+|-------|--------------------------|-----------------|
+| 1 | `<dev>` | `mcp__supabase__<dev>__execute_sql` |
+| 2 | `<staging>` | `mcp__supabase__<staging>__execute_sql` |
+| N (last) | `<prod>` | `mcp__supabase__<prod>__execute_sql` |
 
 ### VR-SCHEMA-SYNC Protocol
 
-After applying ANY migration, verify all 3 environments match:
+After applying ANY migration, verify all environments match:
 
 ```sql
--- Run on ALL 3 environments:
+-- Run on EVERY configured environment:
 SELECT column_name, data_type, is_nullable, column_default
 FROM information_schema.columns
 WHERE table_schema = 'public' AND table_name = '[TABLE]'
 ORDER BY ordinal_position;
 ```
 
-**Column count MUST match across all 3 environments. If it doesn't, the migration is INCOMPLETE.**
+**Column count MUST match across all environments. If it doesn't, the migration is INCOMPLETE.**
 
 A migration applied to only 1 environment is NOT a completed migration. It is a schema drift time bomb.
 

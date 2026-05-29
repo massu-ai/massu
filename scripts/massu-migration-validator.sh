@@ -56,7 +56,12 @@ while IFS= read -r MIGRATION_FILE; do
   PREFIX_NUM=$(echo "$FILE_NAME" | grep -oE '^[0-9]+' || echo "")
   MIGRATION_NUMBERS+=("$PREFIX_NUM")
   info "$FILE_NAME"
-done < <(find "$MIGRATIONS_DIR" -maxdepth 1 -name "*.sql" -type f | sort)
+done < <(find "$MIGRATIONS_DIR" -maxdepth 1 -name "*.sql" -type f ! -name "*.down.sql" | sort)
+# NOTE: `*.down.sql` rollback files are EXCLUDED from the forward-migration
+# inventory. They legitimately share a numeric prefix with their paired up-
+# migration (so they must not trip the sequential-numbering duplicate check)
+# and they only DROP objects (so they must not be scanned for RLS coverage,
+# and their explanatory comments must not be mis-parsed as CREATE TABLE).
 
 echo ""
 echo "  Total migrations: $MIGRATION_COUNT"

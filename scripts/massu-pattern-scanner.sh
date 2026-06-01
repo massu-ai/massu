@@ -1331,6 +1331,41 @@ if [ "$CHECK33_VIOLATIONS" -eq 0 ]; then
 fi
 
 # -------------------------------------------------------
+# Check 34: API-key edge functions must declare verify_jwt=false (CR-58).
+# -------------------------------------------------------
+# Every Supabase edge function that authenticates ms_live_ API keys itself
+# (imports verifyApiKeyHash) MUST have a `[functions.<slug>] verify_jwt = false`
+# block in website/supabase/config.toml. The platform JWT check is incompatible
+# with API-key auth (401 UNAUTHORIZED_INVALID_JWT_FORMAT) — incident 2026-06-01.
+# Mirror of the vitest drift-guard edge-verify-jwt-config-drift.test.ts.
+# -------------------------------------------------------
+echo ""
+echo "Check 34: API-key edge functions declare verify_jwt=false (CR-58)"
+CHECK34_VIOLATIONS=0
+FN_DIR="$REPO_ROOT/website/supabase/functions"
+CFG_TOML="$REPO_ROOT/website/supabase/config.toml"
+if [ -d "$FN_DIR" ]; then
+  if [ ! -f "$CFG_TOML" ]; then
+    fail "Check 34: website/supabase/config.toml is missing — API-key functions need declared verify_jwt=false"
+    CHECK34_VIOLATIONS=$((CHECK34_VIOLATIONS + 1))
+  else
+    # Every function whose index.ts imports verifyApiKeyHash must be declared.
+    while IFS= read -r idx; do
+      slug="$(basename "$(dirname "$idx")")"
+      # Extract the [functions.<slug>] block and confirm verify_jwt = false within it.
+      block="$(awk -v s="[functions.$slug]" '$0==s{f=1;next} /^\[/{f=0} f' "$CFG_TOML")"
+      if ! printf '%s' "$block" | grep -qE "verify_jwt[[:space:]]*=[[:space:]]*false"; then
+        fail "Check 34: function '$slug' uses verifyApiKeyHash but config.toml lacks [functions.$slug] verify_jwt = false (would 401 on deploy — incident 2026-06-01)"
+        CHECK34_VIOLATIONS=$((CHECK34_VIOLATIONS + 1))
+      fi
+    done < <(grep -rl "verifyApiKeyHash" "$FN_DIR"/*/index.ts 2>/dev/null)
+  fi
+fi
+if [ "$CHECK34_VIOLATIONS" -eq 0 ]; then
+  pass "Check 34: all API-key edge functions declare verify_jwt=false"
+fi
+
+# -------------------------------------------------------
 # Summary
 # -------------------------------------------------------
 echo ""

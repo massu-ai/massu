@@ -47,9 +47,13 @@ const OUT_PATH = resolve(REPO_ROOT, 'packages/core/src/security/promotion-pubkey
  *
  * Initial fingerprint (generated 2026-05-29 via Node crypto.generateKeyPairSync):
  *   0aeb8eff38f70fa3ed413ebf1fdc8cc00539ab7e76ea023e9424733847ad9956
+ *   -- SUPERSEDED 2026-05-30: the matching private key was never persisted and
+ *      never deployed to prod, so no grace window is required (removed).
+ * Active fingerprint (regenerated 2026-05-30 via scripts/generate-promotion-keypair.mjs):
+ *   b14e2a73e23c02891e976ec161d339da6c930266c0202828d3187a3bd6e5d83f
  */
 const KNOWN_PUBKEY_FINGERPRINTS = new Set([
-  '0aeb8eff38f70fa3ed413ebf1fdc8cc00539ab7e76ea023e9424733847ad9956',
+  'b14e2a73e23c02891e976ec161d339da6c930266c0202828d3187a3bd6e5d83f',
 ]);
 
 function parsePemToRawBytes(pem) {

@@ -27,7 +27,7 @@ import {
   _startRssWatchdog,
   LSP_WATCHDOG_OVERBUDGET_SAMPLES,
 } from '../../lsp/client.ts';
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs';
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 import { spawn, type ChildProcess } from 'child_process';
@@ -263,6 +263,13 @@ describe('Cmd exec — SUID binary refusal (F-014)', () => {
     const path = join(dir, 'fake-sgid');
     writeFileSync(path, '#!/bin/sh\necho ok\n');
     chmodSync(path, 0o2755); // -rwxr-sr-x
+    // BSD/macOS semantics: chmod silently STRIPS the setgid bit when the caller
+    // does not own the target's group (Linux CI keeps it). Guard on whether the
+    // bit actually stuck so this asserts real detection where the environment
+    // can set SGID, and skips (rather than false-fails) where it cannot.
+    if ((statSync(path).mode & 0o2000) === 0) {
+      return; // environment stripped the SGID bit — cannot validly exercise detection
+    }
     const det = _detectSetuid(path);
     expect(det).not.toBeNull();
     expect(det!.hasSetuid).toBe(true);

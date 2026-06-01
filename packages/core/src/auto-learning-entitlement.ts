@@ -47,6 +47,46 @@ export function autoLearningUpgradeMessage(currentTier: ToolTier): string {
   );
 }
 
+// ============================================================================
+// Phase 2 (CR-55, plan-2026-05-28-team-shared-rule-promotion): Team-Shared
+// Promotion entitlement. The tier ladder is Free=off · Pro=LOCAL auto-learning
+// · Team=SHARED auto-learning. Cross-seat propagation of a promoted rule (the
+// publish branch in the applier, the pull path in team-rule-sync) requires
+// Team (or higher). Pro stays local-only. This reuses the SAME `tierLevel()`
+// ladder as auto-learning above — no parallel tier scheme.
+// ============================================================================
+
+/**
+ * Minimum tier entitled to TEAM-SHARED rule promotion (publish + pull). SINGLE
+ * source of truth — the applier publish branch, the applier team-origin apply
+ * gate, and the pull path all read this constant. A drift-guard test +
+ * pattern-scanner Check 32 assert the chokepoints reference this SoT.
+ */
+export const TEAM_SHARED_PROMOTION_MIN_TIER: ToolTier = 'team';
+
+/**
+ * Pure, synchronous predicate: is `tier` entitled to team-shared promotion?
+ * `true` iff `tier` is at or above {@link TEAM_SHARED_PROMOTION_MIN_TIER}
+ * (i.e. Team or Enterprise). Free/Pro → `false`.
+ */
+export function entitledForTeamSharedPromotion(tier: ToolTier): boolean {
+  return tierLevel(tier) >= tierLevel(TEAM_SHARED_PROMOTION_MIN_TIER);
+}
+
+/**
+ * Single generic upgrade message surfaced everywhere team-shared promotion is
+ * refused (publish gate, team-origin apply gate). Names the feature, the
+ * caller's current tier, and the pricing URL. No operator literals, no
+ * absolute paths — this string ships publicly.
+ */
+export function teamSharedPromotionUpgradeMessage(currentTier: ToolTier): string {
+  return (
+    'Team-shared rule promotion (your team learns as one — a promoted rule ' +
+    'propagates to your org as a reviewable proposal) is a Team feature. ' +
+    `Your tier: ${currentTier.toUpperCase()}. Upgrade at https://massu.ai/pricing`
+  );
+}
+
 /**
  * Result of an entitlement check. `message` is populated only when the
  * caller is NOT entitled (so the refusal can be surfaced verbatim).

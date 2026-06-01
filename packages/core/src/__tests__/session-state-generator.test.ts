@@ -723,10 +723,15 @@ describe('session-state-generator', () => {
 
     it('includes a formatted date in the heading', () => {
       const result = generateCurrentMd(db, SESSION_ID);
-      // formatDate produces "Month Day, Year" style
+      // formatDate produces "Month Day, Year" style. The generator derives the
+      // date from `new Date().toISOString()` (UTC), so the expected month MUST be
+      // computed on the same UTC basis — using local `getMonth()` here caused a
+      // flaky failure in the ~7h window where UTC and local straddle a
+      // month boundary (e.g. 2026-05-31 evening local == 2026-06-01 UTC).
       const months = ['January', 'February', 'March', 'April', 'May', 'June',
         'July', 'August', 'September', 'October', 'November', 'December'];
-      const currentMonth = months[new Date().getMonth()];
+      const utcMonthIdx = Number(new Date().toISOString().slice(5, 7)) - 1;
+      const currentMonth = months[utcMonthIdx];
       expect(result).toContain(currentMonth);
     });
 

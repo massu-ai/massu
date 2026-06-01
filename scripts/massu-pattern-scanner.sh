@@ -1162,6 +1162,65 @@ if [ "$CHECK31_VIOLATIONS" -eq 0 ]; then
   pass "Check 31: Command tier-gate wiring intact"
 fi
 
+# Check 32: Team-shared rule promotion structural invariants (CR-55).
+# -------------------------------------------------------
+# Approval-before-apply + the H1 destination allowlist must not regress. Bash
+# mirror of the vitest drift-guard `team-shared-promotion-drift-guard.test.ts`
+# (vitest <-> scanner parity, CR-50 convention). Asserts: (i) the team min-tier
+# SoT is pinned to 'team'; (ii) the applier carries the H1 allowlist + team gate
+# symbols; (iii) the pull module (team-rule-sync.ts) NEVER references any
+# apply/destination-write function — a pulled rule can only become a reviewable
+# candidate, never auto-apply.
+# -------------------------------------------------------
+echo ""
+echo "Check 32: Team-shared rule promotion invariants (CR-55)"
+CHECK32_VIOLATIONS=0
+ENT32="$REPO_ROOT/packages/core/src/auto-learning-entitlement.ts"
+APPLIER32="$REPO_ROOT/packages/core/src/rule-candidate-applier.ts"
+SYNC32="$REPO_ROOT/packages/core/src/team-rule-sync.ts"
+
+if [ -f "$ENT32" ]; then
+  if ! grep -qE "TEAM_SHARED_PROMOTION_MIN_TIER[^=]*=[^']*'team'" "$ENT32"; then
+    fail "Check 32: auto-learning-entitlement.ts does not pin TEAM_SHARED_PROMOTION_MIN_TIER to 'team'"
+    CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+  fi
+else
+  fail "Check 32: auto-learning-entitlement.ts (entitlement SoT) is missing"
+  CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+fi
+
+if [ -f "$APPLIER32" ]; then
+  if ! grep -q "TEAM_SHAREABLE_DESTINATIONS" "$APPLIER32"; then
+    fail "Check 32: rule-candidate-applier.ts is missing the TEAM_SHAREABLE_DESTINATIONS SoT"
+    CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+  fi
+  for sym in entitledForTeamSharedPromotion signature_verified isTeamShareableDestination; do
+    if ! grep -q "$sym" "$APPLIER32"; then
+      fail "Check 32: rule-candidate-applier.ts no longer references '$sym' (team gate regressed?)"
+      CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+    fi
+  done
+else
+  fail "Check 32: rule-candidate-applier.ts (promotion chokepoint) is missing"
+  CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+fi
+
+if [ -f "$SYNC32" ]; then
+  for forbidden in applyRuleCandidate writeDestination appendMemoryIndexLine writeCorrectionsMd writePatternScanner writeClaudeMdCr writeCustomDestination; do
+    if grep -q "$forbidden" "$SYNC32"; then
+      fail "Check 32: team-rule-sync.ts references '$forbidden' — pull path must NEVER apply (approval-before-apply violated)"
+      CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+    fi
+  done
+else
+  fail "Check 32: team-rule-sync.ts (pull path) is missing"
+  CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+fi
+
+if [ "$CHECK32_VIOLATIONS" -eq 0 ]; then
+  pass "Check 32: Team-shared rule promotion invariants intact"
+fi
+
 # -------------------------------------------------------
 # Summary
 # -------------------------------------------------------

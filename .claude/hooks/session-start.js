@@ -8989,6 +8989,30 @@ function initMemorySchema(db) {
     CREATE INDEX IF NOT EXISTS idx_so_module ON shared_observations(module);
   `);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS team_promotion_outbound (
+      prompt_hash TEXT PRIMARY KEY,
+      destination TEXT NOT NULL,
+      draft_text TEXT NOT NULL,
+      score REAL,
+      signals_json TEXT NOT NULL DEFAULT '[]',
+      content_hash TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS team_revocation_outbound (
+      prompt_hash TEXT PRIMARY KEY,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS analytics_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT NOT NULL,
+      event_data TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_analytics_events_type ON analytics_events(event_type);
+  `);
+  db.exec(`
     CREATE TABLE IF NOT EXISTS knowledge_conflicts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       file_path TEXT NOT NULL,

@@ -1,6 +1,6 @@
 ---
 name: massu-rule
-description: "Inspect, approve, or dismiss rule candidates emitted by the v0.2 interactive rule-approval hook. Subcommands: list, show <id>, approve <id>, dismiss <id>, recurrence."
+description: "Inspect, approve, or dismiss rule candidates emitted by the v0.2 interactive rule-approval hook. Subcommands: list, show <id>, approve <id>, dismiss <id>, recurrence, pull, revoke <prompt_hash>."
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*), Write(*), Edit(*)
 ---
 
@@ -28,10 +28,25 @@ Auto-learning (rule-candidate **emission** + rule **promotion**) is a **Pro+** f
 - **`approve`** refuses at Free: it surfaces the generic upgrade message (`Auto-learning … is a Pro feature. … Upgrade at https://massu.ai/pricing`) and writes nothing. The gate is enforced structurally inside `applyRuleCandidate()` — DO NOT hand-edit a destination file to bypass it.
 - **`list`**, **`show`**, **`dismiss`**, and **`recurrence`** stay available regardless of tier (read + cleanup after a downgrade).
 
+### Team tier: shared promotion (`pull` / `revoke`)
+
+At **Team** (and Enterprise), auto-learning becomes **shared**: a rule you promote propagates to your org's other seats as a *reviewable proposal* (your team learns as one). Two extra subcommands cover this:
+
+- **`pull`** fetches your org's team-shared promotions from the cloud, verifies the Ed25519 signature, and materializes each as a **local rule-candidate** — provenance-tagged, surfaced like any other candidate. It **never applies anything**; a human must `show` then `approve`. Free/Pro seats no-op (Pro auto-learning is local-only). `pull` also runs automatically at session end.
+- **`revoke <prompt_hash>`** lets the original publisher tombstone a team promotion; receiving seats drop the still-pending candidate (or, if already approved, get a one-time "consider reverting" notice — never an auto-revert).
+
+Only **`corrections-md`** and **`claude-md-cr`** (non-executing memory / governance text) are shareable across seats. `pattern-scanner` (bash) and `custom-destination` (file write) are **never** published, pulled, or applied from a team origin. `approve` of a **team-origin** candidate additionally requires **Team tier + verified provenance** — enforced structurally inside `applyRuleCandidate()`.
+
 Confirm entitlement before approving — this hard-fails for sub-Pro:
 
 ```bash
 npx massu license check --min pro || exit 1
+```
+
+`pull` / `revoke` require Team:
+
+```bash
+npx massu license check --min team || exit 1
 ```
 
 ---
@@ -51,7 +66,7 @@ correction prompt → hook detection (>=60) → sidecar JSON → /massu-rule lis
 ## Subcommands
 
 ### `list`
-Lists pending rule candidates in `.massu/rule-candidates/*.json` (excluding dotfiles). Each row prints `prompt_hash`, score, classification preview, age. No state writes.
+Lists pending rule candidates in `.massu/rule-candidates/*.json` (excluding dotfiles). Each row prints `prompt_hash`, score, classification preview, age. No state writes. A candidate with `provenance.origin === 'team'` is flagged **"PROPOSED by `<promoted_by>` (team) — NOT yet applied"** so the operator knows it came from a teammate and still requires explicit `approve`.
 
 ### `show <id>`
 Renders a six-section preview via `renderCandidatePreview()` (`packages/core/src/rule-candidate-renderer.ts`):
@@ -83,6 +98,22 @@ Appends `<id>` to `.massu/rule-candidates/.shown-this-session.jsonl` so the `app
 ### `recurrence`
 Reports `audit_log` rows with `event_type='rule_promoted'` and `metadata.recurrence_count > 0`. Cross-references each with the file path where the rule was supposed to enforce. Surfaces CR-53 candidates for strengthening.
 
+### `pull` (Team+)
+
+Invokes `pullTeamPromotions(db)` (`packages/core/src/team-rule-sync.ts`):
+
+1. Tier gate — Free/Pro no-op (cache-only, no network).
+2. Reads the monotonic `seq` cursor (`memory_meta.team_promotions_cursor`) and fetches `${endpoint}/promoted-rules?since=<seq>` with the seat's API key.
+3. **Verifies the Ed25519 envelope** (`verifyPromotionEnvelope()`); an unsigned / invalid / wrong-org response is **dropped whole** (no transition mode) with telemetry.
+4. For each promotion: drops non-shareable destinations (H1); handles revocation tombstones (H3); skips duplicates already pending/applied; otherwise **writes a provenance-tagged candidate sidecar** + a `shared_observations` row. It **never applies** — the candidate is surfaced for `show` → `approve`.
+5. Advances the cursor to the max `seq` seen.
+
+Also runs automatically at session end (best-effort, bounded). Reports `{pulled, materialized, skipped, dropped_unverified, dropped_nonshareable, revoked_handled}`.
+
+### `revoke <prompt_hash>` (Team+, publisher-initiated)
+
+Enqueues `enqueueTeamRevocation(db, prompt_hash)`; the session-end sync drains it into the `/sync` payload's `rule_revocations[]`. Only the original publisher (server-attested) may revoke. Receiving seats drop a still-pending candidate or get a one-time "consider reverting" notice for an already-applied rule — never an auto-revert.
+
 ---
 
 ## Wired-in state
@@ -95,6 +126,9 @@ Reports `audit_log` rows with `event_type='rule_promoted'` and `metadata.recurre
 | `approve <id>` (destination=`pattern-scanner` / `claude-md-cr` / `custom-destination`) | stub | applier returns `{ok:false, error:"not yet wired in Phase C"}` — arrives in Phase D |
 | `dismiss <id>` | stub | arrives in Phase D alongside the dismissal-loop downweight UPSERT |
 | `recurrence` | wired | read-only; queries `audit_log` for `metadata.recurrence_count > 0` |
+| `pull` (Team+) | wired | invokes `pullTeamPromotions(db)`; verifies Ed25519 envelope, materializes provenance-tagged candidates (never applies); also auto-runs at session end |
+| `revoke <prompt_hash>` (Team+) | wired | invokes `enqueueTeamRevocation(db, prompt_hash)`; drained into `/sync` `rule_revocations[]` |
+| `approve <id>` (team-origin candidate) | wired | requires Team tier + `provenance.signature_verified === true` + shareable destination — enforced inside `applyRuleCandidate()` |
 
 ---
 

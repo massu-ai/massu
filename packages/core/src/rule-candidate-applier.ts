@@ -10,13 +10,19 @@
 import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync, realpathSync } from 'fs';
 import { join, dirname, isAbsolute, relative } from 'path';
 import { homedir } from 'os';
+import { createHash } from 'crypto';
 import type Database from 'better-sqlite3';
 import { getProjectRoot } from './config.ts';
 import { encodeMemoryDirName } from './lib/memory-path.ts';
 import { logAuditEntry, type AuditEntry } from './audit-trail.ts';
 import { renderTemplate, type TemplateVars } from './template-renderer.ts';
 import type { CustomDestinationConfig } from './rule-classifier.ts';
-import { assertAutoLearningEntitled } from './auto-learning-entitlement.ts';
+import {
+  assertAutoLearningEntitled,
+  entitledForTeamSharedPromotion,
+  teamSharedPromotionUpgradeMessage,
+} from './auto-learning-entitlement.ts';
+import { enqueueTeamPromotion } from './memory-db.ts';
 
 // SEC-01 fix: candidate IDs are sha-keyed via `hashPrompt()` which returns
 // 16 hex chars (sha-256 truncated). Reject any other shape at the I/O
@@ -61,6 +67,45 @@ export type RuleDestination =
   | 'claude-md-cr'
   | 'custom-destination';
 
+/**
+ * H1 SoT (PB-005, plan-2026-05-28-team-shared-rule-promotion): the ONLY
+ * destinations that may propagate cross-seat in team-shared promotion v1. Both
+ * are NON-EXECUTING text/governance a human reads before it takes effect.
+ * `pattern-scanner` (arbitrary bash) and `custom-destination` (arbitrary file
+ * write) — the genuine RCE/destructive classes — are deliberately EXCLUDED:
+ * they remain available for a seat's OWN local promotions but are never
+ * published, pulled, or applied from a team origin. This array MUST stay in
+ * lockstep with the server `/sync` ingest allowlist, the `/promoted-rules`
+ * filter, and the `promoted_rules.destination` CHECK constraint (migration 043).
+ * The PB-007 drift-guard + pattern-scanner Check 32 pin it to exactly these two.
+ */
+export const TEAM_SHAREABLE_DESTINATIONS: readonly RuleDestination[] = [
+  'corrections-md',
+  'claude-md-cr',
+];
+
+/** Is `destination` one of the H1 cross-seat-propagatable destinations? */
+export function isTeamShareableDestination(destination: string): destination is RuleDestination {
+  return (TEAM_SHAREABLE_DESTINATIONS as readonly string[]).includes(destination);
+}
+
+/**
+ * PB-004: provenance for a candidate materialized from a TEAM origin (pulled
+ * from the cloud by `team-rule-sync`). A team-origin sidecar is only ever
+ * WRITTEN after the pull path verified the Ed25519 envelope, so
+ * `signature_verified` is always `true` for legitimately-materialized
+ * candidates; the applier's team-origin gate refuses any team candidate whose
+ * `signature_verified !== true` (a hand-forged sidecar). Local (Phase 1)
+ * candidates omit this field entirely (back-compat).
+ */
+export interface RuleCandidateProvenance {
+  origin: 'team';
+  org_id: string;
+  promoted_by: string;
+  promoted_at: string;
+  signature_verified: boolean;
+}
+
 export interface RuleCandidatePayload {
   prompt: string;
   prompt_hash: string;
@@ -69,6 +114,8 @@ export interface RuleCandidatePayload {
   prior_turn_files: string[];
   timestamp: string;
   session_id: string;
+  /** PB-004: present only on team-origin candidates (see {@link RuleCandidateProvenance}). */
+  provenance?: RuleCandidateProvenance;
 }
 
 export interface ApplyOptions {
@@ -126,6 +173,14 @@ export interface ApplyResult {
    * carries the generic upgrade message (CR-54).
    */
   tier_refused?: boolean;
+  /**
+   * PB-005: `true` when this promotion was ALSO enqueued for team-shared
+   * propagation (Team+ seat AND a shareable destination). The publish is a
+   * best-effort, post-COMMIT side-effect — a `false`/absent value never fails
+   * the local promotion. Pro seats and non-shareable destinations are always
+   * `false`.
+   */
+  team_shared?: boolean;
 }
 
 /**
@@ -289,6 +344,29 @@ function validateCandidatePayload(raw: unknown): RuleCandidatePayload {
   if (typeof r.session_id !== 'string') {
     throw new CandidatePayloadValidationError('session_id must be a string');
   }
+  // PB-004: validate optional team provenance when present. Local candidates
+  // omit it (back-compat); a team-origin sidecar MUST carry a well-formed block.
+  if (r.provenance !== undefined) {
+    if (!r.provenance || typeof r.provenance !== 'object') {
+      throw new CandidatePayloadValidationError('provenance must be an object when present');
+    }
+    const p = r.provenance as Record<string, unknown>;
+    if (p.origin !== 'team') {
+      throw new CandidatePayloadValidationError("provenance.origin must be 'team'");
+    }
+    if (typeof p.org_id !== 'string' || p.org_id.length === 0) {
+      throw new CandidatePayloadValidationError('provenance.org_id must be a non-empty string');
+    }
+    if (typeof p.promoted_by !== 'string' || p.promoted_by.length === 0) {
+      throw new CandidatePayloadValidationError('provenance.promoted_by must be a non-empty string');
+    }
+    if (typeof p.promoted_at !== 'string') {
+      throw new CandidatePayloadValidationError('provenance.promoted_at must be a string');
+    }
+    if (typeof p.signature_verified !== 'boolean') {
+      throw new CandidatePayloadValidationError('provenance.signature_verified must be a boolean');
+    }
+  }
   return r as unknown as RuleCandidatePayload;
 }
 
@@ -338,6 +416,26 @@ export async function applyRuleCandidate(
   const projectRoot = opts.projectRoot ?? getProjectRoot();
   const home = opts.home ?? homedir();
   const candidate = readCandidate(opts.candidateId, projectRoot);
+
+  // PB-005: team-origin apply gate. A candidate materialized from a TEAM origin
+  // (a teammate's promotion pulled via team-rule-sync) may only be applied by a
+  // Team+ seat, MUST carry verified provenance, and MUST target a shareable
+  // destination (H1). All three checks run BEFORE takeSnapshots / BEGIN → zero
+  // DB/file mutation on refusal. This is the apply-time backstop to the trust
+  // model: even a hand-forged team sidecar (signature_verified:false) or a
+  // smuggled non-shareable destination is refused here.
+  if (candidate.provenance?.origin === 'team') {
+    if (!entitledForTeamSharedPromotion(ent.currentTier)) {
+      return { ok: false, error: teamSharedPromotionUpgradeMessage(ent.currentTier), tier_refused: true };
+    }
+    if (candidate.provenance.signature_verified !== true) {
+      return { ok: false, error: 'team-origin rule candidate has unverified provenance — refusing to apply' };
+    }
+    if (!isTeamShareableDestination(opts.destination)) {
+      return { ok: false, error: 'team-origin candidate has a non-shareable destination — refusing to apply' };
+    }
+  }
+
   // SEC-03: always re-sanitize the slug regardless of caller source.
   // Caller-supplied opts.slug is treated as a hint, not authority.
   const slug = opts.slug ? deriveSlug(opts.slug) : deriveSlug(candidate.prompt);
@@ -408,7 +506,37 @@ export async function applyRuleCandidate(
     if (existsSync(candidatePath)) unlinkSync(candidatePath);
 
     db.exec('COMMIT');
-    return { ok: true, audit_log_id: auditRowId };
+
+    // PB-005: team-shared publish branch. After a successful LOCAL promotion, a
+    // Team+ seat enqueues the promotion for cross-seat propagation IF the
+    // destination is shareable (H1: corrections-md / claude-md-cr only).
+    // Best-effort and post-COMMIT — a failure here NEVER fails the local
+    // promotion. Team-ORIGIN candidates are skipped: we don't re-publish what we
+    // pulled (no echo loop). `ent` is the already-resolved entitlement (no new
+    // tier resolution — the caller cannot inject a forged tier).
+    let teamShared = false;
+    if (
+      candidate.provenance?.origin !== 'team' &&
+      entitledForTeamSharedPromotion(ent.currentTier) &&
+      isTeamShareableDestination(opts.destination)
+    ) {
+      try {
+        enqueueTeamPromotion(db, {
+          prompt_hash: candidate.prompt_hash,
+          destination: opts.destination,
+          draft_text: opts.draftText,
+          score: candidate.score,
+          signals: candidate.signals,
+          content_hash: createHash('sha256')
+            .update(`${opts.destination}\n${opts.draftText}`)
+            .digest('hex'),
+        });
+        teamShared = true;
+      } catch {
+        // best-effort — the local promotion is already committed
+      }
+    }
+    return { ok: true, audit_log_id: auditRowId, team_shared: teamShared };
   } catch (err) {
     db.exec('ROLLBACK');
     restoreSnapshots(snapshot);

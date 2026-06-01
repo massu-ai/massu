@@ -1050,6 +1050,30 @@ function initMemorySchema(db) {
     CREATE INDEX IF NOT EXISTS idx_so_module ON shared_observations(module);
   `);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS team_promotion_outbound (
+      prompt_hash TEXT PRIMARY KEY,
+      destination TEXT NOT NULL,
+      draft_text TEXT NOT NULL,
+      score REAL,
+      signals_json TEXT NOT NULL DEFAULT '[]',
+      content_hash TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS team_revocation_outbound (
+      prompt_hash TEXT PRIMARY KEY,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS analytics_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT NOT NULL,
+      event_data TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_analytics_events_type ON analytics_events(event_type);
+  `);
+  db.exec(`
     CREATE TABLE IF NOT EXISTS knowledge_conflicts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       file_path TEXT NOT NULL,
@@ -1151,6 +1175,54 @@ function initMemorySchema(db) {
 }
 function enqueueSyncPayload(db, payload) {
   db.prepare("INSERT INTO pending_sync (payload) VALUES (?)").run(payload);
+}
+function getMemoryMeta(db, key) {
+  const row = db.prepare("SELECT value FROM memory_meta WHERE key = ?").get(key);
+  return row ? row.value : null;
+}
+function setMemoryMeta(db, key, value) {
+  db.prepare("INSERT OR REPLACE INTO memory_meta (key, value) VALUES (?, ?)").run(key, value);
+}
+function drainTeamPromotions(db) {
+  const rows = db.prepare(`
+    SELECT prompt_hash, destination, draft_text, score, signals_json, content_hash
+    FROM team_promotion_outbound ORDER BY created_at ASC LIMIT 1000
+  `).all();
+  if (rows.length === 0) return [];
+  db.prepare("DELETE FROM team_promotion_outbound").run();
+  return rows.map((r) => ({
+    prompt_hash: r.prompt_hash,
+    destination: r.destination,
+    draft_text: r.draft_text,
+    score: r.score ?? void 0,
+    signals: safeJsonArray(r.signals_json),
+    content_hash: r.content_hash
+  }));
+}
+function drainTeamRevocations(db) {
+  const rows = db.prepare(
+    `SELECT prompt_hash FROM team_revocation_outbound ORDER BY created_at ASC LIMIT 1000`
+  ).all();
+  if (rows.length === 0) return [];
+  db.prepare("DELETE FROM team_revocation_outbound").run();
+  return rows.map((r) => r.prompt_hash);
+}
+function recordTelemetry(db, eventType, data) {
+  try {
+    db.prepare(`
+      INSERT INTO analytics_events (event_type, event_data, created_at)
+      VALUES (?, ?, datetime('now'))
+    `).run(eventType, JSON.stringify(data));
+  } catch {
+  }
+}
+function safeJsonArray(json) {
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
 }
 function dequeuePendingSync(db, limit = 10) {
   const stale = db.prepare(
@@ -1618,6 +1690,26 @@ async function syncToCloud(db, payload) {
   if (cloud.sync?.audit !== false) {
     filteredPayload.audit = payload.audit;
   }
+  if (cloud.sync?.memory !== false) {
+    if (payload.rule_promotions?.length) {
+      let droppedPrivatePromos = 0;
+      const safePromos = payload.rule_promotions.filter((p) => {
+        if (classifyVisibility(p.draft_text ?? "", p.draft_text ?? "") === "private") {
+          droppedPrivatePromos += 1;
+          return false;
+        }
+        return true;
+      });
+      if (droppedPrivatePromos > 0) {
+        process.stderr.write(
+          `[massu] cloud-sync: dropped ${droppedPrivatePromos} team rule promotion(s) (PRIVATE_PATTERNS match in draft_text)
+`
+        );
+      }
+      if (safePromos.length) filteredPayload.rule_promotions = safePromos;
+    }
+    if (payload.rule_revocations?.length) filteredPayload.rule_revocations = payload.rule_revocations;
+  }
   let lastError = "";
   const requestTimeoutMs = cloud.requestTimeoutMs ?? DEFAULT_CLOUD_REQUEST_TIMEOUT_MS;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -1696,6 +1788,510 @@ async function drainSyncQueue(db) {
 }
 function sleep(ms) {
   return new Promise((resolve4) => setTimeout(resolve4, ms));
+}
+
+// src/team-rule-sync.ts
+import { existsSync as existsSync4, writeFileSync as writeFileSync2, unlinkSync, mkdirSync as mkdirSync3 } from "fs";
+import { join, dirname as dirname4 } from "path";
+
+// src/license.ts
+import { createHash } from "crypto";
+
+// src/security/license-response-verifier.ts
+import { createPublicKey, verify as cryptoVerify } from "crypto";
+
+// src/security/license-pubkey.generated.ts
+var LICENSE_PUBKEY_ED25519 = new Uint8Array([39, 136, 108, 146, 85, 233, 119, 252, 223, 226, 123, 155, 234, 168, 200, 150, 36, 249, 174, 6, 130, 146, 125, 196, 136, 224, 202, 150, 53, 228, 114, 15]);
+var LICENSE_PUBKEY_FINGERPRINT_HEX = "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475";
+var KNOWN_LICENSE_PUBKEY_FINGERPRINTS = /* @__PURE__ */ new Set([
+  "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475"
+]);
+
+// src/security/license-response-verifier.ts
+function verifyLicenseResponse(payload) {
+  if (!KNOWN_LICENSE_PUBKEY_FINGERPRINTS.has(LICENSE_PUBKEY_FINGERPRINT_HEX)) {
+    return {
+      kind: "error",
+      reason: `Bundled license pubkey fingerprint ${LICENSE_PUBKEY_FINGERPRINT_HEX} is not in the trusted allowlist. Possible build-time tamper.`
+    };
+  }
+  const sig = payload._signature;
+  const alg = payload._signature_alg;
+  const payloadKeys = payload._signature_payload_keys;
+  const sigPubkey = payload._signature_pubkey_fingerprint;
+  if (typeof sig !== "string" || sig.length === 0) {
+    return { kind: "missing_signature" };
+  }
+  if (alg !== "ed25519") {
+    return { kind: "error", reason: `Unsupported signature algorithm: ${alg}` };
+  }
+  if (!Array.isArray(payloadKeys) || payloadKeys.length === 0) {
+    return { kind: "error", reason: "Missing _signature_payload_keys" };
+  }
+  if (typeof sigPubkey === "string" && sigPubkey !== LICENSE_PUBKEY_FINGERPRINT_HEX) {
+    return { kind: "unknown_pubkey", got: sigPubkey };
+  }
+  const canonicalObj = {};
+  for (const k of payloadKeys) {
+    if (typeof k !== "string") continue;
+    canonicalObj[k] = payload[k];
+  }
+  const canonical = JSON.stringify(canonicalObj, [...payloadKeys].sort());
+  try {
+    const spkiPrefix = Buffer.from([
+      48,
+      42,
+      48,
+      5,
+      6,
+      3,
+      43,
+      101,
+      112,
+      3,
+      33,
+      0
+    ]);
+    const der = Buffer.concat([spkiPrefix, Buffer.from(LICENSE_PUBKEY_ED25519)]);
+    const pubkey = createPublicKey({ key: der, format: "der", type: "spki" });
+    const ok = cryptoVerify(
+      null,
+      Buffer.from(canonical, "utf-8"),
+      pubkey,
+      Buffer.from(sig, "base64")
+    );
+    return ok ? { kind: "valid" } : { kind: "bad_signature" };
+  } catch (err) {
+    return {
+      kind: "error",
+      reason: `Signature verification threw: ${err instanceof Error ? err.message : String(err)}`
+    };
+  }
+}
+function isLicenseSignatureRequired() {
+  return process.env.MASSU_REQUIRE_SIGNED_LICENSE === "true";
+}
+
+// src/license.ts
+var _warnedLicenseSig = false;
+function warnLicenseSigOnce(reason) {
+  if (_warnedLicenseSig) return;
+  _warnedLicenseSig = true;
+  process.stderr.write(
+    `[massu] WARNING: license-validate response is unsigned or signature invalid (${reason}). Acceptance permitted under transition mode. Operator: provision Supabase Edge Function LICENSE_RESPONSE_SIGNING_PRIVATE_KEY_B64 then set MASSU_REQUIRE_SIGNED_LICENSE=true to enforce strict mode.
+`
+  );
+}
+var TIER_LEVELS = {
+  free: 0,
+  pro: 1,
+  team: 2,
+  enterprise: 3
+};
+function tierLevel(tier) {
+  return TIER_LEVELS[tier] ?? 0;
+}
+var PLAN_TO_TIER_MAP = {
+  free: "free",
+  cloud_pro: "pro",
+  cloud_team: "team",
+  cloud_enterprise: "enterprise"
+};
+var IN_MEMORY_CACHE_TTL_MS = 15 * 60 * 1e3;
+var GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1e3;
+function readTrustedCache(cached) {
+  if (!cached.signed_payload_json) {
+    if (isLicenseSignatureRequired()) return null;
+    warnLicenseSigOnce("cache_unsigned_transition");
+    return {
+      tier: cached.tier,
+      validUntil: cached.valid_until,
+      features: JSON.parse(cached.features || "[]")
+    };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(cached.signed_payload_json);
+  } catch {
+    return null;
+  }
+  const result = verifyLicenseResponse(parsed);
+  if (result.kind !== "valid") return null;
+  const verifiedPlan = typeof parsed.plan === "string" ? parsed.plan : null;
+  const verifiedTierField = typeof parsed.tier === "string" ? parsed.tier : null;
+  const tier = verifiedPlan ? PLAN_TO_TIER_MAP[verifiedPlan] ?? "free" : verifiedTierField ?? "free";
+  const validUntil = typeof parsed.validUntil === "string" ? parsed.validUntil : "";
+  const features = Array.isArray(parsed.features) ? parsed.features : [];
+  const orgId = typeof parsed.orgId === "string" && parsed.orgId.length > 0 ? parsed.orgId : void 0;
+  return { tier, validUntil, features, orgId };
+}
+function getCachedTierReadOnly(memDb) {
+  const config = getConfig();
+  const apiKey = config.cloud?.apiKey;
+  if (!apiKey) return "free";
+  const ownsDb = !memDb;
+  const db = memDb ?? getMemoryDb();
+  try {
+    const keyHash = createHash("sha256").update(apiKey).digest("hex");
+    const cached = db.prepare(
+      "SELECT tier, valid_until, last_validated, features, signed_payload_json FROM license_cache WHERE api_key_hash = ?"
+    ).get(keyHash);
+    if (!cached) return "free";
+    const trusted = readTrustedCache(cached);
+    if (!trusted) return "free";
+    const lastValidated = new Date(cached.last_validated);
+    const sevenDaysAgo = new Date(Date.now() - GRACE_PERIOD_MS);
+    if (!(lastValidated > sevenDaysAgo)) return "free";
+    return trusted.tier;
+  } catch {
+    return "free";
+  } finally {
+    if (ownsDb) {
+      try {
+        db.close();
+      } catch {
+      }
+    }
+  }
+}
+function getCachedOrgId(memDb) {
+  const config = getConfig();
+  const apiKey = config.cloud?.apiKey;
+  if (!apiKey) return null;
+  const ownsDb = !memDb;
+  const db = memDb ?? getMemoryDb();
+  try {
+    const keyHash = createHash("sha256").update(apiKey).digest("hex");
+    const cached = db.prepare(
+      "SELECT tier, valid_until, last_validated, features, signed_payload_json FROM license_cache WHERE api_key_hash = ?"
+    ).get(keyHash);
+    if (!cached) return null;
+    const trusted = readTrustedCache(cached);
+    if (!trusted) return null;
+    const lastValidated = new Date(cached.last_validated);
+    const sevenDaysAgo = new Date(Date.now() - GRACE_PERIOD_MS);
+    if (!(lastValidated > sevenDaysAgo)) return null;
+    return trusted.orgId ?? null;
+  } catch {
+    return null;
+  } finally {
+    if (ownsDb) {
+      try {
+        db.close();
+      } catch {
+      }
+    }
+  }
+}
+
+// src/auto-learning-entitlement.ts
+var TEAM_SHARED_PROMOTION_MIN_TIER = "team";
+function entitledForTeamSharedPromotion(tier) {
+  return tierLevel(tier) >= tierLevel(TEAM_SHARED_PROMOTION_MIN_TIER);
+}
+
+// src/security/promotion-envelope-verifier.ts
+import { createPublicKey as createPublicKey2, verify as cryptoVerify2 } from "crypto";
+
+// src/security/promotion-pubkey.generated.ts
+var PROMOTION_PUBKEY_ED25519 = new Uint8Array([107, 161, 33, 17, 189, 44, 193, 128, 252, 155, 188, 236, 100, 163, 23, 146, 219, 155, 216, 139, 134, 72, 211, 182, 151, 122, 209, 151, 135, 65, 167, 26]);
+var PROMOTION_PUBKEY_FINGERPRINT_HEX = "b14e2a73e23c02891e976ec161d339da6c930266c0202828d3187a3bd6e5d83f";
+var KNOWN_PROMOTION_PUBKEY_FINGERPRINTS = /* @__PURE__ */ new Set([
+  "b14e2a73e23c02891e976ec161d339da6c930266c0202828d3187a3bd6e5d83f"
+]);
+
+// src/security/promotion-envelope-verifier.ts
+function verifyPromotionEnvelope(payload) {
+  if (!KNOWN_PROMOTION_PUBKEY_FINGERPRINTS.has(PROMOTION_PUBKEY_FINGERPRINT_HEX)) {
+    return {
+      kind: "error",
+      reason: `Bundled promotion pubkey fingerprint ${PROMOTION_PUBKEY_FINGERPRINT_HEX} is not in the trusted allowlist. Possible build-time tamper.`
+    };
+  }
+  const sig = payload._signature;
+  const alg = payload._signature_alg;
+  const payloadKeys = payload._signature_payload_keys;
+  const sigPubkey = payload._signature_pubkey_fingerprint;
+  if (typeof sig !== "string" || sig.length === 0) {
+    return { kind: "missing_signature" };
+  }
+  if (alg !== "ed25519") {
+    return { kind: "error", reason: `Unsupported signature algorithm: ${alg}` };
+  }
+  if (!Array.isArray(payloadKeys) || payloadKeys.length === 0) {
+    return { kind: "error", reason: "Missing _signature_payload_keys" };
+  }
+  if (typeof sigPubkey === "string" && sigPubkey !== PROMOTION_PUBKEY_FINGERPRINT_HEX) {
+    return { kind: "unknown_pubkey", got: sigPubkey };
+  }
+  const canonicalObj = {};
+  for (const k of payloadKeys) {
+    if (typeof k !== "string") continue;
+    canonicalObj[k] = payload[k];
+  }
+  const canonical = JSON.stringify(canonicalObj, [...payloadKeys].sort());
+  try {
+    const spkiPrefix = Buffer.from([
+      48,
+      42,
+      48,
+      5,
+      6,
+      3,
+      43,
+      101,
+      112,
+      3,
+      33,
+      0
+    ]);
+    const der = Buffer.concat([spkiPrefix, Buffer.from(PROMOTION_PUBKEY_ED25519)]);
+    const pubkey = createPublicKey2({ key: der, format: "der", type: "spki" });
+    const ok = cryptoVerify2(
+      null,
+      Buffer.from(canonical, "utf-8"),
+      pubkey,
+      Buffer.from(sig, "base64")
+    );
+    return ok ? { kind: "valid" } : { kind: "bad_signature" };
+  } catch (err) {
+    return {
+      kind: "error",
+      reason: `Signature verification threw: ${err instanceof Error ? err.message : String(err)}`
+    };
+  }
+}
+
+// src/rule-candidate-applier.ts
+var TEAM_SHAREABLE_DESTINATIONS = [
+  "corrections-md",
+  "claude-md-cr"
+];
+function isTeamShareableDestination(destination) {
+  return TEAM_SHAREABLE_DESTINATIONS.includes(destination);
+}
+
+// src/team-knowledge.ts
+function shareObservation(db, developerId, project, observationType, summary, opts) {
+  const result = db.prepare(`
+    INSERT INTO shared_observations
+    (original_id, developer_id, project, observation_type, summary, file_path, module, severity, is_shared, shared_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE, datetime('now'))
+  `).run(
+    opts?.originalId ?? null,
+    developerId,
+    project,
+    observationType,
+    summary,
+    opts?.filePath ?? null,
+    opts?.module ?? null,
+    opts?.severity ?? 3
+  );
+  return Number(result.lastInsertRowid);
+}
+
+// src/team-rule-sync.ts
+var CURSOR_KEY = "team_promotions_cursor";
+var DEFAULT_TIMEOUT_MS = 2e3;
+var PROMPT_HASH_RE = /^[0-9a-f]{16}$/;
+var ZERO = {
+  pulled: 0,
+  materialized: 0,
+  skipped: 0,
+  dropped_unverified: 0,
+  dropped_nonshareable: 0,
+  revoked_handled: 0
+};
+async function pullTeamPromotions(db, opts = {}) {
+  const config = getConfig();
+  const cloud = config.cloud;
+  const projectRoot = opts.projectRoot ?? getProjectRoot();
+  const tier = opts.tier ?? getCachedTierReadOnly(db);
+  if (!entitledForTeamSharedPromotion(tier)) return { ...ZERO };
+  const endpoint = opts.endpoint ?? cloud?.endpoint;
+  const apiKey = opts.apiKey ?? cloud?.apiKey;
+  if (!endpoint || !apiKey) return { ...ZERO };
+  const ownOrgId = opts.orgId !== void 0 ? opts.orgId : getCachedOrgId(db);
+  const since = parseCursor(getMemoryMeta(db, CURSOR_KEY));
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const timeoutMs = opts.timeoutMs ?? cloud?.requestTimeoutMs ?? DEFAULT_TIMEOUT_MS;
+  let envelope;
+  try {
+    const res = await fetchImpl(`${endpoint}/promoted-rules?since=${since}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    if (!res.ok) return { ...ZERO };
+    envelope = await res.json();
+  } catch {
+    return { ...ZERO };
+  }
+  const verdict = verifyPromotionEnvelope(envelope);
+  if (verdict.kind !== "valid") {
+    const result2 = { ...ZERO, dropped_unverified: countUntrusted(envelope) };
+    emitDropTelemetry(db, "team_promotion_envelope_dropped", { reason: verdict.kind });
+    return result2;
+  }
+  const signedOrgId = typeof envelope.orgId === "string" ? envelope.orgId : null;
+  if (!signedOrgId || !ownOrgId || signedOrgId !== ownOrgId) {
+    const result2 = { ...ZERO, dropped_unverified: countUntrusted(envelope) };
+    emitDropTelemetry(db, "team_promotion_org_mismatch", {
+      signed_org_present: !!signedOrgId,
+      own_org_present: !!ownOrgId
+    });
+    return result2;
+  }
+  const promotions = parsePromotions(envelope.promotions_json);
+  const result = { ...ZERO };
+  let maxSeq = since;
+  for (const p of promotions) {
+    if (!isValidWirePromotion(p)) continue;
+    result.pulled += 1;
+    if (typeof p.seq === "number" && p.seq > maxSeq) maxSeq = p.seq;
+    if (!isTeamShareableDestination(p.destination)) {
+      result.dropped_nonshareable += 1;
+      continue;
+    }
+    const candidatePath = sidecarPath(projectRoot, p.prompt_hash);
+    if (p.revoked_at) {
+      handleRevocation(db, projectRoot, candidatePath, p.prompt_hash);
+      result.revoked_handled += 1;
+      continue;
+    }
+    if (existsSync4(candidatePath) || alreadyApplied(db, p.prompt_hash)) {
+      result.skipped += 1;
+      continue;
+    }
+    materializeCandidate(db, projectRoot, candidatePath, p, signedOrgId);
+    result.materialized += 1;
+  }
+  const serverCursor = typeof envelope.cursor === "number" ? envelope.cursor : 0;
+  const nextCursor = Math.max(since, maxSeq, serverCursor);
+  if (nextCursor > since) setMemoryMeta(db, CURSOR_KEY, String(nextCursor));
+  return result;
+}
+function parseCursor(raw) {
+  if (raw === null) return 0;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : 0;
+}
+function parsePromotions(json) {
+  if (typeof json !== "string") return [];
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+function countUntrusted(envelope) {
+  const arr = parsePromotions(envelope.promotions_json);
+  return arr.length > 0 ? arr.length : 1;
+}
+function isValidWirePromotion(p) {
+  if (!p || typeof p !== "object") return false;
+  const r = p;
+  return typeof r.prompt_hash === "string" && PROMPT_HASH_RE.test(r.prompt_hash) && typeof r.destination === "string" && typeof r.draft_text === "string" && typeof r.promoted_by === "string" && typeof r.promoted_at === "string";
+}
+function sidecarPath(projectRoot, promptHash) {
+  return join(projectRoot, ".massu", "rule-candidates", `${promptHash}.json`);
+}
+function alreadyApplied(db, promptHash) {
+  try {
+    const row = db.prepare(
+      `SELECT 1 FROM audit_log WHERE event_type = 'rule_promoted'
+           AND json_extract(metadata, '$.prompt_hash') = ? LIMIT 1`
+    ).get(promptHash);
+    return !!row;
+  } catch {
+    return false;
+  }
+}
+function handleRevocation(db, projectRoot, candidatePath, promptHash) {
+  if (existsSync4(candidatePath)) {
+    try {
+      unlinkSync(candidatePath);
+    } catch {
+    }
+    return;
+  }
+  if (alreadyApplied(db, promptHash)) {
+    process.stderr.write(
+      `[massu] team rule ${promptHash} was revoked by your org \u2014 consider reverting it.
+`
+    );
+  }
+}
+function materializeCandidate(db, projectRoot, candidatePath, p, orgId) {
+  const promptText = p.draft_text.replace(/\n+/g, " ").slice(0, 200) || `team rule ${p.prompt_hash}`;
+  const sidecar = {
+    // Standard RuleCandidatePayload fields (so `/massu-rule approve` → readCandidate
+    // → validateCandidatePayload passes), synthesized from the promotion.
+    prompt: promptText,
+    prompt_hash: p.prompt_hash,
+    score: clampScore(p.score),
+    signals: sanitizeSignals(p.signals),
+    prior_turn_files: [],
+    timestamp: p.promoted_at,
+    session_id: `team:${p.promoted_by}`,
+    // Provenance (PB-004): the applier's team-origin gate keys on this.
+    provenance: {
+      origin: "team",
+      org_id: orgId,
+      promoted_by: p.promoted_by,
+      promoted_at: p.promoted_at,
+      signature_verified: true
+    },
+    // Extra fields the `/massu-rule approve` flow reads to drive the apply (the
+    // publisher already decided destination + body). validateCandidatePayload
+    // ignores unknown keys.
+    destination: p.destination,
+    draft_text: p.draft_text
+  };
+  const dir = dirname4(candidatePath);
+  if (!existsSync4(dir)) mkdirSync3(dir, { recursive: true });
+  writeFileSync2(candidatePath, JSON.stringify(sidecar, null, 2), "utf-8");
+  try {
+    shareObservation(db, p.promoted_by, getProjectName(), "rule_promotion", promptText, {
+      filePath: void 0,
+      module: p.destination
+    });
+  } catch {
+  }
+}
+function clampScore(score) {
+  if (typeof score !== "number" || !Number.isFinite(score)) return 0;
+  return Math.max(-200, Math.min(200, score));
+}
+function sanitizeSignals(signals) {
+  if (!Array.isArray(signals)) return [];
+  const out = [];
+  for (const s of signals) {
+    if (!s || typeof s !== "object") continue;
+    const sig = s;
+    out.push({
+      name: typeof sig.name === "string" ? sig.name : "unknown",
+      baseWeight: typeof sig.baseWeight === "number" ? sig.baseWeight : 0,
+      applied: typeof sig.applied === "number" ? sig.applied : 0,
+      ...typeof sig.evidence === "string" ? { evidence: sig.evidence } : {}
+    });
+  }
+  return out;
+}
+function getProjectName() {
+  try {
+    return getConfig().project?.name ?? "massu";
+  } catch {
+    return "massu";
+  }
+}
+function emitDropTelemetry(db, eventType, data) {
+  recordTelemetry(db, eventType, data);
+  process.stderr.write(
+    `[massu] team-shared promotion pull: dropped envelope (${eventType}). A signed/org-matched response is required \u2014 see massu.ai for details.
+`
+  );
 }
 
 // src/analytics.ts
@@ -1843,7 +2439,7 @@ function storeSessionCost(db, sessionId, usage, cost) {
 }
 
 // src/prompt-analyzer.ts
-import { createHash } from "crypto";
+import { createHash as createHash2 } from "crypto";
 
 // src/security-utils.ts
 function escapeRegex(str) {
@@ -1867,7 +2463,7 @@ function categorizePrompt(promptText) {
 }
 function hashPrompt(promptText) {
   const normalized = promptText.toLowerCase().replace(/\s+/g, " ").trim();
-  return createHash("sha256").update(normalized).digest("hex").slice(0, 16);
+  return createHash2("sha256").update(normalized).digest("hex").slice(0, 16);
 }
 function detectOutcome(followUpPrompts, assistantResponses) {
   let correctionsNeeded = 0;
@@ -1991,9 +2587,13 @@ async function main() {
       archiveAndRegenerate(db, session_id);
       try {
         await drainSyncQueue(db);
-        const syncPayload = buildSyncPayload(session_id, observations, summary);
+        const syncPayload = buildSyncPayload(db, session_id, observations, summary);
         const result = await syncToCloud(db, syncPayload);
         if (!result.success && result.error) {
+        }
+        try {
+          await pullTeamPromotions(db);
+        } catch (_pullErr) {
         }
       } catch (_syncErr) {
       }
@@ -2004,7 +2604,11 @@ async function main() {
   }
   process.exit(0);
 }
-function buildSyncPayload(sessionId, observations, summary) {
+function buildSyncPayload(db, sessionId, observations, summary) {
+  const cfg = getConfig().cloud;
+  const willTransmit = !!cfg?.enabled && !!cfg?.apiKey && cfg?.sync?.memory !== false;
+  const promotions = willTransmit ? drainTeamPromotions(db) : [];
+  const revocations = willTransmit ? drainTeamRevocations(db) : [];
   return {
     sessions: [{
       local_session_id: sessionId,
@@ -2024,7 +2628,18 @@ function buildSyncPayload(sessionId, observations, summary) {
       content: o.title + (o.detail ? `: ${o.detail}` : ""),
       importance: o.importance ?? 3,
       file_path: void 0
-    }))
+    })),
+    ...promotions.length > 0 ? {
+      rule_promotions: promotions.map((p) => ({
+        prompt_hash: p.prompt_hash,
+        destination: p.destination,
+        draft_text: p.draft_text,
+        score: p.score,
+        signals: p.signals,
+        content_hash: p.content_hash
+      }))
+    } : {},
+    ...revocations.length > 0 ? { rule_revocations: revocations.map((prompt_hash) => ({ prompt_hash })) } : {}
   };
 }
 function buildSummaryFromObservations(observations, prompts) {

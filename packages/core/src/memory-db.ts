@@ -648,6 +648,46 @@ export function initMemorySchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_so_module ON shared_observations(module);
   `);
 
+  // PB-006/PB-016 (plan-2026-05-28-team-shared-rule-promotion): outbound stores
+  // for team-shared rule promotions / revocations. The applier's publish branch
+  // (PB-005) enqueues a row here on a Team seat after a successful local
+  // promotion; the session-end hook (PB-006) drains them into the /sync payload's
+  // `rule_promotions[]` / `rule_revocations[]`. UNIQUE(prompt_hash) makes
+  // re-enqueue idempotent; the server upsert + client dedup make a double-send
+  // harmless (T4).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS team_promotion_outbound (
+      prompt_hash TEXT PRIMARY KEY,
+      destination TEXT NOT NULL,
+      draft_text TEXT NOT NULL,
+      score REAL,
+      signals_json TEXT NOT NULL DEFAULT '[]',
+      content_hash TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS team_revocation_outbound (
+      prompt_hash TEXT PRIMARY KEY,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
+  // CR-9 latent-bug fix (surfaced during PB-006/H5 implementation): the local
+  // telemetry sink `analytics_events` was INSERTed-into in two places
+  // (dequeuePendingSync P-H012 give-up event + recordTelemetry H5 dropped-envelope
+  // event) but NEVER created in any schema — both inserts silently no-op'd inside
+  // their try/catch, leaving the observability channel dead. Create it here so the
+  // telemetry is real (matches the "may not exist in older schemas" comments,
+  // which assumed current schemas DO have it).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS analytics_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT NOT NULL,
+      event_data TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_analytics_events_type ON analytics_events(event_type);
+  `);
+
   // P4-001: Knowledge conflicts
   db.exec(`
     CREATE TABLE IF NOT EXISTS knowledge_conflicts (
@@ -794,6 +834,138 @@ export function initMemorySchema(db: Database.Database): void {
  */
 export function enqueueSyncPayload(db: Database.Database, payload: string): void {
   db.prepare('INSERT INTO pending_sync (payload) VALUES (?)').run(payload);
+}
+
+// ============================================================
+// Team-shared promotion outbound stores + cursor + telemetry
+// (PB-005 / PB-006 / PB-016, plan-2026-05-28-team-shared-rule-promotion)
+// ============================================================
+
+const MAX_DRAFT_TEXT_LEN = 16_384; // H4 client mirror — server enforces 16 KB cap too.
+
+export interface TeamPromotionOutbound {
+  prompt_hash: string;
+  destination: string;
+  draft_text: string;
+  score?: number;
+  signals?: unknown[];
+  content_hash: string;
+}
+
+/**
+ * Generic key/value read from `memory_meta`. Returns `null` when absent.
+ * Used by the team-shared pull path for the monotonic `seq` cursor (H2).
+ */
+export function getMemoryMeta(db: Database.Database, key: string): string | null {
+  const row = db.prepare('SELECT value FROM memory_meta WHERE key = ?').get(key) as
+    | { value: string }
+    | undefined;
+  return row ? row.value : null;
+}
+
+/** Generic key/value upsert into `memory_meta`. */
+export function setMemoryMeta(db: Database.Database, key: string, value: string): void {
+  db.prepare('INSERT OR REPLACE INTO memory_meta (key, value) VALUES (?, ?)').run(key, value);
+}
+
+/**
+ * Enqueue a team-shared promotion for outbound sync (PB-005 publish branch).
+ * `draft_text` is bounded to 16 KB (H4 client mirror) before storage. Idempotent
+ * on `prompt_hash` (INSERT OR REPLACE) so re-promoting the same rule re-queues a
+ * single row, not duplicates.
+ */
+export function enqueueTeamPromotion(db: Database.Database, promo: TeamPromotionOutbound): void {
+  db.prepare(`
+    INSERT OR REPLACE INTO team_promotion_outbound
+      (prompt_hash, destination, draft_text, score, signals_json, content_hash, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+  `).run(
+    promo.prompt_hash,
+    promo.destination,
+    promo.draft_text.slice(0, MAX_DRAFT_TEXT_LEN),
+    promo.score ?? null,
+    JSON.stringify(promo.signals ?? []),
+    promo.content_hash,
+  );
+}
+
+/**
+ * Drain (SELECT + DELETE) all queued outbound promotions into the wire shape the
+ * /sync `rule_promotions[]` ingest expects. On sync failure the whole payload is
+ * re-enqueued to `pending_sync` (offline resilience), so draining here is safe.
+ */
+export function drainTeamPromotions(db: Database.Database): TeamPromotionOutbound[] {
+  const rows = db.prepare(`
+    SELECT prompt_hash, destination, draft_text, score, signals_json, content_hash
+    FROM team_promotion_outbound ORDER BY created_at ASC LIMIT 1000
+  `).all() as Array<{
+    prompt_hash: string;
+    destination: string;
+    draft_text: string;
+    score: number | null;
+    signals_json: string;
+    content_hash: string;
+  }>;
+  if (rows.length === 0) return [];
+  db.prepare('DELETE FROM team_promotion_outbound').run();
+  return rows.map((r) => ({
+    prompt_hash: r.prompt_hash,
+    destination: r.destination,
+    draft_text: r.draft_text,
+    score: r.score ?? undefined,
+    signals: safeJsonArray(r.signals_json),
+    content_hash: r.content_hash,
+  }));
+}
+
+/**
+ * Enqueue a publisher-initiated revocation (PB-016 / H3). Idempotent on
+ * `prompt_hash`. Drained into `rule_revocations[]` at session end.
+ */
+export function enqueueTeamRevocation(db: Database.Database, promptHash: string): void {
+  db.prepare(`
+    INSERT OR REPLACE INTO team_revocation_outbound (prompt_hash, created_at)
+    VALUES (?, datetime('now'))
+  `).run(promptHash);
+}
+
+/** Drain (SELECT + DELETE) queued revocation prompt_hashes for the /sync payload. */
+export function drainTeamRevocations(db: Database.Database): string[] {
+  const rows = db.prepare(
+    `SELECT prompt_hash FROM team_revocation_outbound ORDER BY created_at ASC LIMIT 1000`,
+  ).all() as Array<{ prompt_hash: string }>;
+  if (rows.length === 0) return [];
+  db.prepare('DELETE FROM team_revocation_outbound').run();
+  return rows.map((r) => r.prompt_hash);
+}
+
+/**
+ * Best-effort telemetry insert into `analytics_events` (H5 observability). Used
+ * by the team-shared pull path so a dropped/anomalous envelope is visible on the
+ * dashboard rather than failing silently. Never throws.
+ */
+export function recordTelemetry(
+  db: Database.Database,
+  eventType: string,
+  data: Record<string, unknown>,
+): void {
+  try {
+    db.prepare(`
+      INSERT INTO analytics_events (event_type, event_data, created_at)
+      VALUES (?, ?, datetime('now'))
+    `).run(eventType, JSON.stringify(data));
+  } catch {
+    // analytics_events may not exist in older schemas — best-effort.
+  }
+}
+
+function safeJsonArray(json: string): unknown[] {
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
 }
 
 /**

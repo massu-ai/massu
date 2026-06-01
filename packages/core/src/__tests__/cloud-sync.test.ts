@@ -214,6 +214,48 @@ describe('cloud-sync', () => {
       expect(sentBody.analytics).toBeUndefined();
       expect(sentBody.audit).toBeUndefined();
     });
+
+    // Security review LOW (2026-05-31): team rule promotions must pass the same
+    // classifyVisibility private-pattern filter as observations before transmit.
+    it('drops team rule_promotions whose draft_text matches PRIVATE_PATTERNS', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ synced: { sessions: 1, observations: 0, analytics: 0 } }),
+      });
+
+      const payload: SyncPayload = {
+        ...testPayload,
+        rule_promotions: [
+          { prompt_hash: 'a'.repeat(16), destination: 'corrections-md', draft_text: 'always prefer getConfig() over yaml.load', content_hash: 'h1' },
+          { prompt_hash: 'b'.repeat(16), destination: 'corrections-md', draft_text: 'set the header to Bearer sk_live_secret123', content_hash: 'h2' },
+        ],
+      };
+
+      await syncToCloud(db, payload);
+
+      const sentBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(sentBody.rule_promotions).toHaveLength(1);
+      expect(sentBody.rule_promotions[0].prompt_hash).toBe('a'.repeat(16));
+    });
+
+    it('transmits clean rule_promotions unchanged', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ synced: { sessions: 1, observations: 0, analytics: 0 } }),
+      });
+
+      const payload: SyncPayload = {
+        ...testPayload,
+        rule_promotions: [
+          { prompt_hash: 'c'.repeat(16), destination: 'claude-md-cr', draft_text: 'prefer composition over inheritance', content_hash: 'h3' },
+        ],
+      };
+
+      await syncToCloud(db, payload);
+
+      const sentBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(sentBody.rule_promotions).toHaveLength(1);
+    });
   });
 
   describe('pending_sync queue functions', () => {

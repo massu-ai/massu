@@ -34,6 +34,9 @@ import {
   entitledForAutoLearning,
   autoLearningUpgradeMessage,
   assertAutoLearningEntitled,
+  TEAM_SHARED_PROMOTION_MIN_TIER,
+  entitledForTeamSharedPromotion,
+  teamSharedPromotionUpgradeMessage,
 } from '../auto-learning-entitlement.ts';
 
 beforeEach(() => {
@@ -97,5 +100,32 @@ describe('assertAutoLearningEntitled()', () => {
     expect(res.entitled).toBe(false);
     expect(res.currentTier).toBe('free');
     expect(res.message).toContain('https://massu.ai/pricing');
+  });
+});
+
+// PB-011 (plan-2026-05-28-team-shared-rule-promotion): team-shared promotion SoT.
+describe('TEAM_SHARED_PROMOTION_MIN_TIER', () => {
+  it('is pinned to "team"', () => {
+    expect(TEAM_SHARED_PROMOTION_MIN_TIER).toBe('team');
+  });
+});
+
+describe('entitledForTeamSharedPromotion()', () => {
+  it('is false for free and pro (Pro is LOCAL-only)', () => {
+    expect(entitledForTeamSharedPromotion('free')).toBe(false);
+    expect(entitledForTeamSharedPromotion('pro')).toBe(false);
+  });
+  it('is true for team and enterprise', () => {
+    expect(entitledForTeamSharedPromotion('team')).toBe(true);
+    expect(entitledForTeamSharedPromotion('enterprise')).toBe(true);
+  });
+});
+
+describe('teamSharedPromotionUpgradeMessage()', () => {
+  it('names the feature, the current tier, and the pricing URL', () => {
+    const msg = teamSharedPromotionUpgradeMessage('pro');
+    expect(msg).toMatch(/Team feature/);
+    expect(msg).toContain('PRO');
+    expect(msg).toContain('https://massu.ai/pricing');
   });
 });

@@ -303,6 +303,15 @@ interface LicenseInfo {
   tier: ToolTier;
   validUntil: string;
   features: string[];
+  /**
+   * PB-001 (plan-2026-05-28-team-shared-rule-promotion): the org id, re-derived
+   * from the VERIFIED /validate-key signed payload (`orgId` is in
+   * `_signature_payload_keys`, so it is signature-covered). `undefined` when
+   * the row is unsigned (transition mode) or the payload omitted it. NEVER
+   * read from a plain SQLite column — that would reintroduce the tamper surface
+   * P-M-023 closed; org id is only ever surfaced through {@link readTrustedCache}.
+   */
+  orgId?: string;
 }
 
 /** In-memory cache for the current session. Refreshes every 15 minutes. */
@@ -536,7 +545,10 @@ function readTrustedCache(cached: LicenseCacheRow): LicenseInfo | null {
     : (verifiedTierField ?? 'free');
   const validUntil = typeof parsed.validUntil === 'string' ? parsed.validUntil : '';
   const features = Array.isArray(parsed.features) ? (parsed.features as string[]) : [];
-  return { tier, validUntil, features };
+  // PB-001: org id is re-derived from the VERIFIED payload (signature-covered),
+  // not a plain column — so editing SQLite cannot forge org membership.
+  const orgId = typeof parsed.orgId === 'string' && parsed.orgId.length > 0 ? parsed.orgId : undefined;
+  return { tier, validUntil, features, orgId };
 }
 
 // ============================================================
@@ -622,6 +634,58 @@ export function getCachedTierReadOnly(memDb?: import('better-sqlite3').Database)
   } catch {
     // Any parse / DB / verify error → fail-closed.
     return 'free';
+  } finally {
+    if (ownsDb) {
+      try { db.close(); } catch { /* best-effort */ }
+    }
+  }
+}
+
+/**
+ * PB-001 (plan-2026-05-28-team-shared-rule-promotion): hook-safe, SYNCHRONOUS,
+ * cache-only org-id reader. Returns the org id from the VERIFIED /validate-key
+ * signed payload cached in `license_cache`, or `null`.
+ *
+ * Mirrors {@link getCachedTierReadOnly} exactly (same signed-payload trust path,
+ * same 7-day grace window, same fail-closed posture) — NEVER calls the network.
+ * Used by the team-shared promotion pull path to confirm a signed envelope's
+ * `orgId` matches this seat's own org (cross-org-leak defense, T3).
+ *
+ * Fail-closed → `null` at every branch: no API key, missing/unsigned-in-strict/
+ * tampered/parse-error row, a row older than the grace window, or a verified
+ * payload that omitted `orgId`.
+ *
+ * @param memDb Optional caller-owned memory-db handle (reused, not closed —
+ *              caller owns its lifecycle). When omitted, opens its own and
+ *              closes it before returning.
+ */
+export function getCachedOrgId(memDb?: import('better-sqlite3').Database): string | null {
+  const config = getConfig();
+  const apiKey = config.cloud?.apiKey;
+  if (!apiKey) return null;
+
+  const ownsDb = !memDb;
+  const db = memDb ?? getMemoryDb();
+  try {
+    const keyHash = createHash('sha256').update(apiKey).digest('hex');
+    const cached = db.prepare(
+      'SELECT tier, valid_until, last_validated, features, signed_payload_json FROM license_cache WHERE api_key_hash = ?'
+    ).get(keyHash) as LicenseCacheRow | undefined;
+
+    if (!cached) return null;
+
+    const trusted = readTrustedCache(cached);
+    if (!trusted) return null;
+
+    // Same offline grace window as getCachedTierReadOnly — a stale row is
+    // treated as untrusted.
+    const lastValidated = new Date(cached.last_validated);
+    const sevenDaysAgo = new Date(Date.now() - GRACE_PERIOD_MS);
+    if (!(lastValidated > sevenDaysAgo)) return null;
+
+    return trusted.orgId ?? null;
+  } catch {
+    return null;
   } finally {
     if (ownsDb) {
       try { db.close(); } catch { /* best-effort */ }

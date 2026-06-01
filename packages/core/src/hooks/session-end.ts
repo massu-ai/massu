@@ -8,11 +8,13 @@
 // Dependencies: P1-002, P5-001, P5-002
 // ============================================================
 
-import { getMemoryDb, endSession, addSummary, createSession, addConversationTurn, addToolCallDetail, getLastProcessedLine, setLastProcessedLine } from '../memory-db.ts';
+import { getMemoryDb, endSession, addSummary, createSession, addConversationTurn, addToolCallDetail, getLastProcessedLine, setLastProcessedLine, drainTeamPromotions, drainTeamRevocations } from '../memory-db.ts';
 import { generateCurrentMd } from '../session-state-generator.ts';
 import { archiveAndRegenerate } from '../session-archiver.ts';
 import { parseTranscriptFrom, estimateTokens } from '../transcript-parser.ts';
 import { syncToCloud, drainSyncQueue } from '../cloud-sync.ts';
+import { pullTeamPromotions } from '../team-rule-sync.ts';
+import { getConfig } from '../config.ts';
 import { calculateQualityScore, storeQualityScore, backfillQualityScores } from '../analytics.ts';
 import { extractTokenUsage, calculateCost, storeSessionCost } from '../cost-tracker.ts';
 import { analyzeSessionPrompts } from '../prompt-analyzer.ts';
@@ -104,11 +106,23 @@ async function main(): Promise<void> {
         // 7a. Drain pending sync queue
         await drainSyncQueue(db);
 
-        // 7b. Sync current session data
-        const syncPayload = buildSyncPayload(session_id, observations, summary);
+        // 7b. Sync current session data (drains team-shared promotion/revocation
+        // outbound stores into the payload — PB-006).
+        const syncPayload = buildSyncPayload(db, session_id, observations, summary);
         const result = await syncToCloud(db, syncPayload);
         if (!result.success && result.error) {
           // Payload already enqueued by syncToCloud on failure
+        }
+
+        // 7c. Team-shared promotion PULL (PB-006). Best-effort, bounded by the
+        // same request budget — materializes the org's promotions as reviewable
+        // candidates (NEVER applies). Free/Pro seats no-op at the tier gate.
+        // Deliberately at session-END, not session-start/user-prompt (those hooks
+        // are latency-critical).
+        try {
+          await pullTeamPromotions(db);
+        } catch (_pullErr) {
+          // Non-blocking: pull failure never blocks session end
         }
       } catch (_syncErr) {
         // Non-blocking: sync failure never blocks session end
@@ -124,12 +138,28 @@ async function main(): Promise<void> {
 
 /**
  * Build a sync payload from the current session data.
+ *
+ * PB-006: takes `db` so it can drain the team-shared promotion / revocation
+ * outbound stores (written by the applier's publish branch + `/massu-rule revoke`)
+ * into `rule_promotions[]` / `rule_revocations[]`. Draining here is safe: on sync
+ * failure the whole payload is re-enqueued to `pending_sync` (offline resilience).
  */
 function buildSyncPayload(
+  db: import('better-sqlite3').Database,
   sessionId: string,
   observations: Array<Record<string, unknown>>,
   summary: SessionSummary
 ): SyncPayload {
+  // Only DRAIN (delete) the outbound team-shared stores when the rows will
+  // actually be transmitted — i.e. cloud sync is enabled, a key is configured,
+  // and the memory channel is on. Otherwise the drain would DELETE rows that
+  // syncToCloud then filters off the wire (returning success:true with no
+  // re-enqueue) → silent permanent loss. Leave them queued for a session where
+  // cloud sync is configured. (Architecture review LOW, 2026-05-31.)
+  const cfg = getConfig().cloud;
+  const willTransmit = !!cfg?.enabled && !!cfg?.apiKey && cfg?.sync?.memory !== false;
+  const promotions = willTransmit ? drainTeamPromotions(db) : [];
+  const revocations = willTransmit ? drainTeamRevocations(db) : [];
   return {
     sessions: [{
       local_session_id: sessionId,
@@ -149,6 +179,21 @@ function buildSyncPayload(
       importance: (o.importance as number) ?? 3,
       file_path: undefined,
     })),
+    ...(promotions.length > 0
+      ? {
+          rule_promotions: promotions.map((p) => ({
+            prompt_hash: p.prompt_hash,
+            destination: p.destination,
+            draft_text: p.draft_text,
+            score: p.score,
+            signals: p.signals,
+            content_hash: p.content_hash,
+          })),
+        }
+      : {}),
+    ...(revocations.length > 0
+      ? { rule_revocations: revocations.map((prompt_hash) => ({ prompt_hash })) }
+      : {}),
   };
 }
 

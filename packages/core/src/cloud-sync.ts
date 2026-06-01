@@ -45,6 +45,22 @@ export interface SyncPayload {
     resource?: string;
     details: Record<string, unknown>;
   }>;
+  // PB-006 (plan-2026-05-28-team-shared-rule-promotion): team-shared rule
+  // promotions / revocations drained from the outbound stores at session end.
+  // The server `/sync` ingest (ingestRulePromotions/ingestRuleRevocations)
+  // server-attests `promoted_by` from the authenticated key — the client cannot
+  // claim authorship. `content_hash` drives server-side dedup.
+  rule_promotions?: Array<{
+    prompt_hash: string;
+    destination: string;
+    draft_text: string;
+    score?: number;
+    signals?: unknown[];
+    content_hash: string;
+  }>;
+  rule_revocations?: Array<{
+    prompt_hash: string;
+  }>;
 }
 
 export interface SyncResult {
@@ -131,6 +147,32 @@ export async function syncToCloud(
   }
   if (cloud.sync?.audit !== false) {
     filteredPayload.audit = payload.audit;
+  }
+  // PB-006: team-shared rule promotions/revocations ride the memory channel
+  // (learning data). The server enforces the Team plan-gate + H1 destination
+  // allowlist + size cap on ingest. Defense-in-depth (security review LOW,
+  // 2026-05-31): run each promotion's draft_text through the SAME
+  // classifyVisibility private-pattern filter applied to observations above, so
+  // a rule body that happens to contain a secret / token / absolute path is
+  // dropped before transmission rather than shared cross-seat.
+  if (cloud.sync?.memory !== false) {
+    if (payload.rule_promotions?.length) {
+      let droppedPrivatePromos = 0;
+      const safePromos = payload.rule_promotions.filter((p) => {
+        if (classifyVisibility(p.draft_text ?? '', p.draft_text ?? '') === 'private') {
+          droppedPrivatePromos += 1;
+          return false;
+        }
+        return true;
+      });
+      if (droppedPrivatePromos > 0) {
+        process.stderr.write(
+          `[massu] cloud-sync: dropped ${droppedPrivatePromos} team rule promotion(s) (PRIVATE_PATTERNS match in draft_text)\n`,
+        );
+      }
+      if (safePromos.length) filteredPayload.rule_promotions = safePromos;
+    }
+    if (payload.rule_revocations?.length) filteredPayload.rule_revocations = payload.rule_revocations;
   }
 
   // Attempt sync with retry

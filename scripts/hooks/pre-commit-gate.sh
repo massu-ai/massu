@@ -143,6 +143,22 @@ if [ -n "$PLAN_STAGED" ] || [ -n "$SCRIPT_STAGED" ]; then
   fi
 fi
 
+# ----------------------------------------------------------------------
+# CLAUDE.md size gate (plan-2026-06-01-claude-md-size-compliance).
+# Fail-with-remedy: fast-path so it only runs when .claude/CLAUDE.md is
+# staged. The budget (MAX_SIZE) lives ONCE in check-claude-md-size.sh; this
+# gate, pre-push-light, and CI all invoke that single script (no re-hardcoded
+# number). On failure, surface the autosplit remedy.
+# ----------------------------------------------------------------------
+CLAUDE_MD_STAGED=$(git diff --cached --name-only 2>/dev/null | grep -c '^\.claude/CLAUDE\.md$' || true)
+if [ "$CLAUDE_MD_STAGED" -gt 0 ]; then
+  if ! bash "$PROJECT_DIR/scripts/check-claude-md-size.sh" >&2; then
+    echo "[PRE-COMMIT GATE] .claude/CLAUDE.md exceeds the size budget." >&2
+    echo "  REMEDY: bash scripts/claude-md-autosplit.sh   (moves '### CR-NN:' detail bodies to reference, then re-stage)" >&2
+    ERRORS=$((ERRORS + 1))
+  fi
+fi
+
 if [ "$ERRORS" -gt 0 ]; then
   echo "[PRE-COMMIT GATE] $ERRORS check(s) failed. Commit blocked." >&2
   exit 2

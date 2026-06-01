@@ -5,7 +5,15 @@
 
 set -e
 
-MAX_SIZE=35000
+# Budget re-baselined from 35000 by plan-2026-06-01-claude-md-size-compliance
+# (option iii HYBRID). After moving the 16 `### CR-NN:` detail bodies to
+# .claude/reference/canonical-rules-detail.md (scripts/claude-md-autosplit.sh),
+# the lean-but-realistic core measures ~52KB (the inline CR/VR summary tables,
+# the Workflow Commands inventory, and the Massu Development Patterns examples
+# are the immovable floor). 55000 reflects that measured floor plus modest
+# headroom — within the plan A-001 "~50–55 KB" justified-cap range. To reduce
+# further, run: bash scripts/claude-md-autosplit.sh
+MAX_SIZE=55000
 # Resolve repo root via git so the script is portable across machines / usernames.
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
 if [ -z "$REPO_ROOT" ] || [ ! -d "$REPO_ROOT" ]; then
@@ -34,15 +42,15 @@ if [ "$CURRENT_SIZE" -gt "$MAX_SIZE" ]; then
   echo "[FAIL] CLAUDE.md is too large!"
   echo "  Overage: $OVERAGE chars"
   echo ""
-  echo "To fix, move detailed content to pattern files:"
-  echo "  - CR explanations -> .claude/patterns/build-patterns.md"
-  echo "  - Security rules -> .claude/patterns/security-patterns.md"
-  echo "  - Verification details -> .claude/protocols/verification.md"
+  echo "REMEDY: move the longform '### CR-NN:' detail bodies to the on-demand"
+  echo "reference file by running:"
+  echo "  bash scripts/claude-md-autosplit.sh --dry-run   # preview projected size"
+  echo "  bash scripts/claude-md-autosplit.sh             # apply the move"
   echo ""
   echo "CLAUDE.md should contain:"
-  echo "  - Rule tables with links"
-  echo "  - One-line summaries"
-  echo "  - NO code examples > 5 lines"
+  echo "  - The canonical CR/VR summary tables (one line each)"
+  echo "  - One-line pointers to .claude/reference/canonical-rules-detail.md"
+  echo "  - NO longform per-rule prose (that lives in the reference file)"
   exit 1
 fi
 

@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { TEAM_SHAREABLE_DESTINATIONS } from '../rule-candidate-applier.ts';
 import { TEAM_HARDENED_SHAREABLE_DESTINATIONS } from '../rule-candidate-hardened.ts';
@@ -28,6 +28,16 @@ const SERVER_SYNC_SRC = resolve(REPO_ROOT, 'website/supabase/functions/sync/inde
 const SERVER_PROMOTED_SRC = resolve(REPO_ROOT, 'website/supabase/functions/promoted-rules/index.ts');
 const MIGRATION_045 = resolve(REPO_ROOT, 'website/supabase/migrations/045_hardened_promotion.sql');
 const PATTERN_SCANNER = resolve(REPO_ROOT, 'scripts/massu-pattern-scanner.sh');
+
+/**
+ * The server edge functions + migrations live under `website/`, which does NOT
+ * sync to the public mirror (`scripts/sync-public.sh` excludes website/). The
+ * two cross-system assertions below read those server files, so they MUST skip
+ * in the public-mirror CI run — otherwise a test that passes locally fails in
+ * `CI (public-mirror)` on a missing file (the documented public-mirror leak
+ * bug class; precedent: ci-prepush-parity.test.ts:IS_INTERNAL_REPO).
+ */
+const HAS_SERVER_SRC = existsSync(SERVER_SYNC_SRC) && existsSync(SERVER_PROMOTED_SRC);
 
 const FORBIDDEN_APPLY_SYMBOLS = [
   'applyRuleCandidate',
@@ -141,7 +151,7 @@ describe('team-shared-promotion drift-guard (PB-007 / CR-55)', () => {
     });
 
     // Cross-system: client hardened allowlist ⇔ server const ⇔ migration CHECK.
-    it('server TEAM_HARDENED_DESTINATIONS + migration 045 CHECK mirror the client hardened allowlist', () => {
+    it.skipIf(!HAS_SERVER_SRC)('server TEAM_HARDENED_DESTINATIONS + migration 045 CHECK mirror the client hardened allowlist', () => {
       const serverSrc = readFileSync(SERVER_SYNC_SRC, 'utf-8');
       expect(serverSrc).toContain('TEAM_HARDENED_DESTINATIONS');
       for (const d of TEAM_HARDENED_SHAREABLE_DESTINATIONS) {
@@ -160,7 +170,7 @@ describe('team-shared-promotion drift-guard (PB-007 / CR-55)', () => {
     // Signed-envelope forgery-hole guard: hardened + review_attestation ride INSIDE
     // each promotion (so they enter the signed promotions_json STRING), NOT as new
     // top-level signed keys (which the sorted-key array replacer would strip).
-    it('/promoted-rules carries hardened + review_attestation inside each promotion (not top-level)', () => {
+    it.skipIf(!HAS_SERVER_SRC)('/promoted-rules carries hardened + review_attestation inside each promotion (not top-level)', () => {
       const src = readFileSync(SERVER_PROMOTED_SRC, 'utf-8');
       // The per-promotion .map projects hardened + review_attestation...
       const mapIdx = src.indexOf('.map((r) => ({');

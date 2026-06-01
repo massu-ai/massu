@@ -1057,6 +1057,11 @@ function initMemorySchema(db) {
       score REAL,
       signals_json TEXT NOT NULL DEFAULT '[]',
       content_hash TEXT NOT NULL,
+      -- PA3-004 (Phase 3 Stream A): hardened-destination publish carries the
+      -- publisher's review attestation so the server CHECK (hardened rows need a
+      -- review_attestation) is satisfiable. hardened=0 for the Phase-2 rows.
+      hardened INTEGER NOT NULL DEFAULT 0,
+      review_attestation_json TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS team_revocation_outbound (
@@ -1153,6 +1158,13 @@ function initMemorySchema(db) {
       `ALTER TABLE license_cache ADD COLUMN signed_payload_json TEXT NOT NULL DEFAULT ''`
     );
   }
+  const outboundCols = db.prepare(`PRAGMA table_info(team_promotion_outbound)`).all();
+  if (!outboundCols.some((c) => c.name === "hardened")) {
+    db.exec(`ALTER TABLE team_promotion_outbound ADD COLUMN hardened INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!outboundCols.some((c) => c.name === "review_attestation_json")) {
+    db.exec(`ALTER TABLE team_promotion_outbound ADD COLUMN review_attestation_json TEXT`);
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS failure_classes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1185,7 +1197,7 @@ function setMemoryMeta(db, key, value) {
 }
 function drainTeamPromotions(db) {
   const rows = db.prepare(`
-    SELECT prompt_hash, destination, draft_text, score, signals_json, content_hash
+    SELECT prompt_hash, destination, draft_text, score, signals_json, content_hash, hardened, review_attestation_json
     FROM team_promotion_outbound ORDER BY created_at ASC LIMIT 1000
   `).all();
   if (rows.length === 0) return [];
@@ -1196,7 +1208,9 @@ function drainTeamPromotions(db) {
     draft_text: r.draft_text,
     score: r.score ?? void 0,
     signals: safeJsonArray(r.signals_json),
-    content_hash: r.content_hash
+    content_hash: r.content_hash,
+    hardened: r.hardened === 1,
+    review_attestation: r.review_attestation_json ? safeJsonParse(r.review_attestation_json) : void 0
   }));
 }
 function drainTeamRevocations(db) {
@@ -1222,6 +1236,13 @@ function safeJsonArray(json) {
     return Array.isArray(v) ? v : [];
   } catch {
     return [];
+  }
+}
+function safeJsonParse(json) {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return void 0;
   }
 }
 function dequeuePendingSync(db, limit = 10) {
@@ -1797,22 +1818,27 @@ import { join, dirname as dirname4 } from "path";
 // src/license.ts
 import { createHash } from "crypto";
 
-// src/security/license-response-verifier.ts
+// src/security/ed25519-envelope-verifier.ts
 import { createPublicKey, verify as cryptoVerify } from "crypto";
-
-// src/security/license-pubkey.generated.ts
-var LICENSE_PUBKEY_ED25519 = new Uint8Array([39, 136, 108, 146, 85, 233, 119, 252, 223, 226, 123, 155, 234, 168, 200, 150, 36, 249, 174, 6, 130, 146, 125, 196, 136, 224, 202, 150, 53, 228, 114, 15]);
-var LICENSE_PUBKEY_FINGERPRINT_HEX = "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475";
-var KNOWN_LICENSE_PUBKEY_FINGERPRINTS = /* @__PURE__ */ new Set([
-  "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475"
+var SPKI_ED25519_PREFIX = Buffer.from([
+  48,
+  42,
+  48,
+  5,
+  6,
+  3,
+  43,
+  101,
+  112,
+  3,
+  33,
+  0
 ]);
-
-// src/security/license-response-verifier.ts
-function verifyLicenseResponse(payload) {
-  if (!KNOWN_LICENSE_PUBKEY_FINGERPRINTS.has(LICENSE_PUBKEY_FINGERPRINT_HEX)) {
+function verifyEd25519SignedEnvelope(key, payload) {
+  if (!key.knownFingerprints.has(key.fingerprintHex)) {
     return {
       kind: "error",
-      reason: `Bundled license pubkey fingerprint ${LICENSE_PUBKEY_FINGERPRINT_HEX} is not in the trusted allowlist. Possible build-time tamper.`
+      reason: `Bundled ${key.keyLabel} pubkey fingerprint ${key.fingerprintHex} is not in the trusted allowlist. Possible build-time tamper.`
     };
   }
   const sig = payload._signature;
@@ -1828,7 +1854,7 @@ function verifyLicenseResponse(payload) {
   if (!Array.isArray(payloadKeys) || payloadKeys.length === 0) {
     return { kind: "error", reason: "Missing _signature_payload_keys" };
   }
-  if (typeof sigPubkey === "string" && sigPubkey !== LICENSE_PUBKEY_FINGERPRINT_HEX) {
+  if (typeof sigPubkey === "string" && sigPubkey !== key.fingerprintHex) {
     return { kind: "unknown_pubkey", got: sigPubkey };
   }
   const canonicalObj = {};
@@ -1838,21 +1864,7 @@ function verifyLicenseResponse(payload) {
   }
   const canonical = JSON.stringify(canonicalObj, [...payloadKeys].sort());
   try {
-    const spkiPrefix = Buffer.from([
-      48,
-      42,
-      48,
-      5,
-      6,
-      3,
-      43,
-      101,
-      112,
-      3,
-      33,
-      0
-    ]);
-    const der = Buffer.concat([spkiPrefix, Buffer.from(LICENSE_PUBKEY_ED25519)]);
+    const der = Buffer.concat([SPKI_ED25519_PREFIX, Buffer.from(key.pubkeyBytes)]);
     const pubkey = createPublicKey({ key: der, format: "der", type: "spki" });
     const ok = cryptoVerify(
       null,
@@ -1867,6 +1879,26 @@ function verifyLicenseResponse(payload) {
       reason: `Signature verification threw: ${err instanceof Error ? err.message : String(err)}`
     };
   }
+}
+
+// src/security/license-pubkey.generated.ts
+var LICENSE_PUBKEY_ED25519 = new Uint8Array([39, 136, 108, 146, 85, 233, 119, 252, 223, 226, 123, 155, 234, 168, 200, 150, 36, 249, 174, 6, 130, 146, 125, 196, 136, 224, 202, 150, 53, 228, 114, 15]);
+var LICENSE_PUBKEY_FINGERPRINT_HEX = "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475";
+var KNOWN_LICENSE_PUBKEY_FINGERPRINTS = /* @__PURE__ */ new Set([
+  "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475"
+]);
+
+// src/security/license-response-verifier.ts
+function verifyLicenseResponse(payload) {
+  return verifyEd25519SignedEnvelope(
+    {
+      pubkeyBytes: LICENSE_PUBKEY_ED25519,
+      fingerprintHex: LICENSE_PUBKEY_FINGERPRINT_HEX,
+      knownFingerprints: KNOWN_LICENSE_PUBKEY_FINGERPRINTS,
+      keyLabel: "license"
+    },
+    payload
+  );
 }
 function isLicenseSignatureRequired() {
   return process.env.MASSU_REQUIRE_SIGNED_LICENSE === "true";
@@ -1990,9 +2022,6 @@ function entitledForTeamSharedPromotion(tier) {
   return tierLevel(tier) >= tierLevel(TEAM_SHARED_PROMOTION_MIN_TIER);
 }
 
-// src/security/promotion-envelope-verifier.ts
-import { createPublicKey as createPublicKey2, verify as cryptoVerify2 } from "crypto";
-
 // src/security/promotion-pubkey.generated.ts
 var PROMOTION_PUBKEY_ED25519 = new Uint8Array([107, 161, 33, 17, 189, 44, 193, 128, 252, 155, 188, 236, 100, 163, 23, 146, 219, 155, 216, 139, 134, 72, 211, 182, 151, 122, 209, 151, 135, 65, 167, 26]);
 var PROMOTION_PUBKEY_FINGERPRINT_HEX = "b14e2a73e23c02891e976ec161d339da6c930266c0202828d3187a3bd6e5d83f";
@@ -2002,64 +2031,24 @@ var KNOWN_PROMOTION_PUBKEY_FINGERPRINTS = /* @__PURE__ */ new Set([
 
 // src/security/promotion-envelope-verifier.ts
 function verifyPromotionEnvelope(payload) {
-  if (!KNOWN_PROMOTION_PUBKEY_FINGERPRINTS.has(PROMOTION_PUBKEY_FINGERPRINT_HEX)) {
-    return {
-      kind: "error",
-      reason: `Bundled promotion pubkey fingerprint ${PROMOTION_PUBKEY_FINGERPRINT_HEX} is not in the trusted allowlist. Possible build-time tamper.`
-    };
-  }
-  const sig = payload._signature;
-  const alg = payload._signature_alg;
-  const payloadKeys = payload._signature_payload_keys;
-  const sigPubkey = payload._signature_pubkey_fingerprint;
-  if (typeof sig !== "string" || sig.length === 0) {
-    return { kind: "missing_signature" };
-  }
-  if (alg !== "ed25519") {
-    return { kind: "error", reason: `Unsupported signature algorithm: ${alg}` };
-  }
-  if (!Array.isArray(payloadKeys) || payloadKeys.length === 0) {
-    return { kind: "error", reason: "Missing _signature_payload_keys" };
-  }
-  if (typeof sigPubkey === "string" && sigPubkey !== PROMOTION_PUBKEY_FINGERPRINT_HEX) {
-    return { kind: "unknown_pubkey", got: sigPubkey };
-  }
-  const canonicalObj = {};
-  for (const k of payloadKeys) {
-    if (typeof k !== "string") continue;
-    canonicalObj[k] = payload[k];
-  }
-  const canonical = JSON.stringify(canonicalObj, [...payloadKeys].sort());
-  try {
-    const spkiPrefix = Buffer.from([
-      48,
-      42,
-      48,
-      5,
-      6,
-      3,
-      43,
-      101,
-      112,
-      3,
-      33,
-      0
-    ]);
-    const der = Buffer.concat([spkiPrefix, Buffer.from(PROMOTION_PUBKEY_ED25519)]);
-    const pubkey = createPublicKey2({ key: der, format: "der", type: "spki" });
-    const ok = cryptoVerify2(
-      null,
-      Buffer.from(canonical, "utf-8"),
-      pubkey,
-      Buffer.from(sig, "base64")
-    );
-    return ok ? { kind: "valid" } : { kind: "bad_signature" };
-  } catch (err) {
-    return {
-      kind: "error",
-      reason: `Signature verification threw: ${err instanceof Error ? err.message : String(err)}`
-    };
-  }
+  return verifyEd25519SignedEnvelope(
+    {
+      pubkeyBytes: PROMOTION_PUBKEY_ED25519,
+      fingerprintHex: PROMOTION_PUBKEY_FINGERPRINT_HEX,
+      knownFingerprints: KNOWN_PROMOTION_PUBKEY_FINGERPRINTS,
+      keyLabel: "promotion"
+    },
+    payload
+  );
+}
+
+// src/rule-candidate-hardened.ts
+var TEAM_HARDENED_SHAREABLE_DESTINATIONS = [
+  "pattern-scanner",
+  "custom-destination"
+];
+function isHardenedShareableDestination(destination) {
+  return TEAM_HARDENED_SHAREABLE_DESTINATIONS.includes(destination);
 }
 
 // src/rule-candidate-applier.ts
@@ -2133,6 +2122,15 @@ async function pullTeamPromotions(db, opts = {}) {
     emitDropTelemetry(db, "team_promotion_envelope_dropped", { reason: verdict.kind });
     return result2;
   }
+  const signedKeys = Array.isArray(envelope._signature_payload_keys) ? envelope._signature_payload_keys : [];
+  if (!signedKeys.includes("orgId") || !signedKeys.includes("promotions_json")) {
+    const result2 = { ...ZERO, dropped_unverified: countUntrusted(envelope) };
+    emitDropTelemetry(db, "team_promotion_unsigned_field", {
+      orgId_signed: signedKeys.includes("orgId"),
+      promotions_json_signed: signedKeys.includes("promotions_json")
+    });
+    return result2;
+  }
   const signedOrgId = typeof envelope.orgId === "string" ? envelope.orgId : null;
   if (!signedOrgId || !ownOrgId || signedOrgId !== ownOrgId) {
     const result2 = { ...ZERO, dropped_unverified: countUntrusted(envelope) };
@@ -2149,7 +2147,8 @@ async function pullTeamPromotions(db, opts = {}) {
     if (!isValidWirePromotion(p)) continue;
     result.pulled += 1;
     if (typeof p.seq === "number" && p.seq > maxSeq) maxSeq = p.seq;
-    if (!isTeamShareableDestination(p.destination)) {
+    const hardenedMaterialize = isHardenedShareableDestination(p.destination) && p.hardened === true;
+    if (!isTeamShareableDestination(p.destination) && !hardenedMaterialize) {
       result.dropped_nonshareable += 1;
       continue;
     }
@@ -2235,19 +2234,27 @@ function materializeCandidate(db, projectRoot, candidatePath, p, orgId) {
     prior_turn_files: [],
     timestamp: p.promoted_at,
     session_id: `team:${p.promoted_by}`,
-    // Provenance (PB-004): the applier's team-origin gate keys on this.
+    // Provenance (PB-004): the applier's team-origin gate keys on this. PA3-005:
+    // a hardened materialization sets `hardened: true` so the applier's hardened
+    // apply-gate (PA3-004) engages. `review_attestation` is intentionally NOT
+    // copied from the publisher here — the RECEIVER's `/massu-rule review` records
+    // ITS OWN two-operator + render-only ack into provenance.review_attestation
+    // before apply; until then the gate refuses (hardened-PENDING).
     provenance: {
       origin: "team",
       org_id: orgId,
       promoted_by: p.promoted_by,
       promoted_at: p.promoted_at,
-      signature_verified: true
+      signature_verified: true,
+      ...p.hardened === true ? { hardened: true } : {}
     },
     // Extra fields the `/massu-rule approve` flow reads to drive the apply (the
     // publisher already decided destination + body). validateCandidatePayload
-    // ignores unknown keys.
+    // ignores unknown keys. `publisher_review_attestation` is retained for the
+    // receiver's review UI (display only — never the apply-gate authority).
     destination: p.destination,
-    draft_text: p.draft_text
+    draft_text: p.draft_text,
+    ...p.review_attestation !== void 0 ? { publisher_review_attestation: p.review_attestation } : {}
   };
   const dir = dirname4(candidatePath);
   if (!existsSync4(dir)) mkdirSync3(dir, { recursive: true });
@@ -2636,7 +2643,10 @@ function buildSyncPayload(db, sessionId, observations, summary) {
         draft_text: p.draft_text,
         score: p.score,
         signals: p.signals,
-        content_hash: p.content_hash
+        content_hash: p.content_hash,
+        // PA3-004: hardened-destination publish carries the flag + attestation.
+        ...p.hardened ? { hardened: true } : {},
+        ...p.review_attestation !== void 0 ? { review_attestation: p.review_attestation } : {}
       }))
     } : {},
     ...revocations.length > 0 ? { rule_revocations: revocations.map((prompt_hash) => ({ prompt_hash })) } : {}

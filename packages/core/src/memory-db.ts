@@ -663,6 +663,11 @@ export function initMemorySchema(db: Database.Database): void {
       score REAL,
       signals_json TEXT NOT NULL DEFAULT '[]',
       content_hash TEXT NOT NULL,
+      -- PA3-004 (Phase 3 Stream A): hardened-destination publish carries the
+      -- publisher's review attestation so the server CHECK (hardened rows need a
+      -- review_attestation) is satisfiable. hardened=0 for the Phase-2 rows.
+      hardened INTEGER NOT NULL DEFAULT 0,
+      review_attestation_json TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS team_revocation_outbound (
@@ -801,6 +806,20 @@ export function initMemorySchema(db: Database.Database): void {
     );
   }
 
+  // PA3-004 (Phase 3 Stream A): additive hardened-promotion columns on the
+  // outbound queue for existing local DBs (CREATE TABLE IF NOT EXISTS does not
+  // add columns to a pre-existing table). PRAGMA-introspect + ADD COLUMN, the
+  // same idempotent pattern as signed_payload_json above.
+  const outboundCols = db
+    .prepare(`PRAGMA table_info(team_promotion_outbound)`)
+    .all() as Array<{ name: string }>;
+  if (!outboundCols.some((c) => c.name === 'hardened')) {
+    db.exec(`ALTER TABLE team_promotion_outbound ADD COLUMN hardened INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!outboundCols.some((c) => c.name === 'review_attestation_json')) {
+    db.exec(`ALTER TABLE team_promotion_outbound ADD COLUMN review_attestation_json TEXT`);
+  }
+
   // ============================================================
   // Failure Classification: Taxonomy of known failure patterns
   // ============================================================
@@ -850,6 +869,10 @@ export interface TeamPromotionOutbound {
   score?: number;
   signals?: unknown[];
   content_hash: string;
+  /** PA3-004: true for a hardened (executable-destination) publish. Default false. */
+  hardened?: boolean;
+  /** PA3-004: publisher's review attestation (required server-side for hardened rows). */
+  review_attestation?: unknown;
 }
 
 /**
@@ -877,8 +900,8 @@ export function setMemoryMeta(db: Database.Database, key: string, value: string)
 export function enqueueTeamPromotion(db: Database.Database, promo: TeamPromotionOutbound): void {
   db.prepare(`
     INSERT OR REPLACE INTO team_promotion_outbound
-      (prompt_hash, destination, draft_text, score, signals_json, content_hash, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+      (prompt_hash, destination, draft_text, score, signals_json, content_hash, hardened, review_attestation_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `).run(
     promo.prompt_hash,
     promo.destination,
@@ -886,6 +909,8 @@ export function enqueueTeamPromotion(db: Database.Database, promo: TeamPromotion
     promo.score ?? null,
     JSON.stringify(promo.signals ?? []),
     promo.content_hash,
+    promo.hardened ? 1 : 0,
+    promo.review_attestation !== undefined ? JSON.stringify(promo.review_attestation) : null,
   );
 }
 
@@ -896,7 +921,7 @@ export function enqueueTeamPromotion(db: Database.Database, promo: TeamPromotion
  */
 export function drainTeamPromotions(db: Database.Database): TeamPromotionOutbound[] {
   const rows = db.prepare(`
-    SELECT prompt_hash, destination, draft_text, score, signals_json, content_hash
+    SELECT prompt_hash, destination, draft_text, score, signals_json, content_hash, hardened, review_attestation_json
     FROM team_promotion_outbound ORDER BY created_at ASC LIMIT 1000
   `).all() as Array<{
     prompt_hash: string;
@@ -905,6 +930,8 @@ export function drainTeamPromotions(db: Database.Database): TeamPromotionOutboun
     score: number | null;
     signals_json: string;
     content_hash: string;
+    hardened: number;
+    review_attestation_json: string | null;
   }>;
   if (rows.length === 0) return [];
   db.prepare('DELETE FROM team_promotion_outbound').run();
@@ -915,6 +942,10 @@ export function drainTeamPromotions(db: Database.Database): TeamPromotionOutboun
     score: r.score ?? undefined,
     signals: safeJsonArray(r.signals_json),
     content_hash: r.content_hash,
+    hardened: r.hardened === 1,
+    review_attestation: r.review_attestation_json
+      ? safeJsonParse(r.review_attestation_json)
+      : undefined,
   }));
 }
 
@@ -965,6 +996,15 @@ function safeJsonArray(json: string): unknown[] {
     return Array.isArray(v) ? v : [];
   } catch {
     return [];
+  }
+}
+
+/** Parse a JSON value, returning undefined on any parse error (PA3-004). */
+function safeJsonParse(json: string): unknown {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return undefined;
   }
 }
 

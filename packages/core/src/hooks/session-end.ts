@@ -188,6 +188,11 @@ function buildSyncPayload(
             score: p.score,
             signals: p.signals,
             content_hash: p.content_hash,
+            // PA3-004: hardened-destination publish carries the flag + attestation.
+            ...(p.hardened ? { hardened: true } : {}),
+            ...(p.review_attestation !== undefined
+              ? { review_attestation: p.review_attestation }
+              : {}),
           })),
         }
       : {}),

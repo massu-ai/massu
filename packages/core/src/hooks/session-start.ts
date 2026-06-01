@@ -9,6 +9,7 @@
 // ============================================================
 
 import { getMemoryDb, getSessionSummaries, getRecentObservations, getFailedAttempts, getCrossTaskProgress, autoDetectTaskId, linkSessionToTask, createSession } from '../memory-db.ts';
+import { pullTeamPromotions } from '../team-rule-sync.ts';
 import { getConfig, getResolvedPaths } from '../config.ts';
 import { readFileSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
@@ -85,6 +86,20 @@ async function main(): Promise<void> {
       } else {
         const watcherBanner = buildWatcherBanner();
         if (watcherBanner) process.stdout.write(watcherBanner);
+      }
+
+      // PB3-002: cache-gated team-promotion PULL at session START (in addition to
+      // session-end), so a new session materializes pending org promotions promptly
+      // instead of waiting a full session for the session-end pull. Runs AFTER all
+      // context/banner stdout is flushed so it never delays the visible context.
+      // Self-gating + bounded: pullTeamPromotions no-ops for Free/Pro / no-cloud
+      // (a single cache read, no network) and caps its fetch at the 2s request
+      // budget (AbortSignal.timeout). Materializes reviewable candidates — NEVER
+      // applies. Best-effort: a pull failure never blocks session start.
+      try {
+        await pullTeamPromotions(db);
+      } catch (_pullErr) {
+        // Non-blocking: pull failure never blocks session start.
       }
     } finally {
       db.close();

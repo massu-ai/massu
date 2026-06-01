@@ -1217,8 +1217,117 @@ else
   CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
 fi
 
+# PA3-006 (Phase 3 Stream A / CR-57): hardened-path invariants. The executable
+# destinations may propagate cross-seat ONLY behind the hardened-review path; the
+# non-hardened allowlist must NOT be widened; the render-only preview MUST NOT exec.
+HARDENED32="$REPO_ROOT/packages/core/src/rule-candidate-hardened.ts"
+PREVIEW32="$REPO_ROOT/packages/core/src/rule-candidate-preview.ts"
+SYNC_FN32="$REPO_ROOT/website/supabase/functions/sync/index.ts"
+MIG045="$REPO_ROOT/website/supabase/migrations/045_hardened_promotion.sql"
+
+if [ -f "$HARDENED32" ]; then
+  # Hardened SoT + apply-gate validator live in rule-candidate-hardened.ts.
+  if ! grep -q "TEAM_HARDENED_SHAREABLE_DESTINATIONS" "$HARDENED32"; then
+    fail "Check 32: rule-candidate-hardened.ts is missing TEAM_HARDENED_SHAREABLE_DESTINATIONS (hardened SoT)"
+    CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+  fi
+  for hsym in review_attestation second_operator_id dry_run_ack validateHardenedApplyGate; do
+    if ! grep -q "$hsym" "$HARDENED32"; then
+      fail "Check 32: rule-candidate-hardened.ts no longer references '$hsym' (hardened apply gate regressed?)"
+      CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+    fi
+  done
+else
+  fail "Check 32: rule-candidate-hardened.ts (hardened SoT + apply-gate validator) is missing"
+  CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+fi
+
+# The applier must actually USE the hardened gate (import + call).
+if [ -f "$APPLIER32" ]; then
+  for usym in isHardenedShareableDestination validateHardenedApplyGate; do
+    if ! grep -q "$usym" "$APPLIER32"; then
+      fail "Check 32: rule-candidate-applier.ts no longer uses '$usym' (hardened apply gate not wired?)"
+      CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+    fi
+  done
+fi
+
+if [ -f "$PREVIEW32" ]; then
+  # Render-only invariant: the preview helper MUST NOT exec untrusted input. Match
+  # actual import/require/call syntax (not the word in doc comments).
+  if grep -qE "from ['\"](node:)?child_process['\"]|require\(['\"](node:)?child_process|execSync\(|\bspawn(Sync)?\(" "$PREVIEW32"; then
+    fail "Check 32: rule-candidate-preview.ts imports/uses child_process — RENDER-ONLY invariant violated (it must NEVER execute untrusted input)"
+    CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+  fi
+else
+  fail "Check 32: rule-candidate-preview.ts (render-only hardened preview) is missing"
+  CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+fi
+
+if [ -f "$SYNC_FN32" ]; then
+  if ! grep -q "TEAM_HARDENED_DESTINATIONS" "$SYNC_FN32"; then
+    fail "Check 32: sync/index.ts is missing the server TEAM_HARDENED_DESTINATIONS const (hardened ingest gate)"
+    CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+  fi
+fi
+
+if [ -f "$MIG045" ]; then
+  # The widened CHECK must condition the executable destinations on hardened + attestation.
+  if ! grep -q "promoted_rules_destination_hardened_check" "$MIG045"; then
+    fail "Check 32: migration 045 is missing the widened destination CHECK (promoted_rules_destination_hardened_check)"
+    CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
+  fi
+fi
+
 if [ "$CHECK32_VIOLATIONS" -eq 0 ]; then
-  pass "Check 32: Team-shared rule promotion invariants intact"
+  pass "Check 32: Team-shared rule promotion invariants intact (incl. Phase 3 hardened path)"
+fi
+
+# -------------------------------------------------------
+# Check 33: Ed25519 verifier consolidation (CR-46 / plan-2026-06-01-team-shared-promotion-phase-3 PC-004).
+# -------------------------------------------------------
+# Both signed-envelope verifiers MUST delegate to the single parametric core
+# `ed25519-envelope-verifier.ts` (no duplicated `crypto.verify(null,` body in
+# either wrapper). Bash mirror of the vitest drift-guard
+# `ed25519-verifier-consolidation-drift-guard.test.ts` (vitest <-> scanner parity).
+# -------------------------------------------------------
+echo ""
+echo "Check 33: Ed25519 verifier consolidation (CR-46)"
+CHECK33_VIOLATIONS=0
+CORE33="$REPO_ROOT/packages/core/src/security/ed25519-envelope-verifier.ts"
+PROMO33="$REPO_ROOT/packages/core/src/security/promotion-envelope-verifier.ts"
+LIC33="$REPO_ROOT/packages/core/src/security/license-response-verifier.ts"
+
+if [ -f "$CORE33" ]; then
+  if ! grep -q "export function verifyEd25519SignedEnvelope" "$CORE33"; then
+    fail "Check 33: ed25519-envelope-verifier.ts does not export verifyEd25519SignedEnvelope (the shared core)"
+    CHECK33_VIOLATIONS=$((CHECK33_VIOLATIONS + 1))
+  fi
+else
+  fail "Check 33: ed25519-envelope-verifier.ts (shared verifier core) is missing"
+  CHECK33_VIOLATIONS=$((CHECK33_VIOLATIONS + 1))
+fi
+
+for wrapper in "$PROMO33" "$LIC33"; do
+  if [ -f "$wrapper" ]; then
+    if ! grep -q "verifyEd25519SignedEnvelope" "$wrapper"; then
+      fail "Check 33: $(basename "$wrapper") no longer delegates to verifyEd25519SignedEnvelope (consolidation regressed?)"
+      CHECK33_VIOLATIONS=$((CHECK33_VIOLATIONS + 1))
+    fi
+    # No duplicated verify core in the wrapper — the crypto.verify(null, body must
+    # live ONLY in the shared core after consolidation.
+    if grep -qE "cryptoVerify\(\s*null|verify\(\s*null" "$wrapper"; then
+      fail "Check 33: $(basename "$wrapper") contains a duplicated crypto.verify(null,...) core — it must delegate to ed25519-envelope-verifier.ts"
+      CHECK33_VIOLATIONS=$((CHECK33_VIOLATIONS + 1))
+    fi
+  else
+    fail "Check 33: $(basename "$wrapper") (verifier wrapper) is missing"
+    CHECK33_VIOLATIONS=$((CHECK33_VIOLATIONS + 1))
+  fi
+done
+
+if [ "$CHECK33_VIOLATIONS" -eq 0 ]; then
+  pass "Check 33: Ed25519 verifier consolidation intact"
 fi
 
 # -------------------------------------------------------

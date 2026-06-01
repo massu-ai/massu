@@ -201,17 +201,17 @@ var init_manifest_registry = __esm({
 });
 
 // src/detect/package-detector.ts
-import { readFileSync as readFileSync2, existsSync as existsSync3, statSync, lstatSync, readdirSync } from "fs";
-import { join, relative } from "path";
+import { readFileSync as readFileSync3, existsSync as existsSync4, statSync, lstatSync, readdirSync } from "fs";
+import { join as join2, relative } from "path";
 import { parse as parseToml } from "smol-toml";
 function safeRead(path) {
   try {
-    if (!existsSync3(path)) return null;
+    if (!existsSync4(path)) return null;
     const ls = lstatSync(path);
     if (ls.isSymbolicLink()) return null;
     const st = statSync(path);
     if (!st.isFile()) return null;
-    return readFileSync2(path, "utf-8");
+    return readFileSync3(path, "utf-8");
   } catch {
     return null;
   }
@@ -242,7 +242,7 @@ function parsePackageJson(path, directory, root, warnings) {
   const peer = Object.keys(
     pkg.peerDependencies ?? {}
   );
-  const hasTs = deps.includes("typescript") || devDeps.includes("typescript") || existsSync3(join(directory, "tsconfig.json"));
+  const hasTs = deps.includes("typescript") || devDeps.includes("typescript") || existsSync4(join2(directory, "tsconfig.json"));
   const language = hasTs ? "typescript" : "javascript";
   const scripts = Object.keys(
     pkg.scripts ?? {}
@@ -668,8 +668,8 @@ function detectManifestsInDir(dir, root, warnings) {
   let dirEntries = null;
   for (const entry of getManifestRegistry2()) {
     if (!entry.pattern.startsWith("*")) {
-      const path = join(dir, entry.pattern);
-      if (!existsSync3(path)) continue;
+      const path = join2(dir, entry.pattern);
+      if (!existsSync4(path)) continue;
       const m = entry.parse(path, dir, root, warnings);
       if (m !== null) out.push(m);
     } else {
@@ -682,8 +682,8 @@ function detectManifestsInDir(dir, root, warnings) {
       }
       for (const fname of dirEntries) {
         if (!matchManifestPattern2(fname, entry.pattern)) continue;
-        const path = join(dir, fname);
-        if (!existsSync3(path)) continue;
+        const path = join2(dir, fname);
+        if (!existsSync4(path)) continue;
         const m = entry.parse(path, dir, root, warnings);
         if (m !== null) out.push(m);
       }
@@ -693,7 +693,7 @@ function detectManifestsInDir(dir, root, warnings) {
 }
 function listSubdirs(dir) {
   try {
-    return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && !IGNORED_DIRS.has(e.name)).map((e) => join(dir, e.name));
+    return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && !IGNORED_DIRS.has(e.name)).map((e) => join2(dir, e.name));
   } catch {
     return [];
   }
@@ -703,8 +703,8 @@ function detectPackageManifests(projectRoot) {
   const manifests = [];
   manifests.push(...detectManifestsInDir(projectRoot, projectRoot, warnings));
   for (const ws of WORKSPACE_DIRS) {
-    const wsRoot = join(projectRoot, ws);
-    if (!existsSync3(wsRoot)) continue;
+    const wsRoot = join2(projectRoot, ws);
+    if (!existsSync4(wsRoot)) continue;
     for (const sub of listSubdirs(wsRoot)) {
       manifests.push(...detectManifestsInDir(sub, projectRoot, warnings));
       for (const sub2 of listSubdirs(sub)) {
@@ -6890,38 +6890,38 @@ var init_source_dir_detector = __esm({
 });
 
 // src/detect/monorepo-detector.ts
-import { readFileSync as readFileSync3, existsSync as existsSync4, statSync as statSync2, lstatSync as lstatSync2, readdirSync as readdirSync2 } from "fs";
-import { join as join2, relative as relative2 } from "path";
+import { readFileSync as readFileSync4, existsSync as existsSync5, statSync as statSync2, lstatSync as lstatSync2, readdirSync as readdirSync2 } from "fs";
+import { join as join3, relative as relative2 } from "path";
 import { parse as parseYaml2 } from "yaml";
 import { parse as parseToml2 } from "smol-toml";
 function safeReadText(path) {
   try {
-    if (!existsSync4(path)) return null;
+    if (!existsSync5(path)) return null;
     const ls = lstatSync2(path);
     if (ls.isSymbolicLink()) return null;
     const st = statSync2(path);
     if (!st.isFile()) return null;
-    return readFileSync3(path, "utf-8");
+    return readFileSync4(path, "utf-8");
   } catch {
     return null;
   }
 }
 function firstManifestIn(dir) {
   for (const m of MANIFEST_PRIORITY) {
-    if (existsSync4(join2(dir, m))) return m;
+    if (existsSync5(join3(dir, m))) return m;
   }
   return null;
 }
 function manifestName(dir, manifest) {
   try {
     if (manifest === "package.json") {
-      const raw = safeReadText(join2(dir, "package.json"));
+      const raw = safeReadText(join3(dir, "package.json"));
       if (!raw) return null;
       const pkg = JSON.parse(raw);
       return typeof pkg.name === "string" ? pkg.name : null;
     }
     if (manifest === "pyproject.toml") {
-      const raw = safeReadText(join2(dir, "pyproject.toml"));
+      const raw = safeReadText(join3(dir, "pyproject.toml"));
       if (!raw) return null;
       const toml = parseToml2(raw);
       const project = toml.project;
@@ -6932,7 +6932,7 @@ function manifestName(dir, manifest) {
       return null;
     }
     if (manifest === "Cargo.toml") {
-      const raw = safeReadText(join2(dir, "Cargo.toml"));
+      const raw = safeReadText(join3(dir, "Cargo.toml"));
       if (!raw) return null;
       const toml = parseToml2(raw);
       const pkg = toml.package;
@@ -6940,7 +6940,7 @@ function manifestName(dir, manifest) {
       return null;
     }
     if (manifest === "go.mod") {
-      const raw = safeReadText(join2(dir, "go.mod"));
+      const raw = safeReadText(join3(dir, "go.mod"));
       if (!raw) return null;
       for (const line of raw.split(/\r?\n/)) {
         const trimmed = line.trim();
@@ -6964,7 +6964,7 @@ function pkgFromDir(root, dir) {
 }
 function listSubdirs2(dir) {
   try {
-    return readdirSync2(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && !IGNORED_DIRS2.has(e.name)).map((e) => join2(dir, e.name));
+    return readdirSync2(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && !IGNORED_DIRS2.has(e.name)).map((e) => join3(dir, e.name));
   } catch {
     return [];
   }
@@ -6972,8 +6972,8 @@ function listSubdirs2(dir) {
 function genericWorkspaces(root) {
   const out = [];
   for (const parent of CONVENTIONAL_WORKSPACE_PARENTS) {
-    const p = join2(root, parent);
-    if (!existsSync4(p)) continue;
+    const p = join3(root, parent);
+    if (!existsSync5(p)) continue;
     for (const sub of listSubdirs2(p)) {
       const pkg = pkgFromDir(root, sub);
       if (pkg) out.push(pkg);
@@ -6982,7 +6982,7 @@ function genericWorkspaces(root) {
   return out;
 }
 function detectYarnWorkspaces(root) {
-  const raw = safeReadText(join2(root, "package.json"));
+  const raw = safeReadText(join3(root, "package.json"));
   if (!raw) return null;
   let pkg;
   try {
@@ -6997,7 +6997,7 @@ function detectYarnWorkspaces(root) {
   return expandWorkspaceGlobs(root, globs);
 }
 function detectPnpmWorkspaces(root) {
-  const raw = safeReadText(join2(root, "pnpm-workspace.yaml"));
+  const raw = safeReadText(join3(root, "pnpm-workspace.yaml"));
   if (!raw) return null;
   try {
     const parsed = parseYaml2(raw);
@@ -7013,8 +7013,8 @@ function expandWorkspaceGlobs(root, globs) {
   for (const pattern of globs) {
     const parts = pattern.split("/");
     if (parts.length === 2 && (parts[1] === "*" || parts[1] === "**")) {
-      const parent = join2(root, parts[0]);
-      if (!existsSync4(parent)) continue;
+      const parent = join3(root, parts[0]);
+      if (!existsSync5(parent)) continue;
       for (const sub of listSubdirs2(parent)) {
         const pkg = pkgFromDir(root, sub);
         if (pkg && !seen.has(pkg.path)) {
@@ -7024,8 +7024,8 @@ function expandWorkspaceGlobs(root, globs) {
       }
       continue;
     }
-    const direct = join2(root, pattern);
-    if (existsSync4(direct)) {
+    const direct = join3(root, pattern);
+    if (existsSync5(direct)) {
       const pkg = pkgFromDir(root, direct);
       if (pkg && !seen.has(pkg.path)) {
         seen.add(pkg.path);
@@ -7036,16 +7036,16 @@ function expandWorkspaceGlobs(root, globs) {
   return out;
 }
 function hasTurbo(root) {
-  return existsSync4(join2(root, "turbo.json"));
+  return existsSync5(join3(root, "turbo.json"));
 }
 function hasNx(root) {
-  return existsSync4(join2(root, "nx.json"));
+  return existsSync5(join3(root, "nx.json"));
 }
 function hasLerna(root) {
-  return existsSync4(join2(root, "lerna.json"));
+  return existsSync5(join3(root, "lerna.json"));
 }
 function hasBazel(root) {
-  return existsSync4(join2(root, "WORKSPACE")) || existsSync4(join2(root, "WORKSPACE.bazel")) || existsSync4(join2(root, "MODULE.bazel"));
+  return existsSync5(join3(root, "WORKSPACE")) || existsSync5(join3(root, "WORKSPACE.bazel")) || existsSync5(join3(root, "MODULE.bazel"));
 }
 function detectMonorepo(projectRoot) {
   const nested = [];
@@ -7236,8 +7236,8 @@ var init_vr_command_map = __esm({
 });
 
 // src/detect/domain-inferrer.ts
-import { existsSync as existsSync5, readdirSync as readdirSync3 } from "fs";
-import { join as join3 } from "path";
+import { existsSync as existsSync6, readdirSync as readdirSync3 } from "fs";
+import { join as join4 } from "path";
 function titleCase(s) {
   if (!s) return s;
   return s.split(/[-_\s]+/).filter(Boolean).map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ");
@@ -7257,8 +7257,8 @@ function topLevelSrcSubdirs(root, sourceDirs) {
   const effective = sourceDirs.length > 0 ? sourceDirs : ["src"];
   const seen = /* @__PURE__ */ new Set();
   for (const rel of effective) {
-    const abs = join3(root, rel);
-    if (!existsSync5(abs)) continue;
+    const abs = join4(root, rel);
+    if (!existsSync6(abs)) continue;
     try {
       for (const e of readdirSync3(abs, { withFileTypes: true })) {
         if (!e.isDirectory()) continue;
@@ -7345,8 +7345,8 @@ var init_domain_inferrer = __esm({
 });
 
 // src/detect/regex-fallback.ts
-import { existsSync as existsSync6, readdirSync as readdirSync4, readFileSync as readFileSync4, statSync as statSync3 } from "fs";
-import { resolve as resolve4, join as join4, basename as basename2 } from "path";
+import { existsSync as existsSync7, readdirSync as readdirSync4, readFileSync as readFileSync5, statSync as statSync3 } from "fs";
+import { resolve as resolve4, join as join5, basename as basename2 } from "path";
 function introspectPython(detection, projectRoot) {
   const sourceDir = resolveSourceDir(detection, "python", projectRoot);
   if (!sourceDir) return null;
@@ -7513,9 +7513,9 @@ function resolveSourceDir(detection, lang, projectRoot) {
   if (list.length > 0) {
     const first = list[0];
     const abs = resolve4(projectRoot, first);
-    return existsSync6(abs) ? abs : null;
+    return existsSync7(abs) ? abs : null;
   }
-  return existsSync6(projectRoot) ? projectRoot : null;
+  return existsSync7(projectRoot) ? projectRoot : null;
 }
 function sampleFiles(dir, nameRegex, pathFilter) {
   const out = [];
@@ -7535,7 +7535,7 @@ function sampleFiles(dir, nameRegex, pathFilter) {
       if (entry === "__pycache__") continue;
       if (entry === "venv" || entry === ".venv") continue;
       if (entry === "dist" || entry === "build") continue;
-      const child = join4(path, entry);
+      const child = join5(path, entry);
       let st;
       try {
         st = statSync3(child);
@@ -7560,7 +7560,7 @@ function readSafe(path) {
   try {
     const st = statSync3(path);
     if (st.size > MAX_FILE_BYTES) return null;
-    return readFileSync4(path, "utf-8");
+    return readFileSync5(path, "utf-8");
   } catch {
     return null;
   }
@@ -7809,7 +7809,7 @@ __export(drift_exports, {
   computeFingerprint: () => computeFingerprint,
   detectDrift: () => detectDrift
 });
-import { createHash } from "crypto";
+import { createHash as createHash2 } from "crypto";
 function summarizeDetection(det) {
   const languages = Array.from(new Set(det.manifests.map((m) => m.language))).sort();
   const frameworks = {};
@@ -7840,7 +7840,7 @@ function summarizeDetection(det) {
 function computeFingerprint(det) {
   const data = summarizeDetection(det);
   const stable = JSON.stringify(data, Object.keys(data).sort());
-  return createHash("sha256").update(stable).digest("hex");
+  return createHash2("sha256").update(stable).digest("hex");
 }
 function stringOf(v) {
   if (typeof v === "string") return v;
@@ -8996,6 +8996,11 @@ function initMemorySchema(db) {
       score REAL,
       signals_json TEXT NOT NULL DEFAULT '[]',
       content_hash TEXT NOT NULL,
+      -- PA3-004 (Phase 3 Stream A): hardened-destination publish carries the
+      -- publisher's review attestation so the server CHECK (hardened rows need a
+      -- review_attestation) is satisfiable. hardened=0 for the Phase-2 rows.
+      hardened INTEGER NOT NULL DEFAULT 0,
+      review_attestation_json TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS team_revocation_outbound (
@@ -9092,6 +9097,13 @@ function initMemorySchema(db) {
       `ALTER TABLE license_cache ADD COLUMN signed_payload_json TEXT NOT NULL DEFAULT ''`
     );
   }
+  const outboundCols = db.prepare(`PRAGMA table_info(team_promotion_outbound)`).all();
+  if (!outboundCols.some((c) => c.name === "hardened")) {
+    db.exec(`ALTER TABLE team_promotion_outbound ADD COLUMN hardened INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!outboundCols.some((c) => c.name === "review_attestation_json")) {
+    db.exec(`ALTER TABLE team_promotion_outbound ADD COLUMN review_attestation_json TEXT`);
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS failure_classes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -9111,6 +9123,22 @@ function initMemorySchema(db) {
     CREATE INDEX IF NOT EXISTS idx_fc_name ON failure_classes(name);
     CREATE INDEX IF NOT EXISTS idx_fc_needs_review ON failure_classes(needs_review);
   `);
+}
+function getMemoryMeta(db, key) {
+  const row = db.prepare("SELECT value FROM memory_meta WHERE key = ?").get(key);
+  return row ? row.value : null;
+}
+function setMemoryMeta(db, key, value) {
+  db.prepare("INSERT OR REPLACE INTO memory_meta (key, value) VALUES (?, ?)").run(key, value);
+}
+function recordTelemetry(db, eventType, data) {
+  try {
+    db.prepare(`
+      INSERT INTO analytics_events (event_type, event_data, created_at)
+      VALUES (?, ?, datetime('now'))
+    `).run(eventType, JSON.stringify(data));
+  } catch {
+  }
 }
 function autoDetectTaskId(planFile) {
   if (!planFile) return null;
@@ -9189,9 +9217,499 @@ function linkSessionToTask(db, sessionId, taskId) {
   db.prepare("UPDATE sessions SET task_id = ? WHERE session_id = ?").run(taskId, sessionId);
 }
 
+// src/team-rule-sync.ts
+import { existsSync as existsSync3, writeFileSync, unlinkSync, mkdirSync as mkdirSync2 } from "fs";
+import { join, dirname as dirname3 } from "path";
+
+// src/license.ts
+import { createHash } from "crypto";
+
+// src/security/ed25519-envelope-verifier.ts
+import { createPublicKey, verify as cryptoVerify } from "crypto";
+var SPKI_ED25519_PREFIX = Buffer.from([
+  48,
+  42,
+  48,
+  5,
+  6,
+  3,
+  43,
+  101,
+  112,
+  3,
+  33,
+  0
+]);
+function verifyEd25519SignedEnvelope(key, payload) {
+  if (!key.knownFingerprints.has(key.fingerprintHex)) {
+    return {
+      kind: "error",
+      reason: `Bundled ${key.keyLabel} pubkey fingerprint ${key.fingerprintHex} is not in the trusted allowlist. Possible build-time tamper.`
+    };
+  }
+  const sig = payload._signature;
+  const alg = payload._signature_alg;
+  const payloadKeys = payload._signature_payload_keys;
+  const sigPubkey = payload._signature_pubkey_fingerprint;
+  if (typeof sig !== "string" || sig.length === 0) {
+    return { kind: "missing_signature" };
+  }
+  if (alg !== "ed25519") {
+    return { kind: "error", reason: `Unsupported signature algorithm: ${alg}` };
+  }
+  if (!Array.isArray(payloadKeys) || payloadKeys.length === 0) {
+    return { kind: "error", reason: "Missing _signature_payload_keys" };
+  }
+  if (typeof sigPubkey === "string" && sigPubkey !== key.fingerprintHex) {
+    return { kind: "unknown_pubkey", got: sigPubkey };
+  }
+  const canonicalObj = {};
+  for (const k of payloadKeys) {
+    if (typeof k !== "string") continue;
+    canonicalObj[k] = payload[k];
+  }
+  const canonical = JSON.stringify(canonicalObj, [...payloadKeys].sort());
+  try {
+    const der = Buffer.concat([SPKI_ED25519_PREFIX, Buffer.from(key.pubkeyBytes)]);
+    const pubkey = createPublicKey({ key: der, format: "der", type: "spki" });
+    const ok = cryptoVerify(
+      null,
+      Buffer.from(canonical, "utf-8"),
+      pubkey,
+      Buffer.from(sig, "base64")
+    );
+    return ok ? { kind: "valid" } : { kind: "bad_signature" };
+  } catch (err) {
+    return {
+      kind: "error",
+      reason: `Signature verification threw: ${err instanceof Error ? err.message : String(err)}`
+    };
+  }
+}
+
+// src/security/license-pubkey.generated.ts
+var LICENSE_PUBKEY_ED25519 = new Uint8Array([39, 136, 108, 146, 85, 233, 119, 252, 223, 226, 123, 155, 234, 168, 200, 150, 36, 249, 174, 6, 130, 146, 125, 196, 136, 224, 202, 150, 53, 228, 114, 15]);
+var LICENSE_PUBKEY_FINGERPRINT_HEX = "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475";
+var KNOWN_LICENSE_PUBKEY_FINGERPRINTS = /* @__PURE__ */ new Set([
+  "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475"
+]);
+
+// src/security/license-response-verifier.ts
+function verifyLicenseResponse(payload) {
+  return verifyEd25519SignedEnvelope(
+    {
+      pubkeyBytes: LICENSE_PUBKEY_ED25519,
+      fingerprintHex: LICENSE_PUBKEY_FINGERPRINT_HEX,
+      knownFingerprints: KNOWN_LICENSE_PUBKEY_FINGERPRINTS,
+      keyLabel: "license"
+    },
+    payload
+  );
+}
+function isLicenseSignatureRequired() {
+  return process.env.MASSU_REQUIRE_SIGNED_LICENSE === "true";
+}
+
+// src/license.ts
+var _warnedLicenseSig = false;
+function warnLicenseSigOnce(reason) {
+  if (_warnedLicenseSig) return;
+  _warnedLicenseSig = true;
+  process.stderr.write(
+    `[massu] WARNING: license-validate response is unsigned or signature invalid (${reason}). Acceptance permitted under transition mode. Operator: provision Supabase Edge Function LICENSE_RESPONSE_SIGNING_PRIVATE_KEY_B64 then set MASSU_REQUIRE_SIGNED_LICENSE=true to enforce strict mode.
+`
+  );
+}
+var TIER_LEVELS = {
+  free: 0,
+  pro: 1,
+  team: 2,
+  enterprise: 3
+};
+function tierLevel(tier) {
+  return TIER_LEVELS[tier] ?? 0;
+}
+var PLAN_TO_TIER_MAP = {
+  free: "free",
+  cloud_pro: "pro",
+  cloud_team: "team",
+  cloud_enterprise: "enterprise"
+};
+var IN_MEMORY_CACHE_TTL_MS = 15 * 60 * 1e3;
+var GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1e3;
+function readTrustedCache(cached) {
+  if (!cached.signed_payload_json) {
+    if (isLicenseSignatureRequired()) return null;
+    warnLicenseSigOnce("cache_unsigned_transition");
+    return {
+      tier: cached.tier,
+      validUntil: cached.valid_until,
+      features: JSON.parse(cached.features || "[]")
+    };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(cached.signed_payload_json);
+  } catch {
+    return null;
+  }
+  const result = verifyLicenseResponse(parsed);
+  if (result.kind !== "valid") return null;
+  const verifiedPlan = typeof parsed.plan === "string" ? parsed.plan : null;
+  const verifiedTierField = typeof parsed.tier === "string" ? parsed.tier : null;
+  const tier = verifiedPlan ? PLAN_TO_TIER_MAP[verifiedPlan] ?? "free" : verifiedTierField ?? "free";
+  const validUntil = typeof parsed.validUntil === "string" ? parsed.validUntil : "";
+  const features = Array.isArray(parsed.features) ? parsed.features : [];
+  const orgId = typeof parsed.orgId === "string" && parsed.orgId.length > 0 ? parsed.orgId : void 0;
+  return { tier, validUntil, features, orgId };
+}
+function getCachedTierReadOnly(memDb) {
+  const config = getConfig();
+  const apiKey = config.cloud?.apiKey;
+  if (!apiKey) return "free";
+  const ownsDb = !memDb;
+  const db = memDb ?? getMemoryDb();
+  try {
+    const keyHash = createHash("sha256").update(apiKey).digest("hex");
+    const cached = db.prepare(
+      "SELECT tier, valid_until, last_validated, features, signed_payload_json FROM license_cache WHERE api_key_hash = ?"
+    ).get(keyHash);
+    if (!cached) return "free";
+    const trusted = readTrustedCache(cached);
+    if (!trusted) return "free";
+    const lastValidated = new Date(cached.last_validated);
+    const sevenDaysAgo = new Date(Date.now() - GRACE_PERIOD_MS);
+    if (!(lastValidated > sevenDaysAgo)) return "free";
+    return trusted.tier;
+  } catch {
+    return "free";
+  } finally {
+    if (ownsDb) {
+      try {
+        db.close();
+      } catch {
+      }
+    }
+  }
+}
+function getCachedOrgId(memDb) {
+  const config = getConfig();
+  const apiKey = config.cloud?.apiKey;
+  if (!apiKey) return null;
+  const ownsDb = !memDb;
+  const db = memDb ?? getMemoryDb();
+  try {
+    const keyHash = createHash("sha256").update(apiKey).digest("hex");
+    const cached = db.prepare(
+      "SELECT tier, valid_until, last_validated, features, signed_payload_json FROM license_cache WHERE api_key_hash = ?"
+    ).get(keyHash);
+    if (!cached) return null;
+    const trusted = readTrustedCache(cached);
+    if (!trusted) return null;
+    const lastValidated = new Date(cached.last_validated);
+    const sevenDaysAgo = new Date(Date.now() - GRACE_PERIOD_MS);
+    if (!(lastValidated > sevenDaysAgo)) return null;
+    return trusted.orgId ?? null;
+  } catch {
+    return null;
+  } finally {
+    if (ownsDb) {
+      try {
+        db.close();
+      } catch {
+      }
+    }
+  }
+}
+
+// src/auto-learning-entitlement.ts
+var TEAM_SHARED_PROMOTION_MIN_TIER = "team";
+function entitledForTeamSharedPromotion(tier) {
+  return tierLevel(tier) >= tierLevel(TEAM_SHARED_PROMOTION_MIN_TIER);
+}
+
+// src/security/promotion-pubkey.generated.ts
+var PROMOTION_PUBKEY_ED25519 = new Uint8Array([107, 161, 33, 17, 189, 44, 193, 128, 252, 155, 188, 236, 100, 163, 23, 146, 219, 155, 216, 139, 134, 72, 211, 182, 151, 122, 209, 151, 135, 65, 167, 26]);
+var PROMOTION_PUBKEY_FINGERPRINT_HEX = "b14e2a73e23c02891e976ec161d339da6c930266c0202828d3187a3bd6e5d83f";
+var KNOWN_PROMOTION_PUBKEY_FINGERPRINTS = /* @__PURE__ */ new Set([
+  "b14e2a73e23c02891e976ec161d339da6c930266c0202828d3187a3bd6e5d83f"
+]);
+
+// src/security/promotion-envelope-verifier.ts
+function verifyPromotionEnvelope(payload) {
+  return verifyEd25519SignedEnvelope(
+    {
+      pubkeyBytes: PROMOTION_PUBKEY_ED25519,
+      fingerprintHex: PROMOTION_PUBKEY_FINGERPRINT_HEX,
+      knownFingerprints: KNOWN_PROMOTION_PUBKEY_FINGERPRINTS,
+      keyLabel: "promotion"
+    },
+    payload
+  );
+}
+
+// src/rule-candidate-hardened.ts
+var TEAM_HARDENED_SHAREABLE_DESTINATIONS = [
+  "pattern-scanner",
+  "custom-destination"
+];
+function isHardenedShareableDestination(destination) {
+  return TEAM_HARDENED_SHAREABLE_DESTINATIONS.includes(destination);
+}
+
+// src/rule-candidate-applier.ts
+var TEAM_SHAREABLE_DESTINATIONS = [
+  "corrections-md",
+  "claude-md-cr"
+];
+function isTeamShareableDestination(destination) {
+  return TEAM_SHAREABLE_DESTINATIONS.includes(destination);
+}
+
+// src/team-knowledge.ts
+function shareObservation(db, developerId, project, observationType, summary, opts) {
+  const result = db.prepare(`
+    INSERT INTO shared_observations
+    (original_id, developer_id, project, observation_type, summary, file_path, module, severity, is_shared, shared_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE, datetime('now'))
+  `).run(
+    opts?.originalId ?? null,
+    developerId,
+    project,
+    observationType,
+    summary,
+    opts?.filePath ?? null,
+    opts?.module ?? null,
+    opts?.severity ?? 3
+  );
+  return Number(result.lastInsertRowid);
+}
+
+// src/team-rule-sync.ts
+var CURSOR_KEY = "team_promotions_cursor";
+var DEFAULT_TIMEOUT_MS = 2e3;
+var PROMPT_HASH_RE = /^[0-9a-f]{16}$/;
+var ZERO = {
+  pulled: 0,
+  materialized: 0,
+  skipped: 0,
+  dropped_unverified: 0,
+  dropped_nonshareable: 0,
+  revoked_handled: 0
+};
+async function pullTeamPromotions(db, opts = {}) {
+  const config = getConfig();
+  const cloud = config.cloud;
+  const projectRoot = opts.projectRoot ?? getProjectRoot();
+  const tier = opts.tier ?? getCachedTierReadOnly(db);
+  if (!entitledForTeamSharedPromotion(tier)) return { ...ZERO };
+  const endpoint = opts.endpoint ?? cloud?.endpoint;
+  const apiKey = opts.apiKey ?? cloud?.apiKey;
+  if (!endpoint || !apiKey) return { ...ZERO };
+  const ownOrgId = opts.orgId !== void 0 ? opts.orgId : getCachedOrgId(db);
+  const since = parseCursor(getMemoryMeta(db, CURSOR_KEY));
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const timeoutMs = opts.timeoutMs ?? cloud?.requestTimeoutMs ?? DEFAULT_TIMEOUT_MS;
+  let envelope;
+  try {
+    const res = await fetchImpl(`${endpoint}/promoted-rules?since=${since}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    if (!res.ok) return { ...ZERO };
+    envelope = await res.json();
+  } catch {
+    return { ...ZERO };
+  }
+  const verdict = verifyPromotionEnvelope(envelope);
+  if (verdict.kind !== "valid") {
+    const result2 = { ...ZERO, dropped_unverified: countUntrusted(envelope) };
+    emitDropTelemetry(db, "team_promotion_envelope_dropped", { reason: verdict.kind });
+    return result2;
+  }
+  const signedKeys = Array.isArray(envelope._signature_payload_keys) ? envelope._signature_payload_keys : [];
+  if (!signedKeys.includes("orgId") || !signedKeys.includes("promotions_json")) {
+    const result2 = { ...ZERO, dropped_unverified: countUntrusted(envelope) };
+    emitDropTelemetry(db, "team_promotion_unsigned_field", {
+      orgId_signed: signedKeys.includes("orgId"),
+      promotions_json_signed: signedKeys.includes("promotions_json")
+    });
+    return result2;
+  }
+  const signedOrgId = typeof envelope.orgId === "string" ? envelope.orgId : null;
+  if (!signedOrgId || !ownOrgId || signedOrgId !== ownOrgId) {
+    const result2 = { ...ZERO, dropped_unverified: countUntrusted(envelope) };
+    emitDropTelemetry(db, "team_promotion_org_mismatch", {
+      signed_org_present: !!signedOrgId,
+      own_org_present: !!ownOrgId
+    });
+    return result2;
+  }
+  const promotions = parsePromotions(envelope.promotions_json);
+  const result = { ...ZERO };
+  let maxSeq = since;
+  for (const p of promotions) {
+    if (!isValidWirePromotion(p)) continue;
+    result.pulled += 1;
+    if (typeof p.seq === "number" && p.seq > maxSeq) maxSeq = p.seq;
+    const hardenedMaterialize = isHardenedShareableDestination(p.destination) && p.hardened === true;
+    if (!isTeamShareableDestination(p.destination) && !hardenedMaterialize) {
+      result.dropped_nonshareable += 1;
+      continue;
+    }
+    const candidatePath = sidecarPath(projectRoot, p.prompt_hash);
+    if (p.revoked_at) {
+      handleRevocation(db, projectRoot, candidatePath, p.prompt_hash);
+      result.revoked_handled += 1;
+      continue;
+    }
+    if (existsSync3(candidatePath) || alreadyApplied(db, p.prompt_hash)) {
+      result.skipped += 1;
+      continue;
+    }
+    materializeCandidate(db, projectRoot, candidatePath, p, signedOrgId);
+    result.materialized += 1;
+  }
+  const serverCursor = typeof envelope.cursor === "number" ? envelope.cursor : 0;
+  const nextCursor = Math.max(since, maxSeq, serverCursor);
+  if (nextCursor > since) setMemoryMeta(db, CURSOR_KEY, String(nextCursor));
+  return result;
+}
+function parseCursor(raw) {
+  if (raw === null) return 0;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : 0;
+}
+function parsePromotions(json) {
+  if (typeof json !== "string") return [];
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+function countUntrusted(envelope) {
+  const arr = parsePromotions(envelope.promotions_json);
+  return arr.length > 0 ? arr.length : 1;
+}
+function isValidWirePromotion(p) {
+  if (!p || typeof p !== "object") return false;
+  const r = p;
+  return typeof r.prompt_hash === "string" && PROMPT_HASH_RE.test(r.prompt_hash) && typeof r.destination === "string" && typeof r.draft_text === "string" && typeof r.promoted_by === "string" && typeof r.promoted_at === "string";
+}
+function sidecarPath(projectRoot, promptHash) {
+  return join(projectRoot, ".massu", "rule-candidates", `${promptHash}.json`);
+}
+function alreadyApplied(db, promptHash) {
+  try {
+    const row = db.prepare(
+      `SELECT 1 FROM audit_log WHERE event_type = 'rule_promoted'
+           AND json_extract(metadata, '$.prompt_hash') = ? LIMIT 1`
+    ).get(promptHash);
+    return !!row;
+  } catch {
+    return false;
+  }
+}
+function handleRevocation(db, projectRoot, candidatePath, promptHash) {
+  if (existsSync3(candidatePath)) {
+    try {
+      unlinkSync(candidatePath);
+    } catch {
+    }
+    return;
+  }
+  if (alreadyApplied(db, promptHash)) {
+    process.stderr.write(
+      `[massu] team rule ${promptHash} was revoked by your org \u2014 consider reverting it.
+`
+    );
+  }
+}
+function materializeCandidate(db, projectRoot, candidatePath, p, orgId) {
+  const promptText = p.draft_text.replace(/\n+/g, " ").slice(0, 200) || `team rule ${p.prompt_hash}`;
+  const sidecar = {
+    // Standard RuleCandidatePayload fields (so `/massu-rule approve` → readCandidate
+    // → validateCandidatePayload passes), synthesized from the promotion.
+    prompt: promptText,
+    prompt_hash: p.prompt_hash,
+    score: clampScore(p.score),
+    signals: sanitizeSignals(p.signals),
+    prior_turn_files: [],
+    timestamp: p.promoted_at,
+    session_id: `team:${p.promoted_by}`,
+    // Provenance (PB-004): the applier's team-origin gate keys on this. PA3-005:
+    // a hardened materialization sets `hardened: true` so the applier's hardened
+    // apply-gate (PA3-004) engages. `review_attestation` is intentionally NOT
+    // copied from the publisher here — the RECEIVER's `/massu-rule review` records
+    // ITS OWN two-operator + render-only ack into provenance.review_attestation
+    // before apply; until then the gate refuses (hardened-PENDING).
+    provenance: {
+      origin: "team",
+      org_id: orgId,
+      promoted_by: p.promoted_by,
+      promoted_at: p.promoted_at,
+      signature_verified: true,
+      ...p.hardened === true ? { hardened: true } : {}
+    },
+    // Extra fields the `/massu-rule approve` flow reads to drive the apply (the
+    // publisher already decided destination + body). validateCandidatePayload
+    // ignores unknown keys. `publisher_review_attestation` is retained for the
+    // receiver's review UI (display only — never the apply-gate authority).
+    destination: p.destination,
+    draft_text: p.draft_text,
+    ...p.review_attestation !== void 0 ? { publisher_review_attestation: p.review_attestation } : {}
+  };
+  const dir = dirname3(candidatePath);
+  if (!existsSync3(dir)) mkdirSync2(dir, { recursive: true });
+  writeFileSync(candidatePath, JSON.stringify(sidecar, null, 2), "utf-8");
+  try {
+    shareObservation(db, p.promoted_by, getProjectName(), "rule_promotion", promptText, {
+      filePath: void 0,
+      module: p.destination
+    });
+  } catch {
+  }
+}
+function clampScore(score) {
+  if (typeof score !== "number" || !Number.isFinite(score)) return 0;
+  return Math.max(-200, Math.min(200, score));
+}
+function sanitizeSignals(signals) {
+  if (!Array.isArray(signals)) return [];
+  const out = [];
+  for (const s of signals) {
+    if (!s || typeof s !== "object") continue;
+    const sig = s;
+    out.push({
+      name: typeof sig.name === "string" ? sig.name : "unknown",
+      baseWeight: typeof sig.baseWeight === "number" ? sig.baseWeight : 0,
+      applied: typeof sig.applied === "number" ? sig.applied : 0,
+      ...typeof sig.evidence === "string" ? { evidence: sig.evidence } : {}
+    });
+  }
+  return out;
+}
+function getProjectName() {
+  try {
+    return getConfig().project?.name ?? "massu";
+  } catch {
+    return "massu";
+  }
+}
+function emitDropTelemetry(db, eventType, data) {
+  recordTelemetry(db, eventType, data);
+  process.stderr.write(
+    `[massu] team-shared promotion pull: dropped envelope (${eventType}). A signed/org-matched response is required \u2014 see massu.ai for details.
+`
+  );
+}
+
 // src/hooks/session-start.ts
-import { readFileSync as readFileSync5, existsSync as existsSync7 } from "fs";
-import { join as join5, resolve as resolve5 } from "path";
+import { readFileSync as readFileSync6, existsSync as existsSync8 } from "fs";
+import { join as join6, resolve as resolve5 } from "path";
 import { parse as parseYaml3 } from "yaml";
 
 // src/lib/pidLiveness.ts
@@ -9269,6 +9787,10 @@ Session memory, code intelligence, and governance are now active.
       } else {
         const watcherBanner = buildWatcherBanner();
         if (watcherBanner) process.stdout.write(watcherBanner);
+      }
+      try {
+        await pullTeamPromotions(db);
+      } catch (_pullErr) {
       }
     } finally {
       db.close();
@@ -9359,7 +9881,7 @@ async function buildContext(db, sessionId, source, tokenBudget, taskId) {
   }
   try {
     const knowledgeDbPath = getResolvedPaths().knowledgeDbPath;
-    if (existsSync7(knowledgeDbPath)) {
+    if (existsSync8(knowledgeDbPath)) {
       const Database2 = (await import("better-sqlite3")).default;
       const kdb = new Database2(knowledgeDbPath, { readonly: true });
       try {
@@ -9450,8 +9972,8 @@ async function buildDriftBanner() {
     if (process.env.MASSU_DRIFT_QUIET === "1") return "";
     if (watcherIsLiveAndFresh()) return "";
     const configPath = resolve5(process.cwd(), "massu.config.yaml");
-    if (!existsSync7(configPath)) return "";
-    const content = readFileSync5(configPath, "utf-8");
+    if (!existsSync8(configPath)) return "";
+    const content = readFileSync6(configPath, "utf-8");
     const parsed = parseYaml3(content);
     if (!parsed || typeof parsed !== "object") return "";
     const det = parsed.detection;
@@ -9491,9 +10013,9 @@ function loadCorrectionsPreventionRules() {
     const config = getConfig();
     const claudeDirName = config.conventions?.claudeDirName ?? ".claude";
     const projectDirName = cwd.replace(/[/\\]/g, "-").replace(/^-/, "");
-    const correctionsPath = join5(homeDir, claudeDirName, "projects", projectDirName, "memory", "corrections.md");
-    if (!existsSync7(correctionsPath)) return [];
-    const content = readFileSync5(correctionsPath, "utf-8");
+    const correctionsPath = join6(homeDir, claudeDirName, "projects", projectDirName, "memory", "corrections.md");
+    if (!existsSync8(correctionsPath)) return [];
+    const content = readFileSync6(correctionsPath, "utf-8");
     const lines = content.split("\n");
     const rules = [];
     for (const line of lines) {
@@ -9515,8 +10037,8 @@ function loadCorrectionsPreventionRules() {
 function readWatchStateRaw(cwd) {
   try {
     const path = resolve5(cwd, ".massu", "watch-state.json");
-    if (!existsSync7(path)) return null;
-    const obj = JSON.parse(readFileSync5(path, "utf-8"));
+    if (!existsSync8(path)) return null;
+    const obj = JSON.parse(readFileSync6(path, "utf-8"));
     if (!obj || typeof obj !== "object") return null;
     return obj;
   } catch {

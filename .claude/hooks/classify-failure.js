@@ -1060,6 +1060,11 @@ function initMemorySchema(db) {
       score REAL,
       signals_json TEXT NOT NULL DEFAULT '[]',
       content_hash TEXT NOT NULL,
+      -- PA3-004 (Phase 3 Stream A): hardened-destination publish carries the
+      -- publisher's review attestation so the server CHECK (hardened rows need a
+      -- review_attestation) is satisfiable. hardened=0 for the Phase-2 rows.
+      hardened INTEGER NOT NULL DEFAULT 0,
+      review_attestation_json TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS team_revocation_outbound (
@@ -1155,6 +1160,13 @@ function initMemorySchema(db) {
     db.exec(
       `ALTER TABLE license_cache ADD COLUMN signed_payload_json TEXT NOT NULL DEFAULT ''`
     );
+  }
+  const outboundCols = db.prepare(`PRAGMA table_info(team_promotion_outbound)`).all();
+  if (!outboundCols.some((c) => c.name === "hardened")) {
+    db.exec(`ALTER TABLE team_promotion_outbound ADD COLUMN hardened INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!outboundCols.some((c) => c.name === "review_attestation_json")) {
+    db.exec(`ALTER TABLE team_promotion_outbound ADD COLUMN review_attestation_json TEXT`);
   }
   db.exec(`
     CREATE TABLE IF NOT EXISTS failure_classes (

@@ -35,7 +35,9 @@ At **Team** (and Enterprise), auto-learning becomes **shared**: a rule you promo
 - **`pull`** fetches your org's team-shared promotions from the cloud, verifies the Ed25519 signature, and materializes each as a **local rule-candidate** — provenance-tagged, surfaced like any other candidate. It **never applies anything**; a human must `show` then `approve`. Free/Pro seats no-op (Pro auto-learning is local-only). `pull` also runs automatically at session end.
 - **`revoke <prompt_hash>`** lets the original publisher tombstone a team promotion; receiving seats drop the still-pending candidate (or, if already approved, get a one-time "consider reverting" notice — never an auto-revert).
 
-Only **`corrections-md`** and **`claude-md-cr`** (non-executing memory / governance text) are shareable across seats. `pattern-scanner` (bash) and `custom-destination` (file write) are **never** published, pulled, or applied from a team origin. `approve` of a **team-origin** candidate additionally requires **Team tier + verified provenance** — enforced structurally inside `applyRuleCandidate()`.
+Only **`corrections-md`** and **`claude-md-cr`** (non-executing memory / governance text) are shareable across seats by default. `approve` of a **team-origin** candidate additionally requires **Team tier + verified provenance** — enforced structurally inside `applyRuleCandidate()`.
+
+**Hardened path (Phase 3):** `pattern-scanner` (bash) and `custom-destination` (file write) — the executable classes — may propagate cross-seat ONLY behind the hardened-review path: the org must opt in (server-attested, default OFF), the receiving seat must run **`review <prompt_hash>`** (a RENDER-ONLY preview — the bash/file-write is displayed and statically risk-scanned but **never executed** — plus a SECOND distinct operator's attestation), and only THEN may `approve` apply it. A hardened team candidate without a recorded two-operator render-only attestation is refused at the apply gate.
 
 Confirm entitlement before approving — this hard-fails for sub-Pro:
 
@@ -113,6 +115,15 @@ Also runs automatically at session end (best-effort, bounded). Reports `{pulled,
 ### `revoke <prompt_hash>` (Team+, publisher-initiated)
 
 Enqueues `enqueueTeamRevocation(db, prompt_hash)`; the session-end sync drains it into the `/sync` payload's `rule_revocations[]`. Only the original publisher (server-attested) may revoke. Receiving seats drop a still-pending candidate or get a one-time "consider reverting" notice for an already-applied rule — never an auto-revert.
+
+### `review <prompt_hash>` (Team+, hardened candidates only)
+
+Gates a **hardened-pending** team candidate (an executable destination — `pattern-scanner` / `custom-destination` — materialized via the hardened path) before it may be `approve`d. RENDER-ONLY — nothing is executed.
+
+1. Read the sidecar; confirm `provenance.origin === 'team'` AND `provenance.hardened === true`. (Non-hardened candidates do not need `review`.)
+2. Render the preview via `renderHardenedPreview(destination, draft_text)` (`packages/core/src/rule-candidate-preview.ts`): the exact bash / file-write body is **displayed verbatim** alongside a static, non-executing risk scan (flags `rm -rf`, pipe-to-shell, network tools, `eval`, command substitution, redirects to absolute/home/parent paths, `sudo`, etc.). The body is **NEVER executed** — there is no sandbox because nothing runs.
+3. A SECOND distinct operator (≠ the original `promoted_by`) reviews the rendered preview and attests. Record the attestation via `recordHardenedReviewAttestation(sidecarPath, { second_operator_id, dry_run_ack: { ran_at: <iso>, ack: true } })`, which validates the shape + the two-operator-distinctness invariant and writes `provenance.review_attestation` into the sidecar.
+4. Only after the attestation is recorded does `approve` pass the applier's hardened apply-gate (`applyRuleCandidate()` PA3-004: tier≥Team + verified provenance + `provenance.hardened===true` + a valid `review_attestation` with a distinct second operator + render-only `dry_run_ack`). Still NEVER auto-applies.
 
 ---
 

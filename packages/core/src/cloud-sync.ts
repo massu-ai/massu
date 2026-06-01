@@ -57,6 +57,10 @@ export interface SyncPayload {
     score?: number;
     signals?: unknown[];
     content_hash: string;
+    /** PA3-004: true for a hardened (executable-destination) promotion. */
+    hardened?: boolean;
+    /** PA3-004: publisher review attestation (server requires it for hardened rows). */
+    review_attestation?: unknown;
   }>;
   rule_revocations?: Array<{
     prompt_hash: string;

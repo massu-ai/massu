@@ -1057,6 +1057,11 @@ function initMemorySchema(db) {
       score REAL,
       signals_json TEXT NOT NULL DEFAULT '[]',
       content_hash TEXT NOT NULL,
+      -- PA3-004 (Phase 3 Stream A): hardened-destination publish carries the
+      -- publisher's review attestation so the server CHECK (hardened rows need a
+      -- review_attestation) is satisfiable. hardened=0 for the Phase-2 rows.
+      hardened INTEGER NOT NULL DEFAULT 0,
+      review_attestation_json TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS team_revocation_outbound (
@@ -1152,6 +1157,13 @@ function initMemorySchema(db) {
     db.exec(
       `ALTER TABLE license_cache ADD COLUMN signed_payload_json TEXT NOT NULL DEFAULT ''`
     );
+  }
+  const outboundCols = db.prepare(`PRAGMA table_info(team_promotion_outbound)`).all();
+  if (!outboundCols.some((c) => c.name === "hardened")) {
+    db.exec(`ALTER TABLE team_promotion_outbound ADD COLUMN hardened INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!outboundCols.some((c) => c.name === "review_attestation_json")) {
+    db.exec(`ALTER TABLE team_promotion_outbound ADD COLUMN review_attestation_json TEXT`);
   }
   db.exec(`
     CREATE TABLE IF NOT EXISTS failure_classes (
@@ -1367,22 +1379,27 @@ function hashPrompt(promptText) {
 // src/license.ts
 import { createHash as createHash2 } from "crypto";
 
-// src/security/license-response-verifier.ts
+// src/security/ed25519-envelope-verifier.ts
 import { createPublicKey, verify as cryptoVerify } from "crypto";
-
-// src/security/license-pubkey.generated.ts
-var LICENSE_PUBKEY_ED25519 = new Uint8Array([39, 136, 108, 146, 85, 233, 119, 252, 223, 226, 123, 155, 234, 168, 200, 150, 36, 249, 174, 6, 130, 146, 125, 196, 136, 224, 202, 150, 53, 228, 114, 15]);
-var LICENSE_PUBKEY_FINGERPRINT_HEX = "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475";
-var KNOWN_LICENSE_PUBKEY_FINGERPRINTS = /* @__PURE__ */ new Set([
-  "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475"
+var SPKI_ED25519_PREFIX = Buffer.from([
+  48,
+  42,
+  48,
+  5,
+  6,
+  3,
+  43,
+  101,
+  112,
+  3,
+  33,
+  0
 ]);
-
-// src/security/license-response-verifier.ts
-function verifyLicenseResponse(payload) {
-  if (!KNOWN_LICENSE_PUBKEY_FINGERPRINTS.has(LICENSE_PUBKEY_FINGERPRINT_HEX)) {
+function verifyEd25519SignedEnvelope(key, payload) {
+  if (!key.knownFingerprints.has(key.fingerprintHex)) {
     return {
       kind: "error",
-      reason: `Bundled license pubkey fingerprint ${LICENSE_PUBKEY_FINGERPRINT_HEX} is not in the trusted allowlist. Possible build-time tamper.`
+      reason: `Bundled ${key.keyLabel} pubkey fingerprint ${key.fingerprintHex} is not in the trusted allowlist. Possible build-time tamper.`
     };
   }
   const sig = payload._signature;
@@ -1398,7 +1415,7 @@ function verifyLicenseResponse(payload) {
   if (!Array.isArray(payloadKeys) || payloadKeys.length === 0) {
     return { kind: "error", reason: "Missing _signature_payload_keys" };
   }
-  if (typeof sigPubkey === "string" && sigPubkey !== LICENSE_PUBKEY_FINGERPRINT_HEX) {
+  if (typeof sigPubkey === "string" && sigPubkey !== key.fingerprintHex) {
     return { kind: "unknown_pubkey", got: sigPubkey };
   }
   const canonicalObj = {};
@@ -1408,21 +1425,7 @@ function verifyLicenseResponse(payload) {
   }
   const canonical = JSON.stringify(canonicalObj, [...payloadKeys].sort());
   try {
-    const spkiPrefix = Buffer.from([
-      48,
-      42,
-      48,
-      5,
-      6,
-      3,
-      43,
-      101,
-      112,
-      3,
-      33,
-      0
-    ]);
-    const der = Buffer.concat([spkiPrefix, Buffer.from(LICENSE_PUBKEY_ED25519)]);
+    const der = Buffer.concat([SPKI_ED25519_PREFIX, Buffer.from(key.pubkeyBytes)]);
     const pubkey = createPublicKey({ key: der, format: "der", type: "spki" });
     const ok = cryptoVerify(
       null,
@@ -1437,6 +1440,26 @@ function verifyLicenseResponse(payload) {
       reason: `Signature verification threw: ${err instanceof Error ? err.message : String(err)}`
     };
   }
+}
+
+// src/security/license-pubkey.generated.ts
+var LICENSE_PUBKEY_ED25519 = new Uint8Array([39, 136, 108, 146, 85, 233, 119, 252, 223, 226, 123, 155, 234, 168, 200, 150, 36, 249, 174, 6, 130, 146, 125, 196, 136, 224, 202, 150, 53, 228, 114, 15]);
+var LICENSE_PUBKEY_FINGERPRINT_HEX = "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475";
+var KNOWN_LICENSE_PUBKEY_FINGERPRINTS = /* @__PURE__ */ new Set([
+  "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475"
+]);
+
+// src/security/license-response-verifier.ts
+function verifyLicenseResponse(payload) {
+  return verifyEd25519SignedEnvelope(
+    {
+      pubkeyBytes: LICENSE_PUBKEY_ED25519,
+      fingerprintHex: LICENSE_PUBKEY_FINGERPRINT_HEX,
+      knownFingerprints: KNOWN_LICENSE_PUBKEY_FINGERPRINTS,
+      keyLabel: "license"
+    },
+    payload
+  );
 }
 function isLicenseSignatureRequired() {
   return process.env.MASSU_REQUIRE_SIGNED_LICENSE === "true";

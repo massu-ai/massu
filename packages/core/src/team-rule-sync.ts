@@ -43,6 +43,7 @@ import {
 // Only the H1 allowlist constant + predicate are imported from the applier —
 // NOT any apply/write function (see HARD INVARIANT above; PB-007 enforces).
 import { isTeamShareableDestination } from './rule-candidate-applier.ts';
+import { isHardenedShareableDestination } from './rule-candidate-hardened.ts';
 import { shareObservation } from './team-knowledge.ts';
 import { getMemoryMeta, setMemoryMeta, recordTelemetry } from './memory-db.ts';
 
@@ -61,6 +62,11 @@ interface WirePromotion {
   promoted_at: string;
   seq: number;
   revoked_at?: string | null;
+  /** PA3-005: true for a hardened (executable-destination) promotion. */
+  hardened?: boolean;
+  /** PA3-005: the publisher's review attestation (carried for display/audit; the
+   *  RECEIVER's two-operator + render-only ack is recorded separately on apply). */
+  review_attestation?: unknown;
 }
 
 export interface PullTeamPromotionsResult {
@@ -151,6 +157,24 @@ export async function pullTeamPromotions(
     return result;
   }
 
+  // (4.5) Defense-in-depth (PA3 security review LOW): the signature covers ONLY
+  // the keys named in `_signature_payload_keys`. Before trusting `orgId` /
+  // `promotions_json`, confirm they are IN that signed set — otherwise a tampered
+  // (but otherwise-valid) envelope could carry an UNSIGNED orgId/promotions_json
+  // that the signature does not actually cover. Drop the whole response if either
+  // load-bearing field was not signed.
+  const signedKeys = Array.isArray(envelope._signature_payload_keys)
+    ? (envelope._signature_payload_keys as readonly string[])
+    : [];
+  if (!signedKeys.includes('orgId') || !signedKeys.includes('promotions_json')) {
+    const result = { ...ZERO, dropped_unverified: countUntrusted(envelope) };
+    emitDropTelemetry(db, 'team_promotion_unsigned_field', {
+      orgId_signed: signedKeys.includes('orgId'),
+      promotions_json_signed: signedKeys.includes('promotions_json'),
+    });
+    return result;
+  }
+
   // (5) Confirm the signed orgId matches this seat's own org (T3). A null/own
   // mismatch is a trust failure → drop the whole response.
   const signedOrgId = typeof envelope.orgId === 'string' ? envelope.orgId : null;
@@ -173,10 +197,19 @@ export async function pullTeamPromotions(
     result.pulled += 1;
     if (typeof p.seq === 'number' && p.seq > maxSeq) maxSeq = p.seq;
 
-    // (6 H1) Non-shareable destination → never materialize. Defense-in-depth:
-    // the server CHECK + /sync ingest already bar these, but a compromised
-    // broker (T9) could still emit one — drop it here too.
-    if (!isTeamShareableDestination(p.destination)) {
+    // (6 H1) Destination gate. Non-hardened: only the two non-executing
+    // destinations materialize (Phase-2 guarantee). Hardened (PA3-005): an
+    // executable destination materializes into a hardened-PENDING sidecar ONLY if
+    // the wire promotion is flagged `hardened` (the server only stores hardened
+    // rows with hardened=true + a publisher review_attestation; migration 045
+    // CHECK). It NEVER auto-applies — the receiver's `/massu-rule review`
+    // (render-only preview + a second-operator attestation) gates the apply.
+    // Defense-in-depth: a compromised broker (T9) emitting a hardened flag on an
+    // unopted-in org is still blocked at the applier gate (verified provenance +
+    // two-operator + render-only ack) and server-side (org opt-in).
+    const hardenedMaterialize =
+      isHardenedShareableDestination(p.destination) && p.hardened === true;
+    if (!isTeamShareableDestination(p.destination) && !hardenedMaterialize) {
       result.dropped_nonshareable += 1;
       continue;
     }
@@ -309,19 +342,29 @@ function materializeCandidate(
     prior_turn_files: [] as string[],
     timestamp: p.promoted_at,
     session_id: `team:${p.promoted_by}`,
-    // Provenance (PB-004): the applier's team-origin gate keys on this.
+    // Provenance (PB-004): the applier's team-origin gate keys on this. PA3-005:
+    // a hardened materialization sets `hardened: true` so the applier's hardened
+    // apply-gate (PA3-004) engages. `review_attestation` is intentionally NOT
+    // copied from the publisher here — the RECEIVER's `/massu-rule review` records
+    // ITS OWN two-operator + render-only ack into provenance.review_attestation
+    // before apply; until then the gate refuses (hardened-PENDING).
     provenance: {
       origin: 'team' as const,
       org_id: orgId,
       promoted_by: p.promoted_by,
       promoted_at: p.promoted_at,
       signature_verified: true,
+      ...(p.hardened === true ? { hardened: true } : {}),
     },
     // Extra fields the `/massu-rule approve` flow reads to drive the apply (the
     // publisher already decided destination + body). validateCandidatePayload
-    // ignores unknown keys.
+    // ignores unknown keys. `publisher_review_attestation` is retained for the
+    // receiver's review UI (display only — never the apply-gate authority).
     destination: p.destination,
     draft_text: p.draft_text,
+    ...(p.review_attestation !== undefined
+      ? { publisher_review_attestation: p.review_attestation }
+      : {}),
   };
 
   const dir = dirname(candidatePath);

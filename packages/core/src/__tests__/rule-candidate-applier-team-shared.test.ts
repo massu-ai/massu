@@ -171,15 +171,19 @@ describe('PB-010: team-origin apply gate', () => {
     expect(auditPromotedCount()).toBe(0);
   });
 
-  it('(H1) non-shareable destination on a team candidate → refused', async () => {
+  it('(H1) hardened destination on a NON-hardened team candidate → refused (Phase 3 PA3-004)', async () => {
     setTier('team');
+    // A team candidate to an executable destination WITHOUT hardened provenance is
+    // refused at the hardened apply-gate (missing hardened flag). Phase 3 lets the
+    // executable destinations propagate ONLY behind the hardened-review path; a
+    // plain (non-hardened) team candidate targeting one is still refused, zero mutation.
     const id = writeCandidate({ provenance: teamProvenance() });
     const res = await applyRuleCandidate(db, {
       candidateId: id, destination: 'pattern-scanner', draftText: 'echo hi',
       patternScannerCheckNumber: 99, projectRoot: tmpProjectRoot, home: tmpHome,
     });
     expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/non-shareable destination/);
+    expect(res.error).toMatch(/hardened provenance flag/);
     expect(auditPromotedCount()).toBe(0);
   });
 

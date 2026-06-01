@@ -89,6 +89,16 @@ export function isTeamShareableDestination(destination: string): destination is 
   return (TEAM_SHAREABLE_DESTINATIONS as readonly string[]).includes(destination);
 }
 
+// PA3-003/004: the hardened (executable-destination) cross-seat primitives live in
+// `rule-candidate-hardened.ts` (cohesive concern, keeps this module under the
+// 1000-LOC cap). Imported here for the apply-gate + publish branch; other sites
+// (team-rule-sync, drift-guard, preview) import them from that canonical module.
+import {
+  isHardenedShareableDestination,
+  validateHardenedApplyGate,
+  type ReviewAttestation,
+} from './rule-candidate-hardened.ts';
+
 /**
  * PB-004: provenance for a candidate materialized from a TEAM origin (pulled
  * from the cloud by `team-rule-sync`). A team-origin sidecar is only ever
@@ -104,6 +114,16 @@ export interface RuleCandidateProvenance {
   promoted_by: string;
   promoted_at: string;
   signature_verified: boolean;
+  /**
+   * PA3-003: present (true) only on HARDENED team candidates (executable
+   * destinations propagated via the hardened-review path). Absent/false on the
+   * Phase-2 non-executing destinations. A hardened candidate requires the extra
+   * apply-gate checks (PA3-004): tier≥Team + signature_verified + a valid
+   * {@link ReviewAttestation} with a distinct second operator + render-only ack.
+   */
+  hardened?: boolean;
+  /** PA3-003: the two-operator + render-only-preview attestation (hardened rows only). */
+  review_attestation?: ReviewAttestation;
 }
 
 export interface RuleCandidatePayload {
@@ -155,6 +175,14 @@ export interface ApplyOptions {
    * candidate's score / signals / prompt as vars.
    */
   customDestination?: CustomDestinationConfig;
+  /**
+   * PA3-004: present when a Team+ seat promotes a LOCAL rule to a HARDENED
+   * (executable) destination and wants to share it cross-seat. The publisher's
+   * review attestation is enqueued so the server CHECK (hardened rows require a
+   * review_attestation) is satisfiable. Absent for non-hardened promotions; a
+   * hardened destination without it is NOT published cross-seat.
+   */
+  reviewAttestation?: ReviewAttestation;
 }
 
 export interface ApplyResult {
@@ -431,7 +459,16 @@ export async function applyRuleCandidate(
     if (candidate.provenance.signature_verified !== true) {
       return { ok: false, error: 'team-origin rule candidate has unverified provenance — refusing to apply' };
     }
-    if (!isTeamShareableDestination(opts.destination)) {
+    if (isTeamShareableDestination(opts.destination)) {
+      // Phase-2 non-executing path — no extra checks beyond tier + signature.
+    } else if (isHardenedShareableDestination(opts.destination)) {
+      // PA3-004 hardened path: an executable destination from a team origin may
+      // apply ONLY with verified hardened provenance + a valid two-operator,
+      // render-only-preview attestation (operator decision 2026-06-01). Checked
+      // BEFORE takeSnapshots / BEGIN → zero mutation on refusal.
+      const gateErr = validateHardenedApplyGate(candidate.provenance);
+      if (gateErr) return { ok: false, error: gateErr };
+    } else {
       return { ok: false, error: 'team-origin candidate has a non-shareable destination — refusing to apply' };
     }
   }
@@ -515,11 +552,16 @@ export async function applyRuleCandidate(
     // pulled (no echo loop). `ent` is the already-resolved entitlement (no new
     // tier resolution — the caller cannot inject a forged tier).
     let teamShared = false;
-    if (
-      candidate.provenance?.origin !== 'team' &&
-      entitledForTeamSharedPromotion(ent.currentTier) &&
-      isTeamShareableDestination(opts.destination)
-    ) {
+    const localOrigin = candidate.provenance?.origin !== 'team';
+    const entitledTeam = entitledForTeamSharedPromotion(ent.currentTier);
+    const nonHardenedShare = isTeamShareableDestination(opts.destination);
+    // PA3-004: a HARDENED (executable) destination publishes cross-seat ONLY when
+    // the publisher supplied a review_attestation (which the server requires for
+    // hardened rows — migration 045 CHECK). The server independently re-checks the
+    // org opt-in (default OFF) on ingest; the org opt-in is the REAL boundary.
+    const hardenedShare =
+      isHardenedShareableDestination(opts.destination) && opts.reviewAttestation != null;
+    if (localOrigin && entitledTeam && (nonHardenedShare || hardenedShare)) {
       try {
         enqueueTeamPromotion(db, {
           prompt_hash: candidate.prompt_hash,
@@ -530,6 +572,9 @@ export async function applyRuleCandidate(
           content_hash: createHash('sha256')
             .update(`${opts.destination}\n${opts.draftText}`)
             .digest('hex'),
+          ...(hardenedShare
+            ? { hardened: true, review_attestation: opts.reviewAttestation }
+            : {}),
         });
         teamShared = true;
       } catch {

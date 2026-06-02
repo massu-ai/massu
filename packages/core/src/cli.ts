@@ -75,6 +75,12 @@ async function main(): Promise<void> {
       process.exit(result.exitCode);
       return;
     }
+    case 'rule': {
+      const { handleRuleSubcommand } = await import('./commands/rule.ts');
+      const result = await handleRuleSubcommand(args.slice(1));
+      process.exit(result.exitCode);
+      return;
+    }
     case 'show-template': {
       const { runShowTemplate } = await import('./commands/show-template.ts');
       await runShowTemplate(args.slice(1));
@@ -215,6 +221,7 @@ Commands:
   license <sub>     License/tier gate: check --min <free|pro|team|enterprise>
   changelog <sub>   CHANGELOG generation / verification: generate | verify
   adapters <sub>    Third-party adapter registry: list | refresh | search | add-local | remove-local | install | resign
+  rule <sub>        Auto-learning rule-candidate side-effects: record-shown <prompt_hash>
 
 Options:
   --help, -h        Show this help message

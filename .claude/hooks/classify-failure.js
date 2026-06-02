@@ -1073,6 +1073,16 @@ function initMemorySchema(db) {
     );
   `);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS rule_promotion_events_outbound (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      prompt_hash TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_rpe_outbound_created ON rule_promotion_events_outbound(created_at);
+  `);
+  db.exec(`
     CREATE TABLE IF NOT EXISTS analytics_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       event_type TEXT NOT NULL,

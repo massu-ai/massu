@@ -1,6 +1,6 @@
 ---
 name: massu-rule
-description: "Inspect, approve, or dismiss rule candidates emitted by the v0.2 interactive rule-approval hook. Subcommands: list, show <id>, approve <id>, dismiss <id>, recurrence, pull, revoke <prompt_hash>."
+description: "Inspect, approve, or dismiss rule candidates emitted by the v0.2 interactive rule-approval hook. Subcommands: list, show <id>, approve <id>, dismiss <id>, recurrence, pull, packs, revoke <prompt_hash>."
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*), Write(*), Edit(*)
 ---
 
@@ -68,7 +68,7 @@ correction prompt → hook detection (>=60) → sidecar JSON → /massu-rule lis
 ## Subcommands
 
 ### `list`
-Lists pending rule candidates in `.massu/rule-candidates/*.json` (excluding dotfiles). Each row prints `prompt_hash`, score, classification preview, age. No state writes. A candidate with `provenance.origin === 'team'` is flagged **"PROPOSED by `<promoted_by>` (team) — NOT yet applied"** so the operator knows it came from a teammate and still requires explicit `approve`.
+Lists pending rule candidates in `.massu/rule-candidates/*.json` (excluding dotfiles). Each row prints `prompt_hash`, score, classification preview, age. No state writes. A candidate with `provenance.origin === 'team'` is flagged **"PROPOSED by `<promoted_by>` (team) — NOT yet applied"** so the operator knows it came from a teammate and still requires explicit `approve`. A candidate with `provenance.origin === 'pack'` is flagged **"FROM PACK `<slug>@<version>` — NOT yet applied"** (materialized by `packs`, see below) so the operator knows it came from an installed rule pack and still requires explicit `approve`.
 
 ### `show <id>`
 Renders a six-section preview via `renderCandidatePreview()` (`packages/core/src/rule-candidate-renderer.ts`):
@@ -82,9 +82,19 @@ Renders a six-section preview via `renderCandidatePreview()` (`packages/core/src
 
 Appends `<id>` to `.massu/rule-candidates/.shown-this-session.jsonl` so the `approve` subcommand can enforce show-before-approve (plan §4 / §6 row 7).
 
+After rendering, record the `shown` promotion-funnel event for the auto-learning analytics dashboard (P1-002, `plan-2026-06-01-auto-learning-analytics-dashboard`) — Team-gated, best-effort (never fails the show):
+
+```bash
+npx massu rule record-shown <id> || true
+```
+
+(`<id>` is the candidate id — the sha-keyed 16-hex prompt hash. The CLI is a silent no-op below Team.)
+
 ### `approve <id>` (Phase C+: corrections-md only; Phase D+: all four destinations)
 1. Verify `<id>` appears in `.shown-this-session.jsonl` for the current session_id. If not, render `show <id>` output inline and return an error: **"call `show` before approving"** — single command read-then-act gate.
-2. Classify destination via `classifyCandidate()` rubric.
+2. Resolve the destination + draft body by ORIGIN:
+   - If the candidate carries `provenance.origin` ∈ {`team`, `pack`}, use the sidecar's **STORED** `destination` + `draft_text` **VERBATIM** — the team publisher / pack author already decided, and migration 048's destination mapping is authoritative; do **NOT** re-classify. Re-classifying would silently re-route a `claude-md-cr` rule to `corrections-md` (or downgrade an executable rule off the hardened path). The applier enforces this structurally: applying a provenance-bearing candidate to a destination other than its authored one is refused (`destination mismatch …`) with zero mutation.
+   - Only a Phase-1 **LOCAL** candidate (no `provenance`) classifies its destination via `classifyCandidate()`.
 3. Invoke `applyRuleCandidate(candidateId, destination, draftText)` which runs the §5 four-step SQLite transaction:
    - `INSERT INTO audit_log (event_type='rule_promoted', metadata={prompt_hash, score, classification, recurrence_count: 0, ...})` — UNIQUE INDEX on `(event_type, json_extract(metadata, '$.prompt_hash'))` is the idempotency lock.
    - Edit the destination file(s) per rubric (snapshot-set captured pre-write).
@@ -111,6 +121,17 @@ Invokes `pullTeamPromotions(db)` (`packages/core/src/team-rule-sync.ts`):
 5. Advances the cursor to the max `seq` seen.
 
 Also runs automatically at session end (best-effort, bounded). Reports `{pulled, materialized, skipped, dropped_unverified, dropped_nonshareable, revoked_handled}`.
+
+### `packs` (Team+)
+
+Invokes `pullInstalledPackRules(db)` (`packages/core/src/rule-pack-sync.ts`) — the rule-pack analogue of `pull`. Materializes the rules of the org's *installed* rule packs (from the marketplace) as reviewable candidates:
+
+1. Tier gate — Free/Pro no-op (pack enforcement is a Team+ shared feature, gated like team-shared promotion via `entitledForTeamSharedPromotion`).
+2. Fetches the org's installed-pack rules from the `installed-rules` edge function with the seat's API key.
+3. **Verifies the Ed25519 envelope** (`verifyPromotionEnvelope()` / pack-bound wrapper over the same core); an unsigned / invalid / wrong-org response is **dropped whole** with telemetry. Org-match is checked against `getCachedOrgId()`.
+4. For each pack rule: dedups against already pending/applied; **writes a provenance-tagged candidate sidecar** with `provenance.origin === 'pack'` + `pack_slug` + `pack_version`. Executable-destination pack rules (`pattern-scanner` / `custom-destination`) are materialized as **hardened-pending** (`provenance.hardened === true`) and must pass `review <prompt_hash>` before `approve`, exactly like a hardened team candidate. It **never applies** — surfaced for `show` → `approve` (packs propose, humans approve — CR-39, no fake "active" state).
+
+Reports `{pulled, materialized, skipped, dropped_unverified}`. The sync module imports NO applier write function (the materialize-never-apply invariant, drift-guarded by pattern-scanner Check 36 + the bridge drift-guard test).
 
 ### `revoke <prompt_hash>` (Team+, publisher-initiated)
 

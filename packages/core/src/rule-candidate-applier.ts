@@ -1,5 +1,12 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
+// @scanner-allow:large-file the four-destination apply transaction + the
+// team/pack apply gate (CR-54/55/57) + structural payload validation + the
+// destination-fidelity assert (curated-rule-packs review) are one cohesive
+// security-critical chokepoint; snapshot/hardened/preview concerns are already
+// extracted to sibling modules. Splitting the gate from the transaction it
+// guards would scatter the security boundary. Marker added when the fidelity
+// fix pushed it just over the 1000-LOC cap.
 
 // plan-v0.2-interactive-rule-approval P-C-004: atomic-write rule applier.
 // Implements the §5 four-step SQLite transaction with snapshot-set
@@ -23,6 +30,7 @@ import {
   teamSharedPromotionUpgradeMessage,
 } from './auto-learning-entitlement.ts';
 import { enqueueTeamPromotion } from './memory-db.ts';
+import { recordApprovalFunnelEvent, recordDismissalFunnelEvent } from './rule-candidate-funnel.ts';
 
 // SEC-01 fix: candidate IDs are sha-keyed via `hashPrompt()` which returns
 // 16 hex chars (sha-256 truncated). Reject any other shape at the I/O
@@ -67,6 +75,14 @@ export type RuleDestination =
   | 'claude-md-cr'
   | 'custom-destination';
 
+/** The exhaustive set of valid {@link RuleDestination} values (validation SoT). */
+const ALL_RULE_DESTINATIONS: readonly RuleDestination[] = ['corrections-md', 'pattern-scanner', 'claude-md-cr', 'custom-destination'];
+
+/** Type guard: is `value` one of the four known {@link RuleDestination}s? */
+export function isRuleDestination(value: unknown): value is RuleDestination {
+  return typeof value === 'string' && (ALL_RULE_DESTINATIONS as readonly string[]).includes(value);
+}
+
 /**
  * H1 SoT (PB-005, plan-2026-05-28-team-shared-rule-promotion): the ONLY
  * destinations that may propagate cross-seat in team-shared promotion v1. Both
@@ -109,7 +125,21 @@ import {
  * candidates omit this field entirely (back-compat).
  */
 export interface RuleCandidateProvenance {
-  origin: 'team';
+  /**
+   * P2-003 (curated-rule-packs): `'pack'` marks a candidate materialized from an
+   * installed rule pack (pulled + Ed25519-verified by `rule-pack-sync`). It rides
+   * the SAME apply-gate as a team origin (tier≥Team + signature_verified +
+   * shareable/hardened destination) and is likewise excluded from the cross-seat
+   * re-publish funnel (we don't echo what we pulled).
+   *
+   * TAXONOMY RATIONALE (ARCH — intentional): `team` and `pack` are treated
+   * IDENTICALLY by the apply gate (both alias `entitledForTeamSharedPromotion`) —
+   * same Team-gated, Ed25519-signed, cross-seat security posture. The origin tag
+   * distinguishes only PROVENANCE + DISPLAY: `pack` carries {@link pack_slug}/
+   * {@link pack_version}; `team` carries {@link promoted_by}. NO separate pack
+   * entitlement by design — Team is the correct gate for both.
+   */
+  origin: 'team' | 'pack';
   org_id: string;
   promoted_by: string;
   promoted_at: string;
@@ -124,6 +154,18 @@ export interface RuleCandidateProvenance {
   hardened?: boolean;
   /** PA3-003: the two-operator + render-only-preview attestation (hardened rows only). */
   review_attestation?: ReviewAttestation;
+  /**
+   * P2-002 (curated-rule-packs): the marketplace pack slug a `origin:'pack'`
+   * candidate was materialized from (by `rule-pack-sync.pullInstalledPackRules`).
+   * Display-only provenance; absent on `origin:'team'` candidates.
+   */
+  pack_slug?: string;
+  /**
+   * P2-002 (curated-rule-packs): the pack's `current_version` at materialize time.
+   * Paired with {@link pack_slug} for the `list` "FROM PACK `<slug>@<version>`"
+   * provenance flag. Absent on `origin:'team'` candidates.
+   */
+  pack_version?: string;
 }
 
 export interface RuleCandidatePayload {
@@ -136,6 +178,19 @@ export interface RuleCandidatePayload {
   session_id: string;
   /** PB-004: present only on team-origin candidates (see {@link RuleCandidateProvenance}). */
   provenance?: RuleCandidateProvenance;
+  /**
+   * ARCH-FIX (destination fidelity): the AUTHORITATIVE destination the publisher
+   * (team) / pack author decided, written VERBATIM into the sidecar (and carried
+   * through migration 048's mapping). A provenance-bearing (team|pack) candidate
+   * MUST apply to THIS destination — `approve` must NOT re-classify it (which
+   * would silently re-route claude-md-cr → corrections-md, or downgrade an
+   * executable rule off the hardened path). The apply gate refuses with zero
+   * mutation when `opts.destination !== candidate.destination`. Absent on LOCAL
+   * candidates (which DO classify via `classifyCandidate()`).
+   */
+  destination?: RuleDestination;
+  /** ARCH-FIX: authoritative draft body authored alongside {@link destination}; passed through as `opts.draftText` for provenance candidates. Absent on LOCAL. */
+  draft_text?: string;
 }
 
 export interface ApplyOptions {
@@ -265,41 +320,11 @@ export function appendMemoryIndexLine(indexPath: string, line: string): void {
   writeFileSync(indexPath, next, 'utf-8');
 }
 
-/**
- * Snapshot a set of files. `null` value = ABSENT sentinel (file did not
- * exist pre-write). `string` value = pre-write content. Closes the
- * G-015 race class — restoration distinguishes "delete created file"
- * from "rewrite existing file".
- */
-export type Snapshot = Map<string, string | null>;
-
-export function takeSnapshots(paths: readonly string[]): Snapshot {
-  const out: Snapshot = new Map();
-  for (const p of paths) {
-    if (existsSync(p)) out.set(p, readFileSync(p, 'utf-8'));
-    else out.set(p, null);
-  }
-  return out;
-}
-
-export function restoreSnapshots(snapshot: Snapshot): { errors: string[] } {
-  // Tolerate per-file failure so that one un-restorable file (e.g. EACCES
-  // on a chmod'd target) doesn't strand the rest of the snapshot. Caller
-  // surfaces collected errors via the failure log.
-  const errors: string[] = [];
-  for (const [path, content] of snapshot) {
-    try {
-      if (content === null) {
-        if (existsSync(path)) unlinkSync(path);
-      } else {
-        writeFileSync(path, content, 'utf-8');
-      }
-    } catch (err) {
-      errors.push(`${path}: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-  return { errors };
-}
+// Snapshot/restore helpers live in ./rule-candidate-snapshot.ts (extracted to
+// keep this module ≤999 LOC, Check 21). Imported for local use AND re-exported
+// so existing import paths (and the applier test) are unchanged.
+import { takeSnapshots, restoreSnapshots, type Snapshot } from './rule-candidate-snapshot.ts';
+export { takeSnapshots, restoreSnapshots, type Snapshot };
 
 interface CorrectionsMdPaths {
   correctionsMd: string;
@@ -379,8 +404,8 @@ function validateCandidatePayload(raw: unknown): RuleCandidatePayload {
       throw new CandidatePayloadValidationError('provenance must be an object when present');
     }
     const p = r.provenance as Record<string, unknown>;
-    if (p.origin !== 'team') {
-      throw new CandidatePayloadValidationError("provenance.origin must be 'team'");
+    if (p.origin !== 'team' && p.origin !== 'pack') {
+      throw new CandidatePayloadValidationError("provenance.origin must be 'team' or 'pack'");
     }
     if (typeof p.org_id !== 'string' || p.org_id.length === 0) {
       throw new CandidatePayloadValidationError('provenance.org_id must be a non-empty string');
@@ -394,6 +419,19 @@ function validateCandidatePayload(raw: unknown): RuleCandidatePayload {
     if (typeof p.signature_verified !== 'boolean') {
       throw new CandidatePayloadValidationError('provenance.signature_verified must be a boolean');
     }
+    // ARCH-FIX (destination fidelity): a provenance-bearing (team|pack) sidecar MUST
+    // carry the publisher / pack author's AUTHORITATIVE destination so the apply gate
+    // can enforce it verbatim (never re-classified). A planted sidecar that omits it
+    // (to force re-classification) is rejected here at the I/O boundary.
+    if (!isRuleDestination(r.destination)) {
+      throw new CandidatePayloadValidationError('provenance-bearing candidate must declare a valid destination');
+    }
+    if (r.draft_text !== undefined && typeof r.draft_text !== 'string') {
+      throw new CandidatePayloadValidationError('draft_text must be a string when present');
+    }
+  } else if (r.destination !== undefined && !isRuleDestination(r.destination)) {
+    // A LOCAL candidate may omit destination (classified at approve time); if present it must be valid.
+    throw new CandidatePayloadValidationError('destination, when present, must be a valid RuleDestination');
   }
   return r as unknown as RuleCandidatePayload;
 }
@@ -452,12 +490,30 @@ export async function applyRuleCandidate(
   // DB/file mutation on refusal. This is the apply-time backstop to the trust
   // model: even a hand-forged team sidecar (signature_verified:false) or a
   // smuggled non-shareable destination is refused here.
-  if (candidate.provenance?.origin === 'team') {
+  // TAXONOMY (ARCH — intentional): `team` and `pack` share this ONE gate and both
+  // alias `entitledForTeamSharedPromotion` — same Team-gated, signed, cross-seat
+  // security posture; origin distinguishes only provenance + display (see
+  // {@link RuleCandidateProvenance.origin}). No separate pack entitlement by design.
+  if (candidate.provenance?.origin === 'team' || candidate.provenance?.origin === 'pack') {
+    const provOrigin = candidate.provenance.origin;
+    // ARCH-FIX (destination fidelity): the publisher / pack author already decided
+    // the authoritative destination (stored verbatim, carried through migration
+    // 048's mapping). Refuse — with ZERO mutation, BEFORE takeSnapshots / BEGIN —
+    // any attempt to apply a provenance-bearing candidate to a destination other
+    // than its authored one, so silent re-routing (claude-md-cr → corrections-md,
+    // or an executable rule downgraded off the hardened path) is structurally
+    // impossible. Validation already guarantees `candidate.destination` is set.
+    if (candidate.destination !== undefined && opts.destination !== candidate.destination) {
+      return {
+        ok: false,
+        error: 'destination mismatch: provenance-bearing candidate must apply to its authored destination',
+      };
+    }
     if (!entitledForTeamSharedPromotion(ent.currentTier)) {
       return { ok: false, error: teamSharedPromotionUpgradeMessage(ent.currentTier), tier_refused: true };
     }
     if (candidate.provenance.signature_verified !== true) {
-      return { ok: false, error: 'team-origin rule candidate has unverified provenance — refusing to apply' };
+      return { ok: false, error: `${provOrigin}-origin rule candidate has unverified provenance — refusing to apply` };
     }
     if (isTeamShareableDestination(opts.destination)) {
       // Phase-2 non-executing path — no extra checks beyond tier + signature.
@@ -469,7 +525,7 @@ export async function applyRuleCandidate(
       const gateErr = validateHardenedApplyGate(candidate.provenance);
       if (gateErr) return { ok: false, error: gateErr };
     } else {
-      return { ok: false, error: 'team-origin candidate has a non-shareable destination — refusing to apply' };
+      return { ok: false, error: `${provOrigin}-origin candidate has a non-shareable destination — refusing to apply` };
     }
   }
 
@@ -548,11 +604,12 @@ export async function applyRuleCandidate(
     // Team+ seat enqueues the promotion for cross-seat propagation IF the
     // destination is shareable (H1: corrections-md / claude-md-cr only).
     // Best-effort and post-COMMIT — a failure here NEVER fails the local
-    // promotion. Team-ORIGIN candidates are skipped: we don't re-publish what we
-    // pulled (no echo loop). `ent` is the already-resolved entitlement (no new
-    // tier resolution — the caller cannot inject a forged tier).
+    // promotion. Team- and pack-ORIGIN candidates are skipped: we don't re-publish
+    // what we pulled (no echo loop). `ent` is the already-resolved entitlement (no
+    // new tier resolution — the caller cannot inject a forged tier).
     let teamShared = false;
-    const localOrigin = candidate.provenance?.origin !== 'team';
+    const localOrigin =
+      candidate.provenance?.origin !== 'team' && candidate.provenance?.origin !== 'pack';
     const entitledTeam = entitledForTeamSharedPromotion(ent.currentTier);
     const nonHardenedShare = isTeamShareableDestination(opts.destination);
     // PA3-004: a HARDENED (executable) destination publishes cross-seat ONLY when
@@ -581,6 +638,10 @@ export async function applyRuleCandidate(
         // best-effort — the local promotion is already committed
       }
     }
+
+    // P1-002: capture the APPROVED funnel event (post-COMMIT, best-effort; skip
+    // team-origin so the funnel counts only this seat's own proposals).
+    if (localOrigin) recordApprovalFunnelEvent(db, candidate.prompt_hash, opts.destination, candidate.score, entitledTeam);
     return { ok: true, audit_log_id: auditRowId, team_shared: teamShared };
   } catch (err) {
     db.exec('ROLLBACK');
@@ -978,6 +1039,8 @@ export function dismissRuleCandidate(
     });
   }
 
+  // P1-002: capture the DISMISSED funnel event (Team-gated inside the helper).
+  recordDismissalFunnelEvent(db, candidate.prompt_hash, candidate.score);
   return {
     ok: true,
     audit_log_id: auditRowId,

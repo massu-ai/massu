@@ -1,11 +1,15 @@
 ---
 title: Rule Marketplace
-description: Browse and install curated rule packs for your organization.
+description: Browse, install, and review curated rule packs for your organization.
 ---
 
 # Rule Marketplace
 
-The Rule Marketplace provides curated rule template packs that can be installed into your organization with one click.
+The Rule Marketplace provides curated, versioned rule packs you can install into
+your organization. Installing a pack does **not** silently change how your code is
+governed. Instead, each rule in the pack becomes a **reviewable proposal** that a
+human teammate explicitly approves before it takes effect. Packs propose; people
+approve.
 
 ## Available Packs
 
@@ -18,17 +22,68 @@ The Rule Marketplace provides curated rule template packs that can be installed 
 | Node.js Security | Security | 5 | No eval, safe child_process, env validation |
 | OWASP Top 10 | Security | 5 | XSS, injection, auth, headers |
 
-## Installing a Pack
+Every curated rule carries an enforcement **destination** — where the rule lives
+once approved. Curated packs target safe, non-executable destinations only: a
+rule is recorded either as a governance entry in your project's canonical rules
+or as a behavioral correction in your project's memory. Curated packs never ship
+rules that run arbitrary commands.
 
-1. Navigate to **Marketplace** in your dashboard
-2. Browse or search for a pack
-3. Click **Install** to add all rules to your organization
-4. Rules appear in your **Team > Rules** page with pack source tracking
+## Browsing and Installing a Pack
 
-## Private Packs (Enterprise)
+1. Navigate to **Marketplace** in your dashboard.
+2. Browse or search for a pack.
+3. Click **Install** to add the pack to your organization.
+4. The pack's rules are materialized as **pending proposals** — they are tracked,
+   but not yet active.
 
-Enterprise organizations can create private rule packs:
-1. Navigate to **Marketplace > Create Pack**
-2. Define pack name, description, and category
-3. Add rules with title, description, type, and severity
-4. Publish to make available within your organization
+Installing a pack records which version you installed, so the dashboard can later
+tell you when a newer version is available.
+
+## Versioning and "Update Available"
+
+Rule packs are versioned with semantic versioning (`MAJOR.MINOR.PATCH`). When a
+pack's maintainer publishes a newer version, any organization that installed an
+older version sees an **Update available** indicator on the pack.
+
+- Each published version is an immutable snapshot — once published, a version's
+  rules never change retroactively.
+- Updating is an explicit action: reviewing the new version follows the same
+  review-and-approve flow as a fresh install, so an update can never silently
+  alter your enforced rules.
+
+## The Review and Approve Flow
+
+Installed pack rules start as proposals. To activate them:
+
+1. Run `/massu-rule packs` to list the rule proposals materialized from your
+   installed packs.
+2. Inspect a proposal to see its title, description, severity, and the
+   destination it will be written to.
+3. Approve the proposals you want — only an approved rule is written to its
+   destination and begins to take effect. Dismiss the ones you don't.
+
+This human-in-the-loop step is deliberate: a pack can suggest a rule, but a person
+on your team always decides whether it governs your code.
+
+### Rules That Run Commands
+
+Some advanced rules enforce by running a check command rather than recording a
+text guideline. Because executing a command carries more risk, these rules are
+never auto-applied and are not part of curated packs. When such a rule is
+proposed across a team, it travels a hardened review path: the proposed command
+is shown to reviewers as a read-only preview, two different operators must review
+it, and your organization must opt in before any executable rule can be shared.
+Curated marketplace packs intentionally contain none of these — they stay on the
+safe, non-executable destinations.
+
+## Private Packs
+
+Eligible organizations can create their own private rule packs:
+
+1. Navigate to **Marketplace > Create Pack**.
+2. Define the pack name, description, and category.
+3. Add rules with a title, description, type, severity, and destination.
+4. Publish to make the pack available within your organization.
+
+Private packs follow the same rules as curated packs: installing one materializes
+proposals, and a teammate must approve each rule before it takes effect.

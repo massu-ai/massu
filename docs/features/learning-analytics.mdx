@@ -1,0 +1,54 @@
+---
+title: "Auto-Learning Analytics"
+description: "The promotion funnel and per-rule effectiveness for your team's auto-learned rules"
+order: 18
+---
+
+# Auto-Learning Analytics
+
+Auto-learning turns your corrections into enforced rules: the hook detects correction-shaped prompts, and `/massu-rule approve` promotes them. But once a rule is promoted, two questions matter: **are people actually approving the candidates that get proposed**, and **do the approved rules actually prevent the bug class they were promoted to enforce?** The Auto-Learning Analytics dashboard answers both — for your whole team, in one place.
+
+It is a **Team tier** feature, because the value is org-scoped: a single seat has no funnel to aggregate. See [License Tiers](/docs/reference/license-tiers) for the full ladder.
+
+## Why This Matters
+
+Without a funnel view, auto-learning is a black box:
+
+- You can see individual candidates locally, but not whether the team is accepting or ignoring them
+- A promoted rule that keeps getting bypassed looks identical to one that works — until the bug recurs
+- There is no signal for "this rule is noise, dismiss it" versus "this rule is load-bearing, keep it"
+
+The dashboard makes the whole lifecycle observable, using only metadata — rule bodies and prompt text never leave your machine.
+
+## The Promotion Funnel
+
+Every rule candidate moves through five stages:
+
+| Stage | Meaning |
+|-------|---------|
+| **Proposed** | The hook detected a correction-shaped prompt and emitted a candidate |
+| **Shown** | An operator opened the candidate's preview |
+| **Approved** | The candidate was promoted to an enforced rule |
+| **Dismissed** | The candidate was rejected (and its signals down-weighted) |
+| **Revoked** | A previously-promoted rule was withdrawn |
+
+The dashboard shows the counts at each stage plus your team's **acceptance rate** (approvals as a share of decisions) over time — so you can tell whether candidates are converting or piling up unread.
+
+## Rule Effectiveness
+
+For each promoted rule, the effectiveness table shows how many times its bug class **recurred after promotion**:
+
+- `0` recurrences means the rule is doing its job
+- A non-zero count means the rule was promoted but the bug class came back anyway — a candidate to strengthen or replace
+
+This is the same recurrence signal the framework already tracks locally; the dashboard simply surfaces it org-wide and ranks the rules that need attention first.
+
+## Privacy
+
+The funnel is built from **metadata-only events** — the stage transition, a score, a destination category. The correction prompt, the rule body, and any free-text reason are never transmitted. Events are captured only on Team seats and are scoped to your organization.
+
+## How To Use It
+
+1. Open the dashboard and select **Auto-Learning** in the sidebar.
+2. Read the funnel: a low acceptance rate usually means candidates are too noisy — dismiss aggressively to down-weight their signals.
+3. Sort the effectiveness table by recurrences to find rules that were promoted but did not hold, and strengthen them.

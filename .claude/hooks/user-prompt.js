@@ -1070,6 +1070,16 @@ function initMemorySchema(db) {
     );
   `);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS rule_promotion_events_outbound (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      prompt_hash TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_rpe_outbound_created ON rule_promotion_events_outbound(created_at);
+  `);
+  db.exec(`
     CREATE TABLE IF NOT EXISTS analytics_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       event_type TEXT NOT NULL,
@@ -1184,6 +1194,28 @@ function initMemorySchema(db) {
     CREATE INDEX IF NOT EXISTS idx_fc_name ON failure_classes(name);
     CREATE INDEX IF NOT EXISTS idx_fc_needs_review ON failure_classes(needs_review);
   `);
+}
+var FUNNEL_EVENT_OUTBOX_CAP = 2e4;
+function enqueueRulePromotionEvent(db, ev) {
+  try {
+    db.prepare(`
+      INSERT INTO rule_promotion_events_outbound
+        (prompt_hash, event_type, metadata_json, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run(
+      ev.prompt_hash,
+      ev.event_type,
+      JSON.stringify(ev.metadata ?? {}),
+      ev.created_at
+    );
+    db.prepare(`
+      DELETE FROM rule_promotion_events_outbound
+      WHERE id NOT IN (
+        SELECT id FROM rule_promotion_events_outbound ORDER BY id DESC LIMIT ?
+      )
+    `).run(FUNNEL_EVENT_OUTBOX_CAP);
+  } catch {
+  }
 }
 function assignImportance(type, vrResult) {
   switch (type) {
@@ -1556,6 +1588,10 @@ function entitledForAutoLearning(tier) {
 function autoLearningUpgradeMessage(currentTier) {
   return `Auto-learning (rule-candidate detection + /massu-rule promotion) is a Pro feature. Your tier: ${currentTier.toUpperCase()}. Upgrade at https://massu.ai/pricing`;
 }
+var TEAM_SHARED_PROMOTION_MIN_TIER = "team";
+function entitledForTeamSharedPromotion(tier) {
+  return tierLevel(tier) >= tierLevel(TEAM_SHARED_PROMOTION_MIN_TIER);
+}
 
 // src/hooks/user-prompt.ts
 async function main() {
@@ -1660,6 +1696,18 @@ async function main() {
                 timestamp: (/* @__PURE__ */ new Date()).toISOString(),
                 session_id
               }, null, 2));
+              if (entitledForTeamSharedPromotion(cachedTier)) {
+                enqueueRulePromotionEvent(db, {
+                  prompt_hash: promptHash,
+                  event_type: "proposed",
+                  created_at: (/* @__PURE__ */ new Date()).toISOString(),
+                  metadata: {
+                    score: scoreResult.score,
+                    signal_count: scoreResult.signals.length,
+                    category: categorizePrompt(prompt)
+                  }
+                });
+              }
             }
           } else {
             const nudgePath = join(candidateDir, ".last-tier-nudge");

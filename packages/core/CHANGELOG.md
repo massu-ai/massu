@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.14.0] - 2026-06-02
+
+**Curated Rule Packs — versioned, installable, actually-enforced (`plan-2026-06-01-curated-rule-packs`)**. Closes the inert-marketplace bug class: the rule-pack marketplace existed but enforced nothing — installing a pack flattened its rules into `org_rules`, which no core enforcement path ever read. Now an installed pack's rules materialize on the developer's machine as Ed25519-signed, provenance-tagged rule candidates that a human reviews and approves through `/massu-rule packs` (packs **propose**, humans **approve** — CR-39; no fake "active"/"enforced" state). Pack rules ride the existing `applyRuleCandidate()` chokepoint with the same Team-gated, signature-verified trust model as team-shared promotion (CR-54/55/57); executable destinations (`pattern-scanner`/`custom-destination`) route through the hardened two-operator review path and never auto-enforce. Ships the versioning + curation workflow (SemVer monotonicity, an immutable `rule_pack_versions` history, a `rule_pack_publish` SECURITY DEFINER RPC) the marketplace previously lacked. Backwards-compatible additive feature — new `/massu-rule packs` subcommand + `pack` provenance origin, zero breaking changes — minor per semver.
+
+### Added
+
+- **`packages/core/src/rule-pack-sync.ts`** — `pullInstalledPackRules(db)`: pulls the org's installed-pack rules from the `installed-rules` edge function, verifies the Ed25519 envelope (`verifyPromotionEnvelope`), org-matches against `getCachedOrgId()`, and materializes each rule as a provenance-tagged (`origin:'pack'`, `pack_slug`, `pack_version`) candidate sidecar. **Materialize-never-apply** invariant: imports none of the 7 applier-write symbols (drift-guarded by pattern-scanner Check 36 + `promotion-pull-skeleton-parity.test.ts`, the lockstep guard shared with `team-rule-sync.ts`).
+- **`packages/core/src/rule-pack-schema.ts`** — typed validator asserting every pack rule declares a real enforcement `destination` (imported from the `RuleDestination` SoT, `satisfies`-pinned), carries a deterministic enforcement body (no inert rules — CR-39), and flags executable destinations `requiresHardened`.
+- **`/massu-rule packs`** subcommand (`commands/rule.ts` + `massu-rule.md`) — Team-gated pack pull; `list`/`show` flag `FROM PACK <slug>@<version>`.
+- **pattern-scanner Check 36** — pins the rule-pack enforcement-bridge no-apply invariant; mirrored by `rule-pack-enforcement-bridge.test.ts`.
+- **Website (massu_prod + massu.ai)**: migration 047 (`rule_pack_versions` history + SemVer CHECK + `curation_status` + `rule_pack_update_status` view + `rule_pack_publish` RPC), migration 048 (re-seed the 6 curated packs into the destination-mapped enforced format, v1.1.0, snapshotted), the `installed-rules` Team-gated Ed25519-signed edge function (CR-58 `verify_jwt=false`), and marketplace version/update UX.
+
+### Changed
+
+- **`packages/core/src/rule-candidate-applier.ts`** — `RuleCandidateProvenance.origin` widened `'team'` → `'team' | 'pack'` (+ optional `pack_slug`/`pack_version`); the apply gate accepts `pack` candidates through the same tier/signature/destination checks as team origin.
+- **`website/src/__tests__/changelog-parse.test.ts:EXPECTED_COUNT`** bumped 43 → 44.
+
+### Fixed
+
+- **Destination fidelity (structural)** — `approve` previously re-derived a candidate's destination via `classifyCandidate()`, **discarding** the authored destination the publisher/pack stored on the sidecar (a pre-existing bug that also affected team origin: a `claude-md-cr` rule could be silently re-routed to `corrections-md`, or an executable rule downgraded off the hardened path). The applier now **structurally refuses** applying any provenance-bearing candidate to a destination other than its authored one (zero mutation on mismatch); `approve` uses the stored destination for `team`/`pack` origin.
+- **Rule-pack publish authz** — `rule_pack_publish` RPC no longer trusts a NULL `auth.uid()` (service-role) as a platform admin for global first-party packs; global packs are published via migration only (the RPC raises), org packs require owner/admin via a user-scoped client.
+
 ## [1.13.1] - 2026-05-20
 
 **PreToolUse dispatcher SSOT promotion + hook docs drift closure**. Closes a customer-blocking regression introduced in 1.13.0: every fresh `npx -y @massu/core@1.13.0 init` wrote `npx -y @massu/core@1.13.0 hook-runner pre-tool-use-gate` into `.claude/settings.local.json` (the consolidated PreToolUse hook landed by P-E-019 in 1.12.0), but `commands/hook-runner.ts:HOOK_NAME_TO_FILE` was a hand-maintained map missing the entry. The dispatcher threw `Unknown hook: "pre-tool-use-gate"`, Claude Code interpreted the non-zero exit as a PreToolUse block, and Bash/Edit/Write were all gated — a catch-22 where the customer could not edit `settings.local.json` to repair the install because Edit itself was blocked. The existing 3-way parity tests (`hook-registry-parity.test.ts`) covered REGISTERED_HOOKS ↔ src/hooks/*.ts ↔ buildHooksConfig() but never asserted the 4th edge against the runtime dispatcher map.

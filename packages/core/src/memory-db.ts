@@ -676,6 +676,26 @@ export function initMemorySchema(db: Database.Database): void {
     );
   `);
 
+  // P1-002 (plan-2026-06-01-auto-learning-analytics-dashboard): outbound store
+  // for the promotion FUNNEL events (proposed/shown/approved/dismissed) that
+  // power the auto-learning analytics dashboard. Unlike team_promotion_outbound
+  // (idempotent per prompt_hash), this is APPEND-ONLY: a single prompt_hash can
+  // accrue many events (and repeats of the same type — e.g. `shown` twice), so
+  // the PK is an autoincrement id, not the prompt_hash. Drained at session end
+  // into SyncPayload.rule_promotion_events[]; the server attests org_id/user_id
+  // (`revoked` is NOT here — it's already a tombstone on promoted_rules.revoked_at).
+  // Privacy: metadata only, never draft_text/detail/secrets.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rule_promotion_events_outbound (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      prompt_hash TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_rpe_outbound_created ON rule_promotion_events_outbound(created_at);
+  `);
+
   // CR-9 latent-bug fix (surfaced during PB-006/H5 implementation): the local
   // telemetry sink `analytics_events` was INSERTed-into in two places
   // (dequeuePendingSync P-H012 give-up event + recordTelemetry H5 dropped-envelope
@@ -968,6 +988,129 @@ export function drainTeamRevocations(db: Database.Database): string[] {
   if (rows.length === 0) return [];
   db.prepare('DELETE FROM team_revocation_outbound').run();
   return rows.map((r) => r.prompt_hash);
+}
+
+/**
+ * Read the CR-53 effectiveness signal for a promoted rule (P1-002a). Returns the
+ * canonical `recurrence_count` from the single `rule_promoted` audit_log row for
+ * `promptHash` (the UNIQUE index on (event_type, metadata.prompt_hash) guarantees
+ * at most one). Returns `null` when no such row exists — so the synced
+ * `promoted_rules.recurrence_count` column stays NULL rather than a fake 0.
+ *
+ * This is the canonical CR-53 counter (audit_log metadata.recurrence_count,
+ * bumped by recurrence-incrementer.ts) — NOT the failure-title `observations`
+ * counter, which is keyed differently and is not the promotion effectiveness
+ * signal.
+ */
+export function getRecurrenceCountForPromptHash(
+  db: Database.Database,
+  promptHash: string,
+): number | null {
+  try {
+    const row = db.prepare(`
+      SELECT json_extract(metadata, '$.recurrence_count') AS rc
+      FROM audit_log
+      WHERE event_type = 'rule_promoted'
+        AND json_extract(metadata, '$.prompt_hash') = ?
+      LIMIT 1
+    `).get(promptHash) as { rc: number | null } | undefined;
+    if (!row || row.rc === null || row.rc === undefined) return null;
+    return Number(row.rc);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The four non-revoke funnel event types (P1-002). This is the CLIENT-EMITTER
+ * surface of the enum drift-guard (P1-004): it MUST stay byte-identical to the
+ * server ingest allowlist, the migration 046 CHECK, and the dashboard reader.
+ */
+export type RulePromotionEventType = 'proposed' | 'shown' | 'approved' | 'dismissed';
+
+/** A single funnel event queued for outbound sync (P1-002). Metadata only. */
+export interface RulePromotionEventOutbound {
+  prompt_hash: string;
+  event_type: RulePromotionEventType;
+  /** ISO timestamp of the transition. */
+  created_at: string;
+  /** Metadata only — never draft_text/detail/secrets. */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Append-only funnel events multiply faster than the per-promotion team stores
+ * (≥4 events per candidate lifecycle), so the drain LIMIT is higher than the
+ * team stores' 1000. The OUTBOX cap bounds worst-case local growth for a Team
+ * seat whose cloud sync is disabled (it enqueues but never drains) — newest rows
+ * are kept (L4). The drain deletes ONLY the rows it returned, so a tail beyond
+ * the LIMIT is carried to the next session rather than silently lost (L3).
+ */
+const FUNNEL_EVENT_DRAIN_LIMIT = 5000;
+const FUNNEL_EVENT_OUTBOX_CAP = 20000;
+
+/**
+ * Enqueue a promotion-funnel event for outbound sync (P1-002). APPEND-ONLY: a
+ * prompt_hash may accrue many events. Best-effort + non-throwing so a funnel-
+ * capture failure never breaks the calling hook/applier path. Callers gate on
+ * Team+ entitlement BEFORE calling (org-scoped analytics is a Team feature).
+ */
+export function enqueueRulePromotionEvent(
+  db: Database.Database,
+  ev: RulePromotionEventOutbound,
+): void {
+  try {
+    db.prepare(`
+      INSERT INTO rule_promotion_events_outbound
+        (prompt_hash, event_type, metadata_json, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run(
+      ev.prompt_hash,
+      ev.event_type,
+      JSON.stringify(ev.metadata ?? {}),
+      ev.created_at,
+    );
+    // L4: bound local growth (keep the newest CAP rows) so a never-draining seat
+    // can't accumulate without limit. Indexed PK scan; the table is tiny normally.
+    db.prepare(`
+      DELETE FROM rule_promotion_events_outbound
+      WHERE id NOT IN (
+        SELECT id FROM rule_promotion_events_outbound ORDER BY id DESC LIMIT ?
+      )
+    `).run(FUNNEL_EVENT_OUTBOX_CAP);
+  } catch {
+    // Best-effort funnel telemetry — never throw into the caller.
+  }
+}
+
+/**
+ * Drain queued funnel events into the wire shape the /sync
+ * `rule_promotion_events[]` ingest expects. DELETEs ONLY the drained rows (by id)
+ * so any tail beyond FUNNEL_EVENT_DRAIN_LIMIT survives to the next session (no
+ * silent loss). On sync failure the whole payload is re-enqueued to
+ * `pending_sync` (offline resilience), so draining here is safe. Ordered by id
+ * (the reliable monotonic insert order — client created_at may not be monotonic).
+ */
+export function drainRulePromotionEvents(db: Database.Database): RulePromotionEventOutbound[] {
+  const rows = db.prepare(`
+    SELECT id, prompt_hash, event_type, metadata_json, created_at
+    FROM rule_promotion_events_outbound ORDER BY id ASC LIMIT ?
+  `).all(FUNNEL_EVENT_DRAIN_LIMIT) as Array<{
+    id: number;
+    prompt_hash: string;
+    event_type: string;
+    metadata_json: string;
+    created_at: string;
+  }>;
+  if (rows.length === 0) return [];
+  const maxId = rows[rows.length - 1].id;
+  db.prepare('DELETE FROM rule_promotion_events_outbound WHERE id <= ?').run(maxId);
+  return rows.map((r) => ({
+    prompt_hash: r.prompt_hash,
+    event_type: r.event_type as RulePromotionEventType,
+    created_at: r.created_at,
+    metadata: (safeJsonParse(r.metadata_json) as Record<string, unknown>) ?? {},
+  }));
 }
 
 /**

@@ -9,6 +9,7 @@ import {
   removePendingSync,
   incrementRetryCount,
 } from './memory-db.ts';
+import type { RulePromotionEventType } from './memory-db.ts';
 import { classifyVisibility } from './observation-extractor.ts';
 
 // ============================================================
@@ -57,6 +58,13 @@ export interface SyncPayload {
     score?: number;
     signals?: unknown[];
     content_hash: string;
+    /**
+     * P1-002a (plan-2026-06-01-auto-learning-analytics-dashboard): the CR-53
+     * effectiveness signal (audit_log rule_promoted metadata.recurrence_count)
+     * for this rule, attached client-side keyed by prompt_hash. Omitted when no
+     * recurrence row exists → server leaves promoted_rules.recurrence_count NULL.
+     */
+    recurrence_count?: number;
     /** PA3-004: true for a hardened (executable-destination) promotion. */
     hardened?: boolean;
     /** PA3-004: publisher review attestation (server requires it for hardened rows). */
@@ -64,6 +72,21 @@ export interface SyncPayload {
   }>;
   rule_revocations?: Array<{
     prompt_hash: string;
+  }>;
+  // P1-002 (plan-2026-06-01-auto-learning-analytics-dashboard): promotion
+  // FUNNEL events (proposed/shown/approved/dismissed) drained from the local
+  // outbound store at session end. The server `/sync` ingest
+  // (ingestRulePromotionEvents) server-attests `user_id`/`org_id` from the
+  // authenticated key — the client cannot claim authorship. Team-gated +
+  // metadata-only (no draft_text). `event_type` references the single client
+  // SoT RulePromotionEventType (memory-db.ts) — the CLIENT-EMITTER surface of the
+  // enum drift-guard (P1-004), kept byte-identical to the server allowlist +
+  // migration 046 CHECK + dashboard reader. No re-declared literal (CR-46).
+  rule_promotion_events?: Array<{
+    prompt_hash: string;
+    event_type: RulePromotionEventType;
+    created_at: string;
+    metadata?: Record<string, unknown>;
   }>;
 }
 
@@ -177,6 +200,29 @@ export async function syncToCloud(
       if (safePromos.length) filteredPayload.rule_promotions = safePromos;
     }
     if (payload.rule_revocations?.length) filteredPayload.rule_revocations = payload.rule_revocations;
+    // P1-002: funnel events ride the same memory channel (org-scoped learning
+    // analytics). They are metadata-only by construction (the emit sites never
+    // attach draft_text), but apply the SAME classifyVisibility private-pattern
+    // filter to the stringified metadata as defense-in-depth — a metadata field
+    // that somehow contains a secret/token/absolute path is dropped before
+    // transmission rather than aggregated cross-seat.
+    if (payload.rule_promotion_events?.length) {
+      let droppedPrivateEvents = 0;
+      const safeEvents = payload.rule_promotion_events.filter((e) => {
+        const meta = e.metadata ? JSON.stringify(e.metadata) : '';
+        if (meta && classifyVisibility(meta, meta) === 'private') {
+          droppedPrivateEvents += 1;
+          return false;
+        }
+        return true;
+      });
+      if (droppedPrivateEvents > 0) {
+        process.stderr.write(
+          `[massu] cloud-sync: dropped ${droppedPrivateEvents} promotion funnel event(s) (PRIVATE_PATTERNS match in metadata)\n`,
+        );
+      }
+      if (safeEvents.length) filteredPayload.rule_promotion_events = safeEvents;
+    }
   }
 
   // Attempt sync with retry

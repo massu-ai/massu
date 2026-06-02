@@ -8,7 +8,7 @@
 // Dependencies: P1-002, P5-001, P5-002
 // ============================================================
 
-import { getMemoryDb, endSession, addSummary, createSession, addConversationTurn, addToolCallDetail, getLastProcessedLine, setLastProcessedLine, drainTeamPromotions, drainTeamRevocations } from '../memory-db.ts';
+import { getMemoryDb, endSession, addSummary, createSession, addConversationTurn, addToolCallDetail, getLastProcessedLine, setLastProcessedLine, drainTeamPromotions, drainTeamRevocations, drainRulePromotionEvents, getRecurrenceCountForPromptHash } from '../memory-db.ts';
 import { generateCurrentMd } from '../session-state-generator.ts';
 import { archiveAndRegenerate } from '../session-archiver.ts';
 import { parseTranscriptFrom, estimateTokens } from '../transcript-parser.ts';
@@ -160,6 +160,11 @@ function buildSyncPayload(
   const willTransmit = !!cfg?.enabled && !!cfg?.apiKey && cfg?.sync?.memory !== false;
   const promotions = willTransmit ? drainTeamPromotions(db) : [];
   const revocations = willTransmit ? drainTeamRevocations(db) : [];
+  // P1-002: drain the promotion-funnel events for the analytics dashboard. Same
+  // willTransmit guard so the drain (a destructive DELETE) only fires when the
+  // rows will actually go over the wire (else they'd be lost — they're filtered
+  // off-wire when the memory channel is off).
+  const funnelEvents = willTransmit ? drainRulePromotionEvents(db) : [];
   return {
     sessions: [{
       local_session_id: sessionId,
@@ -181,23 +186,43 @@ function buildSyncPayload(
     })),
     ...(promotions.length > 0
       ? {
-          rule_promotions: promotions.map((p) => ({
-            prompt_hash: p.prompt_hash,
-            destination: p.destination,
-            draft_text: p.draft_text,
-            score: p.score,
-            signals: p.signals,
-            content_hash: p.content_hash,
-            // PA3-004: hardened-destination publish carries the flag + attestation.
-            ...(p.hardened ? { hardened: true } : {}),
-            ...(p.review_attestation !== undefined
-              ? { review_attestation: p.review_attestation }
-              : {}),
-          })),
+          rule_promotions: promotions.map((p) => {
+            // P1-002a (CR-39 effectiveness): attach the canonical CR-53
+            // recurrence_count (audit_log rule_promoted metadata) keyed by
+            // prompt_hash. null when no recurrence row exists (column nullable);
+            // this is what powers the "which rules actually work" view server-side.
+            const recurrence = getRecurrenceCountForPromptHash(db, p.prompt_hash);
+            return {
+              prompt_hash: p.prompt_hash,
+              destination: p.destination,
+              draft_text: p.draft_text,
+              score: p.score,
+              signals: p.signals,
+              content_hash: p.content_hash,
+              ...(recurrence !== null ? { recurrence_count: recurrence } : {}),
+              // PA3-004: hardened-destination publish carries the flag + attestation.
+              ...(p.hardened ? { hardened: true } : {}),
+              ...(p.review_attestation !== undefined
+                ? { review_attestation: p.review_attestation }
+                : {}),
+            };
+          }),
         }
       : {}),
     ...(revocations.length > 0
       ? { rule_revocations: revocations.map((prompt_hash) => ({ prompt_hash })) }
+      : {}),
+    ...(funnelEvents.length > 0
+      ? {
+          rule_promotion_events: funnelEvents.map((e) => ({
+            prompt_hash: e.prompt_hash,
+            event_type: e.event_type,
+            created_at: e.created_at,
+            ...(e.metadata && Object.keys(e.metadata).length > 0
+              ? { metadata: e.metadata }
+              : {}),
+          })),
+        }
       : {}),
   };
 }

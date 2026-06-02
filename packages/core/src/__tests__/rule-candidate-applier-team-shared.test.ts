@@ -63,6 +63,13 @@ function writeCandidate(payload: Partial<RuleCandidatePayload> = {}): string {
     session_id: 'session-xyz',
     ...payload,
   };
+  // ARCH-FIX (destination fidelity): a provenance-bearing (team|pack) sidecar MUST
+  // carry an authoritative stored destination — exactly as real materialization
+  // writes it. Default it to corrections-md when a provenance test does not pin one
+  // explicitly (matches the shareable-destination path the existing cases exercise).
+  if (candidate.provenance !== undefined && candidate.destination === undefined) {
+    candidate.destination = 'corrections-md';
+  }
   const path = join(tmpProjectRoot, '.massu', 'rule-candidates', `${candidate.prompt_hash}.json`);
   writeFileSync(path, JSON.stringify(candidate, null, 2), 'utf-8');
   return candidate.prompt_hash;
@@ -70,6 +77,19 @@ function writeCandidate(payload: Partial<RuleCandidatePayload> = {}): string {
 
 function teamProvenance(over: Partial<RuleCandidateProvenance> = {}): RuleCandidateProvenance {
   return { origin: 'team', org_id: 'org-1', promoted_by: 'u2', promoted_at: '2026-05-31T00:00:00Z', signature_verified: true, ...over };
+}
+
+function packProvenance(over: Partial<RuleCandidateProvenance> = {}): RuleCandidateProvenance {
+  return {
+    origin: 'pack',
+    org_id: 'org-1',
+    promoted_by: 'pack:sec-baseline',
+    promoted_at: '2026-05-31T00:00:00Z',
+    signature_verified: true,
+    pack_slug: 'sec-baseline',
+    pack_version: '1.0.0',
+    ...over,
+  };
 }
 
 function outboundCount(): number {
@@ -177,7 +197,9 @@ describe('PB-010: team-origin apply gate', () => {
     // refused at the hardened apply-gate (missing hardened flag). Phase 3 lets the
     // executable destinations propagate ONLY behind the hardened-review path; a
     // plain (non-hardened) team candidate targeting one is still refused, zero mutation.
-    const id = writeCandidate({ provenance: teamProvenance() });
+    // The stored destination IS pattern-scanner (its authored destination), so the
+    // ARCH-FIX destination-fidelity check passes and the hardened apply-gate fires.
+    const id = writeCandidate({ provenance: teamProvenance(), destination: 'pattern-scanner' });
     const res = await applyRuleCandidate(db, {
       candidateId: id, destination: 'pattern-scanner', draftText: 'echo hi',
       patternScannerCheckNumber: 99, projectRoot: tmpProjectRoot, home: tmpHome,
@@ -200,5 +222,79 @@ describe('PB-010: team-origin apply gate', () => {
     // echo-loop guard: a team-ORIGIN candidate is not re-enqueued for publish.
     expect(res.team_shared).toBeFalsy();
     expect(outboundCount()).toBe(0);
+  });
+});
+
+describe('ARCH-FIX 1 (FIX-4): destination fidelity — provenance-bearing candidates apply only to their authored destination', () => {
+  it('PACK-origin: refused when opts.destination differs from the stored destination (zero mutation)', async () => {
+    setTier('team');
+    // Authored destination is claude-md-cr; an approve flow that re-classified to
+    // corrections-md must be structurally refused BEFORE any mutation.
+    const id = writeCandidate({
+      provenance: packProvenance(),
+      destination: 'claude-md-cr',
+      draft_text: 'CR body',
+    });
+    const res = await applyRuleCandidate(db, {
+      candidateId: id, destination: 'corrections-md', draftText: 'CR body',
+      projectRoot: tmpProjectRoot, home: tmpHome,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/destination mismatch/);
+    expect(correctionsMdExists()).toBe(false);
+    expect(auditPromotedCount()).toBe(0);
+    // sidecar left in place for retry
+    expect(existsSync(join(tmpProjectRoot, '.massu', 'rule-candidates', `${id}.json`))).toBe(true);
+  });
+
+  it('TEAM-origin: refused when opts.destination differs from the stored destination (zero mutation)', async () => {
+    setTier('team');
+    const id = writeCandidate({
+      provenance: teamProvenance(),
+      destination: 'claude-md-cr',
+      draft_text: 'CR body',
+    });
+    const res = await applyRuleCandidate(db, {
+      candidateId: id, destination: 'corrections-md', draftText: 'CR body',
+      projectRoot: tmpProjectRoot, home: tmpHome,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/destination mismatch/);
+    expect(auditPromotedCount()).toBe(0);
+  });
+
+  it('PACK-origin: ACCEPTED when opts.destination matches the stored destination', async () => {
+    setTier('team');
+    const id = writeCandidate({
+      provenance: packProvenance(),
+      destination: 'corrections-md',
+      draft_text: 'shared pack rule body',
+    });
+    const res = await applyRuleCandidate(db, {
+      candidateId: id, destination: 'corrections-md', draftText: 'shared pack rule body',
+      projectRoot: tmpProjectRoot, home: tmpHome,
+    });
+    expect(res.ok).toBe(true);
+    expect(correctionsMdExists()).toBe(true);
+    expect(auditPromotedCount()).toBe(1);
+    // pack-origin candidate is NOT re-published cross-seat
+    expect(res.team_shared).toBeFalsy();
+    expect(outboundCount()).toBe(0);
+  });
+
+  it('TEAM-origin: ACCEPTED when opts.destination matches the stored destination', async () => {
+    setTier('team');
+    const id = writeCandidate({
+      provenance: teamProvenance(),
+      destination: 'corrections-md',
+      draft_text: 'shared rule body',
+    });
+    const res = await applyRuleCandidate(db, {
+      candidateId: id, destination: 'corrections-md', draftText: 'shared rule body',
+      projectRoot: tmpProjectRoot, home: tmpHome,
+    });
+    expect(res.ok).toBe(true);
+    expect(correctionsMdExists()).toBe(true);
+    expect(auditPromotedCount()).toBe(1);
   });
 });

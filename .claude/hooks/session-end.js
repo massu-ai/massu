@@ -1070,6 +1070,16 @@ function initMemorySchema(db) {
     );
   `);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS rule_promotion_events_outbound (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      prompt_hash TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_rpe_outbound_created ON rule_promotion_events_outbound(created_at);
+  `);
+  db.exec(`
     CREATE TABLE IF NOT EXISTS analytics_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       event_type TEXT NOT NULL,
@@ -1220,6 +1230,37 @@ function drainTeamRevocations(db) {
   if (rows.length === 0) return [];
   db.prepare("DELETE FROM team_revocation_outbound").run();
   return rows.map((r) => r.prompt_hash);
+}
+function getRecurrenceCountForPromptHash(db, promptHash) {
+  try {
+    const row = db.prepare(`
+      SELECT json_extract(metadata, '$.recurrence_count') AS rc
+      FROM audit_log
+      WHERE event_type = 'rule_promoted'
+        AND json_extract(metadata, '$.prompt_hash') = ?
+      LIMIT 1
+    `).get(promptHash);
+    if (!row || row.rc === null || row.rc === void 0) return null;
+    return Number(row.rc);
+  } catch {
+    return null;
+  }
+}
+var FUNNEL_EVENT_DRAIN_LIMIT = 5e3;
+function drainRulePromotionEvents(db) {
+  const rows = db.prepare(`
+    SELECT id, prompt_hash, event_type, metadata_json, created_at
+    FROM rule_promotion_events_outbound ORDER BY id ASC LIMIT ?
+  `).all(FUNNEL_EVENT_DRAIN_LIMIT);
+  if (rows.length === 0) return [];
+  const maxId = rows[rows.length - 1].id;
+  db.prepare("DELETE FROM rule_promotion_events_outbound WHERE id <= ?").run(maxId);
+  return rows.map((r) => ({
+    prompt_hash: r.prompt_hash,
+    event_type: r.event_type,
+    created_at: r.created_at,
+    metadata: safeJsonParse(r.metadata_json) ?? {}
+  }));
 }
 function recordTelemetry(db, eventType, data) {
   try {
@@ -1730,6 +1771,24 @@ async function syncToCloud(db, payload) {
       if (safePromos.length) filteredPayload.rule_promotions = safePromos;
     }
     if (payload.rule_revocations?.length) filteredPayload.rule_revocations = payload.rule_revocations;
+    if (payload.rule_promotion_events?.length) {
+      let droppedPrivateEvents = 0;
+      const safeEvents = payload.rule_promotion_events.filter((e) => {
+        const meta = e.metadata ? JSON.stringify(e.metadata) : "";
+        if (meta && classifyVisibility(meta, meta) === "private") {
+          droppedPrivateEvents += 1;
+          return false;
+        }
+        return true;
+      });
+      if (droppedPrivateEvents > 0) {
+        process.stderr.write(
+          `[massu] cloud-sync: dropped ${droppedPrivateEvents} promotion funnel event(s) (PRIVATE_PATTERNS match in metadata)
+`
+        );
+      }
+      if (safeEvents.length) filteredPayload.rule_promotion_events = safeEvents;
+    }
   }
   let lastError = "";
   const requestTimeoutMs = cloud.requestTimeoutMs ?? DEFAULT_CLOUD_REQUEST_TIMEOUT_MS;
@@ -2616,6 +2675,7 @@ function buildSyncPayload(db, sessionId, observations, summary) {
   const willTransmit = !!cfg?.enabled && !!cfg?.apiKey && cfg?.sync?.memory !== false;
   const promotions = willTransmit ? drainTeamPromotions(db) : [];
   const revocations = willTransmit ? drainTeamRevocations(db) : [];
+  const funnelEvents = willTransmit ? drainRulePromotionEvents(db) : [];
   return {
     sessions: [{
       local_session_id: sessionId,
@@ -2637,19 +2697,31 @@ function buildSyncPayload(db, sessionId, observations, summary) {
       file_path: void 0
     })),
     ...promotions.length > 0 ? {
-      rule_promotions: promotions.map((p) => ({
-        prompt_hash: p.prompt_hash,
-        destination: p.destination,
-        draft_text: p.draft_text,
-        score: p.score,
-        signals: p.signals,
-        content_hash: p.content_hash,
-        // PA3-004: hardened-destination publish carries the flag + attestation.
-        ...p.hardened ? { hardened: true } : {},
-        ...p.review_attestation !== void 0 ? { review_attestation: p.review_attestation } : {}
-      }))
+      rule_promotions: promotions.map((p) => {
+        const recurrence = getRecurrenceCountForPromptHash(db, p.prompt_hash);
+        return {
+          prompt_hash: p.prompt_hash,
+          destination: p.destination,
+          draft_text: p.draft_text,
+          score: p.score,
+          signals: p.signals,
+          content_hash: p.content_hash,
+          ...recurrence !== null ? { recurrence_count: recurrence } : {},
+          // PA3-004: hardened-destination publish carries the flag + attestation.
+          ...p.hardened ? { hardened: true } : {},
+          ...p.review_attestation !== void 0 ? { review_attestation: p.review_attestation } : {}
+        };
+      })
     } : {},
-    ...revocations.length > 0 ? { rule_revocations: revocations.map((prompt_hash) => ({ prompt_hash })) } : {}
+    ...revocations.length > 0 ? { rule_revocations: revocations.map((prompt_hash) => ({ prompt_hash })) } : {},
+    ...funnelEvents.length > 0 ? {
+      rule_promotion_events: funnelEvents.map((e) => ({
+        prompt_hash: e.prompt_hash,
+        event_type: e.event_type,
+        created_at: e.created_at,
+        ...e.metadata && Object.keys(e.metadata).length > 0 ? { metadata: e.metadata } : {}
+      }))
+    } : {}
   };
 }
 function buildSummaryFromObservations(observations, prompts) {

@@ -34,6 +34,9 @@ const KNOWN_LARGE_FILES = [
   'packages/core/src/memory-db.ts',
   'packages/core/src/tools.ts',
   'packages/core/src/commands/init.ts',
+  // curated-rule-packs review: the destination-fidelity fix pushed the
+  // security-critical apply chokepoint just over the cap (see its marker reason).
+  'packages/core/src/rule-candidate-applier.ts',
 ]
 
 describe('P-M-031 pattern-scanner Check 21 file-size cap', () => {

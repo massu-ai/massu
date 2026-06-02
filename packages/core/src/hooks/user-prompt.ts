@@ -7,7 +7,7 @@
 // Captures user prompts for search and context.
 // ============================================================
 
-import { getMemoryDb, createSession, addUserPrompt, linkSessionToTask, autoDetectTaskId, addObservation } from '../memory-db.ts';
+import { getMemoryDb, createSession, addUserPrompt, linkSessionToTask, autoDetectTaskId, addObservation, enqueueRulePromotionEvent } from '../memory-db.ts';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, openSync, fstatSync, readSync, closeSync } from 'fs';
 import { join } from 'path';
 import type Database from 'better-sqlite3';
@@ -15,7 +15,7 @@ import { getResolvedPaths } from '../config.ts';
 import { scoreCorrectionPrompt } from '../rule-candidate-detector.ts';
 import { categorizePrompt, hashPrompt } from '../prompt-analyzer.ts';
 import { getCachedTierReadOnly } from '../license.ts';
-import { entitledForAutoLearning, autoLearningUpgradeMessage } from '../auto-learning-entitlement.ts';
+import { entitledForAutoLearning, autoLearningUpgradeMessage, entitledForTeamSharedPromotion } from '../auto-learning-entitlement.ts';
 
 interface HookInput {
   session_id: string;
@@ -158,6 +158,27 @@ async function main(): Promise<void> {
                 timestamp: new Date().toISOString(),
                 session_id,
               }, null, 2));
+              // P1-002 (plan-2026-06-01-auto-learning-analytics-dashboard): a
+              // candidate was just PROPOSED. Capture the funnel event for the
+              // org-scoped analytics dashboard — but ONLY at Team+ (org-scoped
+              // learning analytics is a Team feature; CR-54/CR-55 ladder). The
+              // candidate sidecar is Pro-gated above; funnel capture is the
+              // strictly-higher Team gate. Reuse the same cache-only tier read
+              // (no second network/DB hit). Metadata-only (score + signal count
+              // + category) — never the prompt text. Idempotent: inside the
+              // sha-keyed `!existsSync` block, so a retry never double-counts.
+              if (entitledForTeamSharedPromotion(cachedTier)) {
+                enqueueRulePromotionEvent(db, {
+                  prompt_hash: promptHash,
+                  event_type: 'proposed',
+                  created_at: new Date().toISOString(),
+                  metadata: {
+                    score: scoreResult.score,
+                    signal_count: scoreResult.signals.length,
+                    category: categorizePrompt(prompt),
+                  },
+                });
+              }
             }
           } else {
             // Sub-Pro: skip the write + emit a ONE-TIME upgrade note, gated

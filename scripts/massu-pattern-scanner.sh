@@ -1366,6 +1366,97 @@ if [ "$CHECK34_VIOLATIONS" -eq 0 ]; then
 fi
 
 # -------------------------------------------------------
+# Check 35: Promotion-funnel event-enum parity (P1-004 / CR-39)
+# -------------------------------------------------------
+# The promotion-funnel event enum MUST be byte-identical across the four surfaces
+# that read/write it; any drift silently breaks the funnel (server CHECK rejects a
+# client event, or the dashboard counts a stage that never arrives). Bash mirror of
+# the vitest drift-guard promotion-events-enum-parity.test.ts (vitest↔scanner parity).
+#   1. CLIENT SoT      — RulePromotionEventType union (packages/core/src/memory-db.ts)
+#   2. SERVER INGEST   — RULE_PROMOTION_EVENT_TYPES (website/supabase/functions/sync/index.ts)
+#   3. MIGRATION CHECK — event_type IN (...) (website/supabase/migrations/046_rule_promotion_events.sql)
+#   4. DASHBOARD READER— PROMOTION_FUNNEL_EVENT_TYPES (website/src/lib/promotion-analytics-data.ts)
+# -------------------------------------------------------
+echo ""
+echo "Check 35: Promotion-funnel event-enum parity (P1-004)"
+CHECK35_VIOLATIONS=0
+
+# Extract the sorted, comma-joined single-quoted lowercase tokens from a line
+# matching a marker in a file. Returns empty string when the file/marker is absent.
+enum_tokens() {
+  local file="$1" marker="$2"
+  [ -f "$file" ] || { echo ""; return; }
+  grep -E "$marker" "$file" 2>/dev/null | grep -oE "'[a-z_]+'" | tr -d "'" | sort -u | tr '\n' ','
+}
+
+C35_MEMDB="$REPO_ROOT/packages/core/src/memory-db.ts"
+C35_SYNC="$REPO_ROOT/website/supabase/functions/sync/index.ts"
+C35_MIG="$REPO_ROOT/website/supabase/migrations/046_rule_promotion_events.sql"
+C35_DASH="$REPO_ROOT/website/src/lib/promotion-analytics-data.ts"
+
+# Client SoT is the anchor. The expected canonical enum (sorted): approved,dismissed,proposed,shown
+C35_CANON="approved,dismissed,proposed,shown,"
+C35_CLIENT="$(enum_tokens "$C35_MEMDB" 'export type RulePromotionEventType')"
+
+if [ -z "$C35_CLIENT" ]; then
+  fail "Check 35: client SoT RulePromotionEventType not found in packages/core/src/memory-db.ts"
+  CHECK35_VIOLATIONS=$((CHECK35_VIOLATIONS + 1))
+elif [ "$C35_CLIENT" != "$C35_CANON" ]; then
+  fail "Check 35: client SoT enum '$C35_CLIENT' != canonical '$C35_CANON'"
+  CHECK35_VIOLATIONS=$((CHECK35_VIOLATIONS + 1))
+fi
+
+# The three website surfaces are only checked when the website tree is present
+# (a public-mirror checkout has no website/; the vitest skipIf mirrors this).
+if [ -d "$REPO_ROOT/website" ]; then
+  C35_SERVER="$(enum_tokens "$C35_SYNC" 'const RULE_PROMOTION_EVENT_TYPES')"
+  C35_MIGRATION="$(enum_tokens "$C35_MIG" 'event_type IN')"
+  C35_DASHBOARD="$(enum_tokens "$C35_DASH" 'PROMOTION_FUNNEL_EVENT_TYPES')"
+  for pair in "server:$C35_SERVER" "migration:$C35_MIGRATION" "dashboard:$C35_DASHBOARD"; do
+    name="${pair%%:*}"; val="${pair#*:}"
+    if [ "$val" != "$C35_CANON" ]; then
+      fail "Check 35: $name enum '$val' != canonical '$C35_CANON' (funnel drift)"
+      CHECK35_VIOLATIONS=$((CHECK35_VIOLATIONS + 1))
+    fi
+  done
+fi
+
+if [ "$CHECK35_VIOLATIONS" -eq 0 ]; then
+  pass "Check 35: promotion-funnel event-enum parity intact"
+fi
+
+# -------------------------------------------------------
+# Check 36: Rule-pack enforcement-bridge no-apply invariant (P2-004).
+# -------------------------------------------------------
+# The rule-pack client PULL module (rule-pack-sync.ts) materializes a pulled pack
+# rule as a reviewable candidate sidecar and NEVER applies it — exactly the
+# approval-before-apply posture Check 32 enforces on team-rule-sync.ts. It must
+# reference NONE of the applier's promotion-apply / destination-write functions.
+# Bash mirror of the vitest drift-guard rule-pack-enforcement-bridge.test.ts
+# (vitest <-> scanner parity, the CR-50 convention).
+# -------------------------------------------------------
+echo ""
+echo "Check 36: Rule-pack enforcement-bridge no-apply invariant (P2-004)"
+CHECK36_VIOLATIONS=0
+SYNC36="$REPO_ROOT/packages/core/src/rule-pack-sync.ts"
+
+if [ -f "$SYNC36" ]; then
+  for forbidden in applyRuleCandidate writeDestination appendMemoryIndexLine writeCorrectionsMd writePatternScanner writeClaudeMdCr writeCustomDestination; do
+    if grep -q "$forbidden" "$SYNC36"; then
+      fail "Check 36: rule-pack-sync.ts references '$forbidden' — pack pull path must NEVER apply (materialize-never-apply violated)"
+      CHECK36_VIOLATIONS=$((CHECK36_VIOLATIONS + 1))
+    fi
+  done
+else
+  fail "Check 36: rule-pack-sync.ts (pack pull path) is missing"
+  CHECK36_VIOLATIONS=$((CHECK36_VIOLATIONS + 1))
+fi
+
+if [ "$CHECK36_VIOLATIONS" -eq 0 ]; then
+  pass "Check 36: rule-pack enforcement-bridge no-apply invariant intact"
+fi
+
+# -------------------------------------------------------
 # Summary
 # -------------------------------------------------------
 echo ""

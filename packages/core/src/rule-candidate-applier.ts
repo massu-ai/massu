@@ -115,6 +115,19 @@ import {
   type ReviewAttestation,
 } from './rule-candidate-hardened.ts';
 
+// PA1-003 (plan-2026-06-01-enterprise-governance-audit-export): the generalized
+// org-level N-of-M governance gate lives in the same canonical hardened module
+// (validateHardenedApplyGate is its N=2 special case). Re-exported through the
+// applier's public API so the /massu-rule approvals surface + the governance
+// drift-guard reach it via the applier without a duplicate import path.
+export {
+  validateGovernanceGate,
+  roleRank,
+  type GovernancePolicy,
+  type GovernanceApprovals,
+  type PromoterRole,
+} from './rule-candidate-hardened.ts';
+
 /**
  * PB-004: provenance for a candidate materialized from a TEAM origin (pulled
  * from the cloud by `team-rule-sync`). A team-origin sidecar is only ever

@@ -1,6 +1,6 @@
 {
   "name": "@massu/core",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "type": "module",
   "description": "AI Engineering Governance MCP Server - Session memory, knowledge system, feature registry, code intelligence, rule enforcement, tiered tooling (12 free / 73 total), 56 workflow commands, 11 agents, 20+ patterns",
   "main": "./dist/cli.js",
@@ -29,7 +29,7 @@
     "build:bundle-adapters": "tsx scripts/bundle-adapters.ts",
     "build:cli": "esbuild --bundle --platform=node --format=esm --outfile=dist/cli.js src/cli.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --external:web-tree-sitter --external:tweetnacl --external:tar --external:smol-toml --external:vscode-languageserver-protocol --external:@massu/adapter-rails --external:@massu/adapter-spring --banner:js='#!/usr/bin/env node\nimport{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
     "build:hooks": "esbuild --bundle --platform=node --format=esm --outdir=dist/hooks src/hooks/*.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --external:web-tree-sitter --external:tweetnacl --external:tar --external:smol-toml --external:vscode-languageserver-protocol --external:@massu/adapter-rails --external:@massu/adapter-spring --banner:js='import{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
-    "prepublishOnly": "bash ../../scripts/prepublish-check.sh && node ../../scripts/bundle-pubkey.mjs && node ../../scripts/bundle-license-pubkey.mjs && node ../../scripts/bundle-promotion-pubkey.mjs && cp ../../CHANGELOG.md ./CHANGELOG.md && npm run build",
+    "prepublishOnly": "bash ../../scripts/prepublish-check.sh && node ../../scripts/bundle-pubkey.mjs && node ../../scripts/bundle-license-pubkey.mjs && node ../../scripts/bundle-promotion-pubkey.mjs && node ../../scripts/bundle-audit-export-pubkey.mjs && cp ../../CHANGELOG.md ./CHANGELOG.md && npm run build",
     "bench:watch": "tsx test/perf/watch-benchmark.ts"
   },
   "dependencies": {

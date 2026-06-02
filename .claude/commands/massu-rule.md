@@ -146,6 +146,15 @@ Gates a **hardened-pending** team candidate (an executable destination — `patt
 3. A SECOND distinct operator (≠ the original `promoted_by`) reviews the rendered preview and attests. Record the attestation via `recordHardenedReviewAttestation(sidecarPath, { second_operator_id, dry_run_ack: { ran_at: <iso>, ack: true } })`, which validates the shape + the two-operator-distinctness invariant and writes `provenance.review_attestation` into the sidecar.
 4. Only after the attestation is recorded does `approve` pass the applier's hardened apply-gate (`applyRuleCandidate()` PA3-004: tier≥Team + verified provenance + `provenance.hardened===true` + a valid `review_attestation` with a distinct second operator + render-only `dry_run_ack`). Still NEVER auto-applies.
 
+### `approvals` (Enterprise, N-of-M governance)
+
+Surfaces the org's Enterprise **promotion-governance policy** and the N-of-M approval state of pending promotions. Auto-learning governance (an org policy with N-of-M approvals + a signed audit export) is an Enterprise feature, gated via `entitledForEnterpriseGovernance` (`packages/core/src/auto-learning-entitlement.ts`); Free/Pro/Team see an upgrade hint.
+
+1. Tier gate — `entitledForEnterpriseGovernance(currentTier)`; sub-Enterprise prints `enterpriseGovernanceUpgradeMessage()` and no-ops.
+2. Shows the resolved policy (minimum promoter role, approvals required, allowed destinations, hardened-review requirement) and, per pending promotion, `needs M-of-N approvals (k recorded)`.
+3. The client gate (`validateGovernanceGate(policy, approvals)`) is the honor-system mirror of the **server** gate in `promoted_rule_upsert` + role-aware RLS (migration 049) — the server is the real boundary (CR-54/55 disclosure). A promotion that has not met its threshold is held server-side (`approval_state = 'pending'`) and is **excluded from every seat's pull cursor** until the threshold flips it to `applied`.
+4. **Recording an approval** is a privileged write and is done by an owner/admin/auditor in the **Governance dashboard** at `/dashboard/governance` (a server action calls the `promotion_approval_record` RPC under the operator's authenticated session). Distinct-operator is enforced (an approver may not be the original promoter); when the Nth distinct approval lands, the rule flips to `applied` and re-surfaces to seats. The signed audit export (Governance dashboard → Download) covers the full policy + approval + revocation history as an Ed25519-signed envelope.
+
 ---
 
 ## Wired-in state
@@ -161,6 +170,7 @@ Gates a **hardened-pending** team candidate (an executable destination — `patt
 | `pull` (Team+) | wired | invokes `pullTeamPromotions(db)`; verifies Ed25519 envelope, materializes provenance-tagged candidates (never applies); also auto-runs at session end |
 | `revoke <prompt_hash>` (Team+) | wired | invokes `enqueueTeamRevocation(db, prompt_hash)`; drained into `/sync` `rule_revocations[]` |
 | `approve <id>` (team-origin candidate) | wired | requires Team tier + `provenance.signature_verified === true` + shareable destination — enforced inside `applyRuleCandidate()` |
+| `approvals` (Enterprise) | wired | read-only client surface; gates via `entitledForEnterpriseGovernance` + `validateGovernanceGate(policy, approvals)`. Approval RECORDING happens server-side via the Governance dashboard (`promotion_approval_record` RPC) — the server RPC + role-aware RLS are the real boundary |
 
 ---
 

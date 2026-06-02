@@ -58,6 +58,112 @@ export interface ReviewAttestation {
   };
 }
 
+// ============================================================================
+// PA1-001/003 (plan-2026-06-01-enterprise-governance-audit-export): the
+// GENERALIZED org-level N-of-M governance gate. Phase-3's per-rule two-operator
+// review (validateHardenedApplyGate) is the N=2 special case — it now DELEGATES
+// the distinct-approver count to validateGovernanceGate (CR-10: the symbol +
+// all 4 existing references are preserved; only the internal distinctness check
+// is expressed through the generalized primitive).
+//
+// The SERVER (promoted_rule_upsert + role-aware RLS, migration 049) is the REAL
+// boundary; this client gate is the honor-system backstop (CR-54/55 disclosure).
+// ============================================================================
+
+/** The promoter-role enum, mirroring user_profiles.role (migration 001:40). */
+export type PromoterRole = 'owner' | 'admin' | 'developer' | 'auditor';
+
+/**
+ * Privilege ordinal — the CLIENT mirror of the SQL `role_rank()` in migration
+ * 049 (owner=4, admin=3, developer=2, auditor=1, else 0). A bare lexicographic
+ * TEXT comparison is WRONG for these values ('auditor' >= 'admin' lexically, but
+ * an auditor must NOT satisfy an admin-minimum gate), so role comparison ALWAYS
+ * goes through this rank — never `>=` on the raw strings.
+ */
+export function roleRank(role: string): number {
+  switch (role) {
+    case 'owner':
+      return 4;
+    case 'admin':
+      return 3;
+    case 'developer':
+      return 2;
+    case 'auditor':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+/** The org governance policy as the client sees it (mirrors org_promotion_policy). */
+export interface GovernancePolicy {
+  /** Minimum promoter role (rank-compared); null/undefined = no role gate. */
+  min_promoter_role?: PromoterRole | null;
+  /** N-of-M: distinct non-promoter approvals required before apply (>= 1). */
+  approvals_required: number;
+  /** Destinations this org permits (subset of the 4-value vocabulary). */
+  allowed_destinations: readonly string[];
+  /** When true, executable destinations MUST go through the hardened path. */
+  require_hardened_review?: boolean;
+}
+
+/** The approval state for a single promotion (the N-of-M ledger, client view). */
+export interface GovernanceApprovals {
+  /** Distinct approver user ids recorded for this promotion. */
+  approver_user_ids: readonly string[];
+  /** The promoter — EXCLUDED from the count (no self-approval). */
+  promoted_by: string;
+}
+
+/** Optional promotion context for the role / destination / hardened sub-gates. */
+export interface GovernanceContext {
+  promoterRole?: string;
+  destination?: string;
+  hardened?: boolean;
+  hasAttestation?: boolean;
+}
+
+/**
+ * The generalized N-of-M governance gate. Returns an error string to REFUSE, or
+ * `null` to ALLOW apply. Mirrors the server `promoted_rule_upsert` branch
+ * (migration 049 PA1-002): role-rank gate, destination ∈ allowed_destinations,
+ * require_hardened_review tightening, and ≥ approvals_required DISTINCT approvers
+ * each ≠ the promoter. The SERVER is authoritative; this is the client backstop.
+ */
+export function validateGovernanceGate(
+  policy: GovernancePolicy,
+  approvals: GovernanceApprovals,
+  ctx?: GovernanceContext,
+): string | null {
+  // (a) role rank — never a lexicographic TEXT comparison.
+  if (policy.min_promoter_role != null && ctx?.promoterRole !== undefined) {
+    if (roleRank(ctx.promoterRole) < roleRank(policy.min_promoter_role)) {
+      return `promoter role '${ctx.promoterRole}' is below the org minimum '${policy.min_promoter_role}' — refusing to apply`;
+    }
+  }
+  // (b) destination ∈ allowed_destinations.
+  if (ctx?.destination !== undefined && !policy.allowed_destinations.includes(ctx.destination)) {
+    return `destination '${ctx.destination}' is not in the org's allowed destinations — refusing to apply`;
+  }
+  // (c) require_hardened_review TIGHTENS executable destinations.
+  if (
+    policy.require_hardened_review === true &&
+    (ctx?.destination === 'pattern-scanner' || ctx?.destination === 'custom-destination')
+  ) {
+    if (!(ctx.hardened === true && ctx.hasAttestation === true)) {
+      return 'org policy requires hardened review for executable destinations — refusing to apply';
+    }
+  }
+  // (d) N-of-M: count DISTINCT approvers EXCLUDING the promoter.
+  const distinct = new Set(
+    approvals.approver_user_ids.filter((id) => typeof id === 'string' && id.length > 0 && id !== approvals.promoted_by),
+  );
+  if (distinct.size < policy.approvals_required) {
+    return `needs ${policy.approvals_required} approval(s); ${distinct.size} recorded — refusing to apply`;
+  }
+  return null;
+}
+
 /**
  * PA3-004: validate a HARDENED team-origin candidate's review attestation at the
  * apply gate. Returns an error string to refuse, or `null` to allow. Enforces the
@@ -69,6 +175,11 @@ export interface ReviewAttestation {
  *     executable rule;
  *   - a render-only dry_run_ack is present (the operator confirmed they reviewed
  *     the rendered preview — nothing was executed).
+ *
+ * PA1-003 (CR-10): the two-operator distinctness check now DELEGATES to
+ * {@link validateGovernanceGate} as the N=2 special case (one distinct approver
+ * — the second operator — who is not the promoter). The symbol + signature +
+ * exact refusal messages are preserved for the 4 existing call/test references.
  */
 export function validateHardenedApplyGate(prov: RuleCandidateProvenance): string | null {
   if (prov.hardened !== true) {
@@ -81,8 +192,14 @@ export function validateHardenedApplyGate(prov: RuleCandidateProvenance): string
   if (typeof att.second_operator_id !== 'string' || att.second_operator_id.length === 0) {
     return 'team-origin hardened candidate review_attestation missing second_operator_id — refusing to apply';
   }
-  // Two-operator invariant: the approving operator MUST differ from the promoter.
-  if (att.second_operator_id === prov.promoted_by) {
+  // Two-operator invariant as the N=2 governance special case: exactly one
+  // distinct approver (the second operator) who is NOT the promoter. Delegates
+  // the distinct-approver count to the generalized validateGovernanceGate.
+  const govErr = validateGovernanceGate(
+    { approvals_required: 1, allowed_destinations: [] },
+    { approver_user_ids: [att.second_operator_id], promoted_by: prov.promoted_by },
+  );
+  if (govErr) {
     return 'team-origin hardened candidate second_operator_id equals the promoter — two-operator review not satisfied';
   }
   const ack = att.dry_run_ack;

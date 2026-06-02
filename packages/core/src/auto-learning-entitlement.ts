@@ -87,6 +87,46 @@ export function teamSharedPromotionUpgradeMessage(currentTier: ToolTier): string
   );
 }
 
+// ============================================================================
+// Phase A1 (CR-55 generalized, plan-2026-06-01-enterprise-governance-audit-export):
+// Enterprise auto-learning GOVERNANCE entitlement. The org-level N-of-M
+// promotion policy + signed audit export are an Enterprise-tier feature. This
+// REUSES the existing `tierLevel()` ladder + the existing
+// `PLAN_TO_TIER_MAP['cloud_enterprise'] = 'enterprise'` resolution (license.ts)
+// — there is NO parallel plan→tier mapping. Net-new code is ONLY the constant +
+// the predicate, mirroring the AUTO_LEARNING_MIN_TIER / TEAM_SHARED_PROMOTION_
+// MIN_TIER precedents above.
+// ============================================================================
+
+/**
+ * Minimum tier entitled to Enterprise auto-learning governance (org promotion
+ * policy + signed audit export). SINGLE source of truth — the dashboard gate,
+ * the audit-export edge fn, and any client surface read this constant.
+ */
+export const ENTERPRISE_GOVERNANCE_MIN_TIER: ToolTier = 'enterprise';
+
+/**
+ * Pure, synchronous predicate: is `tier` entitled to Enterprise governance?
+ * `true` iff `tier` is at or above {@link ENTERPRISE_GOVERNANCE_MIN_TIER}
+ * (i.e. Enterprise). Free/Pro/Team → `false`.
+ */
+export function entitledForEnterpriseGovernance(tier: ToolTier): boolean {
+  return tierLevel(tier) >= tierLevel(ENTERPRISE_GOVERNANCE_MIN_TIER);
+}
+
+/**
+ * Single generic upgrade message surfaced everywhere Enterprise governance is
+ * refused. Names the feature, the caller's current tier, and the pricing URL.
+ * No operator literals, no absolute paths — this string ships publicly.
+ */
+export function enterpriseGovernanceUpgradeMessage(currentTier: ToolTier): string {
+  return (
+    'Auto-learning governance (org promotion policy with N-of-M approvals + ' +
+    'signed audit export) is an Enterprise feature. ' +
+    `Your tier: ${currentTier.toUpperCase()}. Upgrade at https://massu.ai/pricing`
+  );
+}
+
 /**
  * Result of an entitlement check. `message` is populated only when the
  * caller is NOT entitled (so the refusal can be surfaced verbatim).

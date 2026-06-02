@@ -1,0 +1,62 @@
+---
+title: "Promotion Governance"
+description: "Enterprise org policy for auto-learned rule promotion — minimum promoter role, N-of-M approvals, allowed destinations — plus a cryptographically signed audit export"
+order: 19
+---
+
+# Promotion Governance
+
+**Enterprise** organizations can govern exactly how auto-learned rules are promoted
+across their team and export a signed, tamper-evident record of the entire
+governance history.
+
+Auto-learning lets a developer turn a recurring correction into a durable rule. At
+**Team** tier those promotions propagate to the whole org as reviewable proposals.
+At **Enterprise** tier you add an org-level **promotion policy** that the server
+enforces before any promotion is applied — and a **signed audit export** for
+compliance.
+
+## The promotion policy
+
+Set the policy from **Dashboard → Governance** (owner or admin). It has four knobs:
+
+| Knob | What it does |
+|------|--------------|
+| **Minimum promoter role** | Only members at or above this role (owner > admin > developer > auditor) may promote a rule. Compared by rank, never alphabetically. |
+| **Approvals required (N-of-M)** | How many *distinct* operators — each other than the promoter — must approve a promotion before it applies. `1` means immediate apply (today's behavior). |
+| **Allowed destinations** | Which rule destinations the org permits. The executable destinations still require the hardened-review path on top of this list. |
+| **Require hardened review** | When on, any promotion to an executable destination must go through the two-operator hardened-review path. This can only *tighten*, never loosen, the platform's hardened gate. |
+
+The policy is enforced at the **server** promotion chokepoint and by role-aware
+row-level security — the client surfaces the same rules as a convenience, but the
+server is the real boundary. A promotion that has not met its approval threshold is
+held **pending** and is not delivered to any seat until enough distinct operators
+approve it.
+
+## N-of-M approvals
+
+When a policy requires more than one approval, a new promotion lands in a
+**pending** state and stays invisible to other seats. Owners, admins, and auditors
+review pending promotions in **Dashboard → Governance** and record an approval. An
+operator can never approve their own promotion. Once the required number of distinct
+approvals is recorded, the rule flips to **applied** and propagates to the team.
+
+The `/massu-rule approvals` command surfaces the policy and the pending state for
+the current org from the CLI.
+
+## Signed audit export
+
+From **Dashboard → Governance**, an owner or admin can download the org's full
+promotion-governance history — the policy, every approval, every promotion, and
+every revocation — as a single JSON envelope signed with an Ed25519 key. {/* leak-guard-allow: Ed25519 is a public crypto algorithm name, not a git SHA */}
+
+The signature covers every record in the export (the records are carried as a
+canonical string inside the signed envelope, so nothing can be altered after
+signing without breaking the signature). The signature is verifiable offline
+against Massu's published public key, so an auditor can confirm the export is
+authentic and complete without trusting the transport.
+
+## Requirements
+
+Promotion governance and the signed audit export are an **Enterprise** feature. See
+[License Tiers](/docs/reference/license-tiers) for the full tier breakdown.

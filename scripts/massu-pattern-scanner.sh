@@ -1457,6 +1457,70 @@ if [ "$CHECK36_VIOLATIONS" -eq 0 ]; then
 fi
 
 # -------------------------------------------------------
+# Check 37: Enterprise governance gate invariant (PA1-004 / CR-55 generalized).
+# -------------------------------------------------------
+# The generalized org-level N-of-M governance gate (validateGovernanceGate) must
+# exist in the canonical hardened module, validateHardenedApplyGate must DELEGATE
+# to it (the N=2 special case — CR-10 preserves the symbol + 4 refs), the
+# entitlement SoT must declare ENTERPRISE_GOVERNANCE_MIN_TIER='enterprise', and
+# the server migration (when present) must gate on role_rank() — never a bare
+# lexicographic TEXT >= — + carry the approval_state lifecycle + the
+# approval_recorded event. Bash mirror of governance-gate-invariant.test.ts
+# (vitest <-> scanner parity, CR-50 convention).
+# -------------------------------------------------------
+echo ""
+echo "Check 37: Enterprise governance gate invariant (PA1-004)"
+CHECK37_VIOLATIONS=0
+HARDENED37="$REPO_ROOT/packages/core/src/rule-candidate-hardened.ts"
+ENTITLE37="$REPO_ROOT/packages/core/src/auto-learning-entitlement.ts"
+MIGRATION37="$REPO_ROOT/website/supabase/migrations/049_promotion_governance.sql"
+
+if [ -f "$HARDENED37" ]; then
+  if ! grep -q "export function validateGovernanceGate" "$HARDENED37"; then
+    fail "Check 37: rule-candidate-hardened.ts does not export validateGovernanceGate (generalized N-of-M gate)"
+    CHECK37_VIOLATIONS=$((CHECK37_VIOLATIONS + 1))
+  fi
+  # validateHardenedApplyGate must delegate to the generalized gate.
+  if ! awk '/export function validateHardenedApplyGate/{f=1} f&&/validateGovernanceGate\(/{print; exit}' "$HARDENED37" | grep -q "validateGovernanceGate"; then
+    fail "Check 37: validateHardenedApplyGate no longer delegates to validateGovernanceGate (N=2 generalization regressed?)"
+    CHECK37_VIOLATIONS=$((CHECK37_VIOLATIONS + 1))
+  fi
+else
+  fail "Check 37: rule-candidate-hardened.ts is missing"
+  CHECK37_VIOLATIONS=$((CHECK37_VIOLATIONS + 1))
+fi
+
+if [ -f "$ENTITLE37" ]; then
+  if ! grep -q "ENTERPRISE_GOVERNANCE_MIN_TIER" "$ENTITLE37"; then
+    fail "Check 37: auto-learning-entitlement.ts lacks ENTERPRISE_GOVERNANCE_MIN_TIER (governance entitlement SoT)"
+    CHECK37_VIOLATIONS=$((CHECK37_VIOLATIONS + 1))
+  fi
+else
+  fail "Check 37: auto-learning-entitlement.ts is missing"
+  CHECK37_VIOLATIONS=$((CHECK37_VIOLATIONS + 1))
+fi
+
+# Server migration: present only in the private repo (website/ is sync-excluded).
+if [ -f "$MIGRATION37" ]; then
+  if ! grep -q "role_rank" "$MIGRATION37"; then
+    fail "Check 37: migration 049 does not use role_rank() — a bare lexicographic role >= is a privilege-escalation bug"
+    CHECK37_VIOLATIONS=$((CHECK37_VIOLATIONS + 1))
+  fi
+  if ! grep -q "approval_state" "$MIGRATION37"; then
+    fail "Check 37: migration 049 lacks the approval_state two-phase lifecycle column"
+    CHECK37_VIOLATIONS=$((CHECK37_VIOLATIONS + 1))
+  fi
+  if ! grep -q "rejected_hardened_required" "$MIGRATION37"; then
+    fail "Check 37: migration 049 does not consume require_hardened_review (dead governance knob)"
+    CHECK37_VIOLATIONS=$((CHECK37_VIOLATIONS + 1))
+  fi
+fi
+
+if [ "$CHECK37_VIOLATIONS" -eq 0 ]; then
+  pass "Check 37: Enterprise governance gate invariant intact"
+fi
+
+# -------------------------------------------------------
 # Summary
 # -------------------------------------------------------
 echo ""

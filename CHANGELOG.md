@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.15.3] - 2026-07-06
+
+**`massu login` hung forever in non-interactive shells (CI / scripts / agents) with `MASSU_API_KEY` set** (`plan-2026-07-06-login-noninteractive-env-hang`). `runLogin()` never read the `MASSU_API_KEY` environment variable and then read a non-TTY stdin unbounded (`for await … process.stdin`, blocking on an EOF that never arrives on an idle non-TTY stdin), so the documented, non-exposing scripted path (`MASSU_API_KEY=<key> massu login`) blocked indefinitely — the only working non-interactive path was `--key`, which leaks the key to shell history. Patch per semver: a bug fix with no API change, scoped entirely to the `login` command. Incident #1.
+
+### Fixed
+
+- **`massu login` no longer hangs without a TTY.** Key resolution is now a pure, dependency-injected `resolveLoginKey()` with explicit precedence: `--key` > `MASSU_API_KEY` env > TTY prompt > bounded non-TTY stdin. The env var is read before any stdin touch (the reported hang case), and the non-TTY read is bounded by `MASSU_LOGIN_STDIN_TIMEOUT_MS` (default 2000ms) and capped at 64KB, so an idle or oversized stdin fails fast (fail-closed) with an actionable message instead of hanging; `echo "$KEY" | massu login` still works. A structural regression guard makes the interactive prompt / blocking stdin read unreachable when a key is available and stdin is not a TTY, and a help↔code contract test asserts `login` honors the advertised `MASSU_API_KEY`.
+
+### Added
+
+- **`--key` now prints a shell-history exposure warning** to stderr when a key is passed via the flag, steering scripted/CI usage toward `MASSU_API_KEY` or a piped key.
+
 ## [1.15.2] - 2026-07-06
 
 **CRITICAL production fix: the `validate-key` cloud edge function returned HTTP 500 on every real API key (deploy drift), silently downgrading every Enterprise/Pro customer to Free** (`plan-2026-07-06-validate-key-deploy-drift`). The DEPLOYED `validate-key` Supabase edge function was a stale bundle that never received the 2026-05-31 `compareSync` fix — it still called the async bcrypt `compare()`, which spawns a Web Worker the Supabase Edge Runtime forbids, so it threw → HTTP 500 on every real `ms_live_` key. `@massu/core`'s license path (`validateLicense`) treated the 500 as "Free", so every paid key silently resolved to Free (surfaced during git-safe-api-key dogfooding, 2026-07-05). The repo source was already correct; the fix redeploys it (wrong-key probe now returns 401, not 500) — **no customer key changes, no re-hashing, no bcrypt/WebCrypto re-engineering** (the cause was a missed deploy, not a library bug). Patch per semver: a bug fix with no API change. Incident: `docs/incidents/2026-07-06-validate-key-deploy-drift-500.md`.

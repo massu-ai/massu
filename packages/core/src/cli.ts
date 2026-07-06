@@ -221,8 +221,10 @@ Commands:
   init              Set up Massu AI in your project (one command, full setup)
   doctor            Check installation health
   login             Store your API key user-level in ~/.massu/credentials (git-safe).
-                    Prefer the interactive prompt or MASSU_API_KEY env; --key <k>
-                    exposes the key to shell history. Use --no-verify to skip online check.
+                    Interactive: hidden prompt. Non-interactive (CI/agent): set
+                    MASSU_API_KEY (recommended), or pipe (echo "$KEY" | massu login);
+                    --key <k> works but exposes the key to shell history. Never hangs
+                    without a TTY. Use --no-verify to skip the online check.
   logout            Remove the stored user-level API key
   install-hooks     Install/update Claude Code hooks
   install-commands  Install/update slash commands (use --skip-permissions to opt out of MCP allowlist seeding)

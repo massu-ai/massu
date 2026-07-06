@@ -31,15 +31,20 @@ npx massu login
 
 This stores the key in a user-level file at `~/.massu/credentials` (file permissions `0600`), which lives in your home directory **outside every repository** — so it can never be committed by accident. You set your key **once** and every project on your machine picks it up automatically.
 
-For scripting or CI, you can pipe the key in or pass it as a flag:
+For scripting, CI, or an agent shell (no interactive terminal), use one of the non-interactive paths — in order of preference:
 
 ```bash
-# Pipe from a secret store (no prompt)
+# Recommended: read the key from the MASSU_API_KEY env var (no shell-history exposure)
+MASSU_API_KEY="$MASSU_KEY" npx massu login
+
+# Alternative: pipe the key in from a secret store
 echo "$MASSU_KEY" | npx massu login
 
-# Or pass it directly (note: this may land in your shell history)
+# Last resort: pass it directly (this lands in your shell history — a warning is printed)
 npx massu login --key ms_live_your_key_here
 ```
+
+`massu login` never blocks in a non-interactive shell: if no key is provided (no `MASSU_API_KEY`, nothing piped, no `--key`) and there is no terminal to prompt, it exits promptly with an actionable message instead of hanging. The stdin read is bounded; on a slow pipe you can raise the bound with `MASSU_LOGIN_STDIN_TIMEOUT_MS` (default `2000`).
 
 `massu login` validates the key online and prints your resolved tier. Add `--no-verify` to skip the online check (useful when offline). To remove the stored key later, run `npx massu logout`.
 

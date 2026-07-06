@@ -21,8 +21,9 @@ import { existsSync, readFileSync, readdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parse as parseYaml } from 'yaml';
-import { getConfig, getResolvedPaths } from '../config.ts';
-import { getCurrentTier, getLicenseInfo, daysUntilExpiry } from '../license.ts';
+import { getConfig, getResolvedPaths, getResolvedApiKeySource } from '../config.ts';
+import { getCurrentTier, getLicenseInfo, type ToolTier, type LicenseValidationOutcome } from '../license.ts';
+import { apiKeySourceLabel, type ApiKeySource } from '../credentials.ts';
 import { readSettingsAtPath } from '../lib/settings-local.ts';
 import { getExpectedHookFiles } from '../lib/hook-registry.ts';
 
@@ -255,29 +256,68 @@ function checkShellHooksWired(_projectRoot: string): CheckResult {
   }
 }
 
-async function checkLicenseStatus(): Promise<CheckResult> {
-  try {
-    const tier = await getCurrentTier();
-    const info = await getLicenseInfo();
+/**
+ * Pure formatter for the License check line (CR-59). Reports the resolved tier
+ * AND the key source, and — critically — distinguishes "no key anywhere" from
+ * "a key IS present but did not validate to a paid tier". The pre-CR-59 code
+ * printed the same Free/no-key line in BOTH cases, hiding the fact that a key
+ * was set (the reproduced dogfooding bug). Exported for unit testing all four
+ * branches without a live license server.
+ */
+export function formatLicenseCheck(input: {
+  source: ApiKeySource;
+  tier: ToolTier;
+  validUntil: string;
+  outcome?: LicenseValidationOutcome;
+}): CheckResult {
+  const { source, tier, validUntil, outcome } = input;
 
-    if (tier === 'free' && !info.validUntil) {
-      return { name: 'License', status: 'pass', detail: 'Free (no API key configured)' };
-    }
+  // No key anywhere → genuinely Free.
+  if (source === 'none') {
+    return { name: 'License', status: 'pass', detail: 'Free (no API key configured)' };
+  }
 
-    const days = await daysUntilExpiry();
-    if (days >= 0 && info.validUntil) {
-      return {
-        name: 'License',
-        status: 'pass',
-        detail: `${tier.charAt(0).toUpperCase() + tier.slice(1)} (valid until ${info.validUntil})`,
-      };
-    }
+  const label = apiKeySourceLabel(source);
 
+  // Key present AND resolved to a paid tier → report tier + source.
+  if (tier !== 'free') {
+    const cap = tier.charAt(0).toUpperCase() + tier.slice(1);
+    const until = validUntil ? `, valid until ${validUntil}` : '';
+    return { name: 'License', status: 'pass', detail: `${cap} (via ${label}${until})` };
+  }
+
+  // Key present but Free. P2-003: a server error / unreachable server is NOT a
+  // Free determination — the tier is UNKNOWN. Never report it as Free.
+  if (outcome === 'server_error') {
     return {
       name: 'License',
-      status: 'pass',
-      detail: `${tier.charAt(0).toUpperCase() + tier.slice(1)} (valid)`,
+      status: 'warn',
+      detail: `Could not validate — license server error (tier UNKNOWN; key present via ${label}). Not a Free downgrade; retries automatically.`,
     };
+  }
+  if (outcome === 'network_error' || outcome === 'no_endpoint') {
+    return {
+      name: 'License',
+      status: 'warn',
+      detail: `Could not reach license server (tier UNKNOWN; key present via ${label}). Not a Free downgrade; retries automatically.`,
+    };
+  }
+
+  // Key present and authoritatively resolved to Free (validated/rejected/cache)
+  // → WARN (do not pretend no key is set; the key may be wrong or unsubscribed).
+  return {
+    name: 'License',
+    status: 'warn',
+    detail: `Free — key present via ${label} but validated to Free (check key / subscription)`,
+  };
+}
+
+async function checkLicenseStatus(): Promise<CheckResult> {
+  try {
+    const source = getResolvedApiKeySource();
+    const tier = await getCurrentTier();
+    const info = await getLicenseInfo();
+    return formatLicenseCheck({ source, tier, validUntil: info.validUntil, outcome: info.outcome });
   } catch (err) {
     return {
       name: 'License',
@@ -285,6 +325,40 @@ async function checkLicenseStatus(): Promise<CheckResult> {
       detail: `Could not check license: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+}
+
+/**
+ * Secrets-hygiene check (CR-59): warn when the API key was resolved from an
+ * explicit `cloud.apiKey` literal in massu.config.yaml AND that file is
+ * git-TRACKED (i.e. the secret is committed). Steers customers toward the
+ * git-safe env / `massu login` paths. Returns `null` (no row) when the key
+ * came from a non-committed source or the tracked-status probe is inconclusive.
+ *
+ * Tracked-status test: `git ls-files --error-unmatch massu.config.yaml`
+ * (exit 0 ⇒ tracked). NOT `git check-ignore`, which tests IGNORE status, not
+ * TRACKED status.
+ */
+async function checkApiKeyHygiene(projectRoot: string): Promise<CheckResult | null> {
+  if (getResolvedApiKeySource() !== 'config') return null;
+  try {
+    const { spawnSync } = await import('child_process');
+    const res = spawnSync('git', ['ls-files', '--error-unmatch', 'massu.config.yaml'], {
+      cwd: projectRoot,
+      timeout: 5000,
+      encoding: 'utf-8',
+    });
+    if (res.status === 0) {
+      return {
+        name: 'API Key Hygiene',
+        status: 'warn',
+        detail:
+          "API key is committed in massu.config.yaml — move it to the MASSU_API_KEY env var or 'massu login' (~/.massu/credentials)",
+      };
+    }
+  } catch {
+    /* non-git / probe error → no false alarm */
+  }
+  return null;
 }
 
 function checkPythonHealth(projectRoot: string): CheckResult | null {
@@ -399,6 +473,10 @@ export async function runDoctor(): Promise<void> {
   // Add Python health check if configured
   const pythonCheck = checkPythonHealth(projectRoot);
   if (pythonCheck) checks.push(pythonCheck);
+
+  // Secrets-hygiene warning if a plaintext key sits in committed config (CR-59)
+  const hygieneCheck = await checkApiKeyHygiene(projectRoot);
+  if (hygieneCheck) checks.push(hygieneCheck);
 
   let passed = 0;
   let failed = 0;

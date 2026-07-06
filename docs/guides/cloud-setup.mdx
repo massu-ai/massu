@@ -30,28 +30,38 @@ This guide walks you through setting up Massu AI Cloud — the optional cloud la
 
 ## Step 3: Configure Local Sync
 
-Add your API key to your environment:
+The recommended, git-safe way to register your key is `massu login`, which stores it in `~/.massu/credentials` (outside every repository) so it is never committed:
 
 ```bash
-export MASSU_CLOUD_API_KEY=your-api-key-here
+npx massu login
 ```
 
-Or add it to your `massu.config.yaml`:
+Alternatively, export it as an environment variable:
+
+```bash
+export MASSU_API_KEY=your-api-key-here
+```
+
+Then enable cloud sync in your `massu.config.yaml`:
 
 ```yaml
 cloud:
   enabled: true
-  apiKey: ${MASSU_CLOUD_API_KEY}
-  syncInterval: 300 # seconds
+  sync:
+    memory: true
+    analytics: true
+    audit: true
 ```
+
+> **Do not put the env var name in the config as a placeholder.** The loader does not expand shell-style `${VAR}` placeholders — a dollar-brace `apiKey` value is stored as literal text, not your key. Provide the key via `massu login` or the `MASSU_API_KEY` env var instead. The cloud endpoint defaults to `https://api.massu.ai/v1`; you only need to set `cloud.endpoint` (or `MASSU_CLOUD_ENDPOINT`) for self-hosted or enterprise deployments.
 
 ## Step 4: Verify the Connection
 
-Run a sync check:
+Confirm your key is picked up and your tier is resolved:
 
 ```bash
-claude /massu-loop
-# Look for: "Cloud sync: connected"
+npx massu doctor
+# Look for the License line, e.g.: "Pro (via ~/.massu/credentials)"
 ```
 
 ## What Gets Synced
@@ -86,4 +96,4 @@ Check your internet connection. Cloud sync requires HTTPS access to `api.massu.a
 
 ### Data not appearing in dashboard
 
-Sync happens at configurable intervals (default: 5 minutes). Wait for the next sync cycle or trigger a manual sync.
+Sync runs automatically in the background as your sessions produce data. Wait for the next sync cycle, then refresh the dashboard.

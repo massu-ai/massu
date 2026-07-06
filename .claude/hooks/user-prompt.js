@@ -4,18 +4,80 @@ import{createRequire as __cr}from"module";const require=__cr(import.meta.url);
 // src/memory-db.ts
 import Database from "better-sqlite3";
 import { dirname as dirname2, basename } from "path";
-import { existsSync as existsSync2, mkdirSync } from "fs";
+import { existsSync as existsSync3, mkdirSync as mkdirSync2 } from "fs";
 
 // src/config.ts
-import { resolve, dirname } from "path";
-import { existsSync, readFileSync } from "fs";
-import { homedir } from "os";
+import { resolve as resolve2, dirname } from "path";
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "fs";
+import { homedir as homedir2 } from "os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
 // src/lib/memory-path.ts
 function encodeMemoryDirName(projectRoot) {
   return projectRoot.replace(/\//g, "-");
+}
+
+// src/credentials.ts
+import { homedir } from "os";
+import { resolve } from "path";
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  chmodSync
+} from "fs";
+var MASSU_ENV_API_KEY = "MASSU_API_KEY";
+var MASSU_ENV_CLOUD_ENDPOINT = "MASSU_CLOUD_ENDPOINT";
+var DEFAULT_CLOUD_ENDPOINT = "https://api.massu.ai/v1";
+function credentialsDir(home = homedir()) {
+  return resolve(home, ".massu");
+}
+function credentialsPath(home = homedir()) {
+  return resolve(credentialsDir(home), "credentials");
+}
+function readUserCredentials(home = homedir()) {
+  try {
+    const p = credentialsPath(home);
+    if (!existsSync(p)) return void 0;
+    const parsed = JSON.parse(readFileSync(p, "utf-8"));
+    const key = typeof parsed?.apiKey === "string" ? parsed.apiKey.trim() : "";
+    return key.length > 0 ? key : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function isUnresolvedLiteral(v) {
+  return /^\$\{[^}]+\}$/.test(v);
+}
+function resolveApiKey(opts = {}) {
+  const env = opts.env ?? process.env;
+  const home = opts.home ?? homedir();
+  const cfg = typeof opts.configApiKey === "string" ? opts.configApiKey.trim() : "";
+  if (cfg.length > 0 && !isUnresolvedLiteral(cfg)) {
+    return { apiKey: cfg, source: "config" };
+  }
+  const envRaw = env[MASSU_ENV_API_KEY];
+  const envKey = typeof envRaw === "string" ? envRaw.trim() : "";
+  if (envKey.length > 0) {
+    return { apiKey: envKey, source: "env" };
+  }
+  const fileKey = readUserCredentials(home);
+  if (fileKey) {
+    return { apiKey: fileKey, source: "user-file" };
+  }
+  return { source: "none" };
+}
+function resolveEndpoint(opts = {}) {
+  const env = opts.env ?? process.env;
+  const cfg = typeof opts.configEndpoint === "string" ? opts.configEndpoint.trim() : "";
+  if (cfg.length > 0) return cfg;
+  const envRaw = env[MASSU_ENV_CLOUD_ENDPOINT];
+  const envEp = typeof envRaw === "string" ? envRaw.trim() : "";
+  if (envEp.length > 0) return envEp;
+  return DEFAULT_CLOUD_ENDPOINT;
 }
 
 // src/config.ts
@@ -400,12 +462,13 @@ var RawConfigSchema = z.object({
   lsp: LSPConfigSchema.optional()
 }).passthrough();
 var _config = null;
+var _resolvedApiKeySource = "none";
 var _projectRoot = null;
 function findProjectRoot() {
   const cwd = process.cwd();
   let dir = cwd;
   while (true) {
-    if (existsSync(resolve(dir, "massu.config.yaml"))) {
+    if (existsSync2(resolve2(dir, "massu.config.yaml"))) {
       return dir;
     }
     const parent = dirname(dir);
@@ -414,10 +477,10 @@ function findProjectRoot() {
   }
   dir = cwd;
   while (true) {
-    if (existsSync(resolve(dir, "package.json"))) {
+    if (existsSync2(resolve2(dir, "package.json"))) {
       return dir;
     }
-    if (existsSync(resolve(dir, ".git"))) {
+    if (existsSync2(resolve2(dir, ".git"))) {
       return dir;
     }
     const parent = dirname(dir);
@@ -435,10 +498,10 @@ function getProjectRoot() {
 function getConfig() {
   if (_config) return _config;
   const root = getProjectRoot();
-  const configPath = resolve(root, "massu.config.yaml");
+  const configPath = resolve2(root, "massu.config.yaml");
   let rawYaml = {};
-  if (existsSync(configPath)) {
-    const content = readFileSync(configPath, "utf-8");
+  if (existsSync2(configPath)) {
+    const content = readFileSync2(configPath, "utf-8");
     rawYaml = parseYaml(content) ?? {};
   }
   const result = RawConfigSchema.safeParse(rawYaml);
@@ -455,7 +518,7 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     );
   }
   const parsed = result.data;
-  const projectRoot = parsed.project.root === "auto" || !parsed.project.root ? root : resolve(root, parsed.project.root);
+  const projectRoot = parsed.project.root === "auto" || !parsed.project.root ? root : resolve2(root, parsed.project.root);
   const fw = parsed.framework;
   let router = fw.router;
   let orm = fw.orm;
@@ -513,13 +576,19 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     telemetry: parsed.telemetry,
     lsp: parsed.lsp
   };
-  if (!_config.cloud?.apiKey && process.env.MASSU_API_KEY) {
+  const resolvedKey = resolveApiKey({ configApiKey: _config.cloud?.apiKey });
+  _resolvedApiKeySource = resolvedKey.source;
+  const resolvedEndpoint = resolveEndpoint({ configEndpoint: _config.cloud?.endpoint });
+  if (resolvedKey.apiKey) {
     _config.cloud = {
       enabled: true,
       sync: { memory: true, analytics: true, audit: true },
       ..._config.cloud,
-      apiKey: process.env.MASSU_API_KEY
+      apiKey: resolvedKey.apiKey,
+      endpoint: resolvedEndpoint
     };
+  } else if (_config.cloud) {
+    _config.cloud = { ..._config.cloud, endpoint: _config.cloud.endpoint ?? resolvedEndpoint };
   }
   return _config;
 }
@@ -528,34 +597,34 @@ function getResolvedPaths() {
   const root = getProjectRoot();
   const claudeDirName = config.conventions?.claudeDirName ?? ".claude";
   return {
-    codegraphDbPath: resolve(root, ".codegraph/codegraph.db"),
-    dataDbPath: resolve(root, ".massu/data.db"),
-    prismaSchemaPath: resolve(root, config.paths.schema ?? "prisma/schema.prisma"),
-    rootRouterPath: resolve(root, config.paths.routerRoot ?? "src/server/api/root.ts"),
-    routersDir: resolve(root, config.paths.routers ?? "src/server/api/routers"),
-    srcDir: resolve(root, config.paths.source),
+    codegraphDbPath: resolve2(root, ".codegraph/codegraph.db"),
+    dataDbPath: resolve2(root, ".massu/data.db"),
+    prismaSchemaPath: resolve2(root, config.paths.schema ?? "prisma/schema.prisma"),
+    rootRouterPath: resolve2(root, config.paths.routerRoot ?? "src/server/api/root.ts"),
+    routersDir: resolve2(root, config.paths.routers ?? "src/server/api/routers"),
+    srcDir: resolve2(root, config.paths.source),
     pathAlias: Object.fromEntries(
       Object.entries(config.paths.aliases).map(([alias, target]) => [
         alias,
-        resolve(root, target)
+        resolve2(root, target)
       ])
     ),
     extensions: [".ts", ".tsx", ".js", ".jsx"],
     indexFiles: ["index.ts", "index.tsx", "index.js", "index.jsx"],
-    patternsDir: resolve(root, claudeDirName, "patterns"),
-    claudeMdPath: resolve(root, claudeDirName, "CLAUDE.md"),
-    docsMapPath: resolve(root, ".massu/docs-map.json"),
-    helpSitePath: resolve(root, "../" + config.project.name + "-help"),
-    memoryDbPath: resolve(root, ".massu/memory.db"),
-    knowledgeDbPath: resolve(root, ".massu/knowledge.db"),
-    plansDir: resolve(root, "docs/plans"),
-    docsDir: resolve(root, "docs"),
-    claudeDir: resolve(root, claudeDirName),
-    memoryDir: resolve(homedir(), claudeDirName, "projects", encodeMemoryDirName(root), "memory"),
-    sessionStatePath: resolve(root, config.conventions?.sessionStatePath ?? `${claudeDirName}/session-state/CURRENT.md`),
-    sessionArchivePath: resolve(root, config.conventions?.sessionArchivePath ?? `${claudeDirName}/session-state/archive`),
-    mcpJsonPath: resolve(root, ".mcp.json"),
-    settingsLocalPath: resolve(root, claudeDirName, "settings.local.json")
+    patternsDir: resolve2(root, claudeDirName, "patterns"),
+    claudeMdPath: resolve2(root, claudeDirName, "CLAUDE.md"),
+    docsMapPath: resolve2(root, ".massu/docs-map.json"),
+    helpSitePath: resolve2(root, "../" + config.project.name + "-help"),
+    memoryDbPath: resolve2(root, ".massu/memory.db"),
+    knowledgeDbPath: resolve2(root, ".massu/knowledge.db"),
+    plansDir: resolve2(root, "docs/plans"),
+    docsDir: resolve2(root, "docs"),
+    claudeDir: resolve2(root, claudeDirName),
+    memoryDir: resolve2(homedir2(), claudeDirName, "projects", encodeMemoryDirName(root), "memory"),
+    sessionStatePath: resolve2(root, config.conventions?.sessionStatePath ?? `${claudeDirName}/session-state/CURRENT.md`),
+    sessionArchivePath: resolve2(root, config.conventions?.sessionArchivePath ?? `${claudeDirName}/session-state/archive`),
+    mcpJsonPath: resolve2(root, ".mcp.json"),
+    settingsLocalPath: resolve2(root, claudeDirName, "settings.local.json")
   };
 }
 
@@ -563,8 +632,8 @@ function getResolvedPaths() {
 function getMemoryDb() {
   const dbPath = getResolvedPaths().memoryDbPath;
   const dir = dirname2(dbPath);
-  if (!existsSync2(dir)) {
-    mkdirSync(dir, { recursive: true });
+  if (!existsSync3(dir)) {
+    mkdirSync2(dir, { recursive: true });
   }
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
@@ -1289,7 +1358,7 @@ function linkSessionToTask(db, sessionId, taskId) {
 }
 
 // src/hooks/user-prompt.ts
-import { existsSync as existsSync3, mkdirSync as mkdirSync2, writeFileSync, readFileSync as readFileSync2, readdirSync, openSync, fstatSync, readSync, closeSync } from "fs";
+import { existsSync as existsSync4, mkdirSync as mkdirSync3, writeFileSync as writeFileSync2, readFileSync as readFileSync3, readdirSync, openSync, fstatSync, readSync, closeSync } from "fs";
 import { join } from "path";
 
 // src/rule-candidate-detector.ts
@@ -1625,7 +1694,7 @@ async function main() {
         const fileRefs = extractFileReferences(prompt);
         if (fileRefs.length > 0) {
           const knowledgeDbPath = getResolvedPaths().knowledgeDbPath;
-          if (knowledgeDbPath && existsSync3(knowledgeDbPath)) {
+          if (knowledgeDbPath && existsSync4(knowledgeDbPath)) {
             const BetterSqlite3Ctor = (await import("better-sqlite3")).default;
             const kdb = new BetterSqlite3Ctor(knowledgeDbPath, { readonly: true });
             try {
@@ -1683,11 +1752,11 @@ async function main() {
         if (scoreResult.emitCandidate) {
           const cachedTier = getCachedTierReadOnly(db);
           if (entitledForAutoLearning(cachedTier)) {
-            mkdirSync2(candidateDir, { recursive: true });
+            mkdirSync3(candidateDir, { recursive: true });
             const promptHash = hashPrompt(prompt);
             const candidatePath = join(candidateDir, `${promptHash}.json`);
-            if (!existsSync3(candidatePath)) {
-              writeFileSync(candidatePath, JSON.stringify({
+            if (!existsSync4(candidatePath)) {
+              writeFileSync2(candidatePath, JSON.stringify({
                 prompt,
                 prompt_hash: promptHash,
                 score: scoreResult.score,
@@ -1711,27 +1780,27 @@ async function main() {
             }
           } else {
             const nudgePath = join(candidateDir, ".last-tier-nudge");
-            if (!existsSync3(nudgePath)) {
-              mkdirSync2(candidateDir, { recursive: true });
+            if (!existsSync4(nudgePath)) {
+              mkdirSync3(candidateDir, { recursive: true });
               process.stderr.write(
                 `
 [RULE CANDIDATE] ${autoLearningUpgradeMessage(cachedTier)}
 
 `
               );
-              writeFileSync(nudgePath, (/* @__PURE__ */ new Date()).toISOString());
+              writeFileSync2(nudgePath, (/* @__PURE__ */ new Date()).toISOString());
             }
           }
         }
-        if (existsSync3(candidateDir)) {
+        if (existsSync4(candidateDir)) {
           const candidates = readdirSync(candidateDir).filter(
             (f) => f.endsWith(".json") && !f.startsWith(".")
           );
           const candidateCount = candidates.length;
           const surfacedPath = join(candidateDir, ".last-surfaced");
           let lastSurfaced = 0;
-          if (existsSync3(surfacedPath)) {
-            const raw = readFileSync2(surfacedPath, "utf-8").trim();
+          if (existsSync4(surfacedPath)) {
+            const raw = readFileSync3(surfacedPath, "utf-8").trim();
             const parsed = parseInt(raw, 10);
             if (!Number.isNaN(parsed)) lastSurfaced = parsed;
           }
@@ -1742,17 +1811,17 @@ async function main() {
 
 `
             );
-            writeFileSync(surfacedPath, String(candidateCount));
+            writeFileSync2(surfacedPath, String(candidateCount));
           }
         }
       } catch (candidateErr) {
         try {
           const dir = join(hookInput.cwd, ".massu", "rule-candidates");
-          if (!existsSync3(dir)) mkdirSync2(dir, { recursive: true });
+          if (!existsSync4(dir)) mkdirSync3(dir, { recursive: true });
           const logPath = join(dir, ".detector-failures.jsonl");
-          const pre = existsSync3(logPath) ? readFileSync2(logPath, "utf-8") : "";
+          const pre = existsSync4(logPath) ? readFileSync3(logPath, "utf-8") : "";
           const sep = pre && !pre.endsWith("\n") ? "\n" : "";
-          writeFileSync(logPath, pre + sep + JSON.stringify({
+          writeFileSync2(logPath, pre + sep + JSON.stringify({
             session_id,
             // Security review (plan-2026-05-27): log the prompt HASH, never a
             // raw prompt excerpt — the failure log must not persist PII/secrets.
@@ -1772,7 +1841,7 @@ async function main() {
 }
 function detectPriorAssistantTurn(transcriptPath) {
   try {
-    if (!transcriptPath || !existsSync3(transcriptPath)) {
+    if (!transcriptPath || !existsSync4(transcriptPath)) {
       return { hadEditOrWrite: false, files: [] };
     }
     if (!transcriptPath.includes("/.claude/projects/")) {
@@ -1860,14 +1929,14 @@ async function getGitBranch() {
   }
 }
 function readStdin() {
-  return new Promise((resolve3) => {
+  return new Promise((resolve4) => {
     let data = "";
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (chunk) => {
       data += chunk;
     });
-    process.stdin.on("end", () => resolve3(data));
-    setTimeout(() => resolve3(data), 3e3);
+    process.stdin.on("end", () => resolve4(data));
+    setTimeout(() => resolve4(data), 3e3);
   });
 }
 main();

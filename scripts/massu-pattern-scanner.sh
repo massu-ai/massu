@@ -1557,6 +1557,49 @@ if [ "$CHECK38_VIOLATIONS" -eq 0 ]; then
 fi
 
 # -------------------------------------------------------
+# Check 39: Single API-key resolver + leak-safe default endpoint (CR-59).
+# -------------------------------------------------------
+# The API key + cloud endpoint are resolved by ONE module (credentials.ts).
+# A second ad-hoc env read is exactly how runtime and `doctor` diverged
+# (dogfooding incident 2026-07-05: key set but tier still Free). The default
+# endpoint must be a branded api.massu.ai host with NO Supabase project ref so
+# it passes the public-content leak-guard. Grep-level mirror of the vitest
+# drift-guard api-key-resolution-drift-guard.test.ts.
+# -------------------------------------------------------
+echo ""
+echo "Check 39: Single API-key resolver + leak-safe default endpoint (CR-59)"
+CHECK39_VIOLATIONS=0
+CORE_SRC39="$REPO_ROOT/packages/core/src"
+CREDS39="$CORE_SRC39/credentials.ts"
+if [ -d "$CORE_SRC39" ]; then
+  # (a) Only credentials.ts may read the API-key / endpoint env vars directly.
+  ENV_OFFENDERS="$(grep -rlE 'process\.env\.MASSU_API_KEY|process\.env\.MASSU_CLOUD_ENDPOINT' "$CORE_SRC39" --include='*.ts' 2>/dev/null | grep -v '__tests__' | grep -v 'credentials\.ts' || true)"
+  if [ -n "$ENV_OFFENDERS" ]; then
+    fail "Check 39: direct MASSU_API_KEY/MASSU_CLOUD_ENDPOINT env read outside credentials.ts: $ENV_OFFENDERS"
+    CHECK39_VIOLATIONS=$((CHECK39_VIOLATIONS + 1))
+  fi
+  # (b) No Supabase project-ref URL may ship in the public core package.
+  SUPA_OFFENDERS="$(grep -rlE '[a-z0-9]{20}\.supabase\.co' "$CORE_SRC39" --include='*.ts' 2>/dev/null | grep -v '__tests__' || true)"
+  if [ -n "$SUPA_OFFENDERS" ]; then
+    fail "Check 39: Supabase project-ref URL leaks to the public core package: $SUPA_OFFENDERS"
+    CHECK39_VIOLATIONS=$((CHECK39_VIOLATIONS + 1))
+  fi
+  # (c) The default endpoint must be the branded api.massu.ai host.
+  if [ -f "$CREDS39" ]; then
+    if ! grep -qE "DEFAULT_CLOUD_ENDPOINT[[:space:]]*=[[:space:]]*'https://api\.massu\.ai/" "$CREDS39"; then
+      fail "Check 39: DEFAULT_CLOUD_ENDPOINT in credentials.ts must be the branded https://api.massu.ai/ host"
+      CHECK39_VIOLATIONS=$((CHECK39_VIOLATIONS + 1))
+    fi
+  else
+    fail "Check 39: packages/core/src/credentials.ts is missing (single-resolver SoT)"
+    CHECK39_VIOLATIONS=$((CHECK39_VIOLATIONS + 1))
+  fi
+fi
+if [ "$CHECK39_VIOLATIONS" -eq 0 ]; then
+  pass "Check 39: single API-key resolver + leak-safe default endpoint (CR-59)"
+fi
+
+# -------------------------------------------------------
 # Summary
 # -------------------------------------------------------
 echo ""

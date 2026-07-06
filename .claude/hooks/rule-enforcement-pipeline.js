@@ -2,14 +2,78 @@
 import{createRequire as __cr}from"module";const require=__cr(import.meta.url);
 
 // src/hooks/rule-enforcement-pipeline.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2, readdirSync } from "fs";
-import { basename, resolve as resolve2 } from "path";
+import { existsSync as existsSync3, readFileSync as readFileSync3, readdirSync } from "fs";
+import { basename, resolve as resolve3 } from "path";
 
 // src/config.ts
-import { resolve, dirname } from "path";
-import { existsSync, readFileSync } from "fs";
+import { resolve as resolve2, dirname } from "path";
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "fs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+
+// src/credentials.ts
+import { homedir } from "os";
+import { resolve } from "path";
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  chmodSync
+} from "fs";
+var MASSU_ENV_API_KEY = "MASSU_API_KEY";
+var MASSU_ENV_CLOUD_ENDPOINT = "MASSU_CLOUD_ENDPOINT";
+var DEFAULT_CLOUD_ENDPOINT = "https://api.massu.ai/v1";
+function credentialsDir(home = homedir()) {
+  return resolve(home, ".massu");
+}
+function credentialsPath(home = homedir()) {
+  return resolve(credentialsDir(home), "credentials");
+}
+function readUserCredentials(home = homedir()) {
+  try {
+    const p = credentialsPath(home);
+    if (!existsSync(p)) return void 0;
+    const parsed = JSON.parse(readFileSync(p, "utf-8"));
+    const key = typeof parsed?.apiKey === "string" ? parsed.apiKey.trim() : "";
+    return key.length > 0 ? key : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function isUnresolvedLiteral(v) {
+  return /^\$\{[^}]+\}$/.test(v);
+}
+function resolveApiKey(opts = {}) {
+  const env = opts.env ?? process.env;
+  const home = opts.home ?? homedir();
+  const cfg = typeof opts.configApiKey === "string" ? opts.configApiKey.trim() : "";
+  if (cfg.length > 0 && !isUnresolvedLiteral(cfg)) {
+    return { apiKey: cfg, source: "config" };
+  }
+  const envRaw = env[MASSU_ENV_API_KEY];
+  const envKey = typeof envRaw === "string" ? envRaw.trim() : "";
+  if (envKey.length > 0) {
+    return { apiKey: envKey, source: "env" };
+  }
+  const fileKey = readUserCredentials(home);
+  if (fileKey) {
+    return { apiKey: fileKey, source: "user-file" };
+  }
+  return { source: "none" };
+}
+function resolveEndpoint(opts = {}) {
+  const env = opts.env ?? process.env;
+  const cfg = typeof opts.configEndpoint === "string" ? opts.configEndpoint.trim() : "";
+  if (cfg.length > 0) return cfg;
+  const envRaw = env[MASSU_ENV_CLOUD_ENDPOINT];
+  const envEp = typeof envRaw === "string" ? envRaw.trim() : "";
+  if (envEp.length > 0) return envEp;
+  return DEFAULT_CLOUD_ENDPOINT;
+}
+
+// src/config.ts
 var DomainConfigSchema = z.object({
   name: z.string().default("Unknown"),
   routers: z.array(z.string()).default([]),
@@ -391,12 +455,13 @@ var RawConfigSchema = z.object({
   lsp: LSPConfigSchema.optional()
 }).passthrough();
 var _config = null;
+var _resolvedApiKeySource = "none";
 var _projectRoot = null;
 function findProjectRoot() {
   const cwd = process.cwd();
   let dir = cwd;
   while (true) {
-    if (existsSync(resolve(dir, "massu.config.yaml"))) {
+    if (existsSync2(resolve2(dir, "massu.config.yaml"))) {
       return dir;
     }
     const parent = dirname(dir);
@@ -405,10 +470,10 @@ function findProjectRoot() {
   }
   dir = cwd;
   while (true) {
-    if (existsSync(resolve(dir, "package.json"))) {
+    if (existsSync2(resolve2(dir, "package.json"))) {
       return dir;
     }
-    if (existsSync(resolve(dir, ".git"))) {
+    if (existsSync2(resolve2(dir, ".git"))) {
       return dir;
     }
     const parent = dirname(dir);
@@ -426,10 +491,10 @@ function getProjectRoot() {
 function getConfig() {
   if (_config) return _config;
   const root = getProjectRoot();
-  const configPath = resolve(root, "massu.config.yaml");
+  const configPath = resolve2(root, "massu.config.yaml");
   let rawYaml = {};
-  if (existsSync(configPath)) {
-    const content = readFileSync(configPath, "utf-8");
+  if (existsSync2(configPath)) {
+    const content = readFileSync2(configPath, "utf-8");
     rawYaml = parseYaml(content) ?? {};
   }
   const result = RawConfigSchema.safeParse(rawYaml);
@@ -446,7 +511,7 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     );
   }
   const parsed = result.data;
-  const projectRoot = parsed.project.root === "auto" || !parsed.project.root ? root : resolve(root, parsed.project.root);
+  const projectRoot = parsed.project.root === "auto" || !parsed.project.root ? root : resolve2(root, parsed.project.root);
   const fw = parsed.framework;
   let router = fw.router;
   let orm = fw.orm;
@@ -504,13 +569,19 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     telemetry: parsed.telemetry,
     lsp: parsed.lsp
   };
-  if (!_config.cloud?.apiKey && process.env.MASSU_API_KEY) {
+  const resolvedKey = resolveApiKey({ configApiKey: _config.cloud?.apiKey });
+  _resolvedApiKeySource = resolvedKey.source;
+  const resolvedEndpoint = resolveEndpoint({ configEndpoint: _config.cloud?.endpoint });
+  if (resolvedKey.apiKey) {
     _config.cloud = {
       enabled: true,
       sync: { memory: true, analytics: true, audit: true },
       ..._config.cloud,
-      apiKey: process.env.MASSU_API_KEY
+      apiKey: resolvedKey.apiKey,
+      endpoint: resolvedEndpoint
     };
+  } else if (_config.cloud) {
+    _config.cloud = { ..._config.cloud, endpoint: _config.cloud.endpoint ?? resolvedEndpoint };
   }
   return _config;
 }
@@ -549,7 +620,7 @@ async function main() {
       process.exit(0);
       return;
     }
-    if (!existsSync2(filePath)) {
+    if (!existsSync3(filePath)) {
       process.exit(0);
       return;
     }
@@ -557,18 +628,18 @@ async function main() {
       process.exit(0);
       return;
     }
-    const content = readFileSync2(filePath, "utf-8");
+    const content = readFileSync3(filePath, "utf-8");
     const nameMatch = content.match(/^name:\s*(.+)/m);
     const descMatch = content.match(/^description:\s*(.+)/m);
     const ruleName = nameMatch?.[1]?.trim() ?? fileName;
     const ruleDesc = descMatch?.[1]?.trim() ?? "";
-    const enforcementDirAbs = resolve2(root, enforcementDir);
+    const enforcementDirAbs = resolve3(root, enforcementDir);
     let hasEnforcement = false;
-    if (existsSync2(enforcementDirAbs)) {
+    if (existsSync3(enforcementDirAbs)) {
       const hookFiles = readdirSync(enforcementDirAbs).filter((f) => f.endsWith(".sh") || f.endsWith(".ts") || f.endsWith(".js"));
       for (const hookFile of hookFiles) {
         try {
-          const hookContent = readFileSync2(resolve2(enforcementDirAbs, hookFile), "utf-8");
+          const hookContent = readFileSync3(resolve3(enforcementDirAbs, hookFile), "utf-8");
           if (hookContent.includes(fileName)) {
             hasEnforcement = true;
             break;
@@ -624,14 +695,14 @@ async function main() {
   process.exit(0);
 }
 function readStdin() {
-  return new Promise((resolve3) => {
+  return new Promise((resolve4) => {
     let data = "";
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (chunk) => {
       data += chunk;
     });
-    process.stdin.on("end", () => resolve3(data));
-    setTimeout(() => resolve3(data), 3e3);
+    process.stdin.on("end", () => resolve4(data));
+    setTimeout(() => resolve4(data), 3e3);
   });
 }
 main();

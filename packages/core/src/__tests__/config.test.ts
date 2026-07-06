@@ -28,15 +28,34 @@ function writeConfig(yaml: string) {
 
 describe('Core Config Functions', () => {
   const originalCwd = process.cwd();
+  // CR-59 made getConfig() inject `cloud` whenever an API key resolves, and
+  // resolveApiKey() reads MASSU_API_KEY / MASSU_CLOUD_ENDPOINT env + the
+  // user-level ~/.massu/credentials file. These config tests assert what the
+  // WRITTEN YAML produces, so they must be hermetic: neutralize the ambient
+  // key sources, otherwise a developer machine that has run `massu login`
+  // (a real ~/.massu/credentials) sees `cloud` defined and the "no cloud"
+  // cases fail. HOME is pointed at the empty TEST_DIR so no credentials file
+  // is found (homedir() honours $HOME on POSIX).
+  const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
     resetConfig();
+    for (const k of ['HOME', 'MASSU_API_KEY', 'MASSU_CLOUD_ENDPOINT'] as const) {
+      savedEnv[k] = process.env[k];
+    }
+    delete process.env.MASSU_API_KEY;
+    delete process.env.MASSU_CLOUD_ENDPOINT;
     if (!existsSync(TEST_DIR)) mkdirSync(TEST_DIR, { recursive: true });
     process.chdir(TEST_DIR);
+    process.env.HOME = TEST_DIR; // no ~/.massu/credentials under the scratch dir
   });
 
   afterEach(() => {
     process.chdir(originalCwd);
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
     resetConfig();
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true, force: true });
   });

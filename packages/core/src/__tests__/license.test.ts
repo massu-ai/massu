@@ -353,6 +353,89 @@ describe('P3-025: validateLicense()', () => {
 });
 
 // ============================================================
+// P2-003 (plan-2026-07-06-validate-key-deploy-drift): validateLicense()
+// outcome discriminator — distinguishes an authoritative Free from a
+// could-not-validate fallback (the masking that hid the validate-key 500).
+// ============================================================
+
+describe('P2-003: validateLicense() outcome discriminator', () => {
+  const apiKey = 'ms_live_outcome_test_key';
+
+  beforeEach(() => {
+    mockCloudConfig = { enabled: true, apiKey, endpoint: 'https://api.massu.ai/v1' };
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('server 200 + valid:true → outcome "validated" with the reported tier', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ valid: true, tier: 'enterprise', validUntil: '2027-01-01', features: [] }),
+    })));
+    const result = await validateLicense(apiKey);
+    expect(result.tier).toBe('enterprise');
+    expect(result.outcome).toBe('validated');
+  });
+
+  it('server 200 + valid:false → outcome "rejected" (authoritative Free)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ valid: false, reason: 'Invalid key' }),
+    })));
+    const result = await validateLicense(apiKey);
+    expect(result.tier).toBe('free');
+    expect(result.outcome).toBe('rejected');
+  });
+
+  it('server 500 (non-OK) with NO cache → outcome "server_error", tier UNKNOWN not Free downgrade', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({ valid: false, reason: 'Internal error' }),
+    })));
+    const result = await validateLicense(apiKey);
+    expect(result.tier).toBe('free');
+    expect(result.outcome).toBe('server_error');
+  });
+
+  it('fetch throws (network failure) with NO cache → outcome "network_error"', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('ECONNREFUSED'); }));
+    const result = await validateLicense(apiKey);
+    expect(result.tier).toBe('free');
+    expect(result.outcome).toBe('network_error');
+  });
+
+  it('no endpoint configured → outcome "no_endpoint"', async () => {
+    mockCloudConfig = { enabled: true, apiKey, endpoint: undefined };
+    const result = await validateLicense(apiKey);
+    expect(result.tier).toBe('free');
+    expect(result.outcome).toBe('no_endpoint');
+  });
+
+  it('server 500 but a WITHIN-GRACE signed cache exists → grace tier wins, outcome "grace"', async () => {
+    insertCache(testDb, apiKey, 'team', '2027-06-01', daysAgo(2), ['sentinel']);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })));
+    const result = await validateLicense(apiKey);
+    expect(result.tier).toBe('team');
+    expect(result.outcome).toBe('grace');
+  });
+
+  it('fresh (<1h) cache short-circuits before any network call → outcome "cache_fresh"', async () => {
+    insertCache(testDb, apiKey, 'pro', '2027-01-01', hoursAgo(0.5), ['knowledge']);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const result = await validateLicense(apiKey);
+    expect(result.tier).toBe('pro');
+    expect(result.outcome).toBe('cache_fresh');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================
 // P3-025 (supplement): updateLicenseCache()
 // ============================================================
 

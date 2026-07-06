@@ -16,6 +16,7 @@ import { homedir } from 'os';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { encodeMemoryDirName } from './lib/memory-path.ts';
+import { resolveApiKey, resolveEndpoint, type ApiKeySource } from './credentials.ts';
 
 // ============================================================
 // Massu Configuration — Zod Schemas & Types
@@ -596,6 +597,8 @@ export interface Config {
 }
 
 let _config: Config | null = null;
+/** Source of the API key resolved during the last getConfig() build (CR-59). */
+let _resolvedApiKeySource: ApiKeySource = 'none';
 let _projectRoot: string | null = null;
 
 /**
@@ -749,17 +752,47 @@ export function getConfig(): Config {
     lsp: parsed.lsp,
   };
 
-  // Allow environment variable override for API key (security best practice)
-  if (!_config.cloud?.apiKey && process.env.MASSU_API_KEY) {
+  // CR-59: resolve the cloud API key + endpoint through the SINGLE resolver
+  // (credentials.ts). Precedence: config.cloud.apiKey > MASSU_API_KEY env >
+  // ~/.massu/credentials. This is the ONLY place the resolved key/endpoint are
+  // injected into config; every downstream reader (license validation,
+  // cloud-sync, team-rule-sync, doctor) consumes the populated
+  // `_config.cloud`. No other module reads MASSU_API_KEY / MASSU_CLOUD_ENDPOINT
+  // or the credentials file directly — that invariant is drift-guarded.
+  const resolvedKey = resolveApiKey({ configApiKey: _config.cloud?.apiKey });
+  _resolvedApiKeySource = resolvedKey.source;
+  const resolvedEndpoint = resolveEndpoint({ configEndpoint: _config.cloud?.endpoint });
+  if (resolvedKey.apiKey) {
+    // A key is present (from any source) — expose a fully-formed cloud block so
+    // validateLicense() and syncToCloud() can reach the branded default
+    // endpoint even when the workspace set no `cloud.endpoint`. `enabled: true`
+    // MUST be preserved so cloud-sync (which gates on `cloud.enabled`) runs.
     _config.cloud = {
       enabled: true,
       sync: { memory: true, analytics: true, audit: true },
       ..._config.cloud,
-      apiKey: process.env.MASSU_API_KEY,
+      apiKey: resolvedKey.apiKey,
+      endpoint: resolvedEndpoint,
     };
+  } else if (_config.cloud) {
+    // No key, but a cloud block exists — still normalize the endpoint so any
+    // cloud-enabled workspace has a reachable default.
+    _config.cloud = { ..._config.cloud, endpoint: _config.cloud.endpoint ?? resolvedEndpoint };
   }
 
   return _config;
+}
+
+/**
+ * The source of the API key resolved during the last {@link getConfig} build:
+ * `'config'` (explicit cloud.apiKey), `'env'` (MASSU_API_KEY), `'user-file'`
+ * (~/.massu/credentials), or `'none'`. Used by `massu doctor` to report where
+ * the key came from and to warn when a plaintext key sits in committed config.
+ * Calls {@link getConfig} first so the value reflects the current config.
+ */
+export function getResolvedApiKeySource(): ApiKeySource {
+  getConfig();
+  return _resolvedApiKeySource;
 }
 
 /**
@@ -809,4 +842,5 @@ export function getResolvedPaths() {
 export function resetConfig(): void {
   _config = null;
   _projectRoot = null;
+  _resolvedApiKeySource = 'none';
 }

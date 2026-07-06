@@ -18,7 +18,7 @@ vi.mock('../config.ts', () => ({
     cloud: {
       enabled: true,
       apiKey: 'ms_live_test_key_12345',
-      endpoint: 'https://test.supabase.co/functions/v1/sync',
+      endpoint: 'https://test.supabase.co/functions/v1',
       sync: { memory: true, analytics: true, audit: true },
     },
     toolPrefix: 'massu',
@@ -185,7 +185,7 @@ describe('cloud-sync', () => {
         cloud: {
           enabled: true,
           apiKey: 'ms_live_key',
-          endpoint: 'https://test.supabase.co/functions/v1/sync',
+          endpoint: 'https://test.supabase.co/functions/v1',
           sync: { memory: true, analytics: false, audit: false },
         },
         toolPrefix: 'massu',

@@ -385,8 +385,8 @@ Cloud sync settings for connecting to Massu AI Cloud. Requires a paid subscripti
 ```yaml
 cloud:
   enabled: true
-  apiKey: "ms_live_your_key_here"
-  endpoint: "https://your-project.supabase.co/functions/v1/sync"
+  # apiKey is optional here — the git-safe paths below are preferred
+  endpoint: "https://api.massu.ai/v1"   # optional; this is the default
   sync:
     memory: true
     analytics: true
@@ -396,11 +396,19 @@ cloud:
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `enabled` | boolean | `false` | Enable cloud sync |
-| `apiKey` | string | - | Your Massu AI API key (starts with `ms_live_`) |
-| `endpoint` | string | - | Cloud sync endpoint URL |
+| `apiKey` | string | - | Your Massu AI API key (starts with `ms_live_`). Optional — see the key-precedence note below |
+| `endpoint` | string | `https://api.massu.ai/v1` | Cloud API endpoint. Leave unset to use the default; override only for self-hosted / enterprise deployments |
 | `sync.memory` | boolean | `true` | Sync memory observations |
 | `sync.analytics` | boolean | `true` | Sync quality and cost analytics |
 | `sync.audit` | boolean | `true` | Sync audit trail entries |
+
+**Where to put your key (precedence).** Your API key is resolved from the first available source in this fixed order:
+
+1. `cloud.apiKey` in this file
+2. the `MASSU_API_KEY` environment variable
+3. the `~/.massu/credentials` user-level file (written by `massu login`)
+
+The **recommended, git-safe** path is `massu login` (stores the key in `~/.massu/credentials`, outside every repository) or the `MASSU_API_KEY` environment variable — both keep the secret out of your committed config. Only set `cloud.apiKey` directly if you understand the risk of a key sitting in a file that may be committed. Note the config loader does **not** expand shell-style `${VAR}` placeholders, so writing the env var name in dollar-brace form as the `apiKey` value stores that literal text rather than your key — use the env var or `massu login` instead.
 
 For step-by-step setup instructions, see [API Key Setup](/docs/getting-started/api-keys). For details on what each tier unlocks, see [License and Tiers](/docs/reference/license-tiers).
 
@@ -410,6 +418,8 @@ Massu AI respects these environment variables:
 
 | Variable | Description |
 |----------|-------------|
+| `MASSU_API_KEY` | Your Massu AI cloud API key (git-safe alternative to `cloud.apiKey`). Takes precedence over the `~/.massu/credentials` file but not over an explicit `cloud.apiKey` |
+| `MASSU_CLOUD_ENDPOINT` | Override the cloud API endpoint (default `https://api.massu.ai/v1`); for self-hosted / enterprise deployments |
 | `MASSU_CONFIG` | Custom path to config file |
 | `MASSU_DB_DIR` | Custom directory for databases |
 | `MASSU_LOG_LEVEL` | Logging level (debug, info, warn, error) |

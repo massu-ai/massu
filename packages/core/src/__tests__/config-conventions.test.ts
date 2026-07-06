@@ -4,9 +4,15 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import { tmpdir } from 'os';
 import { getConfig, getResolvedPaths, resetConfig } from '../config.ts';
 
-const TEST_DIR = resolve(__dirname, '../test-config-conventions-tmp');
+// Scratch dir lives under os.tmpdir(), NEVER inside packages/core/src/. A
+// source-tree scratch dir races with the tests + scanners that recursively
+// glob packages/core/src/** in parallel (e.g. api-key-resolution-drift-guard):
+// they can readdirSync this dir the instant afterEach removes it → ENOENT
+// crash. (Same rationale as config.test.ts.)
+const TEST_DIR = resolve(tmpdir(), 'massu-config-conventions-test-' + Math.random().toString(36).slice(2));
 const CONFIG_PATH = resolve(TEST_DIR, 'massu.config.yaml');
 
 function writeConfig(yaml: string) {

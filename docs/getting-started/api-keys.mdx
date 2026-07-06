@@ -17,9 +17,45 @@ Massu AI works fully offline with 12 free-tier tools. To unlock additional tools
 
 Your key will look like `ms_live_abc123...`. Keep it secure and never commit it to version control.
 
-## Step 2: Add the Key to Your Config
+## Step 2: Provide Your Key
 
-Add the key to the `cloud` section of your `massu.config.yaml`:
+There are three ways to make your key available to Massu AI. Pick the first one that fits — they are listed from safest to least safe. The recommended path never puts your key anywhere near a git repository.
+
+### Option A — `massu login` (recommended, git-safe)
+
+Run `massu login` and paste your key at the hidden prompt:
+
+```bash
+npx massu login
+```
+
+This stores the key in a user-level file at `~/.massu/credentials` (file permissions `0600`), which lives in your home directory **outside every repository** — so it can never be committed by accident. You set your key **once** and every project on your machine picks it up automatically.
+
+For scripting or CI, you can pipe the key in or pass it as a flag:
+
+```bash
+# Pipe from a secret store (no prompt)
+echo "$MASSU_KEY" | npx massu login
+
+# Or pass it directly (note: this may land in your shell history)
+npx massu login --key ms_live_your_key_here
+```
+
+`massu login` validates the key online and prints your resolved tier. Add `--no-verify` to skip the online check (useful when offline). To remove the stored key later, run `npx massu logout`.
+
+### Option B — `MASSU_API_KEY` environment variable
+
+Export the key as an environment variable (for example in your shell profile or your CI secrets):
+
+```bash
+export MASSU_API_KEY="ms_live_your_key_here"
+```
+
+The variable name is `MASSU_API_KEY`. Because the key stays in your environment and never touches a file in your project, this path is also git-safe.
+
+### Option C — explicit `cloud.apiKey` in `massu.config.yaml`
+
+Only use this if you understand the git risk — a key written here becomes plain text inside `massu.config.yaml`, and if that file is committed, your key is exposed.
 
 ```yaml
 cloud:
@@ -27,38 +63,43 @@ cloud:
   apiKey: "ms_live_your_key_here"
 ```
 
-Alternatively, use an environment variable to avoid storing the key in a file:
+> **Do not try to reference an environment variable from YAML.** The config loader does **not** expand shell-style `${VAR}` placeholders — writing the env var name in dollar-brace form as the `apiKey` value stores that literal text, not your key. If you want to keep the key out of the file, use Option A (`massu login`) or Option B (the `MASSU_API_KEY` env var) instead.
 
-```bash
-export MASSU_CLOUD_API_KEY="ms_live_your_key_here"
-```
+### Precedence
 
-And reference it in your config:
+When a key is available from more than one source, Massu AI resolves it in this fixed order — the first match wins:
 
-```yaml
-cloud:
-  enabled: true
-  apiKey: ${MASSU_CLOUD_API_KEY}
-```
-
-> **Security note:** If your `massu.config.yaml` is committed to version control, always use the environment variable approach. Never commit API keys to a repository.
+| Priority | Source | How to set it |
+|----------|--------|---------------|
+| 1 (highest) | `cloud.apiKey` in `massu.config.yaml` | Option C above |
+| 2 | `MASSU_API_KEY` environment variable | Option B above |
+| 3 | `~/.massu/credentials` user-level file | Option A (`massu login`) |
+| 4 (none) | No key configured → Free tier | — |
 
 ## Step 3: Verify With massu doctor
 
-Run the health check to confirm your key is valid:
+Run the health check to confirm your key is picked up and which source it came from:
 
 ```bash
 npx massu doctor
 ```
 
-You should see output including:
+The **License** line reports your resolved tier **and** the source of the key, so you can confirm the right key is being used:
 
 ```
-License: Pro (valid until 2027-03-15)
-Cloud sync: connected
+  ✓ License              Enterprise (via MASSU_API_KEY env)
 ```
 
-If the license shows as Free despite having a key, check that the key is correct and your subscription is active.
+Other examples of what the License line can show:
+
+- `Enterprise (via MASSU_API_KEY env)` — key came from the environment variable
+- `Pro (via ~/.massu/credentials, valid until 2027-03-15)` — key came from `massu login`
+- `Enterprise (via explicit cloud.apiKey)` — key came from `massu.config.yaml`
+- `Free (no API key configured)` — no key found anywhere
+
+If `doctor` finds a plaintext key committed inside `massu.config.yaml`, it adds an **API Key Hygiene** warning telling you to move the key to the `MASSU_API_KEY` env var or `massu login`.
+
+If the license shows as Free despite having set a key, check that the key is correct, that it is being read from the source you expect (the `via ...` label tells you), and that your subscription is active.
 
 ## Step 4: Check Your Current Tier
 
@@ -85,9 +126,14 @@ For a complete tool-by-tool breakdown, see the [License and Tiers](/docs/referen
 
 ### "License: Free" despite having a key
 
+- Run `npx massu doctor` and read the `via ...` label on the License line — it tells you which source the key was actually read from (or `no API key configured` if none was found)
 - Verify the key starts with `ms_live_`
 - Check that `cloud.enabled` is set to `true` in your config
 - Confirm your subscription is active at [massu.ai/dashboard](https://massu.ai/dashboard)
+
+### "API Key Hygiene" warning from massu doctor
+
+If `npx massu doctor` shows an **API Key Hygiene** warning, it detected a plaintext API key written into a `massu.config.yaml` that is tracked by git — meaning the secret is (or will be) committed. Move the key to the `MASSU_API_KEY` environment variable or run `massu login` (which stores it in `~/.massu/credentials`, outside every repository), then remove the `apiKey` line from your config.
 
 ### Key validation fails offline
 
@@ -96,6 +142,6 @@ Massu AI caches your license locally for up to 7 days. If you lose internet acce
 ### Rotating your API key
 
 1. Generate a new key from the dashboard
-2. Update your config or environment variable
-3. Run `npx massu doctor` to verify the new key
+2. Update wherever your key lives — re-run `massu login` with the new key, update the `MASSU_API_KEY` env var, or replace the `cloud.apiKey` value in your config
+3. Run `npx massu doctor` to verify the new key (check the tier and the `via ...` source label)
 4. Revoke the old key from the dashboard

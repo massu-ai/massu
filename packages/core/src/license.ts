@@ -299,10 +299,37 @@ export function isCloudFeatureAvailable(): boolean {
 // P3-005/P3-006/P3-007/P3-013: License validation & caching
 // ============================================================
 
+/**
+ * P2-003 (plan-2026-07-06-validate-key-deploy-drift): how a tier resolution
+ * was reached. Distinguishes an AUTHORITATIVE Free ('rejected'/'validated'
+ * with a free plan) from a NON-authoritative fallback to Free caused by the
+ * server erroring, being unreachable, or no endpoint/key configured. Before
+ * this field, {@link validateLicense} collapsed all of these into
+ * `{tier:'free'}`, so `doctor`/`login` printed "you are on Free" even when the
+ * license server had 500'd — the exact masking that hid the 2026-07-06
+ * validate-key deploy-drift outage. Callers MUST treat a 'free' tier with a
+ * *_error / no_endpoint outcome as "tier UNKNOWN", never as a Free downgrade.
+ */
+export type LicenseValidationOutcome =
+  | 'validated'      // server 200 + valid:true — tier is authoritative (may be free or paid)
+  | 'rejected'       // server 200 + valid:false — key authoritatively invalid/Free
+  | 'server_error'   // server reachable but returned non-2xx (e.g. 500) — tier UNKNOWN
+  | 'network_error'  // fetch threw / timed out — server unreachable, tier UNKNOWN
+  | 'grace'          // used a still-signed stale cache (server unreachable) — tier from cache
+  | 'cache_fresh'    // used a <1h-old signed cache — no network call this time
+  | 'no_endpoint'    // no cloud endpoint configured — cannot validate, tier UNKNOWN
+  | 'no_key';        // no API key configured — genuinely Free
+
 interface LicenseInfo {
   tier: ToolTier;
   validUntil: string;
   features: string[];
+  /**
+   * P2-003: how this tier was resolved (see {@link LicenseValidationOutcome}).
+   * Optional/additive — existing readers that only inspect `tier` are
+   * unaffected. `undefined` on a legacy cached result that predates this field.
+   */
+  outcome?: LicenseValidationOutcome;
   /**
    * PB-001 (plan-2026-05-28-team-shared-rule-promotion): the org id, re-derived
    * from the VERIFIED /validate-key signed payload (`orgId` is in
@@ -356,13 +383,18 @@ export async function validateLicense(apiKey: string): Promise<LicenseInfo> {
 
       // Cache is fresh (< 1 hour old)
       if (lastValidated > hourAgo) {
-        return trusted;
+        return { ...trusted, outcome: 'cache_fresh' };
       }
     }
 
     // 2. Try cloud validation via fetch (Node 18+ has native fetch)
     const config = getConfig();
     const endpoint = config.cloud?.endpoint;
+
+    // P2-003: track WHY we might fall back to Free so the caller can tell an
+    // authoritative Free from a "could-not-validate" Free. Defaults to
+    // no_endpoint; the network branches below overwrite it on a real attempt.
+    let fallbackOutcome: LicenseValidationOutcome = 'no_endpoint';
 
     if (endpoint && /^https?:\/\/.+/.test(endpoint)) {
       try {
@@ -432,14 +464,17 @@ export async function validateLicense(apiKey: string): Promise<LicenseInfo> {
               sigResult.kind === 'valid' ? data : null,
             );
 
-            return { tier, validUntil, features };
+            return { tier, validUntil, features, outcome: 'validated' };
           }
-          // Server said key is not valid — return free tier
-          return { tier: 'free', validUntil: '', features: [] };
+          // Server said key is not valid — authoritative Free.
+          return { tier: 'free', validUntil: '', features: [], outcome: 'rejected' };
         }
-        // Non-OK response — fall through to grace period
+        // Non-OK response (e.g. HTTP 500) — server reachable but errored. Tier
+        // is UNKNOWN, NOT Free. Record it and fall through to grace/fallback.
+        fallbackOutcome = 'server_error';
       } catch {
-        // Network failure — fall through to grace period check
+        // Network failure / timeout — server unreachable. Tier UNKNOWN.
+        fallbackOutcome = 'network_error';
       }
     }
 
@@ -452,12 +487,14 @@ export async function validateLicense(apiKey: string): Promise<LicenseInfo> {
 
       // P3-013: 7-day grace period
       if (lastValidated > sevenDaysAgo) {
-        return trusted;
+        return { ...trusted, outcome: 'grace' };
       }
     }
 
-    // 4. No valid cache — default to free
-    return { tier: 'free', validUntil: '', features: [] };
+    // 4. No valid cache — default to free. The outcome carries WHY validation
+    // did not confirm a tier (server_error / network_error / no_endpoint), so
+    // a caller never misreports a could-not-validate state as a Free downgrade.
+    return { tier: 'free', validUntil: '', features: [], outcome: fallbackOutcome };
   } finally {
     memDb.close();
   }
@@ -569,7 +606,9 @@ export async function getCurrentTier(): Promise<ToolTier> {
   const apiKey = config.cloud?.apiKey;
 
   if (!apiKey) {
-    cachedTier = { tier: 'free', validUntil: '', features: [] };
+    // P2-003: no key configured is a genuine Free (authoritative), distinct
+    // from a key present that could not be validated.
+    cachedTier = { tier: 'free', validUntil: '', features: [], outcome: 'no_key' };
     cachedTierTimestamp = Date.now();
     return 'free';
   }

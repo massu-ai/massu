@@ -231,7 +231,11 @@ export async function syncToCloud(
     ?? DEFAULT_CLOUD_REQUEST_TIMEOUT_MS;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const response = await fetch(endpoint, {
+      // CR-59: `cloud.endpoint` is the API BASE (e.g. https://api.massu.ai/v1);
+      // every consumer appends its own path. Session-data sync targets the
+      // `/sync` ingest — consistent with validateLicense → `/validate-key` and
+      // team-rule-sync → `/promoted-rules`.
+      const response = await fetch(`${endpoint}/sync`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

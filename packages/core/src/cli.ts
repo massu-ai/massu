@@ -37,6 +37,16 @@ async function main(): Promise<void> {
       await runDoctor();
       break;
     }
+    case 'login': {
+      const { runLogin } = await import('./commands/login.ts');
+      await runLogin(args.slice(1));
+      break;
+    }
+    case 'logout': {
+      const { runLogout } = await import('./commands/login.ts');
+      await runLogout();
+      break;
+    }
     case 'install-hooks': {
       const { runInstallHooks } = await import('./commands/install-hooks.ts');
       await runInstallHooks();
@@ -210,6 +220,10 @@ Usage:
 Commands:
   init              Set up Massu AI in your project (one command, full setup)
   doctor            Check installation health
+  login             Store your API key user-level in ~/.massu/credentials (git-safe).
+                    Prefer the interactive prompt or MASSU_API_KEY env; --key <k>
+                    exposes the key to shell history. Use --no-verify to skip online check.
+  logout            Remove the stored user-level API key
   install-hooks     Install/update Claude Code hooks
   install-commands  Install/update slash commands (use --skip-permissions to opt out of MCP allowlist seeding)
   show-template     Print the resolved variant of a bundled template (e.g. for diffs)

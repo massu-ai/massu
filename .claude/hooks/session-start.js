@@ -210,17 +210,17 @@ var init_manifest_registry = __esm({
 });
 
 // src/detect/package-detector.ts
-import { readFileSync as readFileSync3, existsSync as existsSync4, statSync, lstatSync, readdirSync } from "fs";
+import { readFileSync as readFileSync4, existsSync as existsSync5, statSync, lstatSync, readdirSync } from "fs";
 import { join as join2, relative } from "path";
 import { parse as parseToml } from "smol-toml";
 function safeRead(path) {
   try {
-    if (!existsSync4(path)) return null;
+    if (!existsSync5(path)) return null;
     const ls = lstatSync(path);
     if (ls.isSymbolicLink()) return null;
     const st = statSync(path);
     if (!st.isFile()) return null;
-    return readFileSync3(path, "utf-8");
+    return readFileSync4(path, "utf-8");
   } catch {
     return null;
   }
@@ -251,7 +251,7 @@ function parsePackageJson(path, directory, root, warnings) {
   const peer = Object.keys(
     pkg.peerDependencies ?? {}
   );
-  const hasTs = deps.includes("typescript") || devDeps.includes("typescript") || existsSync4(join2(directory, "tsconfig.json"));
+  const hasTs = deps.includes("typescript") || devDeps.includes("typescript") || existsSync5(join2(directory, "tsconfig.json"));
   const language = hasTs ? "typescript" : "javascript";
   const scripts = Object.keys(
     pkg.scripts ?? {}
@@ -678,7 +678,7 @@ function detectManifestsInDir(dir, root, warnings) {
   for (const entry of getManifestRegistry2()) {
     if (!entry.pattern.startsWith("*")) {
       const path = join2(dir, entry.pattern);
-      if (!existsSync4(path)) continue;
+      if (!existsSync5(path)) continue;
       const m = entry.parse(path, dir, root, warnings);
       if (m !== null) out.push(m);
     } else {
@@ -692,7 +692,7 @@ function detectManifestsInDir(dir, root, warnings) {
       for (const fname of dirEntries) {
         if (!matchManifestPattern2(fname, entry.pattern)) continue;
         const path = join2(dir, fname);
-        if (!existsSync4(path)) continue;
+        if (!existsSync5(path)) continue;
         const m = entry.parse(path, dir, root, warnings);
         if (m !== null) out.push(m);
       }
@@ -713,7 +713,7 @@ function detectPackageManifests(projectRoot) {
   manifests.push(...detectManifestsInDir(projectRoot, projectRoot, warnings));
   for (const ws of WORKSPACE_DIRS) {
     const wsRoot = join2(projectRoot, ws);
-    if (!existsSync4(wsRoot)) continue;
+    if (!existsSync5(wsRoot)) continue;
     for (const sub of listSubdirs(wsRoot)) {
       manifests.push(...detectManifestsInDir(sub, projectRoot, warnings));
       for (const sub2 of listSubdirs(sub)) {
@@ -5484,41 +5484,41 @@ var require_queue = __commonJS({
       queue.drained = drained;
       return queue;
       function push(value) {
-        var p = new Promise(function(resolve6, reject) {
+        var p = new Promise(function(resolve7, reject) {
           pushCb(value, function(err, result) {
             if (err) {
               reject(err);
               return;
             }
-            resolve6(result);
+            resolve7(result);
           });
         });
         p.catch(noop);
         return p;
       }
       function unshift(value) {
-        var p = new Promise(function(resolve6, reject) {
+        var p = new Promise(function(resolve7, reject) {
           unshiftCb(value, function(err, result) {
             if (err) {
               reject(err);
               return;
             }
-            resolve6(result);
+            resolve7(result);
           });
         });
         p.catch(noop);
         return p;
       }
       function drained() {
-        var p = new Promise(function(resolve6) {
+        var p = new Promise(function(resolve7) {
           process.nextTick(function() {
             if (queue.idle()) {
-              resolve6();
+              resolve7();
             } else {
               var previousDrain = queue.drain;
               queue.drain = function() {
                 if (typeof previousDrain === "function") previousDrain();
-                resolve6();
+                resolve7();
                 queue.drain = previousDrain;
               };
             }
@@ -6004,9 +6004,9 @@ var require_stream3 = __commonJS({
         });
       }
       _getStat(filepath) {
-        return new Promise((resolve6, reject) => {
+        return new Promise((resolve7, reject) => {
           this._stat(filepath, this._fsStatSettings, (error, stats) => {
-            return error === null ? resolve6(stats) : reject(error);
+            return error === null ? resolve7(stats) : reject(error);
           });
         });
       }
@@ -6030,10 +6030,10 @@ var require_async5 = __commonJS({
         this._readerStream = new stream_1.default(this._settings);
       }
       dynamic(root, options) {
-        return new Promise((resolve6, reject) => {
+        return new Promise((resolve7, reject) => {
           this._walkAsync(root, options, (error, entries) => {
             if (error === null) {
-              resolve6(entries);
+              resolve7(entries);
             } else {
               reject(error);
             }
@@ -6043,10 +6043,10 @@ var require_async5 = __commonJS({
       async static(patterns, options) {
         const entries = [];
         const stream = this._readerStream.static(patterns, options);
-        return new Promise((resolve6, reject) => {
+        return new Promise((resolve7, reject) => {
           stream.once("error", reject);
           stream.on("data", (entry) => entries.push(entry));
-          stream.once("end", () => resolve6(entries));
+          stream.once("end", () => resolve7(entries));
         });
       }
     };
@@ -6705,7 +6705,7 @@ var require_out4 = __commonJS({
 
 // src/detect/source-dir-detector.ts
 import { realpathSync } from "fs";
-import { resolve as resolve3 } from "path";
+import { resolve as resolve4 } from "path";
 function extsFor(language) {
   return EXTENSIONS[language] ?? [];
 }
@@ -6731,7 +6731,7 @@ function topSegment(rel) {
 function isInsideRoot(root, candidate) {
   try {
     const realRoot = realpathSync(root);
-    const realCand = realpathSync(resolve3(root, candidate));
+    const realCand = realpathSync(resolve4(root, candidate));
     return realCand === realRoot || realCand.startsWith(realRoot + "/");
   } catch {
     return false;
@@ -6899,25 +6899,25 @@ var init_source_dir_detector = __esm({
 });
 
 // src/detect/monorepo-detector.ts
-import { readFileSync as readFileSync4, existsSync as existsSync5, statSync as statSync2, lstatSync as lstatSync2, readdirSync as readdirSync2 } from "fs";
+import { readFileSync as readFileSync5, existsSync as existsSync6, statSync as statSync2, lstatSync as lstatSync2, readdirSync as readdirSync2 } from "fs";
 import { join as join3, relative as relative2 } from "path";
 import { parse as parseYaml2 } from "yaml";
 import { parse as parseToml2 } from "smol-toml";
 function safeReadText(path) {
   try {
-    if (!existsSync5(path)) return null;
+    if (!existsSync6(path)) return null;
     const ls = lstatSync2(path);
     if (ls.isSymbolicLink()) return null;
     const st = statSync2(path);
     if (!st.isFile()) return null;
-    return readFileSync4(path, "utf-8");
+    return readFileSync5(path, "utf-8");
   } catch {
     return null;
   }
 }
 function firstManifestIn(dir) {
   for (const m of MANIFEST_PRIORITY) {
-    if (existsSync5(join3(dir, m))) return m;
+    if (existsSync6(join3(dir, m))) return m;
   }
   return null;
 }
@@ -6982,7 +6982,7 @@ function genericWorkspaces(root) {
   const out = [];
   for (const parent of CONVENTIONAL_WORKSPACE_PARENTS) {
     const p = join3(root, parent);
-    if (!existsSync5(p)) continue;
+    if (!existsSync6(p)) continue;
     for (const sub of listSubdirs2(p)) {
       const pkg = pkgFromDir(root, sub);
       if (pkg) out.push(pkg);
@@ -7023,7 +7023,7 @@ function expandWorkspaceGlobs(root, globs) {
     const parts = pattern.split("/");
     if (parts.length === 2 && (parts[1] === "*" || parts[1] === "**")) {
       const parent = join3(root, parts[0]);
-      if (!existsSync5(parent)) continue;
+      if (!existsSync6(parent)) continue;
       for (const sub of listSubdirs2(parent)) {
         const pkg = pkgFromDir(root, sub);
         if (pkg && !seen.has(pkg.path)) {
@@ -7034,7 +7034,7 @@ function expandWorkspaceGlobs(root, globs) {
       continue;
     }
     const direct = join3(root, pattern);
-    if (existsSync5(direct)) {
+    if (existsSync6(direct)) {
       const pkg = pkgFromDir(root, direct);
       if (pkg && !seen.has(pkg.path)) {
         seen.add(pkg.path);
@@ -7045,16 +7045,16 @@ function expandWorkspaceGlobs(root, globs) {
   return out;
 }
 function hasTurbo(root) {
-  return existsSync5(join3(root, "turbo.json"));
+  return existsSync6(join3(root, "turbo.json"));
 }
 function hasNx(root) {
-  return existsSync5(join3(root, "nx.json"));
+  return existsSync6(join3(root, "nx.json"));
 }
 function hasLerna(root) {
-  return existsSync5(join3(root, "lerna.json"));
+  return existsSync6(join3(root, "lerna.json"));
 }
 function hasBazel(root) {
-  return existsSync5(join3(root, "WORKSPACE")) || existsSync5(join3(root, "WORKSPACE.bazel")) || existsSync5(join3(root, "MODULE.bazel"));
+  return existsSync6(join3(root, "WORKSPACE")) || existsSync6(join3(root, "WORKSPACE.bazel")) || existsSync6(join3(root, "MODULE.bazel"));
 }
 function detectMonorepo(projectRoot) {
   const nested = [];
@@ -7245,7 +7245,7 @@ var init_vr_command_map = __esm({
 });
 
 // src/detect/domain-inferrer.ts
-import { existsSync as existsSync6, readdirSync as readdirSync3 } from "fs";
+import { existsSync as existsSync7, readdirSync as readdirSync3 } from "fs";
 import { join as join4 } from "path";
 function titleCase(s) {
   if (!s) return s;
@@ -7267,7 +7267,7 @@ function topLevelSrcSubdirs(root, sourceDirs) {
   const seen = /* @__PURE__ */ new Set();
   for (const rel of effective) {
     const abs = join4(root, rel);
-    if (!existsSync6(abs)) continue;
+    if (!existsSync7(abs)) continue;
     try {
       for (const e of readdirSync3(abs, { withFileTypes: true })) {
         if (!e.isDirectory()) continue;
@@ -7354,8 +7354,8 @@ var init_domain_inferrer = __esm({
 });
 
 // src/detect/regex-fallback.ts
-import { existsSync as existsSync7, readdirSync as readdirSync4, readFileSync as readFileSync5, statSync as statSync3 } from "fs";
-import { resolve as resolve4, join as join5, basename as basename2 } from "path";
+import { existsSync as existsSync8, readdirSync as readdirSync4, readFileSync as readFileSync6, statSync as statSync3 } from "fs";
+import { resolve as resolve5, join as join5, basename as basename2 } from "path";
 function introspectPython(detection, projectRoot) {
   const sourceDir = resolveSourceDir(detection, "python", projectRoot);
   if (!sourceDir) return null;
@@ -7521,10 +7521,10 @@ function resolveSourceDir(detection, lang, projectRoot) {
   const list = info?.source_dirs ?? [];
   if (list.length > 0) {
     const first = list[0];
-    const abs = resolve4(projectRoot, first);
-    return existsSync7(abs) ? abs : null;
+    const abs = resolve5(projectRoot, first);
+    return existsSync8(abs) ? abs : null;
   }
-  return existsSync7(projectRoot) ? projectRoot : null;
+  return existsSync8(projectRoot) ? projectRoot : null;
 }
 function sampleFiles(dir, nameRegex, pathFilter) {
   const out = [];
@@ -7569,7 +7569,7 @@ function readSafe(path) {
   try {
     const st = statSync3(path);
     if (st.size > MAX_FILE_BYTES) return null;
-    return readFileSync5(path, "utf-8");
+    return readFileSync6(path, "utf-8");
   } catch {
     return null;
   }
@@ -7946,18 +7946,80 @@ var init_drift = __esm({
 // src/memory-db.ts
 import Database from "better-sqlite3";
 import { dirname as dirname2, basename } from "path";
-import { existsSync as existsSync2, mkdirSync } from "fs";
+import { existsSync as existsSync3, mkdirSync as mkdirSync2 } from "fs";
 
 // src/config.ts
-import { resolve, dirname } from "path";
-import { existsSync, readFileSync } from "fs";
-import { homedir } from "os";
+import { resolve as resolve2, dirname } from "path";
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "fs";
+import { homedir as homedir2 } from "os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
 // src/lib/memory-path.ts
 function encodeMemoryDirName(projectRoot) {
   return projectRoot.replace(/\//g, "-");
+}
+
+// src/credentials.ts
+import { homedir } from "os";
+import { resolve } from "path";
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  chmodSync
+} from "fs";
+var MASSU_ENV_API_KEY = "MASSU_API_KEY";
+var MASSU_ENV_CLOUD_ENDPOINT = "MASSU_CLOUD_ENDPOINT";
+var DEFAULT_CLOUD_ENDPOINT = "https://api.massu.ai/v1";
+function credentialsDir(home = homedir()) {
+  return resolve(home, ".massu");
+}
+function credentialsPath(home = homedir()) {
+  return resolve(credentialsDir(home), "credentials");
+}
+function readUserCredentials(home = homedir()) {
+  try {
+    const p = credentialsPath(home);
+    if (!existsSync(p)) return void 0;
+    const parsed = JSON.parse(readFileSync(p, "utf-8"));
+    const key = typeof parsed?.apiKey === "string" ? parsed.apiKey.trim() : "";
+    return key.length > 0 ? key : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function isUnresolvedLiteral(v) {
+  return /^\$\{[^}]+\}$/.test(v);
+}
+function resolveApiKey(opts = {}) {
+  const env = opts.env ?? process.env;
+  const home = opts.home ?? homedir();
+  const cfg = typeof opts.configApiKey === "string" ? opts.configApiKey.trim() : "";
+  if (cfg.length > 0 && !isUnresolvedLiteral(cfg)) {
+    return { apiKey: cfg, source: "config" };
+  }
+  const envRaw = env[MASSU_ENV_API_KEY];
+  const envKey = typeof envRaw === "string" ? envRaw.trim() : "";
+  if (envKey.length > 0) {
+    return { apiKey: envKey, source: "env" };
+  }
+  const fileKey = readUserCredentials(home);
+  if (fileKey) {
+    return { apiKey: fileKey, source: "user-file" };
+  }
+  return { source: "none" };
+}
+function resolveEndpoint(opts = {}) {
+  const env = opts.env ?? process.env;
+  const cfg = typeof opts.configEndpoint === "string" ? opts.configEndpoint.trim() : "";
+  if (cfg.length > 0) return cfg;
+  const envRaw = env[MASSU_ENV_CLOUD_ENDPOINT];
+  const envEp = typeof envRaw === "string" ? envRaw.trim() : "";
+  if (envEp.length > 0) return envEp;
+  return DEFAULT_CLOUD_ENDPOINT;
 }
 
 // src/config.ts
@@ -8342,12 +8404,13 @@ var RawConfigSchema = z.object({
   lsp: LSPConfigSchema.optional()
 }).passthrough();
 var _config = null;
+var _resolvedApiKeySource = "none";
 var _projectRoot = null;
 function findProjectRoot() {
   const cwd = process.cwd();
   let dir = cwd;
   while (true) {
-    if (existsSync(resolve(dir, "massu.config.yaml"))) {
+    if (existsSync2(resolve2(dir, "massu.config.yaml"))) {
       return dir;
     }
     const parent = dirname(dir);
@@ -8356,10 +8419,10 @@ function findProjectRoot() {
   }
   dir = cwd;
   while (true) {
-    if (existsSync(resolve(dir, "package.json"))) {
+    if (existsSync2(resolve2(dir, "package.json"))) {
       return dir;
     }
-    if (existsSync(resolve(dir, ".git"))) {
+    if (existsSync2(resolve2(dir, ".git"))) {
       return dir;
     }
     const parent = dirname(dir);
@@ -8377,10 +8440,10 @@ function getProjectRoot() {
 function getConfig() {
   if (_config) return _config;
   const root = getProjectRoot();
-  const configPath = resolve(root, "massu.config.yaml");
+  const configPath = resolve2(root, "massu.config.yaml");
   let rawYaml = {};
-  if (existsSync(configPath)) {
-    const content = readFileSync(configPath, "utf-8");
+  if (existsSync2(configPath)) {
+    const content = readFileSync2(configPath, "utf-8");
     rawYaml = parseYaml(content) ?? {};
   }
   const result = RawConfigSchema.safeParse(rawYaml);
@@ -8397,7 +8460,7 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     );
   }
   const parsed = result.data;
-  const projectRoot = parsed.project.root === "auto" || !parsed.project.root ? root : resolve(root, parsed.project.root);
+  const projectRoot = parsed.project.root === "auto" || !parsed.project.root ? root : resolve2(root, parsed.project.root);
   const fw = parsed.framework;
   let router = fw.router;
   let orm = fw.orm;
@@ -8455,13 +8518,19 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     telemetry: parsed.telemetry,
     lsp: parsed.lsp
   };
-  if (!_config.cloud?.apiKey && process.env.MASSU_API_KEY) {
+  const resolvedKey = resolveApiKey({ configApiKey: _config.cloud?.apiKey });
+  _resolvedApiKeySource = resolvedKey.source;
+  const resolvedEndpoint = resolveEndpoint({ configEndpoint: _config.cloud?.endpoint });
+  if (resolvedKey.apiKey) {
     _config.cloud = {
       enabled: true,
       sync: { memory: true, analytics: true, audit: true },
       ..._config.cloud,
-      apiKey: process.env.MASSU_API_KEY
+      apiKey: resolvedKey.apiKey,
+      endpoint: resolvedEndpoint
     };
+  } else if (_config.cloud) {
+    _config.cloud = { ..._config.cloud, endpoint: _config.cloud.endpoint ?? resolvedEndpoint };
   }
   return _config;
 }
@@ -8470,34 +8539,34 @@ function getResolvedPaths() {
   const root = getProjectRoot();
   const claudeDirName = config.conventions?.claudeDirName ?? ".claude";
   return {
-    codegraphDbPath: resolve(root, ".codegraph/codegraph.db"),
-    dataDbPath: resolve(root, ".massu/data.db"),
-    prismaSchemaPath: resolve(root, config.paths.schema ?? "prisma/schema.prisma"),
-    rootRouterPath: resolve(root, config.paths.routerRoot ?? "src/server/api/root.ts"),
-    routersDir: resolve(root, config.paths.routers ?? "src/server/api/routers"),
-    srcDir: resolve(root, config.paths.source),
+    codegraphDbPath: resolve2(root, ".codegraph/codegraph.db"),
+    dataDbPath: resolve2(root, ".massu/data.db"),
+    prismaSchemaPath: resolve2(root, config.paths.schema ?? "prisma/schema.prisma"),
+    rootRouterPath: resolve2(root, config.paths.routerRoot ?? "src/server/api/root.ts"),
+    routersDir: resolve2(root, config.paths.routers ?? "src/server/api/routers"),
+    srcDir: resolve2(root, config.paths.source),
     pathAlias: Object.fromEntries(
       Object.entries(config.paths.aliases).map(([alias, target]) => [
         alias,
-        resolve(root, target)
+        resolve2(root, target)
       ])
     ),
     extensions: [".ts", ".tsx", ".js", ".jsx"],
     indexFiles: ["index.ts", "index.tsx", "index.js", "index.jsx"],
-    patternsDir: resolve(root, claudeDirName, "patterns"),
-    claudeMdPath: resolve(root, claudeDirName, "CLAUDE.md"),
-    docsMapPath: resolve(root, ".massu/docs-map.json"),
-    helpSitePath: resolve(root, "../" + config.project.name + "-help"),
-    memoryDbPath: resolve(root, ".massu/memory.db"),
-    knowledgeDbPath: resolve(root, ".massu/knowledge.db"),
-    plansDir: resolve(root, "docs/plans"),
-    docsDir: resolve(root, "docs"),
-    claudeDir: resolve(root, claudeDirName),
-    memoryDir: resolve(homedir(), claudeDirName, "projects", encodeMemoryDirName(root), "memory"),
-    sessionStatePath: resolve(root, config.conventions?.sessionStatePath ?? `${claudeDirName}/session-state/CURRENT.md`),
-    sessionArchivePath: resolve(root, config.conventions?.sessionArchivePath ?? `${claudeDirName}/session-state/archive`),
-    mcpJsonPath: resolve(root, ".mcp.json"),
-    settingsLocalPath: resolve(root, claudeDirName, "settings.local.json")
+    patternsDir: resolve2(root, claudeDirName, "patterns"),
+    claudeMdPath: resolve2(root, claudeDirName, "CLAUDE.md"),
+    docsMapPath: resolve2(root, ".massu/docs-map.json"),
+    helpSitePath: resolve2(root, "../" + config.project.name + "-help"),
+    memoryDbPath: resolve2(root, ".massu/memory.db"),
+    knowledgeDbPath: resolve2(root, ".massu/knowledge.db"),
+    plansDir: resolve2(root, "docs/plans"),
+    docsDir: resolve2(root, "docs"),
+    claudeDir: resolve2(root, claudeDirName),
+    memoryDir: resolve2(homedir2(), claudeDirName, "projects", encodeMemoryDirName(root), "memory"),
+    sessionStatePath: resolve2(root, config.conventions?.sessionStatePath ?? `${claudeDirName}/session-state/CURRENT.md`),
+    sessionArchivePath: resolve2(root, config.conventions?.sessionArchivePath ?? `${claudeDirName}/session-state/archive`),
+    mcpJsonPath: resolve2(root, ".mcp.json"),
+    settingsLocalPath: resolve2(root, claudeDirName, "settings.local.json")
   };
 }
 
@@ -8511,8 +8580,8 @@ function sanitizeFts5Query(raw) {
 function getMemoryDb() {
   const dbPath = getResolvedPaths().memoryDbPath;
   const dir = dirname2(dbPath);
-  if (!existsSync2(dir)) {
-    mkdirSync(dir, { recursive: true });
+  if (!existsSync3(dir)) {
+    mkdirSync2(dir, { recursive: true });
   }
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
@@ -9237,7 +9306,7 @@ function linkSessionToTask(db, sessionId, taskId) {
 }
 
 // src/team-rule-sync.ts
-import { existsSync as existsSync3, writeFileSync, unlinkSync, mkdirSync as mkdirSync2 } from "fs";
+import { existsSync as existsSync4, writeFileSync as writeFileSync2, unlinkSync, mkdirSync as mkdirSync3 } from "fs";
 import { join, dirname as dirname3 } from "path";
 
 // src/license.ts
@@ -9583,7 +9652,7 @@ async function pullTeamPromotions(db, opts = {}) {
       result.revoked_handled += 1;
       continue;
     }
-    if (existsSync3(candidatePath) || alreadyApplied(db, p.prompt_hash)) {
+    if (existsSync4(candidatePath) || alreadyApplied(db, p.prompt_hash)) {
       result.skipped += 1;
       continue;
     }
@@ -9633,7 +9702,7 @@ function alreadyApplied(db, promptHash) {
   }
 }
 function handleRevocation(db, projectRoot, candidatePath, promptHash) {
-  if (existsSync3(candidatePath)) {
+  if (existsSync4(candidatePath)) {
     try {
       unlinkSync(candidatePath);
     } catch {
@@ -9682,8 +9751,8 @@ function materializeCandidate(db, projectRoot, candidatePath, p, orgId) {
     ...p.review_attestation !== void 0 ? { publisher_review_attestation: p.review_attestation } : {}
   };
   const dir = dirname3(candidatePath);
-  if (!existsSync3(dir)) mkdirSync2(dir, { recursive: true });
-  writeFileSync(candidatePath, JSON.stringify(sidecar, null, 2), "utf-8");
+  if (!existsSync4(dir)) mkdirSync3(dir, { recursive: true });
+  writeFileSync2(candidatePath, JSON.stringify(sidecar, null, 2), "utf-8");
   try {
     shareObservation(db, p.promoted_by, getProjectName(), "rule_promotion", promptText, {
       filePath: void 0,
@@ -9727,8 +9796,8 @@ function emitDropTelemetry(db, eventType, data) {
 }
 
 // src/hooks/session-start.ts
-import { readFileSync as readFileSync6, existsSync as existsSync8 } from "fs";
-import { join as join6, resolve as resolve5 } from "path";
+import { readFileSync as readFileSync7, existsSync as existsSync9 } from "fs";
+import { join as join6, resolve as resolve6 } from "path";
 import { parse as parseYaml3 } from "yaml";
 
 // src/lib/pidLiveness.ts
@@ -9900,7 +9969,7 @@ async function buildContext(db, sessionId, source, tokenBudget, taskId) {
   }
   try {
     const knowledgeDbPath = getResolvedPaths().knowledgeDbPath;
-    if (existsSync8(knowledgeDbPath)) {
+    if (existsSync9(knowledgeDbPath)) {
       const Database2 = (await import("better-sqlite3")).default;
       const kdb = new Database2(knowledgeDbPath, { readonly: true });
       try {
@@ -9976,23 +10045,23 @@ async function getGitBranch() {
   }
 }
 function readStdin() {
-  return new Promise((resolve6) => {
+  return new Promise((resolve7) => {
     let data = "";
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (chunk) => {
       data += chunk;
     });
-    process.stdin.on("end", () => resolve6(data));
-    setTimeout(() => resolve6(data), 3e3);
+    process.stdin.on("end", () => resolve7(data));
+    setTimeout(() => resolve7(data), 3e3);
   });
 }
 async function buildDriftBanner() {
   try {
     if (process.env.MASSU_DRIFT_QUIET === "1") return "";
     if (watcherIsLiveAndFresh()) return "";
-    const configPath = resolve5(process.cwd(), "massu.config.yaml");
-    if (!existsSync8(configPath)) return "";
-    const content = readFileSync6(configPath, "utf-8");
+    const configPath = resolve6(process.cwd(), "massu.config.yaml");
+    if (!existsSync9(configPath)) return "";
+    const content = readFileSync7(configPath, "utf-8");
     const parsed = parseYaml3(content);
     if (!parsed || typeof parsed !== "object") return "";
     const det = parsed.detection;
@@ -10033,8 +10102,8 @@ function loadCorrectionsPreventionRules() {
     const claudeDirName = config.conventions?.claudeDirName ?? ".claude";
     const projectDirName = cwd.replace(/[/\\]/g, "-").replace(/^-/, "");
     const correctionsPath = join6(homeDir, claudeDirName, "projects", projectDirName, "memory", "corrections.md");
-    if (!existsSync8(correctionsPath)) return [];
-    const content = readFileSync6(correctionsPath, "utf-8");
+    if (!existsSync9(correctionsPath)) return [];
+    const content = readFileSync7(correctionsPath, "utf-8");
     const lines = content.split("\n");
     const rules = [];
     for (const line of lines) {
@@ -10055,9 +10124,9 @@ function loadCorrectionsPreventionRules() {
 }
 function readWatchStateRaw(cwd) {
   try {
-    const path = resolve5(cwd, ".massu", "watch-state.json");
-    if (!existsSync8(path)) return null;
-    const obj = JSON.parse(readFileSync6(path, "utf-8"));
+    const path = resolve6(cwd, ".massu", "watch-state.json");
+    if (!existsSync9(path)) return null;
+    const obj = JSON.parse(readFileSync7(path, "utf-8"));
     if (!obj || typeof obj !== "object") return null;
     return obj;
   } catch {

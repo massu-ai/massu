@@ -78,3 +78,40 @@ describe.skipIf(!canonicalExists)('auto-learning.md mirror byte-equivalence (P-E
     expect(text).toContain('prompt_hash:');
   });
 });
+
+// plan-loop-controller-mirror-drift-closure (P-A-003): the sibling
+// loop-controller.md pair had a 78-line preexisting drift, reconciled here. This
+// block extends the same byte-equivalence guard to that pair so the drift class
+// is structurally impossible for BOTH command-reference mirrors. Same
+// graceful-absence skip as above (canonical absent in the public mirror).
+const loopControllerCanonical = '.claude/commands/massu-loop/references/loop-controller.md';
+const loopControllerMirror = 'packages/core/commands/massu-loop/references/loop-controller.md';
+
+describe.skipIf(!fileExistsRelative(loopControllerCanonical))('loop-controller.md mirror byte-equivalence (plan-loop-controller-mirror-drift-closure)', () => {
+  it('canonical file exists', () => {
+    expect(fileExistsRelative(loopControllerCanonical)).toBe(true);
+  });
+
+  it('mirror file exists', () => {
+    expect(fileExistsRelative(loopControllerMirror)).toBe(true);
+  });
+
+  it('canonical and mirror are byte-equivalent', () => {
+    const repoRoot = resolveRepoRoot();
+    const canonicalBytes = readFileSync(join(repoRoot, loopControllerCanonical), 'utf-8');
+    const mirrorBytes = readFileSync(join(repoRoot, loopControllerMirror), 'utf-8');
+
+    if (canonicalBytes !== mirrorBytes) {
+      const aLines = canonicalBytes.split('\n');
+      const bLines = mirrorBytes.split('\n');
+      const firstMismatch = aLines.findIndex((line, idx) => line !== bLines[idx]);
+      // eslint-disable-next-line no-console
+      console.error(`loop-controller.md drift at line ${firstMismatch + 1}:`);
+      // eslint-disable-next-line no-console
+      console.error(`  canonical: ${aLines[firstMismatch] ?? '(EOF)'}`);
+      // eslint-disable-next-line no-console
+      console.error(`  mirror:    ${bLines[firstMismatch] ?? '(EOF)'}`);
+    }
+    expect(mirrorBytes).toBe(canonicalBytes);
+  });
+});

@@ -15,24 +15,19 @@ fi
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 
-# Node version pre-flight (Plan 1.5.8 hardening — Gate 3 incident 2026-05-09).
-# better-sqlite3 hard-binds to Node ABI; Node v26 lacks v8::PropertyCallbackInfo<T>::This,
-# breaking native rebuild. Auto-prepend node@22 brew prefix to PATH if available so the
-# rest of this gate runs under the project's pinned engines range (>=20 <26).
+# Node version pre-flight. massu supports Node >=20 (packages/core engines).
+# The <26 ceiling was DROPPED in 1.15.1 (incident 2026-07-05): better-sqlite3
+# 12.11.1 ships prebuilt binaries for Node 20/22/24/26 (incl. ABI 147), so the
+# native module loads on every supported major and the full suite passes on
+# Node 26. Enforce only the real >=20 floor; do NOT force an older Node — the
+# gate must run under the developer's ACTUAL Node so the installed better-sqlite3
+# ABI matches (forcing node@22 while the binary is built for Node 26 breaks it).
 if command -v node >/dev/null 2>&1; then
   NODE_MAJOR=$(node --version 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')
-  if [ -n "$NODE_MAJOR" ] && { [ "$NODE_MAJOR" -lt 20 ] || [ "$NODE_MAJOR" -ge 26 ]; }; then
-    if [ -x /opt/homebrew/opt/node@22/bin/node ]; then
-      export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
-      echo "[PRE-COMMIT GATE] Node v${NODE_MAJOR}.x incompatible with project engines; using /opt/homebrew/opt/node@22/bin/node for this gate." >&2
-    elif [ -x /usr/local/opt/node@22/bin/node ]; then
-      export PATH="/usr/local/opt/node@22/bin:$PATH"
-      echo "[PRE-COMMIT GATE] Node v${NODE_MAJOR}.x incompatible with project engines; using /usr/local/opt/node@22/bin/node for this gate." >&2
-    else
-      echo "[PRE-COMMIT GATE] Node v${NODE_MAJOR}.x is incompatible with packages/core/package.json engines (\">=20.0.0 <26.0.0\")." >&2
-      echo "  Fix: brew install node@22 (or use nvm: nvm use \$(cat .nvmrc))." >&2
-      exit 2
-    fi
+  if [ -n "$NODE_MAJOR" ] && [ "$NODE_MAJOR" -lt 20 ]; then
+    echo "[PRE-COMMIT GATE] Node v${NODE_MAJOR}.x is below packages/core/package.json engines floor (\">=20.0.0\")." >&2
+    echo "  Fix: use Node >=20 (nvm: nvm use \$(cat .nvmrc), or a newer brew node)." >&2
+    exit 2
   fi
 fi
 

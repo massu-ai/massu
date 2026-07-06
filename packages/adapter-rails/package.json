@@ -29,7 +29,7 @@
   },
   "license": "BSL-1.1",
   "engines": {
-    "node": ">=20.0.0 <26.0.0"
+    "node": ">=20.0.0"
   },
   "keywords": [
     "mcp",

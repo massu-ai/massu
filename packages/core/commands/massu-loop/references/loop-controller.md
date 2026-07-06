@@ -31,12 +31,21 @@ This command is a **loop controller** for implementation + verification. Your jo
 
 ### Agent Result Persistence
 
-All Task sub-agents MUST write their results to disk in addition to returning text:
-- Security review: `.massu/agent-results/{timestamp}-security.json`
-- Architecture review: `.massu/agent-results/{timestamp}-architecture.json`
-- Verification audit: `.massu/agent-results/{timestamp}-verify-{iteration}.json`
+All Task sub-agents MUST write their results to disk in addition to returning text. Two naming conventions are accepted by the completion gate (CR-52 / `scripts/massu-loop-completion-gate.sh`):
 
-JSON format: `{ iteration, gaps_discovered, gaps_fixed, gaps_remaining, plan_items_total, plan_items_verified, findings: [] }`
+**NEW convention (preferred, plan-token-namespaced)**:
+- `.massu/agent-results/<plan-token>-post-impl-security-<iso>.json`
+- `.massu/agent-results/<plan-token>-post-impl-architecture-<iso>.json`
+- `.massu/agent-results/<plan-token>-post-impl-pattern-<iso>.json`
+- `.massu/agent-results/<plan-token>-post-impl-ux-<iso>.json` (loop-playwright only)
+- Verification audit: `.massu/agent-results/<plan-token>-verify-iter<iteration>-<iso>.json`
+
+**LEGACY convention (still valid, accepted via filename + mtime ≥ loop-start)**:
+- `.massu/agent-results/{timestamp}-security.json`
+- `.massu/agent-results/{timestamp}-architecture.json`
+- `.massu/agent-results/{timestamp}-verify-{iteration}.json`
+
+JSON format: `{ plan_token, reviewer_type, timestamp, iteration, gaps_discovered, gaps_fixed, gaps_remaining, plan_items_total, plan_items_verified, findings: [] }`
 
 This prevents context overflow from killing verification progress. If the parent session crashes, a new session can read these files via `bash scripts/hooks/read-agent-results.sh` to resume.
 
@@ -53,7 +62,16 @@ At completion, write a completion entry.
 
 ```
 PLAN_PATH = $ARGUMENTS (the plan file path or task description)
+PLAN_TOKEN = extract `**Plan Token**:` value from PLAN_PATH header (used by Phase 0.5 / 2.2)
+# Interpolation contract: `${PLAN_TOKEN}` references in the snippets below are
+# substituted by the agent at protocol-interpretation time (NOT shell-substituted
+# inside a script). The PLAN_TOKEN value is validated by
+# scripts/lib/loop-completion-helpers.sh:plan_token_strict_check before any
+# script call (rejects newlines, whitespace, and degenerate tokens).
 iteration = 0
+
+# Phase 0.5: Record loop-start timestamp (consumed by Phase 2.2 completion gate, CR-52)
+bash -c 'source scripts/lib/loop-completion-helpers.sh && loop_start_record "${PLAN_TOKEN}"'
 
 # Phase 1: IMPLEMENT (do the work)
 # Read plan, extract items, implement each one with VR-* proof
@@ -62,17 +80,34 @@ iteration = 0
 # Spawn focused review subagents IN PARALLEL for independent analysis
 # Each reviewer has an adversarial mindset and a SINGLE focused concern (Principle #20)
 # Elegance/simplicity assessment happens in Phase 2.1 POST-BUILD REFLECTION (Q4)
+#
+# CR-52: Named reviewers REQUIRED (consolidated with golden-path/phase-2-implementation.md).
+# Each reviewer MUST write evidence JSON to:
+#   .massu/agent-results/${PLAN_TOKEN}-post-impl-<reviewer-type>-<iso>.json
+# before returning. The Phase 2.2 completion gate validates evidence existence.
 
-security_result = Task(subagent_type="general-purpose", model="opus", prompt="
+security_result = Task(subagent_type="massu-security-reviewer", model="opus", prompt="
   Review implementation for plan: {PLAN_PATH}
   Focus: Security vulnerabilities, auth gaps, input validation, data exposure
   Check all new/modified files. Return structured result with SECURITY_GATE.
+  CR-52: Write evidence to .massu/agent-results/${PLAN_TOKEN}-post-impl-security-<iso>.json
+  with fields {plan_token, reviewer_type:'security', timestamp, gaps_discovered, gaps_fixed, findings:[]}
 ")
 
-architecture_result = Task(subagent_type="general-purpose", model="opus", prompt="
+architecture_result = Task(subagent_type="massu-architecture-reviewer", model="opus", prompt="
   Review implementation for plan: {PLAN_PATH}
   Focus: Design issues, coupling problems, pattern compliance, scalability
   Check all new/modified files. Return structured result with ARCHITECTURE_GATE.
+  CR-52: Write evidence to .massu/agent-results/${PLAN_TOKEN}-post-impl-architecture-<iso>.json
+  with fields {plan_token, reviewer_type:'architecture', timestamp, gaps_discovered, gaps_fixed, findings:[]}
+")
+
+pattern_result = Task(subagent_type="massu-pattern-reviewer", model="sonnet", prompt="
+  Review implementation for plan: {PLAN_PATH}
+  Focus: Code quality, ESM compliance, config-driven patterns, TypeScript strict mode, test coverage
+  Check all new/modified files. Return structured result with PATTERN_GATE.
+  CR-52: Write evidence to .massu/agent-results/${PLAN_TOKEN}-post-impl-pattern-<iso>.json
+  with fields {plan_token, reviewer_type:'pattern', timestamp, gaps_discovered, gaps_fixed, findings:[]}
 ")
 
 # Parse results and fix ALL findings at ALL severity levels (CR-45)
@@ -159,6 +194,17 @@ END WHILE
 
 # Phase 2.1: POST-BUILD REFLECTION + MANDATORY MEMORY PERSIST (CR-38)
 # See references/auto-learning.md for full protocol
+
+# Phase 2.2: COMPLETION GATE (STRUCTURAL — CR-52)
+# AFTER Phase 2.1 POST-BUILD REFLECTION completes, but BEFORE returning the
+# final report. Non-zero exit BLOCKS the loop from declaring success.
+bash scripts/massu-loop-completion-gate.sh "${PLAN_TOKEN}" || {
+  echo "BLOCKED: Phase 1.5 evidence missing for ${PLAN_TOKEN}"
+  echo "Spawn at least one named reviewer subagent and ensure evidence JSON is written"
+  echo "to .massu/agent-results/${PLAN_TOKEN}-post-impl-*.json before retrying."
+  echo "Bypass (audit-trail logged): MASSU_SKIP_COMPLETION_GATE=1"
+  exit 1
+}
 ```
 
 ### Rules for the Loop Controller
@@ -175,6 +221,7 @@ END WHILE
 | **ALWAYS run multi-perspective review after implementation** | Multiple reviewers catch different issues than 1 auditor |
 | **Run review subagents IN PARALLEL** | Security and architecture reviews are independent |
 | **Fix CRITICAL/HIGH findings before verification** | Don't waste auditor passes on known issues |
+| **Phase 2.2 completion gate is STRUCTURAL** | `bash scripts/massu-loop-completion-gate.sh` — non-zero exit BLOCKS mark-complete (CR-52). Silent self-attestation is replaced by evidence-file existence check. |
 
 ### Why This Architecture Exists
 

@@ -1521,6 +1521,42 @@ if [ "$CHECK37_VIOLATIONS" -eq 0 ]; then
 fi
 
 # -------------------------------------------------------
+# Check 38: Auth email routes through Resend + targets massu.ai.
+# -------------------------------------------------------
+# Supabase Auth confirmation/recovery emails MUST use Resend custom SMTP
+# (host smtp.resend.com, sender noreply@massu.ai) — NOT Supabase's throttled
+# default sender which silently dropped real signups (incident 2026-07-05).
+# site_url MUST be the production domain massu.ai (a stale preview host broke
+# the confirm-link redirect AND GitHub OAuth return). Mirror of the vitest
+# drift-guard auth-email-smtp-config-drift.test.ts.
+# -------------------------------------------------------
+echo ""
+echo "Check 38: Auth email routes through Resend + targets massu.ai (incident 2026-07-05)"
+CHECK38_VIOLATIONS=0
+CFG_TOML38="$REPO_ROOT/website/supabase/config.toml"
+if [ -f "$CFG_TOML38" ]; then
+  if ! grep -qE 'host[[:space:]]*=[[:space:]]*"smtp\.resend\.com"' "$CFG_TOML38"; then
+    fail "Check 38: [auth.email.smtp] does not use host smtp.resend.com — Auth email may be on the throttled default sender (incident 2026-07-05)"
+    CHECK38_VIOLATIONS=$((CHECK38_VIOLATIONS + 1))
+  fi
+  if ! grep -qE 'site_url[[:space:]]*=[[:space:]]*"https://massu\.ai"' "$CFG_TOML38"; then
+    fail "Check 38: [auth].site_url is not https://massu.ai — confirm-link redirect + OAuth return would break"
+    CHECK38_VIOLATIONS=$((CHECK38_VIOLATIONS + 1))
+  fi
+  if grep -q "website-eight-jet-53.vercel.app" "$CFG_TOML38"; then
+    fail "Check 38: stale preview host website-eight-jet-53.vercel.app must not appear in Auth config"
+    CHECK38_VIOLATIONS=$((CHECK38_VIOLATIONS + 1))
+  fi
+  if grep -qE 'pass[[:space:]]*=[[:space:]]*"re_' "$CFG_TOML38"; then
+    fail "Check 38: SMTP password appears hardcoded (re_...) — must be an env() reference (config.toml is public-synced)"
+    CHECK38_VIOLATIONS=$((CHECK38_VIOLATIONS + 1))
+  fi
+fi
+if [ "$CHECK38_VIOLATIONS" -eq 0 ]; then
+  pass "Check 38: Auth email routes through Resend + targets massu.ai"
+fi
+
+# -------------------------------------------------------
 # Summary
 # -------------------------------------------------------
 echo ""

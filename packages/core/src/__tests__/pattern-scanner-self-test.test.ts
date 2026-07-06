@@ -34,11 +34,15 @@ const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const SCANNER_PATH = resolve(REPO_ROOT, 'scripts', 'massu-pattern-scanner.sh');
 
 describe('pattern-scanner self-test (Plan 2026-05-07 drift-guard)', () => {
-  // Timeout bumped 30s post plan-public-content-leak-guard Check 16
-  // (scans 129 MDX files in website/content/; adds ~2-13s depending on
-  // CI vs local). Default 5s was already tight pre-Check-16; new check
-  // pushes it past the default reliably.
-  it('massu-pattern-scanner.sh exits 0 against current source tree', { timeout: 30000 }, () => {
+  // Timeout 120s (raised from 30s, plan-2026-06-03-website-lib-test-coverage).
+  // The scanner runs ~22s STANDALONE today (Check 16 scans 129 MDX files +
+  // ~37 checks grep the core tree). This test invokes it via SYNCHRONOUS
+  // execSync, but vitest's forks pool runs ~16 other test files concurrently,
+  // so under full-suite CPU contention the scanner's wall-clock routinely
+  // exceeds 30s (observed >30s in the pre-commit gate while 2700 tests ran).
+  // 120s gives ~5x headroom over the standalone cost so the gate is reliable
+  // under load without masking a real scanner failure (it still must exit 0).
+  it('massu-pattern-scanner.sh exits 0 against current source tree', { timeout: 120000 }, () => {
     let stdout = '';
     let stderr = '';
     let exitCode = 0;

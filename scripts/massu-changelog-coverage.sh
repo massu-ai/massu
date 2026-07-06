@@ -52,6 +52,18 @@ fi
 LAST_TAG="$(cd "$REPO_ROOT" && git describe --tags --abbrev=0 2>/dev/null || true)"
 LAST_TAG_VERSION="${LAST_TAG#v}"
 
+# (b.1) Robustness: if NO tag is reachable (e.g. CI shallow checkout that fetched
+# no tags), we CANNOT determine release drift — SKIP rather than misfire as a
+# "pending release" and demand a CHANGELOG entry for the current version. Without
+# this, the gate fails on every push in a tag-less checkout (incident: CI
+# Type Check job's default shallow `actions/checkout` before fetch-depth:0 was
+# added). The release gate still runs locally in pre-push (tags present) and is
+# backed by the changelog-parse.test.ts EXPECTED_COUNT drift-guard.
+if [ -z "$LAST_TAG" ]; then
+  echo "[skip] no git tag reachable (shallow checkout / no tags) — cannot assess release drift" >&2
+  exit 0
+fi
+
 # (c) version-drift skip — no release in progress
 if [ -n "$LAST_TAG_VERSION" ] && [ "$VERSION" = "$LAST_TAG_VERSION" ]; then
   echo "[skip] no version drift since v${LAST_TAG_VERSION} (package.json#version unchanged)" >&2
@@ -109,6 +121,20 @@ PRIOR_ENTRY_BODY="$(LC_ALL=C awk -v ver="$VERSION" '
   flag { print }
 ' "$CHANGELOG")"
 
+# Documented-divergence allowlist: tokens whose commits land in this range but
+# whose work either shipped in a release OLDER than the immediately-prior entry
+# (post-tag chore commits, e.g. a `docs(plan-x): mark COMPLETE` on a plan that
+# shipped several releases ago) OR was a deliberate test-only / no-release change
+# with no @massu/core published-API surface. Each entry MUST cite a reason.
+# Kept in lockstep with the vitest plan-token-changelog-coverage drift-guard,
+# whose `documentedDivergence` set is the fuller source of truth; this mirrors
+# the subset that surfaces in the current commit range.
+DOCUMENTED_DIVERGENCE="$(cat <<'EOF'
+plan-rulesets-as-code
+plan-2026-06-03-website-lib-test-coverage
+EOF
+)"
+
 # (g) check coverage
 GAPS=0
 while IFS= read -r token; do
@@ -118,6 +144,11 @@ while IFS= read -r token; do
     # this is a post-tag chore commit for the prior release — not a gap.
     if printf '%s' "$PRIOR_ENTRY_BODY" | LC_ALL=C grep -qF "$token"; then
       echo "[exempt] $token (already documented in prior CHANGELOG entry — post-tag chore commits for prior release)" >&2
+      continue
+    fi
+    # …or explicitly allowlisted as older-release / no-release divergence.
+    if printf '%s\n' "$DOCUMENTED_DIVERGENCE" | LC_ALL=C grep -qxF "$token"; then
+      echo "[exempt] $token (documented-divergence allowlist — older-release chore or test-only/no-release, no published-API change)" >&2
       continue
     fi
     echo "gap: $token" >&2

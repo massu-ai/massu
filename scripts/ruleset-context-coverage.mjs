@@ -60,6 +60,13 @@ const WORKFLOW_NOT_REQUIRED_AS_CONTEXT = new Set([
   'Apply Ruleset',
   // read-only audit; informational, not gating.
   'Branch Protection Audit',
+  // matrix-shaped Node-major native-module verification (ci.yml). The job
+  // name is the LITERAL TEMPLATE STRING 'Native Module (Node ${{ matrix.node }})'
+  // at YAML level — the 5 expanded check-run names exist only at GitHub
+  // runtime, so the matrix job cannot be a required context. The static
+  // 'Native Module Gate' aggregator IS the required gating context
+  // (main-branch.json); this allowlists the matrix.
+  'Native Module (Node ${{ matrix.node }})',
 ])
 
 /**

@@ -194,8 +194,8 @@ describe('ci-prepush-parity (P3-001 drift-guard for CR-50 / VR-CI-PARITY)', () =
     expect(offenders, `scripts/ci-*.sh policy violations:\n  ${offenders.join('\n  ')}`).toEqual([]);
   });
 
-  it('all 4 expected ci-*.sh scripts exist (filesystem invariant)', () => {
-    const expected = ['ci-tarball-e2e.sh', 'ci-sync-check.sh', 'ci-fresh-install.sh', 'ci-config-drift.sh'];
+  it('all 5 expected ci-*.sh scripts exist (filesystem invariant)', () => {
+    const expected = ['ci-tarball-e2e.sh', 'ci-sync-check.sh', 'ci-fresh-install.sh', 'ci-config-drift.sh', 'ci-coverage.sh'];
     const missing = expected.filter((n) => !existsSync(resolve(REPO_ROOT, 'scripts', n)));
     expect(missing, `Missing extracted ci-*.sh scripts: ${missing.join(', ')}`).toEqual([]);
   });

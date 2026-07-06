@@ -178,6 +178,13 @@ CONTENT_SCAN_SELF_REFERENCE_FILES_PUBLIC_REPO=(
   # root CHANGELOG.md, written by prepublishOnly hook in package.json).
   # Inherits the same self-reference exemption as root CHANGELOG.md above.
   'packages/core/CHANGELOG.md'
+  # website/CHANGELOG.md is the byte-equal website mirror of root CHANGELOG.md
+  # (un-gitignored per CR-48; parity enforced by website-changelog-matches-root
+  # .test.ts). It carries the identical release-note content — including the
+  # `massu-internal-*` public/internal-split disclosure and docs/incidents/
+  # references — so it inherits the same self-reference exemption as root
+  # CHANGELOG.md above.
+  'website/CHANGELOG.md'
   # plan-2026-05-18-pre-push-ci-parity P1-002: extracted CI sync-check script
   # enumerates the secret patterns (TRADE-SECRET, Stripe regex, Supabase ref)
   # as part of its job — the in-mirror grep needs the literal pattern.

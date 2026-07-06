@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.15.1] - 2026-07-05
+
+**Node 26 compatibility — native-module (better-sqlite3) ABI fix + Node-major CI matrix**. Restores massu on the now-default Node 26. `@massu/core` shipped a prebuilt `better-sqlite3` binary compiled for an older `NODE_MODULE_VERSION` (ABI) and declared `engines.node` `">=20.0.0 <26.0.0"`; when Homebrew's default Node became v26 (ABI 147), the native module failed to load (`NODE_MODULE_VERSION 127 ... requires 147`), breaking BOTH the license check and the memory database in every consumer repo — `npx @massu/core@1 doctor` reported UNHEALTHY. This bumps `better-sqlite3` `^12.6.2` → `^12.11.1` (which ships prebuilt ABI-147 binaries for macOS/Linux/Alpine/Windows, so `npx` consumers with no compiler still load it) and removes the artificial `<26.0.0` engines ceiling (now `>=20.0.0`). Verified end-to-end: the full sqlite-backed suite (2710 tests) + `doctor` HEALTHY on Node 26 AND Node 22 (previously-shipped ABI 127 — no regression). Patch per semver: a compatibility fix with no API change.
+
+### Fixed
+
+- **better-sqlite3 native module fails to load on Node 26 (ABI 147).** Bumped `better-sqlite3` to `^12.11.1` (prebuilt ABI-147 binaries for every consumer platform) and widened `packages/core` + `@massu/adapter-rails` + `@massu/adapter-spring` `engines.node` to `>=20.0.0` (dropped the `<26.0.0` ceiling that excluded the new default Node). `checkNativeModules()` + `checkLicenseStatus()` in `massu doctor` now pass on Node 26 (Status: HEALTHY).
+- **root `npm audit` → 0 findings.** Bumped `tsx` `^4.0.0` → `^4.23.0` (built on patched esbuild `~0.28.0`) and added a root `overrides` pin `esbuild` `^0.28.1`, deduping the dev/test tree onto esbuild 0.28.1 and closing GHSA-g7r4-m6w7-qqqr (esbuild dev-server file read, Windows-only; esbuild is a build/test-only dep — never in `@massu/core` `dependencies` nor any published artifact). `npm audit fix` resolved `tar` (GHSA-vmf3-w455-68vh, file smuggling) and `vite` (GHSA-v6wh-96g9-6wx3, high). All-severity closure: `npm audit` reports zero at repo root.
+
+### Added
+
+- **CI Node-major matrix + hard gate (structural drift-prevention, CR-46).** `.github/workflows/ci.yml` `native-module` job runs a better-sqlite3 load assertion + the full sqlite-backed suite on Node `20 / 22 / 24 / 26 / latest` — the `latest` leg auto-tracks the newest release, so a FUTURE Node major that breaks the native-module ABI fails CI with no manual matrix edit. Fronted by a required `Native Module Gate` status check (`.github/rulesets/main-branch.json`). The class is pinned by `node-compat-drift-guard.test.ts` (native load + no-`<`-ceiling on `engines.node` + CI-guard-wired) and the ruleset allowlist mirror (`ruleset-parser.ts` ↔ `ruleset-context-coverage.mjs`). Closes the "single-Node CI never sees a new-major ABI break" gap that let this incident ship. Incident: `docs/incidents/2026-07-05-node-26-native-module-abi.md`.
+
 ## [1.15.0] - 2026-06-02
 
 **Enterprise auto-learning governance + signed audit export (`plan-2026-06-01-enterprise-governance-audit-export`)**. Generalizes the Phase-3 per-rule two-operator review into an org-level governance policy enforced at the server promotion chokepoint + role-aware RLS, and adds a cryptographically-signed compliance export. Enterprise orgs (`plan='cloud_enterprise'`) can now set a promotion policy — minimum promoter role (rank-compared, never lexicographic), N-of-M distinct-approver requirement, allowed destinations, and a tighten-only hardened-review flag — that `promoted_rule_upsert` enforces before any promotion applies; a promotion below threshold is held `pending` and excluded from every seat's pull cursor until enough distinct operators (each other than the promoter) approve it. The new signed audit export streams the org's full governance history (policy, approvals, promotions, revocations) as a single Ed25519-signed FLAT envelope (records carried as a `records_json` STRING so the signature covers every record — no nested-array forgery hole), verifiable offline against the bundled public key. The `audit-export` edge function is the SOLE signer (single-signer, CR-46) for both the programmatic `ms_live_` path (admin-scoped) and the dashboard path (which calls it server-side via a service-role bearer and holds no key). Backwards-compatible additive feature — off the Enterprise path, behavior is unchanged (`approval_state` defaults to `applied`) — minor per semver.
@@ -20,6 +33,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - `promoted_rule_upsert` re-defined (CREATE OR REPLACE of the 045 body + governance branch); `/sync` recognizes the new `pending_approval` status; `/promoted-rules` excludes `approval_state='pending'` rows from the differential-pull cursor.
+
+### Fixed
+
+- **loop-controller mirror drift closed** (`plan-loop-controller-mirror-drift-closure`) — reconciled the 78-line preexisting drift between the canonical `.claude/commands/massu-loop/references/loop-controller.md` and its shipped mirror `packages/core/commands/massu-loop/references/loop-controller.md`, and extended the byte-equivalence drift-guard (`auto-learning-mirror-drift-guard.test.ts`) to cover the loop-controller pair so the drift class is now structurally impossible for both command-reference mirrors. Docs-only; no API change.
 
 ## [1.14.0] - 2026-06-02
 

@@ -90,6 +90,24 @@ const SUBSYSTEMS = [
     invocationDesc: 'the PHASE 5.5 heading',
     killedBy: 'never wired — shipped in v0.6.0, linked by nothing, ever',
   },
+  {
+    name: 'Deep security audit (3.5) — adversarial red-team loop, NEVER skipped',
+    spec: 'phase-3.5-security-audit.md',
+    link: 'references/phase-3.5-security-audit.md',
+    invokedBy: /##\s*PHASE 3\.5:\s*DEEP SECURITY AUDIT/i,
+    invocationDesc: 'the PHASE 3.5 heading',
+    // The worst of the lot. It SHIPPED in v0.6.1, was GONE by v1.0.0, and exists in NO commit in
+    // this repository's history. Every version from 1.0.0 to 1.15.5 ran the golden path with no
+    // security audit phase at all. The only surviving copy on the machine was in a consumer repo
+    // that had committed its installed commands in April.
+    //
+    // THE REASON IT SURVIVED UNDETECTED: the reference-link guard asks "does every reference file
+    // have a link?" — and a file DELETED OUTRIGHT has no link to be missing. A check that only
+    // sees BROKEN things is structurally blind to ABSENT ones. That is the same defect as a
+    // scanner reporting CLEAN because it scanned zero files, and it is why assertion (1) of this
+    // suite — the file must EXIST — is not redundant with the link check. It is the whole point.
+    killedBy: 'DELETED ENTIRELY between v0.6.1 and v1.0.0 — in no commit, in no changelog',
+  },
 ] as const;
 
 describe('golden path: the quality subsystems must EXIST and be INVOKED (not merely present)', () => {

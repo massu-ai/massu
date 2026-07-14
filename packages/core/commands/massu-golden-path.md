@@ -150,6 +150,35 @@ Read `references/phase-3-simplify.md` for full details.
 
 ---
 
+## PHASE 3.5: DEEP SECURITY AUDIT
+
+Read `references/phase-3.5-security-audit.md` for full details.
+
+**Summary**: A full adversarial security audit loop against EVERY file changed in this run —
+parallel red-team agents, iterating until the audit converges to ZERO findings. It runs AFTER
+simplification (so it audits the final, cleaned-up code) and BEFORE pre-commit verification (so
+every security fix is caught by the Phase 4 gates).
+
+**THIS PHASE IS NEVER SKIPPED.** Security is non-negotiable regardless of the size, type, or scope
+of the change. Do not narrow the audit scope: every changed file gets audited.
+
+> **This phase SHIPPED in v0.6.1 and had vanished by v1.0.0.** It exists in no commit in this
+> repository's history — the only surviving copy on the machine was in a consumer repo that had
+> committed its installed commands back in April. So for every version from v1.0.0 to v1.15.5,
+> every user's golden path ran with **no security audit phase at all**, and nothing anywhere said
+> so.
+>
+> It was found by accident, on 2026-07-14, when a `git status` showed the file being deleted from
+> that consumer during a reinstall. **The reference-link guard could never have found it:** that
+> guard asks "does every reference file have a link?", and a file that has been deleted outright
+> has no link to be missing. A check that only sees *broken* things is blind to *absent* ones —
+> which is the same failure as a scanner that reports CLEAN because it scanned zero files.
+>
+> Restored and wired 2026-07-14. Guarded by `golden-path-quality-subsystems-wired.test.ts`, which
+> asserts the file EXISTS, is LINKED, and is INVOKED — a conjunction no deletion can satisfy.
+
+---
+
 ## PHASE 4: PRE-COMMIT VERIFICATION
 
 Read `references/phase-4-commit.md` for full details.
@@ -216,6 +245,7 @@ This skill is a folder. The following files are available for reference:
 | `references/vr-visual-calibration.md` | Score 5/3/1 calibration examples for VR-VISUAL weighted dimensions | Calibrating VR-VISUAL scoring in Phase 2.5 |
 | `references/phase-2.5-gap-analyzer.md` | Gap/enhancement analysis loop, 7 categories (incl. sprint-contract compliance), fix-and-repass until zero | After implementation, before simplification |
 | `references/phase-3-simplify.md` | Pattern scanner fast gate, dead code detection, parallel semantic review agents | Running simplification after implementation |
+| `references/phase-3.5-security-audit.md` | Adversarial red-team security audit loop over every changed file, iterating to ZERO findings | Phase 3.5 — after simplification, before pre-commit. NEVER skipped |
 | `references/phase-4-commit.md` | Auto-verification gates, quality scoring, commit format | Preparing a commit |
 | `references/phase-5-push.md` | Pre-flight, 4-tier push verification, regression detection | Preparing to push to remote |
 | `references/phase-5.5-production-verify.md` | Deployment landed, runtime logs clean, feature exercised against production with real data | Phase 5.5 — after push, before calling it done |

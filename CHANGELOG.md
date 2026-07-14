@@ -10,6 +10,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [1.15.6] - 2026-07-14
+
+### Fixed — the golden path's Deep Security Audit phase was missing entirely
+
+`references/phase-3.5-security-audit.md` — a full adversarial security audit loop over every file
+changed in a golden-path run (parallel red-team agents, iterating until the audit converges to ZERO
+findings). Its own text: *"This phase is NEVER skipped. Security is non-negotiable regardless of
+change size, type, or scope."*
+
+    0.6.1    SHIPS phase-3.5-security-audit.md
+    1.0.0    does NOT ship it
+    1.15.5   does NOT ship it
+
+**It exists in no commit in massu's history** — no deletion commit, no changelog entry, no trace.
+From v1.0.0 through v1.15.5, every user's golden path ran with **no security audit phase at all**.
+The only surviving copy was in a consumer repo that had committed its installed commands months ago.
+
+Restored, wired as **Phase 3.5** (after simplification, before pre-commit, exactly where its own
+spec says it belongs), and added to the reference table.
+
+**Why every guard missed it, and what changed:** the reference-link check asks *"does every
+reference file have a link?"* — and a file DELETED OUTRIGHT has no link to be missing. A check that
+only sees BROKEN things is structurally blind to ABSENT ones. The anti-vacuity suite now asserts,
+per subsystem, that the file **EXISTS** *and* is **LINKED** *and* is **INVOKED** — a conjunction no
+deletion can satisfy. Proven by attack: deleting the spec file goes RED; deleting the phase while
+keeping the file goes RED.
+
+This is the fifth quality subsystem found missing from the golden path in one day, and the only one
+deleted so completely it left no evidence anywhere in the repository.
+
 ## [1.15.5] - 2026-07-14
 
 ### Fixed — CRITICAL: `install-commands` could destroy your customizations

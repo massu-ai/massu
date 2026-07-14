@@ -17,6 +17,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { createPrivateKey, sign as nodeSign } from 'crypto';
 import Database from 'better-sqlite3';
+import { resetConfig } from '../config.ts';
 
 const testKey = vi.hoisted(() => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -163,8 +164,55 @@ describe('pullInstalledPackRules — tier gate', () => {
   });
 
   it('no endpoint / apiKey → no-op', async () => {
-    const res = await pullInstalledPackRules(db, { tier: 'team', orgId: ORG, projectRoot });
-    expect(res).toEqual({ pulled: 0, materialized: 0, skipped: 0, dropped_unverified: 0 });
+    // ⚠️ THIS TEST WAS MAKING A LIVE NETWORK CALL TO PRODUCTION — and it PASSED ONLY
+    // BECAUSE THE ENDPOINT WAS BROKEN.
+    //
+    // It passes no `fetchImpl`, so it used the real `fetch`. It resolves no `apiKey`,
+    // so on CI it correctly no-op'd — but on a DEVELOPER'S machine, CR-59 resolves a
+    // real key from `~/.massu/credentials`, and `rule-pack-sync.ts:139` only bails when
+    // BOTH endpoint and key are absent. The endpoint always resolves (DEFAULT_CLOUD_ENDPOINT).
+    // So on a real machine this "unit test" hit `api.massu.ai/v1/installed-rules` with the
+    // operator's live API key — and got a 404, because that route was never routed (E-1).
+    // `!res.ok -> return ZERO` turned the 404 into the exact zeros this test asserts.
+    //
+    // The moment E-1 was fixed and the endpoint answered 401 instead of 404, this test
+    // went red. **It was green because the feature was dead.** That is this entire bug
+    // class in a single test case.
+    //
+    // Made HERMETIC: a temp HOME so no user-level credential leaks in, and a fetchImpl
+    // that FAILS THE TEST if it is called at all — which is what "no-op" actually means.
+    const isolatedHome = mkdtempSync(join(tmpdir(), 'massu-nohome-'));
+    const realHome = process.env.HOME;
+    const realKey = process.env.MASSU_API_KEY;
+    process.env.HOME = isolatedHome;
+    delete process.env.MASSU_API_KEY;
+    // The config is a CACHED module singleton, so redirecting HOME is NOT enough — the
+    // real key had already been resolved and memoized. Without this reset, the test still
+    // shipped the developer's LIVE `ms_live_...` production key to api.massu.ai. Verified
+    // by watching it appear in the outbound Authorization header.
+    resetConfig();
+    try {
+      const fetchSpy = vi.fn(async () => {
+        throw new Error(
+          'NETWORK CALL ATTEMPTED with no API key configured. "No-op" means NO REQUEST.',
+        );
+      });
+      const res = await pullInstalledPackRules(db, {
+        tier: 'team',
+        orgId: ORG,
+        projectRoot,
+        apiKey: undefined,
+        endpoint: undefined,
+        fetchImpl: fetchSpy as unknown as typeof fetch,
+      });
+      expect(res).toEqual({ pulled: 0, materialized: 0, skipped: 0, dropped_unverified: 0 });
+      expect(fetchSpy, 'a no-op must not touch the network').not.toHaveBeenCalled();
+    } finally {
+      if (realHome !== undefined) process.env.HOME = realHome;
+      if (realKey !== undefined) process.env.MASSU_API_KEY = realKey;
+      resetConfig();
+      rmSync(isolatedHome, { recursive: true, force: true });
+    }
   });
 });
 

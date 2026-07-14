@@ -46,6 +46,11 @@ export const HOOK_TIMEOUTS: Record<string, number> = {
 
   // Auto-learning
   'auto-learning-pipeline': 10,
+
+  // UserPromptSubmit relevant-recall (plan-living-memory-slice-1). Claude Code
+  // outer timeout (10s) sits above the hook's internal 8s budget so the hook
+  // always fails open on its own terms before the platform kills it.
+  'memory-recall': 10,
 } as const;
 
 export type HookName = keyof typeof HOOK_TIMEOUTS;

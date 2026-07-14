@@ -49,6 +49,18 @@ echo ""
 COMMON_EXCLUDES="--exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git"
 
 # -------------------------------------------------------
+# The private-content boundary's OWN files. They live under scripts/lib/ but are NOT shipped —
+# `sync-public.sh` excludes every one of them, because they necessarily CONTAIN the private
+# signatures they exist to detect (the deny-list is a literal inventory of every private repo,
+# email and Supabase ref-id). They are private-side-only by construction.
+#
+# ⚠ DUAL SOURCE OF TRUTH: this list and `sync-public.sh`'s --exclude flags must agree. If a file
+# is dropped from the sync excludes but still listed here, this scanner would fall silent on a
+# file that IS being published — the exact "failure looks like emptiness" shape. That divergence
+# is not left to vigilance: `scripts/tests/test_private_boundary_files_never_shipped.sh` asserts
+# every entry below is genuinely sync-excluded AND absent from the public repo, and fails if not.
+PRIVATE_BOUNDARY_FILES='scripts/lib/private-denylist\.json|scripts/lib/generate_denylist\.py|scripts/lib/private_content_scan\.py|scripts/lib/leak-patterns-operator\.sh'
+
 # Check 1: No "limn" references in shipped directories
 # -------------------------------------------------------
 echo "Check 1: No 'limn' references in shipped files"
@@ -71,6 +83,7 @@ if [ -n "$LIMN_DIRS" ]; then
     | grep -v "node_modules" \
     | grep -v "limn-parity-port" \
     | grep -v "massu-generalization-scanner\.sh" \
+    | grep -vE "$PRIVATE_BOUNDARY_FILES" \
     | wc -l | tr -d ' ')
   if [ "$LIMN_COUNT" -gt 0 ]; then
     fail "Found $LIMN_COUNT 'limn' references in shipped directories"

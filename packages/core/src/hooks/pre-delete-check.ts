@@ -17,6 +17,7 @@ import { getFeatureImpact } from '../sentinel-db.ts';
 import { getProjectRoot, getResolvedPaths } from '../config.ts';
 import { t } from '../lib/sql-table-names.ts';
 import { writeHookMessage } from './lib/write-hook-message.ts';
+import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
   session_id: string;
@@ -214,8 +215,12 @@ async function main(): Promise<void> {
     const hookInput = JSON.parse(input) as HookInput;
     const messages = runPreDeleteChecks(hookInput);
     for (const msg of messages) writeHookMessage(msg);
-  } catch {
-    // Hooks must never crash
+  } catch (err) {
+    // G-2 + S-3: a SECURITY hook that cannot evaluate must not permit.
+    // Was: swallow -> exit 0 -> ALLOW. Now: loud + FAIL CLOSED.
+    recordHookFailure('pre-delete-check', err);
+    process.stderr.write('MASSU SECURITY GATE — BLOCKED (gate could not evaluate this call)\n');
+    process.exit(2);
   }
   process.exit(0);
 }

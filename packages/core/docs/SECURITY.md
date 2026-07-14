@@ -96,7 +96,7 @@ signature. The PR-to-manifest flow is documented in
 [`AUTHORING-ADAPTERS.md`](./AUTHORING-ADAPTERS.md) under "Submitting a
 REGISTRY-VERIFIED adapter."
 
-The maintainer (`ethankowen-73`) holds the signing key in macOS
+The maintainer holds the signing key in macOS
 Keychain at `massu/registry/signing/private`. A backup maintainer
 documented in this file's "Succession" section below is the single-
 point-of-failure mitigation.
@@ -216,7 +216,7 @@ mid-flight stops both new records AND any pending replay.
 
 ## Succession
 
-The npm `@massu` org is currently owned by `ethankowen-73`. Backup
+The npm `@massu` org is owned by the maintainer. Backup
 maintainer assignment (open action — required before Phase 9
 publish per the canonical plan): a second account must hold
 `Maintainer` role on the `@massu` org so deprecate / unpublish capability

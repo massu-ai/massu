@@ -73,6 +73,15 @@ async function main(): Promise<void> {
       process.exit(result.exitCode);
       return;
     }
+    case 'db': {
+      // Incident 2026-07-13: one schema change corrupted the live 135 MB memory.db,
+      // and recovery depended on a snapshot that existed BY LUCK. This makes recovery
+      // a control instead of a coincidence.
+      const { handleDbSubcommand } = await import('./commands/db.ts');
+      const result = await handleDbSubcommand(args.slice(1));
+      process.exit(result.exitCode);
+      return;
+    }
     case 'license': {
       const { handleLicenseSubcommand } = await import('./commands/license.ts');
       const result = await handleLicenseSubcommand(args.slice(1));
@@ -85,9 +94,45 @@ async function main(): Promise<void> {
       process.exit(result.exitCode);
       return;
     }
+    case 'memory': {
+      // `massu memory embed-backfill` — vector-backfill the memory + knowledge
+      // corpus (distinct from the md-file massu_memory_backfill MCP tool).
+      const sub = args[1];
+      if (sub === 'embed-backfill') {
+        const { runMemoryEmbedBackfill } = await import('./commands/memory-embed-backfill.ts');
+        const result = await runMemoryEmbedBackfill(args.slice(2));
+        process.exit(result.exitCode);
+        return;
+      }
+      // 4B (B-13). These four are CLI-ONLY and there is deliberately NO MCP tool for
+      // them: each one writes to (or authorises writing to) the operator's irreplaceable
+      // memory, and an MCP tool is MODEL-CALLABLE — the model being precisely the actor
+      // this slice exists to constrain. A drift-guard asserts these names never appear in
+      // tools.ts.
+      if (sub === 'render' || sub === 'restore' || sub === 'adopt' || sub === 'unrender') {
+        const { runMemoryRenderCli } = await import('./commands/memory-render-cli-entry.ts');
+        const result = await runMemoryRenderCli(sub, args.slice(2));
+        process.stdout.write(`${result.output}\n`);
+        process.exit(result.exitCode);
+        return;
+      }
+      process.stderr.write(
+        `Unknown memory subcommand: ${sub ?? '(none)'}\n` +
+          `Usage: massu memory <embed-backfill | render --dry-run | restore [--from <stamp>] | ` +
+          `adopt [--dry-run] | unrender [--all | --file <rel>] [--dry-run]>\n`
+      );
+      process.exit(1);
+      return;
+    }
     case 'rule': {
       const { handleRuleSubcommand } = await import('./commands/rule.ts');
       const result = await handleRuleSubcommand(args.slice(1));
+      process.exit(result.exitCode);
+      return;
+    }
+    case 'consolidate': {
+      const { runConsolidateCommand } = await import('./commands/consolidate.ts');
+      const result = await runConsolidateCommand(args.slice(1));
       process.exit(result.exitCode);
       return;
     }
@@ -238,6 +283,7 @@ Commands:
   changelog <sub>   CHANGELOG generation / verification: generate | verify
   adapters <sub>    Third-party adapter registry: list | refresh | search | add-local | remove-local | install | resign
   rule <sub>        Auto-learning rule-candidate side-effects: record-shown <prompt_hash>
+  consolidate       Run the memory consolidation pass (--dry-run, --json, --budget-ms N)
 
 Options:
   --help, -h        Show this help message

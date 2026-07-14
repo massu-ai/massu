@@ -2,8 +2,9 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
-import { resolve } from 'path';
+import { writeFileSync, mkdirSync, rmSync, existsSync, mkdtempSync, realpathSync } from 'fs';
+import { resolve, join } from 'path';
+import { tmpdir } from 'os';
 import Database from 'better-sqlite3';
 import { resetConfig, getResolvedPaths } from '../config.ts';
 import { getDataDb } from '../db.ts';
@@ -14,7 +15,16 @@ import {
   findAffectedPages,
 } from '../page-deps.ts';
 
-const TEST_DIR = resolve(__dirname, '../test-page-deps-tmp');
+// Scratch trees MUST live in the OS temp dir, never under packages/core/src.
+// The repo's source-scanning drift-guards walk src/, and this fixture tree is
+// created and torn down repeatedly — under parallel load a guard reads a file
+// that has just been deleted and the whole suite dies with ENOENT. (This is
+// what broke the pre-push Sync Check.)
+// realpathSync: on macOS os.tmpdir() is /var/... which is a symlink to
+// /private/var/..., and the config resolver canonicalises paths — without this
+// the "data DB lives under the project root" assertion compares two spellings
+// of the same directory and fails.
+const TEST_DIR = realpathSync(mkdtempSync(join(tmpdir(), 'massu-page-deps-')));
 
 function write(path: string, content: string) {
   const dir = resolve(path, '..');

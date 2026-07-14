@@ -19,8 +19,13 @@ export interface AuditEntry {
   // mirror the audit_log CHECK constraint (memory-db.ts:405). TypeScript-side
   // union must stay in lockstep with the SQL CHECK — drift-guard test
   // `audit-log-event-type-migration.test.ts` enforces both directions.
+  // A-19 (Slice 4): extended 9 → 15. Nobody could otherwise ever notice "Massu touched
+  // 12 of my memory files last week" — and once 4B can WRITE, an unobservable writer is
+  // an unauditable one.
   eventType: 'code_change' | 'rule_enforced' | 'approval' | 'review' | 'commit' | 'compaction'
-    | 'rule_candidate_emitted' | 'rule_promoted' | 'rule_dismissed';
+    | 'rule_candidate_emitted' | 'rule_promoted' | 'rule_dismissed'
+    | 'memory_file_ingested' | 'memory_file_expired' | 'memory_file_adopted_human'
+    | 'memory_file_rendered' | 'memory_file_render_refused' | 'memory_file_tombstoned';
   actor: 'ai' | 'human' | 'hook' | 'agent';
   filePath?: string;
   changeType?: 'create' | 'edit' | 'delete';

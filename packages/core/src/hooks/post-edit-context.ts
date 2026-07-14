@@ -15,6 +15,7 @@ import { matchRules } from '../rules.ts';
 import { isInMiddlewareTree } from '../middleware-tree.ts';
 import { getResolvedPaths, getProjectRoot } from '../config.ts';
 import { writeHookMessage } from './lib/write-hook-message.ts';
+import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
   session_id: string;
@@ -73,8 +74,11 @@ async function main(): Promise<void> {
     if (warnings.length > 0) {
       writeHookMessage(`[Massu] ${warnings.join(' | ')}`);
     }
-  } catch (_e) {
-    // Best-effort: never block Claude Code
+  } catch (err) {
+    // G-2: a hook may fail; it may not fail SILENTLY. Exit stays 0 (a Massu
+    // bug must never block the user's session) but the failure now leaves a
+    // durable trace: .massu/hook-failures.jsonl + stderr + hook_health.
+    recordHookFailure('post-edit-context', err);
   }
   process.exit(0);
 }

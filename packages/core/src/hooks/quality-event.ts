@@ -10,6 +10,8 @@
 // ============================================================
 
 import { getMemoryDb } from '../memory-db.ts';
+import { toolResponseText, type RawToolResponse } from './lib/tool-response.ts';
+import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
   session_id: string;
@@ -18,7 +20,12 @@ interface HookInput {
   hook_event_name: string;
   tool_name: string;
   tool_input: Record<string, unknown>;
-  tool_response: string;
+  /**
+   * S-1 (plan-silent-failure-remediation): was declared `string`. It is an OBJECT
+   * 97.6% of the time. Same lie, same silent death as post-tool-use. Normalize via
+   * the ONE parser — never narrow this back to `string`.
+   */
+  tool_response: RawToolResponse;
 }
 
 interface QualitySignal {
@@ -90,7 +97,8 @@ async function main(): Promise<void> {
     const hookInput = JSON.parse(input) as HookInput;
     const { session_id, tool_name, tool_response } = hookInput;
 
-    const signals = detectQualitySignals(tool_response);
+    // S-1: normalize the real union to text before any string parsing.
+    const signals = detectQualitySignals(toolResponseText(tool_response));
     if (signals.length === 0) {
       process.exit(0);
       return;
@@ -108,8 +116,11 @@ async function main(): Promise<void> {
     } finally {
       db.close();
     }
-  } catch (_e) {
-    // Best-effort: never block Claude Code
+  } catch (err) {
+    // G-2: a hook may fail; it may not fail SILENTLY. Exit stays 0 (a Massu
+    // bug must never block the user's session) but the failure now leaves a
+    // durable trace: .massu/hook-failures.jsonl + stderr + hook_health.
+    recordHookFailure('quality-event', err);
   }
   process.exit(0);
 }

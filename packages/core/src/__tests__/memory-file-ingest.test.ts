@@ -146,13 +146,18 @@ describe('memory-file-ingest', () => {
       expect(getObs(db, '[memory-file] MEMORY')).toBeUndefined();
     });
 
-    it('counts updates on a second backfill pass', () => {
+    it('A-08: a second backfill pass is a hash-gated NO-OP (it used to rewrite every row)', () => {
+      // Was: `expect(second.updated).toBe(1)` — i.e. it asserted that re-ingesting an
+      // UNCHANGED file rewrites its row. That is exactly the work the hash gate exists
+      // to avoid: 69 files re-parsed and re-written on every backfill. An unchanged
+      // file, already ingested by the current parser, is now `skipped`.
       write(resolve(MEM_DIR, 'a.md'), '---\nname: A\n---\n\nbody a\n');
       const first = backfillMemoryFiles(db, MEM_DIR);
       expect(first.inserted).toBe(1);
 
       const second = backfillMemoryFiles(db, MEM_DIR);
-      expect(second.updated).toBe(1);
+      expect(second.updated).toBe(0);
+      expect(second.skipped).toBe(1);
       expect(second.inserted).toBe(0);
     });
 

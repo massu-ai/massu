@@ -23,9 +23,11 @@
  * PreToolUse payload).
  */
 
-import { runSecurityGateChecks } from './security-gate.ts';
+import { runSecurityGateFindings } from './security-gate.ts';
 import { runPreDeleteChecks } from './pre-delete-check.ts';
 import { writeHookMessage } from './lib/write-hook-message.ts';
+import { readStdinToEof } from './lib/read-stdin.ts';
+import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
   session_id: string;
@@ -38,36 +40,89 @@ interface HookInput {
   };
 }
 
-async function main(): Promise<void> {
-  try {
-    const input = await readStdin();
-    const hookInput = JSON.parse(input) as HookInput;
+/** PreToolUse protocol: exit 2 = BLOCK the tool call, stderr is shown to the model. */
+const EXIT_DENY = 2;
+const EXIT_ALLOW = 0;
 
-    const securityMessages = runSecurityGateChecks(hookInput);
+/**
+ * S-3: FAIL CLOSED.
+ *
+ * This is the one hook that must NOT use `runHookSafely`. Every other hook swallows
+ * its errors and exits 0, because a Massu bug must not block the user's session.
+ * For a SECURITY gate, that reasoning inverts: exit 0 is not "no opinion", it is
+ * "ALLOW". A gate that cannot evaluate a command has not approved it — and a command
+ * the gate never managed to READ is an UNKNOWN command, not a safe one.
+ *
+ * So: any failure to read, parse, or evaluate the payload denies the call, loudly,
+ * with a reason the human can act on.
+ */
+function deny(reason: string, detail?: string): never {
+  process.stderr.write(
+    `MASSU SECURITY GATE — BLOCKED\n\n${reason}\n` +
+      (detail ? `\n${detail}\n` : '') +
+      `\nThe gate denies by default when it cannot verify a command is safe.\n`,
+  );
+  process.exit(EXIT_DENY);
+}
+
+async function main(): Promise<void> {
+  let hookInput: HookInput;
+
+  // ---- Phase 1: READ + PARSE. Any failure here is fatal and denies. ----
+  try {
+    const input = await readStdinToEof();
+    if (!input.trim()) {
+      // Empty stdin is not "nothing to check" — it means the payload never arrived.
+      recordHookFailure('pre-tool-use-gate', new Error('empty stdin payload'));
+      deny(
+        'The gate received an EMPTY payload and could not determine what tool call was requested.',
+      );
+    }
+    hookInput = JSON.parse(input) as HookInput;
+  } catch (err) {
+    // Was: `catch {}` → exit 0 → ALLOW. A truncated payload (the old 400ms partial
+    // read) silently permitted whatever it was that took too long to arrive.
+    recordHookFailure('pre-tool-use-gate', err, { phase: 'read-parse' });
+    deny(
+      'The gate could not READ or PARSE the tool-call payload, so it cannot know what it was being asked to approve.',
+      err instanceof Error ? `Cause: ${err.message}` : undefined,
+    );
+  }
+
+  // ---- Phase 2: EVALUATE. A check that throws has not passed. ----
+  let findings;
+  try {
+    const security = runSecurityGateFindings(hookInput);
     // NOTE: runPreDeleteChecks' HookInput shape is structurally compatible
     // with the consolidated HookInput here (both extend Claude Code's
     // PreToolUse payload schema).
-    const deleteMessages = runPreDeleteChecks(hookInput as Parameters<typeof runPreDeleteChecks>[0]);
-
-    for (const msg of [...securityMessages, ...deleteMessages]) {
-      writeHookMessage(msg);
-    }
-  } catch {
-    // Hooks must never crash
+    const deletes = runPreDeleteChecks(
+      hookInput as Parameters<typeof runPreDeleteChecks>[0],
+    ).map((message) => ({ severity: 'warn' as const, message }));
+    findings = [...security, ...deletes];
+  } catch (err) {
+    recordHookFailure('pre-tool-use-gate', err, { phase: 'evaluate' });
+    deny(
+      'A security check CRASHED while evaluating this tool call. A check that did not run has not passed.',
+      err instanceof Error ? `Cause: ${err.message}` : undefined,
+    );
   }
 
-  process.exit(0);
-}
+  // ---- Phase 3: DECIDE. ----
+  const blocking = findings.filter((f) => f.severity === 'block');
 
-function readStdin(): Promise<string> {
-  return new Promise((resolve) => {
-    let data = '';
-    process.stdin.setEncoding('utf-8');
-    process.stdin.on('data', (chunk) => { data += chunk; });
-    process.stdin.on('end', () => resolve(data));
-    // Timeout to prevent hanging
-    setTimeout(() => resolve(data), 400);
-  });
+  // Advisory findings still surface to the user, exactly as before.
+  for (const f of findings.filter((x) => x.severity === 'warn')) {
+    writeHookMessage(f.message);
+  }
+
+  if (blocking.length > 0) {
+    // Previously: this printed "Review carefully before proceeding" and exited 0.
+    // The command then ran. Verified 2026-07-13: `curl … | bash` was ALLOWED.
+    deny(blocking.map((f) => f.message).join('\n\n'));
+  }
+
+  process.exit(EXIT_ALLOW);
 }
 
 main();

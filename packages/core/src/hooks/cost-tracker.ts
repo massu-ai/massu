@@ -10,6 +10,8 @@
 // ============================================================
 
 import { getMemoryDb } from '../memory-db.ts';
+import { toolResponseText, type RawToolResponse } from './lib/tool-response.ts';
+import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
   session_id: string;
@@ -18,7 +20,12 @@ interface HookInput {
   hook_event_name: string;
   tool_name: string;
   tool_input: Record<string, unknown>;
-  tool_response: string;
+  /**
+   * S-1 (plan-silent-failure-remediation): was declared `string`. It is an OBJECT
+   * 97.6% of the time. Same lie, same silent death as post-tool-use. Normalize via
+   * the ONE parser — never narrow this back to `string`.
+   */
+  tool_response: RawToolResponse;
 }
 
 // Approximate: 4 characters per token (industry rule of thumb)
@@ -36,7 +43,9 @@ async function main(): Promise<void> {
 
     const inputStr = JSON.stringify(tool_input);
     const estimatedInputTokens = estimateTokens(inputStr);
-    const estimatedOutputTokens = estimateTokens(tool_response ?? '');
+    // S-1: an OBJECT was being passed to estimateTokens — it did not crash, it
+    // silently produced a WRONG token count. A quiet wrong number, not a loud failure.
+    const estimatedOutputTokens = estimateTokens(toolResponseText(tool_response));
 
     const db = getMemoryDb();
     try {
@@ -47,8 +56,11 @@ async function main(): Promise<void> {
     } finally {
       db.close();
     }
-  } catch (_e) {
-    // Best-effort: never block Claude Code
+  } catch (err) {
+    // G-2: a hook may fail; it may not fail SILENTLY. Exit stays 0 (a Massu
+    // bug must never block the user's session) but the failure now leaves a
+    // durable trace: .massu/hook-failures.jsonl + stderr + hook_health.
+    recordHookFailure('cost-tracker', err);
   }
   process.exit(0);
 }

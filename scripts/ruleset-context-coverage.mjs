@@ -45,6 +45,13 @@ const WORKFLOWS_DIR = path.join(REPO_ROOT, '.github', 'workflows')
  * website/src/__tests__/ruleset-context-coverage.test.ts.
  */
 const WORKFLOW_NOT_REQUIRED_AS_CONTEXT = new Set([
+  // G-1 REALITY GATE (reality.yml). Probes the OUTSIDE WORLD — live endpoints at
+  // api.massu.ai, massu.ai. It MUST NOT gate a merge: a vendor outage, a DNS blip, or a
+  // Supabase incident would then block every push, and a gate that blocks on someone
+  // else's downtime gets switched off — which is how gates rot. It runs nightly and
+  // fails LOUDLY (it is what caught 4 production 404s), but it does not hold the door.
+  'reality',
+
   // schedule-only workflow; never runs on push; requiring it as a context
   // would block every push.
   'Weekly retroactive leak-guard audit',

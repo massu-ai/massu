@@ -24,6 +24,7 @@ function createTestDb(): Database.Database {
       status TEXT NOT NULL DEFAULT 'accepted' CHECK(status IN ('accepted', 'superseded', 'deprecated')),
       alternatives TEXT,
       consequences TEXT,
+      affected_files TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
   `);

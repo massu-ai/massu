@@ -7,7 +7,7 @@ name: CI (public-mirror)
 # Otherwise the workflow-level `name:` collision with ci.yml (also `CI` before
 # this fix) AND the shared concurrency group cancelled ci.yml in 1-2s on every
 # push, silently disabling every drift-guard. Discovered 2026-05-16. The
-# job-level `if: github.repository != 'ethankowen-73/massu-internal'` gate skips
+# job-level `if: github.repository == 'massu-ai/massu'` gate skips
 # all jobs in the internal repo while still letting them run in the synced
 # public repo (where this file is named `ci.yml`).
 #
@@ -28,7 +28,7 @@ concurrency:
 jobs:
   type-check:
     name: Type Check
-    if: github.repository != 'ethankowen-73/massu-internal'
+    if: github.repository == 'massu-ai/massu'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +48,7 @@ jobs:
 
   test:
     name: Test
-    if: github.repository != 'ethankowen-73/massu-internal'
+    if: github.repository == 'massu-ai/massu'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +67,7 @@ jobs:
 
   ruleset-drift-guard:
     name: Ruleset Drift Guard
-    if: github.repository != 'ethankowen-73/massu-internal'
+    if: github.repository == 'massu-ai/massu'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -84,7 +84,7 @@ jobs:
 
   build:
     name: Build
-    if: github.repository != 'ethankowen-73/massu-internal'
+    if: github.repository == 'massu-ai/massu'
     runs-on: ubuntu-latest
     needs: [type-check, test]
     steps:

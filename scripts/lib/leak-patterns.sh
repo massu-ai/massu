@@ -100,6 +100,20 @@ RAW_SHA_PATTERN='\b[0-9a-f]{7,40}\b'
 # the patterns. Any other legitimate-looking content match should use
 # the per-line `# leak-guard-allow:` trailer instead.
 CONTENT_SCAN_SELF_REFERENCE_FILES_PUBLIC_REPO=(
+  # ── Model assets: upstream data blobs, not authored content (added 2026-07-13) ──
+  # `assets/embedder/vocab.txt` is a 30,522-token BERT WordPiece vocabulary. It contains every
+  # common English word — including "confidential" and "proprietary" — so the content scan matches
+  # it on EVERY run, forever. Nobody wrote those words there; they are the English language.
+  #
+  # This is a PRECISION fix, not a security exception. A permanent false positive is not cosmetic:
+  # it is how a gate dies. Someone gets tired of it and the fix they reach for is to weaken the
+  # patterns or bypass the guard — and then it is not protecting anything at all. Exempting the one
+  # data file keeps every pattern at full strength everywhere it can actually mean something.
+  'packages/core/assets/embedder/vocab.txt'
+  # `massu-incident-coverage.sh` is a script whose JOB is to check that incidents are documented
+  # under docs/incidents/. It must name that path to do its work — the same "enumerates the pattern
+  # by definition" case as the guard scripts below.
+  'scripts/massu-incident-coverage.sh'
   # Guard infrastructure — these enumerate the patterns by definition.
   'scripts/massu-public-leak-guard.sh'
   'scripts/install-hooks.sh'
@@ -146,7 +160,7 @@ CONTENT_SCAN_SELF_REFERENCE_FILES_PUBLIC_REPO=(
   'packages/core/src/__tests__/fixtures/leak-guard-commit-mode/expected-clean.md'
   'packages/core/src/__tests__/leak-guard-commit-mode.test.ts'
   # Supabase MCP-alias leak-guard drift-guard (incident 2026-05-27): the FAKE
-  # fixture intentionally contains a Supabase MCP alias (`mcp__supabase__FAKEENV__`
+  # fixture intentionally contains a Supabase MCP alias (`mcp__supabase__<env>__`
   # + fake id) to exercise the generic pattern; the test file references the
   # generic pattern literal + a fake alias in a comment. Both must be exempt so
   # the public-sync verifier accepts them while the generic pattern keeps

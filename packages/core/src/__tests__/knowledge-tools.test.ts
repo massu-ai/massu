@@ -270,7 +270,8 @@ describe('massu_knowledge_correct', () => {
     const meta = JSON.parse(chunk!.metadata);
     expect(meta.is_correction).toBe(true);
     expect(meta.cr_rule).toBe('CR-99');
-  });
+  }, 30000); // handleKnowledgeToolCall(correct) re-indexes on disk; the 5s default
+             // flakes under full-suite parallel CPU contention (passes in isolation).
 });
 
 describe('massu_knowledge_plan', () => {

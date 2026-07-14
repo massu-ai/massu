@@ -10,13 +10,17 @@
 
 import { getMemoryDb, addObservation, createSession, deduplicateFailedAttempt, addSummary } from '../memory-db.ts';
 import { classifyRealTimeToolCall, detectPlanProgress } from '../observation-extractor.ts';
+import { extractAlternatives, storeDecision } from '../adr-generator.ts';
 import { logAuditEntry } from '../audit-trail.ts';
 import { trackModification, recordTestResult } from '../regression-detector.ts';
 import { validateFile, storeValidationResult } from '../validation-engine.ts';
 import { scoreFileSecurity, storeSecurityScore } from '../security-scorer.ts';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'fs';
-import { join } from 'path';
+import { join, basename as pathBasename, dirname as pathDirname, resolve as pathResolve } from 'path';
+import { getResolvedPaths } from '../config.ts';
 import { incrementRecurrenceCountsForScannerFailures } from '../lib/recurrence-incrementer.ts';
+import { normalizeToolResponse, type RawToolResponse } from './lib/tool-response.ts';
+import { recordHookFailure } from './lib/hook-failure-signal.ts';
 // P-E-018 (plan-stage-e-low-info-sweep): defer yaml dependency load
 // until first parse call. Most hook invocations don't need YAML
 // parsing (the massu.config.yaml read happens only when the relevant
@@ -47,7 +51,15 @@ interface HookInput {
   hook_event_name: string;
   tool_name: string;
   tool_input: Record<string, unknown>;
-  tool_response: string;
+  /**
+   * S-1 (plan-silent-failure-remediation): this was declared `string`. IT IS NOT.
+   * Measured across every real transcript for this repo: 97.6% object, 2.4% string.
+   * The lie type-checked, so `tsc` was happy, the tests (which passed string literals)
+   * were green — and `.trim()` threw a TypeError on 96% of real calls, straight into
+   * an outer `catch {}` and `exit 0`. 251,956 tool calls produced 0 observations.
+   * NEVER narrow this to `string` again. Normalize via the ONE parser instead.
+   */
+  tool_response: RawToolResponse;
 }
 
 // In-memory dedup for Read calls within this session
@@ -58,7 +70,17 @@ async function main(): Promise<void> {
   try {
     const input = await readStdin();
     const hookInput = JSON.parse(input) as HookInput;
-    const { session_id, tool_name, tool_input, tool_response } = hookInput;
+    const { session_id, tool_name, tool_input } = hookInput;
+
+    // S-1: NORMALIZE AT THE BOUNDARY. Every consumer below (classifyRealTimeToolCall,
+    // detectPlanProgress, parseTestRunOutput, the scanner excerpt) expects TEXT. The
+    // raw field is an object 97.6% of the time. Converting it here, once, through the
+    // one parser, is what makes the other six call sites in this file correct — and
+    // stringifying instead of extracting `stdout` would have silently broken all of
+    // the parsers rather than crashing them, which is worse.
+    const { text: tool_response, isError: toolErrored } = normalizeToolResponse(
+      hookInput.tool_response,
+    );
 
     // Reset seen reads if session changed
     if (currentSessionId !== session_id) {
@@ -83,6 +105,43 @@ async function main(): Promise<void> {
         deduplicateFailedAttempt(db, session_id, observation.title, observation.detail, observation.opts);
       } else {
         addObservation(db, session_id, observation.type, observation.title, observation.detail, observation.opts);
+      }
+
+      // P3-001 (plan-living-memory-slice-2-temporal-model): automatic STRUCTURED
+      // decision capture. Previously a detected decision was stored only as a
+      // flat observation sentence, and the structured architecture_decisions row
+      // (with alternatives) was written ONLY on demand via massu_adr_create — no
+      // hook wrote it (the §2.2 gap). Now a detected decision also persists its
+      // alternatives into architecture_decisions automatically. This is CHEAP
+      // (regex extraction only — no embedding), so it stays on the hot hook path;
+      // the embedding-based supersede/contradiction gate runs in the latency-
+      // tolerant session-end hook instead. Fully fail-open: any error leaves the
+      // observation write intact and never blocks the hook.
+      if (observation.type === 'decision') {
+        try {
+          const decisionText = observation.detail ?? observation.title;
+          const alternatives = extractAlternatives(decisionText);
+          // P3-002 dedup: skip if an identical-title decision already exists for
+          // this session (a repeated tool result must not create duplicate rows).
+          const existing = db
+            .prepare(
+              `SELECT id FROM architecture_decisions WHERE session_id = ? AND title = ? LIMIT 1`,
+            )
+            .get(session_id, observation.title) as { id: number } | undefined;
+          if (!existing) {
+            storeDecision(db, {
+              title: observation.title,
+              context: '',
+              decision: decisionText,
+              alternatives,
+              consequences: '',
+              sessionId: session_id,
+              affectedFiles: observation.opts?.filesInvolved,
+            });
+          }
+        } catch {
+          // fail-open — structured capture is best-effort
+        }
       }
 
       // Auto-detect plan progress
@@ -214,9 +273,24 @@ async function main(): Promise<void> {
       try {
         if (tool_name === 'Edit' || tool_name === 'Write') {
           const filePath = (tool_input.file_path as string) ?? '';
-          if (filePath && filePath.includes('/memory/') && filePath.endsWith('.md')) {
-            const basename = filePath.split('/').pop() ?? '';
-            if (basename !== 'MEMORY.md') {
+          // A-10 — this trigger has NEVER FIRED ON WINDOWS.
+          //
+          // It matched the substring '/memory/', so `C:\Users\…\memory\x.md` never
+          // matched at all, and it derived the basename with split('/'), so on
+          // Windows the "basename" was the entire path. It was also a substring
+          // test, so ANY repo file under any `*/memory/*` directory was ingested as
+          // if it were a user memory.
+          //
+          // Resolve the real memory dir and ask whether this file is IN it. Same
+          // resolver as everywhere else (A-00) — there is exactly one.
+          if (filePath && filePath.endsWith('.md') && pathBasename(filePath) !== 'MEMORY.md') {
+            let memoryDir = '';
+            try {
+              memoryDir = getResolvedPaths().memoryDir;
+            } catch {
+              memoryDir = '';
+            }
+            if (memoryDir && pathResolve(pathDirname(filePath)) === pathResolve(memoryDir)) {
               ingestMemoryFile(db, session_id, filePath);
             }
           }
@@ -278,8 +352,15 @@ async function main(): Promise<void> {
     } finally {
       db.close();
     }
-  } catch (_e) {
-    // Best-effort: never block Claude Code
+  } catch (err) {
+    // G-2: was `catch (_e) { /* Best-effort */ }` — a comment where a signal belonged.
+    // THIS EMPTY BLOCK IS WHY MASSU NEVER LEARNED ANYTHING. It swallowed a TypeError
+    // on 96% of tool calls for months, silently, while every gate stayed green.
+    //
+    // We still exit 0 — a Massu bug must never block the user's session — but the
+    // failure now leaves a trace in three places (file, stderr, hook_health), so
+    // "broken" can never again be byte-identical to "quiet day".
+    recordHookFailure('post-tool-use', err);
   }
   process.exit(0);
 }

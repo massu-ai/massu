@@ -20,6 +20,7 @@ export const REGISTERED_HOOKS = [
   'fix-detector',
   'incident-pipeline',
   'intent-suggester',
+  'memory-recall',
   'post-edit-context',
   'post-tool-use',
   'pre-compact',

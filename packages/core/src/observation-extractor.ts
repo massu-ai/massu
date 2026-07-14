@@ -16,6 +16,7 @@ import { assignImportance } from './memory-db.ts';
 import { detectDecisionPatterns } from './adr-generator.ts';
 import { getProjectRoot, getConfig, getResolvedPaths } from './config.ts';
 import { homedir } from 'os';
+import { normalizeToolResponse, type RawToolResponse } from './hooks/lib/tool-response.ts';
 
 // ============================================================
 // P2-002: Observation Extractor
@@ -89,8 +90,11 @@ export function isNoisyToolCall(tc: ParsedToolCall, seenReads: Set<string>): boo
     if (trivialPatterns.test(cmd)) return true;
   }
 
-  // Empty or error-only tool responses
-  if (!tc.result || tc.result.trim() === '') return true;
+  // Empty or error-only tool responses.
+  // S-1 GROUND ZERO: this line was `tc.result.trim()`. `tc.result` was an object on
+  // 96% of real calls, so this threw a TypeError that an outer `catch {}` ate. The
+  // typeof guard makes the crash structurally impossible even if a caller regresses.
+  if (!tc.result || typeof tc.result !== 'string' || tc.result.trim() === '') return true;
 
   return false;
 }
@@ -369,24 +373,42 @@ function shortenPath(filePath: string): string {
 export function classifyRealTimeToolCall(
   toolName: string,
   toolInput: Record<string, unknown>,
-  toolResponse: string,
-  seenReads: Set<string>
+  /**
+   * S-1: accepts the REAL union, not the `string` lie. Callers should normalize at
+   * their boundary, but this function normalizes again (idempotently) so that no
+   * future caller can reintroduce the TypeError that killed the whole learning
+   * surface. Defence in depth: the crash happened *here*, so the guard lives here.
+   */
+  toolResponse: RawToolResponse,
+  seenReads: Set<string>,
+  /**
+   * S-1b: was hardcoded `false`, so the `!tc.isError` branches below (test/build/
+   * scanner results) could NEVER see a failure — every failing command was recorded
+   * as a pass. Derived from the response when not supplied.
+   */
+  isError?: boolean,
 ): ExtractedObservation | null {
+  const normalized = normalizeToolResponse(toolResponse);
   const tc: ParsedToolCall = {
     toolName,
     toolUseId: '',
     input: toolInput,
-    result: toolResponse,
-    isError: false,
+    result: normalized.text,
+    isError: isError ?? normalized.isError,
   };
 
   if (isNoisyToolCall(tc, seenReads)) return null;
 
-  // P2-003: Detect architecture decision patterns in tool responses
-  if (toolResponse && detectDecisionPatterns(toolResponse)) {
-    const firstLine = toolResponse.split('\n')[0].slice(0, 200);
+  // P2-003: Detect architecture decision patterns in tool responses.
+  // S-1: these `.split()` / `.slice()` calls were a SECOND crash site on the raw
+  // object — one the audit never flagged, because it stopped at the first TypeError.
+  // Both now read the normalized text. (This is the "who else touches it?" question:
+  // the first bug found is rarely the only instance of the bug.)
+  const responseText = normalized.text;
+  if (responseText && detectDecisionPatterns(responseText)) {
+    const firstLine = responseText.split('\n')[0].slice(0, 200);
     const title = `Architecture decision: ${firstLine}`;
-    const detail = toolResponse.slice(0, 1000);
+    const detail = responseText.slice(0, 1000);
     return {
       type: 'decision',
       title,
@@ -394,8 +416,8 @@ export function classifyRealTimeToolCall(
       visibility: classifyVisibility(title, detail),
       opts: {
         importance: assignImportance('decision'),
-        originalTokens: estimateTokens(toolResponse),
-        ...extractLinkedReferences(toolResponse),
+        originalTokens: estimateTokens(responseText),
+        ...extractLinkedReferences(responseText),
       },
     };
   }
@@ -407,7 +429,11 @@ export function classifyRealTimeToolCall(
  * Detect plan progress references in tool responses.
  * Returns plan items that appear to be completed.
  */
-export function detectPlanProgress(toolResponse: string): Array<{ planItem: string; status: string }> {
+export function detectPlanProgress(
+  /** S-1: accepts the real union; normalizes idempotently. Was `string`. */
+  rawToolResponse: RawToolResponse,
+): Array<{ planItem: string; status: string }> {
+  const toolResponse = normalizeToolResponse(rawToolResponse).text;
   const results: Array<{ planItem: string; status: string }> = [];
   const progressPattern = /(P\d+-\d+)\s*[:\-]?\s*(COMPLETE|PASS|DONE|complete|pass|done)/g;
   let match;

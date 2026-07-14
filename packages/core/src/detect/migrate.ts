@@ -28,7 +28,7 @@ import { copyUnknownKeys, preserveNestedSubkeys } from './passthrough.ts';
  * Shape accepted for input. We intentionally use `Record<string, unknown>`
  * rather than the full `Config` Zod type — legacy configs may contain fields
  * that don't parse through the current schema (e.g., invalid enum values for
- * `framework.router` from eko-ultra-automations), and a strict shape would
+ * `framework.router` from a hand-customized config), and a strict shape would
  * reject the very configs we're trying to fix.
  */
 export type AnyConfig = Record<string, unknown>;

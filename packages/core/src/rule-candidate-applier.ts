@@ -14,8 +14,25 @@
 // destination; Phase D extends to `pattern-scanner`, `claude-md-cr`, and
 // `custom-destination`.
 
-import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync, realpathSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from 'fs';
 import { join, dirname, isAbsolute, relative } from 'path';
+import {
+  assertContainedIn,
+  assertSingleLine,
+  atomicWriteFileSync,
+  deriveSlug as sharedDeriveSlug,
+} from './lib/safe-write.ts';
+import { formatCorrectionEntry } from './lib/corrections-md.ts';
+import { mintAuthorship, RENDER_MAC_KEY } from './memory-authorship.ts';
+import {
+  readMemoryIndex,
+  readRegionLines,
+  renderRegion,
+  writeMemoryIndex,
+  RegionRefused,
+  MemoryIndexMissing,
+  DEFAULT_MAX_REGION_LINES,
+} from './memory-index-region.ts';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 import type Database from 'better-sqlite3';
@@ -312,25 +329,63 @@ export class CandidateNotFoundError extends Error {
  * whitespace, lowercases, caps at 60 chars.
  */
 export function deriveSlug(prompt: string): string {
-  const cleaned = prompt
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]+/g, ' ')
-    .replace(/\s+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  return cleaned.slice(0, 60) || 'rule_candidate';
+  // ONE slugger, in lib/safe-write.ts. Re-exported here so existing callers are
+  // unchanged — a second implementation is how two writers end up disagreeing about
+  // what a file is called.
+  return sharedDeriveSlug(prompt);
 }
 
 /**
- * Append a `- [Title](file.md) — hook` line at the end of MEMORY.md.
- * Caller must have already snapshotted MEMORY.md (snapshot-set §5).
- * Honors the §5 append-only invariant: post-write content MUST equal
- * `pre + \\n + line + \\n` (or `pre + line + \\n` if pre ends with \\n).
+ * B-16 — add ONE line to MEMORY.md's managed region, bounded and de-duplicated.
+ *
+ * This REPLACES `appendMemoryIndexLine` as the applier's write path. The old unbounded
+ * EOF append grew MEMORY.md forever, and MEMORY.md is loaded into EVERY turn of EVERY
+ * session — a permanent, compounding context tax that B-05's cap would have bounded on
+ * the renderer's side only.
+ *
+ * Throws if the region is unavailable (damaged sentinels / no MEMORY.md). The caller
+ * catches and proceeds: a rule promotion must not fail because MEMORY.md is damaged.
+ */
+export function writeIndexLineInRegion(indexPath: string, line: string): void {
+  const pre = readMemoryIndex(indexPath);
+  if (pre === undefined) {
+    // NEVER create MEMORY.md (B-17). The applier already refused to; the renderer matches.
+    throw new MemoryIndexMissing('MEMORY.md does not exist — index line skipped (file still written)');
+  }
+
+  const existing = readRegionLines(pre);
+  if (existing.includes(line)) return; // idempotent: a re-promotion must not duplicate
+
+  const next = [...existing, line].slice(-DEFAULT_MAX_REGION_LINES);
+  const post = renderRegion(pre, next); // throws RegionRefused on damaged sentinels
+  if (post !== pre) writeMemoryIndex(indexPath, pre, post); // asserts the post-write invariant
+}
+
+/**
+ * @deprecated B-16 — RETIRED as a write path. Its unbounded EOF append is exactly the
+ * growth B-05 bounds on the renderer's side, and leaving it live would bound only half
+ * of MEMORY.md's growth. Retained ONLY as the line FORMATTER's hardened contract (A-13)
+ * and for its tests; a drift-guard asserts it has no caller that writes outside the
+ * managed region. Use `writeIndexLineInRegion`.
  */
 export function appendMemoryIndexLine(indexPath: string, line: string): void {
+  // A-13 — the helper enforces its own contract now.
+  //
+  // It did NO newline stripping, and was safe only by accident of its single
+  // callsite, which happens to sanitize. MEMORY.md is auto-loaded into EVERY
+  // session as trusted context, so a `\n` in a caller-supplied title injects
+  // arbitrary markdown into the model's context forever. The append-only
+  // invariant would not even notice: `post === pre + line + '\n'` holds no
+  // matter what is inside `line`. The renderer (4B) becomes a SECOND caller, so
+  // a latent hole becomes a live one — do not rely on callsite discipline twice.
+  assertSingleLine(line);
+
   const pre = readFileSync(indexPath, 'utf-8');
   const sep = pre.endsWith('\n') ? '' : '\n';
   const next = pre + sep + line + '\n';
-  writeFileSync(indexPath, next, 'utf-8');
+  // A-14 — atomic. A truncating writeFileSync loses MEMORY.md on a crash/ENOSPC
+  // mid-write; this is the operator's 17KB hand-curated index.
+  atomicWriteFileSync(indexPath, next);
 }
 
 // Snapshot/restore helpers live in ./rule-candidate-snapshot.ts (extracted to
@@ -573,6 +628,10 @@ export async function applyRuleCandidate(
 
   db.exec('BEGIN');
   let auditRowId: number | undefined;
+  // B-16: set when the MEMORY.md pointer could not be written (damaged sentinels, no
+  // MEMORY.md). The promotion still succeeds — the pointer is recoverable, and failing a
+  // rule promotion because an unrelated file is damaged would be the wrong trade.
+  let indexLineSkipped: string | undefined;
   try {
     // Step 1: INSERT INTO audit_log — UNIQUE index trips on duplicate.
     const auditEntry: AuditEntry = {
@@ -604,9 +663,40 @@ export async function applyRuleCandidate(
     // Step 2: destination edit — dispatched by destination class.
     writeDestination(opts, candidate, slug, destTargets, auditRowId);
 
-    // Step 3: MEMORY.md append-only.
-    const indexLine = `- [${slug}](feedback_${slug}.md) — ${candidate.prompt.replace(/\n+/g, ' ').slice(0, 100)}`;
-    appendMemoryIndexLine(memoryIndex, indexLine);
+    // Step 3: MEMORY.md — INSIDE THE MANAGED REGION (B-16).
+    //
+    // This was an UNBOUNDED append at EOF. MEMORY.md is auto-loaded into every turn of
+    // every session, so an unbounded index is a permanent, compounding context tax — and
+    // B-05's bound would have bounded only HALF the growth while the applier grew the
+    // other half without limit. The applier's line now lives in the same region, under
+    // the same cap and the same eviction policy, taken under the same cross-process lock.
+    //
+    // FAILURE POLICY (B-16): if the region is unavailable (damaged sentinels, a busy
+    // lock, or no MEMORY.md at all), the applier STILL writes its feedback_<slug>.md and
+    // simply logs the missing index line. A rule promotion must not fail because
+    // MEMORY.md is damaged — the pointer is recoverable, the promotion is not.
+    const indexLine = assertSingleLine(
+      `- [${slug}](feedback_${slug}.md) — ${candidate.prompt.replace(/\n+/g, ' ').slice(0, 100)}`
+    );
+    //
+    // ⚠ TWO DIFFERENT FAILURES, TWO DIFFERENT ANSWERS — do not collapse them:
+    //   - The region is UNPARSEABLE (damaged sentinels) or MEMORY.md is absent. That is
+    //     a STRUCTURE problem with a file we are not required to have. Skip the pointer,
+    //     keep the promotion. This is B-16's stated failure policy.
+    //   - The write itself FAILS (EACCES on a read-only MEMORY.md, ENOSPC, EIO). That is
+    //     a genuine I/O failure, and the shipped contract — asserted by
+    //     `rule-candidate-applier-extended.test.ts` — is that the whole 4-step
+    //     transaction ROLLS BACK. Swallowing it would leave a promoted rule with a
+    //     half-written destination and no way back.
+    try {
+      writeIndexLineInRegion(memoryIndex, indexLine);
+    } catch (err) {
+      if (err instanceof RegionRefused || err instanceof MemoryIndexMissing) {
+        indexLineSkipped = (err as Error).message;
+      } else {
+        throw err; // a real I/O failure ⇒ roll the whole promotion back
+      }
+    }
 
     // Step 4: consume the candidate file.
     if (existsSync(candidatePath)) unlinkSync(candidatePath);
@@ -717,38 +807,25 @@ function computeDestinationTargets(
     }
     const raw = opts.customDestination.path;
     const absolute = isAbsolute(raw) ? raw : join(projectRoot, raw);
-    // SEC-02 fix: lexical relative() check is symlink-blind. realpathSync
-    // the existing parent directory of the destination (or the project root
-    // if the file does not yet exist) and compare against the realpath of
-    // the project root itself. Refuses any symlink that points outside the
-    // repo even when the lexical path looks contained.
-    const rel = relative(projectRoot, absolute);
-    if (rel.startsWith('..') || isAbsolute(rel)) {
-      throw new DestinationConfigError(`custom destination path escapes project root: ${raw}`);
-    }
+    // B-02/F-05 — ONE containment implementation, two anchors.
+    //
+    // This was a second, hand-rolled copy of the symlink-aware containment check.
+    // Two copies of a containment check is how a containment check ends up
+    // containing nothing: the renderer needs the SAME check anchored on the memory
+    // dir (which lives under $HOME, outside projectRoot by construction), and a
+    // verbatim reuse of this projectRoot-anchored copy would have rejected every
+    // legitimate memory path. Both callers now share `lib/safe-write.ts`, which
+    // additionally rejects NUL bytes and Windows reserved device names — neither of
+    // which this copy checked.
+    //
+    // `allowNested` because a custom destination is legitimately a nested repo path
+    // (`docs/brand-voice.md`); the memory dir is flat and uses the strict default.
     try {
-      const realProjectRoot = realpathSync(projectRoot);
-      // Walk upward until we find an existing ancestor whose realpath we
-      // can resolve. (The destination file itself may not exist yet.)
-      let probe = absolute;
-      while (!existsSync(probe) && probe.length > 1) {
-        const parent = dirname(probe);
-        if (parent === probe) break;
-        probe = parent;
-      }
-      const realProbe = realpathSync(probe);
-      const realRel = relative(realProjectRoot, realProbe);
-      if (realRel.startsWith('..') || isAbsolute(realRel)) {
-        throw new DestinationConfigError(
-          `custom destination path escapes project root via symlink: ${raw} → ${realProbe}`
-        );
-      }
+      assertContainedIn(projectRoot, absolute, { allowNested: true });
     } catch (err) {
-      if (err instanceof DestinationConfigError) throw err;
-      // realpath can throw if the path doesn't exist at all — that's fine,
-      // we already validated the lexical containment. Otherwise re-throw.
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT') throw err;
+      throw new DestinationConfigError(
+        `custom destination path escapes project root: ${raw} (${(err as Error).message})`
+      );
     }
     return { primary: absolute, paths: [absolute] };
   }
@@ -786,11 +863,34 @@ function writeCorrectionsMd(
 ): void {
   const [correctionsMd, feedbackMd] = targets.paths;
   const dateIso = new Date().toISOString().slice(0, 10);
-  const correctionsEntry = `\n## ${dateIso}: ${slug}\n\n${opts.draftText}\n\n- prompt_hash: ${candidate.prompt_hash}\n- score: ${candidate.score}\n- audit_log_id: ${auditRowId}\n`;
+  // A-09 — ONE format, shared with the reader (session-start) and the other writer
+  // (knowledge-tools). This used to emit `## date: slug` while the reader parsed a
+  // 4-column TABLE, so every rule it wrote was invisible to the injection that exists
+  // to surface them. The provenance bullets are preserved as `extra`.
+  const correctionsEntry = formatCorrectionEntry({
+    date: dateIso,
+    title: slug,
+    rule: opts.draftText,
+    extra: {
+      prompt_hash: candidate.prompt_hash,
+      score: candidate.score,
+      audit_log_id: auditRowId,
+    },
+  });
   if (!existsSync(dirname(correctionsMd))) mkdirSync(dirname(correctionsMd), { recursive: true });
   const correctionsPre = existsSync(correctionsMd) ? readFileSync(correctionsMd, 'utf-8') : '# Corrections\n';
   writeFileSync(correctionsMd, correctionsPre + correctionsEntry, 'utf-8');
 
+  // B-16 — THE APPLIER IS THE THIRD WRITER, AND IT NOW USES THE RENDERER'S CONVENTION.
+  //
+  // Left alone, this write had NO authorship credential — so post-B-01 every file the
+  // applier ever wrote would be classified HUMAN forever and the renderer could never
+  // maintain it: two Massu subsystems, two incompatible conventions, one of them
+  // permanently frozen. Stamping it here is the structural answer, not a carve-out.
+  //
+  // The MAC covers the BODY only (a MAC cannot cover itself), exactly as in the renderer.
+  const body = `${opts.draftText}\n`;
+  const mac = mintAuthorship(body);
   const feedbackBody = [
     '---',
     `name: ${slug}`,
@@ -801,12 +901,15 @@ function writeCorrectionsMd(
     `  prompt_hash: ${candidate.prompt_hash}`,
     `  audit_log_id: ${auditRowId}`,
     `  score: ${candidate.score}`,
+    // Display-only; never read for trust (drift-guarded). The MAC is the credential.
+    ...(mac ? ['massu_authored: true', `${RENDER_MAC_KEY}: ${mac}`] : []),
     '---',
     '',
-    opts.draftText,
-    '',
+    body,
   ].join('\n');
-  writeFileSync(feedbackMd, feedbackBody, 'utf-8');
+  // Atomic (A-14): a truncating writeFileSync leaves the file HALF-WRITTEN on ENOSPC or
+  // a crash — in the operator's git-tracked memory directory.
+  atomicWriteFileSync(feedbackMd, feedbackBody);
 }
 
 function writePatternScanner(

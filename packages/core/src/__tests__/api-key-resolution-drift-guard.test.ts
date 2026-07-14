@@ -33,6 +33,25 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(__dirname, '..');
 
+/**
+ * Collect fixture files (json/md) — they ship inside the public package too, so
+ * a secret sitting in a test fixture leaks exactly as far as one in source.
+ */
+function collectFixtureFiles(dir: string, acc: string[] = []): string[] {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return acc; // no fixtures dir — nothing to scan
+  }
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) collectFixtureFiles(full, acc);
+    else if (/\.(json|md|txt)$/.test(entry.name)) acc.push(full);
+  }
+  return acc;
+}
+
 /** Recursively collect every `.ts` file under src/ (excluding __tests__). */
 function collectSourceFiles(dir: string, acc: string[] = []): string[] {
   let entries;
@@ -96,13 +115,31 @@ describe('CR-59: single API-key resolver invariant', () => {
     expect(DEFAULT_CLOUD_ENDPOINT).not.toMatch(/[a-z0-9]{20}\.supabase\.co/);
   });
 
-  it('no packages/core/src file embeds a Supabase project-ref URL (leak-guard parity)', () => {
+  it('no packages/core/src file embeds a Supabase project ref — URL form OR bare (leak-guard parity)', () => {
+    // Widened after a REAL leak got through (2026-07-12): the Slice-2A recall
+    // eval fixture carried the production project ref in prose ("Target ref
+    // <ref>") inside a .json file. The old guard missed it twice over — it
+    // scanned only .ts, and it matched only the `<ref>.supabase.co` URL form.
+    // Everything under src/ ships in the public package, fixtures included.
+    const urlForm = /[a-z0-9]{20}\.supabase\.co/;
+    // A bare 20-char project ref introduced by the word "ref" / "project ref".
+    const bareForm = /\b(?:project[\s_-]*)?ref[\s:=]+[a-z]{20}\b/i;
+
+    const scanned = [...files, ...collectFixtureFiles(resolve(SRC_DIR, '__tests__/fixtures'))];
     const offenders: string[] = [];
-    for (const f of files) {
-      const content = readFileSync(f, 'utf-8');
-      if (/[a-z0-9]{20}\.supabase\.co/.test(content)) offenders.push(f);
+    for (const f of scanned) {
+      let content: string;
+      try {
+        content = readFileSync(f, 'utf-8');
+      } catch {
+        continue; // vanished mid-scan (parallel test scratch) — not a violation
+      }
+      if (urlForm.test(content) || bareForm.test(content)) offenders.push(f);
     }
-    expect(offenders, `Supabase project-ref URLs leak to the public package:\n${offenders.join('\n')}`).toEqual([]);
+    expect(
+      offenders,
+      `A Supabase project ref leaks to the PUBLIC package via:\n${offenders.join('\n')}`,
+    ).toEqual([]);
   });
 
   it('doctor renders the License line via formatLicenseCheck', () => {

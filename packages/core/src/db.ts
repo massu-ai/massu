@@ -4,6 +4,7 @@
 import Database from 'better-sqlite3';
 import { dirname, join } from 'path';
 import { existsSync, mkdirSync, readdirSync, statSync } from 'fs';
+import { assertCodegraphUsable } from './preflight.ts';
 import { getResolvedPaths } from './config.ts';
 import { t } from './lib/sql-table-names.ts';
 
@@ -17,14 +18,15 @@ import { t } from './lib/sql-table-names.ts';
  *
  * @see `docs/plans/2026-05-10-server-lazy-db-deps.md` P-C-001 + P-A-004
  */
-export class CodegraphDbNotInitializedError extends Error {
-  readonly dbPath: string;
-  constructor(dbPath: string) {
-    super(`CodeGraph database not found at ${dbPath}`);
-    this.name = 'CodegraphDbNotInitializedError';
-    this.dbPath = dbPath;
-  }
-}
+// G-3: the error classes live in preflight.ts (the module that decides usability), and
+// are re-exported here for every existing importer. Defining the base HERE and extending
+// it THERE would be a circular ESM import — and `class X extends Y` needs Y evaluated at
+// module-load time, so it would crash on startup. One direction only: db -> preflight.
+export {
+  CodegraphDbNotInitializedError,
+  CodegraphDbUnusableError,
+  type CodegraphFailure,
+} from './preflight.ts';
 
 /**
  * Connection to CodeGraph's read-only SQLite database.
@@ -36,9 +38,16 @@ export class CodegraphDbNotInitializedError extends Error {
  */
 export function getCodeGraphDb(): Database.Database {
   const dbPath = getResolvedPaths().codegraphDbPath;
-  if (!existsSync(dbPath)) {
-    throw new CodegraphDbNotInitializedError(dbPath);
-  }
+
+  // G-3 (M-2): this used to be `if (!existsSync(dbPath)) throw`. That guards the LOUD
+  // failure — the file is gone — and is blind to every QUIET one. Verified live: the
+  // file existed with 0 files / 0 nodes / 0 edges, the guard raised NOTHING, and
+  // `massu_impact` then reported "(safe)" for any change because it looked and found
+  // nothing. "No impact" and "I have no data" were byte-identical to the caller.
+  //
+  // A dependency is not "present". It is USABLE, or it is not there.
+  assertCodegraphUsable(dbPath);
+
   const db = new Database(dbPath, { readonly: true });
   db.pragma('journal_mode = WAL');
   return db;

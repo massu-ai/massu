@@ -126,7 +126,7 @@ canonical_paths:
   feature_config: config/features.yaml
   event_log_db: apps/data/events.db
 verification_types:
-  "VR-IBKR-CONTRACT": "IBKR contract parity check"
+  "VR-LEDGER-PARITY": "Ledger entry parity check"
   "VR-POLICY": "Policy enforcement verification"
 detection:
   rules:
@@ -182,7 +182,7 @@ detection:
 
     // P2-006: verification_types — user-declared VR-* names
     expect(config.verification_types).toBeDefined();
-    expect(config.verification_types!['VR-IBKR-CONTRACT']).toBe('IBKR contract parity check');
+    expect(config.verification_types!['VR-LEDGER-PARITY']).toBe('Ledger entry parity check');
     expect(config.verification_types!['VR-POLICY']).toBe('Policy enforcement verification');
 
     // P2-008: detection rules and signal weights

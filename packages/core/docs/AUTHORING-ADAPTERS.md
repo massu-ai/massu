@@ -123,7 +123,7 @@ manifest entry.
 ## Submitting a REGISTRY-VERIFIED adapter
 
 Adapter packages are added to the signed registry manifest by the Massu
-maintainer (`ethankowen-73`) via PR review. The flow:
+maintainer via PR review. The flow:
 
 1. Author your package per the Quickstart above.
 2. Publish to npm: `npm publish --access public`.

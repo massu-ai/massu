@@ -76,21 +76,49 @@ export function storeDecision(
     consequences: string;
     sessionId?: string;
     status?: string;
+    // P3-001a (plan-living-memory-slice-2-temporal-model): the affected_files
+    // column has existed on architecture_decisions but was never written. Both
+    // the capture hook and massu_adr_create can now persist the files a
+    // decision touched. Optional — omitting it leaves the column NULL (prior behavior).
+    affectedFiles?: string[];
   }
 ): number {
-  const result = db.prepare(`
-    INSERT INTO architecture_decisions
-    (title, context, decision, alternatives, consequences, session_id, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  // Build the column list from what the table actually has, so this writer works
+  // against both the full schema and pre-temporal / pre-affected_files hand-rolled
+  // test tables. `affected_files` (P3-001a) and the bi-temporal columns are each
+  // included only when present. New decisions are "valid now, never expired".
+  const existing = new Set(
+    (db.prepare(`PRAGMA table_info(architecture_decisions)`).all() as Array<{ name: string }>).map(
+      (c) => c.name,
+    ),
+  );
+  const cols = ['title', 'context', 'decision', 'alternatives', 'consequences', 'session_id', 'status'];
+  const vals: unknown[] = [
     decision.title,
     decision.context,
     decision.decision,
     JSON.stringify(decision.alternatives),
     decision.consequences,
     decision.sessionId ?? null,
-    decision.status ?? 'accepted'
-  );
+    decision.status ?? 'accepted',
+  ];
+  if (existing.has('affected_files')) {
+    cols.push('affected_files');
+    vals.push(decision.affectedFiles ? JSON.stringify(decision.affectedFiles) : null);
+  }
+  const hasTemporal = existing.has('valid_from_epoch');
+  const extraSql = hasTemporal
+    ? `, valid_from, ingested_at, valid_from_epoch, ingested_at_epoch`
+    : '';
+  const extraVals = hasTemporal
+    ? `, datetime('now'), datetime('now'), CAST(strftime('%s','now') AS INTEGER), CAST(strftime('%s','now') AS INTEGER)`
+    : '';
+  const result = db
+    .prepare(
+      `INSERT INTO architecture_decisions (${cols.join(', ')}${extraSql})
+       VALUES (${cols.map(() => '?').join(', ')}${extraVals})`,
+    )
+    .run(...vals);
 
   return Number(result.lastInsertRowid);
 }

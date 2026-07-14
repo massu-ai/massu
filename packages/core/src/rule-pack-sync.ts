@@ -274,7 +274,7 @@ function packRulePromptHash(slug: string, rule: RulePackRule): string {
   // pattern-scanner-allow: require
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { createHash } = require('node:crypto') as typeof import('crypto');
-  const body = `${slug} ${rule.destination} ${rule.title} ${
+  const body = `${slug}\u0000${rule.destination}\u0000${rule.title}\u0000${
     rule.pattern ?? rule.check ?? rule.description
   }`;
   return createHash('sha256').update(body, 'utf-8').digest('hex').slice(0, 16);

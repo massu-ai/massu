@@ -23,13 +23,14 @@
   "scripts": {
     "start": "npx tsx src/server.ts",
     "test": "vitest run",
-    "build": "tsc --noEmit && npm run build:cli && npm run build:hooks && npm run build:adapter-types && npm run build:adapter-subpath && npm run build:bundle-adapters",
+    "build": "tsc --noEmit && npm run build:cli && npm run build:hooks && npm run build:assets && npm run build:adapter-types && npm run build:adapter-subpath && npm run build:bundle-adapters",
+    "build:assets": "node scripts/copy-embedder-assets.mjs",
     "build:adapter-types": "tsc -p tsconfig.adapter-types.json",
     "build:adapter-subpath": "tsx scripts/bundle-adapters.ts --subpath-only",
     "build:bundle-adapters": "tsx scripts/bundle-adapters.ts",
-    "build:cli": "esbuild --bundle --platform=node --format=esm --outfile=dist/cli.js src/cli.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --external:web-tree-sitter --external:tweetnacl --external:tar --external:smol-toml --external:vscode-languageserver-protocol --external:@massu/adapter-rails --external:@massu/adapter-spring --banner:js='#!/usr/bin/env node\nimport{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
-    "build:hooks": "esbuild --bundle --platform=node --format=esm --outdir=dist/hooks src/hooks/*.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --external:web-tree-sitter --external:tweetnacl --external:tar --external:smol-toml --external:vscode-languageserver-protocol --external:@massu/adapter-rails --external:@massu/adapter-spring --banner:js='import{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
-    "prepublishOnly": "bash ../../scripts/prepublish-check.sh && node ../../scripts/bundle-pubkey.mjs && node ../../scripts/bundle-license-pubkey.mjs && node ../../scripts/bundle-promotion-pubkey.mjs && node ../../scripts/bundle-audit-export-pubkey.mjs && cp ../../CHANGELOG.md ./CHANGELOG.md && npm run build",
+    "build:cli": "esbuild --bundle --platform=node --format=esm --outfile=dist/cli.js src/cli.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --external:web-tree-sitter --external:tweetnacl --external:tar --external:smol-toml --external:vscode-languageserver-protocol --external:onnxruntime-web --external:@massu/adapter-rails --external:@massu/adapter-spring --banner:js='#!/usr/bin/env node\nimport{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
+    "build:hooks": "esbuild --bundle --platform=node --format=esm --outdir=dist/hooks src/hooks/*.ts --external:better-sqlite3 --external:yaml --external:zod --external:chokidar --external:proper-lockfile --external:fsevents --external:web-tree-sitter --external:tweetnacl --external:tar --external:smol-toml --external:vscode-languageserver-protocol --external:onnxruntime-web --external:@massu/adapter-rails --external:@massu/adapter-spring --banner:js='import{createRequire as __cr}from\"module\";const require=__cr(import.meta.url);'",
+    "prepublishOnly": "bash ../../scripts/prepublish-check.sh && node ../../scripts/bundle-pubkey.mjs && node ../../scripts/bundle-license-pubkey.mjs && node ../../scripts/bundle-promotion-pubkey.mjs && node ../../scripts/bundle-audit-export-pubkey.mjs && cp ../../CHANGELOG.md ./CHANGELOG.md && npm run build && bash ../../scripts/npm-publish-guard.sh",
     "bench:watch": "tsx test/perf/watch-benchmark.ts"
   },
   "dependencies": {
@@ -40,6 +41,7 @@
     "better-sqlite3": "^12.11.1",
     "chokidar": "^3.6.0",
     "fast-glob": "^3.3.0",
+    "onnxruntime-web": "^1.27.0",
     "proper-lockfile": "^4.1.2",
     "smol-toml": "^1.3.0",
     "tar": "^7.4.3",

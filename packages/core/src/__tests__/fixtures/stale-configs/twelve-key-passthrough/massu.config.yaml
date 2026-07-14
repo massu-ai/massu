@@ -1,0 +1,94 @@
+# SYNTHETIC regression fixture — 12 top-level keys, exercising full passthrough at both the
+# top level and nested levels.
+#
+# This fixture is INVENTED. It is not a copy of any real repository, and it must never become one.
+#
+# Its predecessor was a real private repo's config, hand-anonymized. The anonymization renamed the
+# project and MISSED a custom verification-type name that identified the vendor the author's private
+# system integrates with — and that one missed token published, to a public GitHub repo and to an
+# npm tarball anyone can download. The `description` and `north_stars` blocks gave away the rest in
+# plain prose, which no deny-list can ever match.
+#
+# The rule this fixture exists to embody: DERIVE FIXTURES FROM NOTHING. A realistic shape can be
+# invented in five minutes. A human scrubbing a file they copied will miss something — not because
+# they are careless, but because they are reading for the thing they already decided to remove.
+# Synthesis is the practice; the deny-list gate is only the backstop.
+#
+# (Note how this comment is written: it describes the failure WITHOUT restating the leaked token.
+#  The first draft of it named the token verbatim — and the publication gate went red on this very
+#  file. Explaining a leak is not a licence to reprint it.)
+project:
+  name: ledger-monorepo
+  root: auto
+  description: "Sample multi-runtime monorepo used to pin config-migration behaviour"
+
+framework:
+  type: multi
+  primary: python
+  python:
+    runtime: python3.11
+    framework: fastapi
+    test_framework: pytest
+  typescript:
+    framework: nextjs
+  swift:
+    framework: swiftui
+  rust:
+    framework: actix-web
+
+paths:
+  monorepo_root: apps
+  python_source: apps/ai-service
+  web_source: apps/web/src
+  ios_source: apps/ios
+  gateway_source: apps/gateway
+  data_runtime: data
+  docs: docs
+  plans: docs/plans
+  incidents: docs/incidents
+  adr: docs/adr
+  aliases:
+    "@": apps/web/src
+
+toolPrefix: ledger
+
+canonical_paths:
+  feature_config: apps/ai-service/data/feature_config.json
+  event_log_db: apps/ai-service/data/event_log.db
+
+services:
+  ai_service:
+    label: com.example.ledger-ai
+    port: 8000
+  guardian:
+    label: com.example.guardian
+
+domains:
+  - name: Ledger
+    routers: [ledger]
+    pages: []
+    tables: []
+
+rules:
+  - pattern: src/**/*.ts
+    rules:
+      - Use ESM imports, not CommonJS
+
+verification:
+  python:
+    test: "pytest"
+    type: "mypy"
+
+verification_types:
+  - name: VR-LEDGER-PARITY
+    description: "Ledger entry parity check"
+
+north_stars:
+  - "Correctness over cleverness"
+  - "Every boundary probed, not assumed"
+
+workflow:
+  phases:
+    - plan
+    - implement
+    - verify

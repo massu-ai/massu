@@ -5,6 +5,13 @@ import Database from 'better-sqlite3';
 import { dirname } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { getConfig, getResolvedPaths } from './config.ts';
+import { float32ToBlob } from './memory-vector.ts';
+import {
+  runEmbedSweep,
+  type SweepRow,
+  type EmbedSweepOpts,
+  type EmbedSweepResult,
+} from './memory-embed-sweep.ts';
 
 /**
  * Connection to Massu Knowledge's SQLite database.
@@ -189,4 +196,108 @@ export function initKnowledgeSchema(db: Database.Database): void {
   } catch {
     // FTS5 table may already exist with different schema — not fatal
   }
+
+  // ============================================================
+  // P1-001 (plan-living-memory-slice-1): embedding companion table for
+  // knowledge_chunks. Same design as observation_embeddings in memory-db.ts:
+  // a separate droppable table keyed 1:1 to the chunk, storing the
+  // (model_id, dim) provenance so mismatched vectors are skippable, and an
+  // L2-normalized Float32 little-endian BLOB.
+  // ============================================================
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS knowledge_chunk_embeddings (
+      chunk_id INTEGER PRIMARY KEY REFERENCES knowledge_chunks(id) ON DELETE CASCADE,
+      model_id TEXT NOT NULL,
+      dim INTEGER NOT NULL,
+      vec BLOB NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_kc_emb_model ON knowledge_chunk_embeddings(model_id);
+  `);
+}
+
+// ============================================================
+// P2-001 (plan-living-memory-slice-2a-embedder): knowledge-chunk embedding
+// writer + sweep. The knowledge-DB half of the ONE structural embed writer;
+// the generic loop lives in memory-embed-sweep.ts.
+// ============================================================
+
+/**
+ * Upsert an L2-normalized embedding for a knowledge chunk into
+ * `knowledge_chunk_embeddings` (1:1, keyed by chunk_id), storing the
+ * (model_id, dim) provenance.
+ */
+export function upsertChunkEmbedding(
+  db: Database.Database,
+  chunkId: number,
+  vec: Float32Array,
+  modelId: string,
+  dim: number,
+): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO knowledge_chunk_embeddings (chunk_id, model_id, dim, vec, created_at)
+     VALUES (?, ?, ?, ?, datetime('now'))`,
+  ).run(chunkId, modelId, dim, float32ToBlob(vec));
+}
+
+/** Build the embed text for a knowledge chunk (heading + content). */
+function chunkEmbedText(heading: string | null, content: string): string {
+  const h = (heading ?? '').trim();
+  const c = (content ?? '').trim();
+  return h ? `${h}. ${c}` : c;
+}
+
+/**
+ * Embed all knowledge chunks lacking a matching (model_id, dim) embedding.
+ * Fail-open, resumable, and time-boxable — see runEmbedSweep.
+ */
+export async function embedMissingChunks(
+  db: Database.Database,
+  opts: EmbedSweepOpts = {},
+): Promise<EmbedSweepResult> {
+  return runEmbedSweep(
+    db,
+    {
+      embeddingTable: 'knowledge_chunk_embeddings',
+      idCol: 'chunk_id',
+      metaTable: 'knowledge_meta',
+      sourceLabel: 'knowledge_chunk',
+      selectMissing: (d, cursor, model, batchSize): SweepRow[] => {
+        const rows = model
+          ? (d
+              .prepare(
+                `SELECT c.id AS id, c.heading AS heading, c.content AS content
+                 FROM knowledge_chunks c
+                 WHERE c.id > ?
+                   AND NOT EXISTS (
+                     SELECT 1 FROM knowledge_chunk_embeddings e
+                     WHERE e.chunk_id = c.id AND e.model_id = ? AND e.dim = ?
+                   )
+                 ORDER BY c.id LIMIT ?`,
+              )
+              .all(cursor, model.modelId, model.dim, batchSize) as Array<{
+              id: number;
+              heading: string | null;
+              content: string;
+            }>)
+          : (d
+              .prepare(
+                `SELECT c.id AS id, c.heading AS heading, c.content AS content
+                 FROM knowledge_chunks c
+                 WHERE c.id > ?
+                   AND NOT EXISTS (
+                     SELECT 1 FROM knowledge_chunk_embeddings e WHERE e.chunk_id = c.id
+                   )
+                 ORDER BY c.id LIMIT ?`,
+              )
+              .all(cursor, batchSize) as Array<{
+              id: number;
+              heading: string | null;
+              content: string;
+            }>);
+        return rows.map((r) => ({ id: r.id, text: chunkEmbedText(r.heading, r.content) }));
+      },
+    },
+    opts,
+  );
 }

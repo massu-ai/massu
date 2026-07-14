@@ -226,6 +226,13 @@ const CloudConfigSchema = z.object({
 }).optional();
 export type CloudConfig = z.infer<typeof CloudConfigSchema>;
 
+// --- Memory Config (plan-living-memory-slice-1, P6-002) ---
+// Tunables for the automatic relevant-recall path (memory-recall hook +
+// hybrid search). All optional with production-ready defaults so existing
+// configs need no change.
+import { MemoryConfigSchema } from './config-memory-schema.ts';
+export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
+
 // --- Conventions Config ---
 const ConventionsConfigSchema = z.object({
   claudeDirName: z.string().default('.claude').refine(
@@ -515,6 +522,8 @@ const RawConfigSchema = z.object({
   team: TeamConfigSchema,
   regression: RegressionConfigSchema,
   cloud: CloudConfigSchema,
+  // plan-living-memory-slice-1 P6-002: automatic-recall tunables.
+  memory: MemoryConfigSchema,
   conventions: ConventionsConfigSchema,
   autoLearning: AutoLearningConfigSchema,
   python: PythonConfigSchema,
@@ -576,6 +585,8 @@ export interface Config {
   team?: TeamConfig;
   regression?: RegressionConfig;
   cloud?: CloudConfig;
+  // plan-living-memory-slice-1 P6-002: automatic-recall tunables.
+  memory?: MemoryConfig;
   conventions?: ConventionsConfig;
   autoLearning?: AutoLearningConfig;
   python?: PythonConfig;
@@ -738,6 +749,7 @@ export function getConfig(): Config {
     team: parsed.team,
     regression: parsed.regression,
     cloud: parsed.cloud,
+    memory: parsed.memory,
     conventions: parsed.conventions,
     autoLearning: parsed.autoLearning,
     python: parsed.python,

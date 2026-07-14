@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import {
   getMemoryDb,
+  initMemorySchema,
   createSession,
   endSession,
   addObservation,
@@ -17,6 +18,11 @@ import {
   getFailedAttempts,
   getDecisionsAbout,
   pruneOldObservations,
+  armUsageCounter,
+  recordRecallHits,
+  setMemoryMeta,
+  USAGE_COUNTER_ARMED_KEY,
+  CONSOLIDATION_LESSON_EVIDENCE,
   deduplicateFailedAttempt,
   getSessionsByTask,
   getCrossTaskProgress,
@@ -24,12 +30,19 @@ import {
   linkSessionToTask,
   autoDetectTaskId,
 } from '../memory-db.ts';
-import { resolve } from 'path';
-import { unlinkSync, existsSync } from 'fs';
+import { resolve, join } from 'path';
+import { tmpdir } from 'os';
+import { unlinkSync, existsSync, mkdtempSync } from 'fs';
 
 // P7-001: Memory Database Tests
 
-const TEST_DB_PATH = resolve(__dirname, '../test-memory.db');
+// Scratch DBs MUST live in the OS temp dir, never under packages/core/src.
+// SQLite creates transient sidecars (-journal / -wal) next to the DB file, and
+// the source-scanning drift-guards walk src/ — under parallel test load the
+// walker stats a journal file that vanishes mid-walk and the whole suite dies
+// with ENOENT. (This flaked the pre-push gate; same class as the earlier
+// src-scratch race.)
+const TEST_DB_PATH = join(mkdtempSync(join(tmpdir(), 'massu-memdb-')), 'test-memory.db');
 
 function createTestDb(): Database.Database {
   // Remove existing test DB
@@ -37,121 +50,12 @@ function createTestDb(): Database.Database {
     unlinkSync(TEST_DB_PATH);
   }
 
-  // Temporarily override getMemoryDb behavior by directly creating a db
+  // Use the REAL schema initializer (initMemorySchema) rather than a
+  // hand-copied CREATE TABLE block. The copy had already drifted — it was
+  // missing the Slice-2 bi-temporal columns — which is exactly the
+  // dual-source-of-truth bug class this repo forbids. One schema, one owner.
   const db = new Database(TEST_DB_PATH);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-
-  // Init schema manually (same as getMemoryDb)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id TEXT UNIQUE NOT NULL,
-      project TEXT NOT NULL DEFAULT 'my-project',
-      git_branch TEXT,
-      started_at TEXT NOT NULL,
-      started_at_epoch INTEGER NOT NULL,
-      ended_at TEXT,
-      ended_at_epoch INTEGER,
-      status TEXT CHECK(status IN ('active', 'completed', 'abandoned')) NOT NULL DEFAULT 'active',
-      plan_file TEXT,
-      plan_phase TEXT,
-      task_id TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_sessions_session_id ON sessions(session_id);
-    CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at_epoch DESC);
-    CREATE INDEX IF NOT EXISTS idx_sessions_task_id ON sessions(task_id);
-
-    CREATE TABLE IF NOT EXISTS observations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN (
-        'decision', 'bugfix', 'feature', 'refactor', 'discovery',
-        'cr_violation', 'vr_check', 'pattern_compliance', 'failed_attempt',
-        'file_change', 'incident_near_miss'
-      )),
-      title TEXT NOT NULL,
-      detail TEXT,
-      files_involved TEXT DEFAULT '[]',
-      plan_item TEXT,
-      cr_rule TEXT,
-      vr_type TEXT,
-      evidence TEXT,
-      importance INTEGER NOT NULL DEFAULT 3 CHECK(importance BETWEEN 1 AND 5),
-      recurrence_count INTEGER NOT NULL DEFAULT 1,
-      original_tokens INTEGER DEFAULT 0,
-      created_at TEXT NOT NULL,
-      created_at_epoch INTEGER NOT NULL,
-      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-    );
-    CREATE INDEX IF NOT EXISTS idx_observations_session ON observations(session_id);
-    CREATE INDEX IF NOT EXISTS idx_observations_type ON observations(type);
-    CREATE INDEX IF NOT EXISTS idx_observations_created ON observations(created_at_epoch DESC);
-    CREATE INDEX IF NOT EXISTS idx_observations_importance ON observations(importance DESC);
-
-    CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
-      title, detail, evidence,
-      content='observations',
-      content_rowid='id'
-    );
-    CREATE TRIGGER IF NOT EXISTS observations_ai AFTER INSERT ON observations BEGIN
-      INSERT INTO observations_fts(rowid, title, detail, evidence)
-      VALUES (new.id, new.title, new.detail, new.evidence);
-    END;
-    CREATE TRIGGER IF NOT EXISTS observations_ad AFTER DELETE ON observations BEGIN
-      INSERT INTO observations_fts(observations_fts, rowid, title, detail, evidence)
-      VALUES ('delete', old.id, old.title, old.detail, old.evidence);
-    END;
-    CREATE TRIGGER IF NOT EXISTS observations_au AFTER UPDATE ON observations BEGIN
-      INSERT INTO observations_fts(observations_fts, rowid, title, detail, evidence)
-      VALUES ('delete', old.id, old.title, old.detail, old.evidence);
-      INSERT INTO observations_fts(rowid, title, detail, evidence)
-      VALUES (new.id, new.title, new.detail, new.evidence);
-    END;
-
-    CREATE TABLE IF NOT EXISTS session_summaries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id TEXT NOT NULL,
-      request TEXT,
-      investigated TEXT,
-      decisions TEXT,
-      completed TEXT,
-      failed_attempts TEXT,
-      next_steps TEXT,
-      files_created TEXT DEFAULT '[]',
-      files_modified TEXT DEFAULT '[]',
-      verification_results TEXT DEFAULT '{}',
-      plan_progress TEXT DEFAULT '{}',
-      created_at TEXT NOT NULL,
-      created_at_epoch INTEGER NOT NULL,
-      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-    );
-    CREATE INDEX IF NOT EXISTS idx_summaries_session ON session_summaries(session_id);
-
-    CREATE TABLE IF NOT EXISTS user_prompts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id TEXT NOT NULL,
-      prompt_text TEXT NOT NULL,
-      prompt_number INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL,
-      created_at_epoch INTEGER NOT NULL,
-      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-    );
-
-    CREATE VIRTUAL TABLE IF NOT EXISTS user_prompts_fts USING fts5(
-      prompt_text,
-      content='user_prompts',
-      content_rowid='id'
-    );
-    CREATE TRIGGER IF NOT EXISTS prompts_ai AFTER INSERT ON user_prompts BEGIN
-      INSERT INTO user_prompts_fts(rowid, prompt_text) VALUES (new.id, new.prompt_text);
-    END;
-
-    CREATE TABLE IF NOT EXISTS memory_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
+  initMemorySchema(db);
 
   return db;
 }
@@ -359,11 +263,18 @@ describe('Memory Database', () => {
     });
   });
 
-  describe('Pruning', () => {
-    it('prunes old observations', () => {
+  describe('Retention (expire, never delete — plan-living-memory-slice-3)', () => {
+    const EXPIRE_OPTS = {
+      retentionDays: 90,
+      importanceFloor: 2,
+      protectedTypes: ['decision', 'cr_violation', 'incident_near_miss'],
+      usageWarmupDays: 30,
+    };
+
+    it('retires an old, low-value, never-retrieved observation by EXPIRING it — the row is not deleted', () => {
       createSession(db, 'test-session-1');
-      // Insert observation with old epoch
-      const oldEpoch = Math.floor(Date.now() / 1000) - (100 * 86400); // 100 days ago
+      const now = Math.floor(Date.now() / 1000);
+      const oldEpoch = now - 100 * 86400; // 100 days ago
       db.prepare(`
         INSERT INTO observations (session_id, type, title, importance, created_at, created_at_epoch)
         VALUES (?, 'discovery', 'Old observation', 1, ?, ?)
@@ -371,11 +282,101 @@ describe('Memory Database', () => {
 
       addObservation(db, 'test-session-1', 'decision', 'Recent decision', null);
 
-      const pruned = pruneOldObservations(db, 90);
-      expect(pruned).toBe(1);
+      // Arm the usage counter 31 days ago so the cold-start warmup has elapsed.
+      setMemoryMeta(db, USAGE_COUNTER_ARMED_KEY, String(now - 31 * 86400));
 
-      const remaining = db.prepare('SELECT COUNT(*) as c FROM observations').get() as { c: number };
-      expect(remaining.c).toBe(1);
+      const expired = pruneOldObservations(db, EXPIRE_OPTS);
+      expect(expired).toBe(1);
+
+      // The crucial difference from the old blanket DELETE: BOTH rows still
+      // exist. History stays answerable; the retired one is merely expired.
+      const total = db.prepare('SELECT COUNT(*) as c FROM observations').get() as { c: number };
+      expect(total.c).toBe(2);
+
+      const live = db
+        .prepare('SELECT COUNT(*) as c FROM observations WHERE expired_at IS NULL')
+        .get() as { c: number };
+      expect(live.c).toBe(1);
+    });
+
+    it('COLD START: expires NOTHING until the retrieval counter has warmed up', () => {
+      // The counter is brand new, so no row has "ever been retrieved" — a naive
+      // implementation would expire the operator's entire history on day one.
+      createSession(db, 'cold-start');
+      const now = Math.floor(Date.now() / 1000);
+      const oldEpoch = now - 200 * 86400;
+      for (let i = 0; i < 10; i++) {
+        db.prepare(`
+          INSERT INTO observations (session_id, type, title, importance, created_at, created_at_epoch)
+          VALUES (?, 'file_change', ?, 1, ?, ?)
+        `).run('cold-start', `Ancient note ${i}`, new Date(oldEpoch * 1000).toISOString(), oldEpoch);
+      }
+
+      armUsageCounter(db, now); // armed just now => warmup has NOT elapsed
+
+      expect(pruneOldObservations(db, EXPIRE_OPTS)).toBe(0);
+      const live = db
+        .prepare('SELECT COUNT(*) as c FROM observations WHERE expired_at IS NULL')
+        .get() as { c: number };
+      expect(live.c).toBe(10);
+    });
+
+    it('never expires a protected type, a retrieved row, or a consolidation lesson', () => {
+      createSession(db, 'keepers');
+      const now = Math.floor(Date.now() / 1000);
+      const oldEpoch = now - 200 * 86400;
+      setMemoryMeta(db, USAGE_COUNTER_ARMED_KEY, String(now - 31 * 86400));
+
+      const mk = (type: string, title: string, evidence?: string): number => {
+        const r = db.prepare(`
+          INSERT INTO observations (session_id, type, title, importance, evidence, created_at, created_at_epoch)
+          VALUES (?, ?, ?, 1, ?, ?, ?)
+        `).run('keepers', type, title, evidence ?? null, new Date(oldEpoch * 1000).toISOString(), oldEpoch);
+        return Number(r.lastInsertRowid);
+      };
+
+      mk('decision', 'A protected decision');                                  // protected type
+      const retrieved = mk('file_change', 'Old but actually useful');          // has been retrieved
+      mk('discovery', 'Distilled lesson', CONSOLIDATION_LESSON_EVIDENCE);      // a consolidation lesson
+      mk('file_change', 'Genuinely dead weight');                              // the only expirable row
+
+      recordRecallHits(db, 'some-session', [{ source: 'observation', id: retrieved }], now);
+
+      expect(pruneOldObservations(db, EXPIRE_OPTS)).toBe(1);
+
+      const live = db
+        .prepare('SELECT title FROM observations WHERE expired_at IS NULL ORDER BY id')
+        .all() as Array<{ title: string }>;
+      expect(live.map((r) => r.title)).toEqual([
+        'A protected decision',
+        'Old but actually useful',
+        'Distilled lesson',
+      ]);
+    });
+  });
+
+  describe('Retrieval-usage counter', () => {
+    it('counts a record at most ONCE per session (verbosity is not usefulness)', () => {
+      createSession(db, 'chatty');
+      const id = addObservation(db, 'chatty', 'discovery', 'Surfaced a lot', null);
+
+      // The same record surfaced on three different turns of ONE session.
+      recordRecallHits(db, 'chatty', [{ source: 'observation', id }]);
+      recordRecallHits(db, 'chatty', [{ source: 'observation', id }]);
+      recordRecallHits(db, 'chatty', [{ source: 'observation', id }]);
+
+      const row = db
+        .prepare(`SELECT hit_count FROM memory_usage WHERE source='observation' AND record_id=?`)
+        .get(id) as { hit_count: number };
+      expect(row.hit_count).toBe(1);
+
+      // A DIFFERENT session genuinely finding it useful does count.
+      createSession(db, 'later');
+      recordRecallHits(db, 'later', [{ source: 'observation', id }]);
+      const row2 = db
+        .prepare(`SELECT hit_count FROM memory_usage WHERE source='observation' AND record_id=?`)
+        .get(id) as { hit_count: number };
+      expect(row2.hit_count).toBe(2);
     });
   });
 

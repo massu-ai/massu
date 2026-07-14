@@ -1,13 +1,21 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import Database from 'better-sqlite3';
 import { resolve } from 'path';
 import { unlinkSync, existsSync } from 'fs';
 import { initKnowledgeSchema } from '../knowledge-db.ts';
 import { indexAllKnowledge, isKnowledgeStale, indexIfStale } from '../knowledge-indexer.ts';
 import { handleKnowledgeToolCall } from '../knowledge-tools.ts';
+
+// These tests index the REAL .claude/ tree from disk (hundreds of files) and
+// are genuinely slow — the 5s default is not a meaningful budget for them. Under
+// full-suite parallel load they exceeded it and failed while passing in isolation:
+// a timeout masquerading as a defect. Give them a realistic budget.
+vi.setConfig({ testTimeout: 60_000 });
+
+
 
 // P1-005: Knowledge Integration / E2E Tests
 

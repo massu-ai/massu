@@ -1188,6 +1188,9 @@ export function buildHooksConfig(_hooksDir?: string): HooksConfig {
         hooks: [
           { type: 'command', command: hookCmd(version, 'user-prompt'), timeout: getHookTimeout('user-prompt') },
           { type: 'command', command: hookCmd(version, 'intent-suggester'), timeout: getHookTimeout('intent-suggester') },
+          // plan-living-memory-slice-1 P3-002: automatic relevant-recall.
+          // Injects a compact "🧠 Relevant memory" block; fails open (empty).
+          { type: 'command', command: hookCmd(version, 'memory-recall'), timeout: getHookTimeout('memory-recall') },
         ],
       },
     ],

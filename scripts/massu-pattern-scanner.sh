@@ -1600,6 +1600,152 @@ if [ "$CHECK39_VIOLATIONS" -eq 0 ]; then
 fi
 
 # -------------------------------------------------------
+# Check 40: Memory integrity invariants (CR-61)
+# -------------------------------------------------------
+# Incident 2026-07-12: FIVE silent data-loss defects in the memory subsystem, all
+# with a green suite (the tests asserted the buggy behavior). The grep layer of
+# CR-61's three-layer enforcement — the drift-guard tests are layer 1, the single
+# shared MEMORY_FILE_TITLE_LIKE chokepoint is layer 3.
+echo "Check 40: Memory integrity invariants (CR-61)"
+CORE_SRC="packages/core/src"
+CHECK40_VIOLATIONS=0
+c40fail() { fail "$1"; CHECK40_VIOLATIONS=$((CHECK40_VIOLATIONS + 1)); }
+
+# (a) The two value-decay predicates MUST exempt file-backed rows. A memory file on
+#     disk is the human's standing assertion that the memory is LIVE; a usage counter
+#     may not overrule it. Without these, a memory file nobody happened to retrieve
+#     went permanently invisible ~93 days after ingest, while sitting untouched on
+#     disk, with no way back.
+if ! grep -q "AND title NOT LIKE ?" "$CORE_SRC/memory-db.ts" 2>/dev/null; then
+  c40fail "Check 40: expireOldLowValueObservations must exempt file-backed rows (CR-61a) — a memory file must never be expired by value-decay"
+fi
+if ! grep -q "AND o.title NOT LIKE ?" "$CORE_SRC/memory-consolidate.ts" 2>/dev/null; then
+  c40fail "Check 40: stageReweight DEMOTE + stageDedupe must exempt file-backed rows (CR-61a) — demotion feeds the expiry floor, and dedupe would supersede the operator's near-paraphrase Laws"
+fi
+if [ "$(grep -c "MEMORY_FILE_TITLE_LIKE" "$CORE_SRC/memory-consolidate.ts" 2>/dev/null || echo 0)" -lt 2 ]; then
+  c40fail "Check 40: memory-consolidate.ts must bind MEMORY_FILE_TITLE_LIKE in BOTH the demote and the dedupe predicates (CR-61a)"
+fi
+
+# (b) No hard delete of a memory, anywhere. The allowlist is EMPTY.
+# Scan CODE, not prose: session-start.ts documents the exact SQL that used to wipe
+# the projection, and a guard that fires on its own incident write-up teaches people
+# to delete the write-up. Drop comment lines (`//`, ` *`, `/*`) before matching.
+MEM_DELETES=$(grep -rE "DELETE[[:space:]]+FROM[[:space:]]+(observations|architecture_decisions|sessions|memory_files)\b" \
+  "$CORE_SRC" --include='*.ts' 2>/dev/null \
+  | grep -v '__tests__/' \
+  | grep -vE '^[^:]+:[[:space:]]*(//|\*|/\*)' \
+  | wc -l | tr -d ' ')
+if [ "$MEM_DELETES" -ne 0 ]; then
+  c40fail "Check 40: hard DELETE of a memory table found in non-test source (CR-61b) — supersede/EXPIRE instead; the no-hard-delete ALLOWLIST is EMPTY"
+fi
+
+# (c) Ingest must read the key the CORPUS writes (nested metadata.type), not just the
+#     top-level one. 55 of the operator's 69 memories nest it; reading only the
+#     top-level key filed every one of their Laws as a generic 'discovery'.
+if grep -q "fm\.type as string" "$CORE_SRC/memory-file-ingest.ts" 2>/dev/null; then
+  c40fail "Check 40: memory-file-ingest.ts must not read a bare top-level fm.type (CR-61f) — the corpus nests type under metadata:"
+fi
+if ! grep -q "readMemoryKey" "$CORE_SRC/memory-file-ingest.ts" 2>/dev/null; then
+  c40fail "Check 40: memory-file-ingest.ts must read type/confidence via readMemoryKey (CR-61f)"
+fi
+
+# (d) Resurrect-on-contact: ingest clears the retirement when the file reappears.
+if ! grep -q "expired_at = NULL" "$CORE_SRC/memory-file-ingest.ts" 2>/dev/null; then
+  c40fail "Check 40: ingest must clear expired_at (CR-61d, resurrect-on-contact) — else a retired row can never come back"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 4B RENDER CLAUSES (S-1). CR-61's invariant grows one sentence:
+#   "...and Massu never writes a file it cannot prove it authored, and never
+#    un-deletes a file the human deleted."
+# These are the grep layer; the drift-guard vitests are layer 1 and the single shared
+# chokepoints are layer 3.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# (e) renderEnabled DEFAULTS TO FALSE. A brand-new capability that writes into the
+#     user's memory directory may NEVER auto-enable.
+if ! grep -qE "renderEnabled:[[:space:]]*false" "$CORE_SRC/memory-files-config.ts" 2>/dev/null; then
+  c40fail "Check 40: memory.files.renderEnabled MUST default to false (CR-61e / B-12) — a capability that writes into the operator's memory directory may never auto-enable"
+fi
+if grep -qE "renderEnabled:[[:space:]]*true" "$CORE_SRC/memory-files-config.ts" 2>/dev/null; then
+  c40fail "Check 40: the shipped default for renderEnabled is true (CR-61e / B-12) — it MUST be false"
+fi
+
+# (f) The default-off refusal is the FIRST thing the chokepoint does. A gate that fires
+#     after a path is computed, a credential minted, a backup taken or a snapshot written
+#     is a gate that has ALREADY touched the operator's disk.
+if [ -f "$CORE_SRC/memory-renderer.ts" ]; then
+  C40_GATE_LINE=$(grep -n "if (!config.renderEnabled)" "$CORE_SRC/memory-renderer.ts" 2>/dev/null | head -1 | cut -d: -f1)
+  if [ -z "$C40_GATE_LINE" ]; then
+    c40fail "Check 40: memory-renderer.ts has no renderEnabled gate (CR-61e / B-12)"
+  else
+    C40_FN_LINE=$(grep -n "export function renderMemoryFiles" "$CORE_SRC/memory-renderer.ts" | head -1 | cut -d: -f1)
+    C40_SIDE_EFFECT=$(sed -n "${C40_FN_LINE},${C40_GATE_LINE}p" "$CORE_SRC/memory-renderer.ts" \
+      | grep -vE '^[[:space:]]*(//|\*|/\*)' \
+      | grep -cE "mintAuthorship|ensureRenderKey|takeBackup|takeSnapshots|computeRenderPath|atomicWriteFileSync|withMemoryIndexLock" || true)
+    if [ "${C40_SIDE_EFFECT:-0}" -ne 0 ]; then
+      c40fail "Check 40: a side effect (key mint / backup / snapshot / path / write / lock) runs BEFORE the renderEnabled gate in renderMemoryFiles (CR-61e / B-12) — a refusal must cost ZERO side effects"
+    fi
+  fi
+fi
+
+# (g) Authorship is a CREDENTIAL, not a public hash. `sha256` is a PUBLIC function: a
+#     body-hash in the frontmatter proves INTEGRITY, not AUTHORSHIP, and the human whose
+#     git repo the memory dir IS can compute one in ten seconds. This exact defect has
+#     already been reintroduced ONCE during this workstream, wearing a longer string.
+if [ -f "$CORE_SRC/memory-authorship.ts" ]; then
+  if ! grep -q "createHmac" "$CORE_SRC/memory-authorship.ts" 2>/dev/null; then
+    c40fail "Check 40: memory-authorship.ts must mint an HMAC (CR-61g / OD-1) — a credential anyone can compute is not a credential"
+  fi
+  if grep -qE "createHash[[:space:]]*\(" "$CORE_SRC/memory-authorship.ts" 2>/dev/null; then
+    c40fail "Check 40: memory-authorship.ts uses createHash (CR-61g / OD-1) — a body-hash is PUBLICLY COMPUTABLE and therefore forgeable by the human. Use an HMAC keyed by the per-install secret."
+  fi
+  if ! grep -q "randomBytes(32)" "$CORE_SRC/memory-authorship.ts" 2>/dev/null; then
+    c40fail "Check 40: the render key must be GENERATED locally via randomBytes(32) (CR-61g / OD-1) — never shipped, bundled, defaulted, or committed"
+  fi
+  if grep -qE "process\.env\.[A-Za-z_]*RENDER_KEY" "$CORE_SRC" -r --include='*.ts' 2>/dev/null | grep -qv '__tests__/'; then
+    c40fail "Check 40: a render key is read from the environment (CR-61g / OD-1) — whoever sets that env var can forge every stamp"
+  fi
+fi
+
+# (h) Tombstones live in the CORPUS, not only the DB. `.massu/*.db` is gitignored and
+#     the memory files are NOT, so a DB-only tombstone dies in any fresh clone — and the
+#     render arm then RE-CREATES the file the human deleted, forever, on every machine.
+#     A deletion you have to repeat is not a deletion.
+if [ -f "$CORE_SRC/memory-tombstones.ts" ]; then
+  if ! grep -q "massu-tombstones.jsonl" "$CORE_SRC/memory-tombstones.ts" 2>/dev/null; then
+    c40fail "Check 40: the tombstone ledger must be a file in the memory dir (CR-61h / OD-2) — a DB-only tombstone is wiped by any fresh clone and the deleted file comes back forever"
+  fi
+fi
+
+if [ "$CHECK40_VIOLATIONS" -eq 0 ]; then
+  pass "Check 40: Memory integrity invariants (CR-61)"
+fi
+
+# -------------------------------------------------------
+# Check 41: Claim Ledger (CR-63)
+# -------------------------------------------------------
+# A universal quantifier or a capability assertion is a CLAIM ABOUT REALITY: reading a
+# plan cannot validate it, only executing something can. A plan audited to ZERO gaps
+# across six passes still shipped two false premises, each one shell command from being
+# caught. The ANTI-VACUITY self-test runs first: if the detector no longer fires on
+# those two real-world misses, this gate is decoration and must fail loudly.
+echo "Check 41: Claim Ledger (CR-63)"
+CHECK41_VIOLATIONS=0
+if command -v node >/dev/null 2>&1 && [ -f scripts/massu-claim-ledger.mjs ]; then
+  if ! node scripts/massu-claim-ledger.mjs --self-test >/dev/null 2>&1; then
+    fail "Check 41: the claim-ledger detector FAILED its anti-vacuity self-test — it no longer fires on the two claims that actually shipped. It is decoration, not a gate."
+    CHECK41_VIOLATIONS=$((CHECK41_VIOLATIONS + 1))
+  elif ! node scripts/massu-claim-ledger.mjs >/dev/null 2>&1; then
+    fail "Check 41: a plan has universal/capability claims with NO executed evidence (CR-63). Run: node scripts/massu-claim-ledger.mjs"
+    CHECK41_VIOLATIONS=$((CHECK41_VIOLATIONS + 1))
+  fi
+fi
+if [ "$CHECK41_VIOLATIONS" -eq 0 ]; then
+  pass "Check 41: Claim Ledger (CR-63)"
+fi
+
+# -------------------------------------------------------
 # Summary
 # -------------------------------------------------------
 echo ""

@@ -1,5 +1,5 @@
 project:
-  name: trading-monorepo
+  name: inventory-monorepo
   root: auto
 framework:
   type: typescript
@@ -10,10 +10,10 @@ paths:
   source: src
   aliases:
     "@": src
-toolPrefix: trading
+toolPrefix: inventory
 domains:
-  - name: Trading
-    routers: [trading]
+  - name: Inventory
+    routers: [inventory]
     pages: []
     tables: []
     allowedImportsFrom: []

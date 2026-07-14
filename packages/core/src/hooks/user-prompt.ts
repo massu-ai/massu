@@ -16,6 +16,7 @@ import { scoreCorrectionPrompt } from '../rule-candidate-detector.ts';
 import { categorizePrompt, hashPrompt } from '../prompt-analyzer.ts';
 import { getCachedTierReadOnly } from '../license.ts';
 import { entitledForAutoLearning, autoLearningUpgradeMessage, entitledForTeamSharedPromotion } from '../auto-learning-entitlement.ts';
+import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
   session_id: string;
@@ -241,8 +242,11 @@ async function main(): Promise<void> {
     } finally {
       db.close();
     }
-  } catch (_e) {
-    // Best-effort: never block Claude Code
+  } catch (err) {
+    // G-2: a hook may fail; it may not fail SILENTLY. Exit stays 0 (a Massu
+    // bug must never block the user's session) but the failure now leaves a
+    // durable trace: .massu/hook-failures.jsonl + stderr + hook_health.
+    recordHookFailure('user-prompt', err);
   }
   process.exit(0);
 }

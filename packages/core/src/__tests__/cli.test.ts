@@ -231,9 +231,10 @@ describe('CLI: Hooks Installation', () => {
   it('creates .claude/settings.local.json with hooks', () => {
     const { installed, count } = installHooks(TEST_DIR);
     expect(installed).toBe(true);
-    // 15 total (P-E-019): 1 SessionStart + 1 PreToolUse (consolidated gate) +
-    // 8 PostToolUse + 2 Stop + 1 PreCompact + 2 UserPromptSubmit
-    expect(count).toBe(15);
+    // 16 total (P-E-019 + plan-living-memory-slice-1): 1 SessionStart +
+    // 1 PreToolUse (consolidated gate) + 8 PostToolUse + 2 Stop + 1 PreCompact +
+    // 3 UserPromptSubmit (user-prompt + intent-suggester + memory-recall)
+    expect(count).toBe(16);
 
     const settingsPath = resolve(TEST_DIR, '.claude/settings.local.json');
     expect(existsSync(settingsPath)).toBe(true);
@@ -300,16 +301,17 @@ describe('CLI: Hooks Installation', () => {
     // Check PreCompact
     expect(hooksConfig.PreCompact[0].hooks[0].command).toContain('hook-runner pre-compact');
 
-    // Check UserPromptSubmit
+    // Check UserPromptSubmit (plan-living-memory-slice-1: +memory-recall = 3)
     const userPrompt = hooksConfig.UserPromptSubmit;
-    expect(userPrompt[0].hooks).toHaveLength(2);
+    expect(userPrompt[0].hooks).toHaveLength(3);
     expect(userPrompt[0].hooks[0].command).toContain('hook-runner user-prompt');
     expect(userPrompt[0].hooks[1].command).toContain('hook-runner intent-suggester');
+    expect(userPrompt[0].hooks[2].command).toContain('hook-runner memory-recall');
   });
 
-  it('counts all 15 hooks correctly (P-E-019 consolidated 2 PreToolUse → 1)', () => {
+  it('counts all 16 hooks correctly (P-E-019 consolidated 2 PreToolUse → 1; +memory-recall)', () => {
     // 1 PreToolUse (consolidated gate) + 8 PostToolUse (3+3+2) + 2 Stop +
-    // 1 PreCompact + 2 UserPromptSubmit + 1 SessionStart = 15
+    // 1 PreCompact + 3 UserPromptSubmit + 1 SessionStart = 16
     const hooksConfig = buildHooksConfig('test/path');
     let count = 0;
     for (const groups of Object.values(hooksConfig)) {
@@ -317,6 +319,6 @@ describe('CLI: Hooks Installation', () => {
         count += group.hooks.length;
       }
     }
-    expect(count).toBe(15);
+    expect(count).toBe(16);
   });
 });

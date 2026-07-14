@@ -178,3 +178,120 @@ regression:
   health_thresholds:
     healthy: 80
     warning: 50
+
+# Living-memory automatic relevant-recall (memory-recall hook + hybrid search).
+# All keys optional with production-ready defaults; existing configs need no
+# change. The `recall` block tunes what the hook injects each turn.
+memory:
+  recall:
+    # enabled: master switch for the "🧠 Relevant memory" injection.
+    enabled: true
+    # maxTokens: hard cap on the injected block size.
+    maxTokens: 1200
+    # --- Semantic embedder (plan-living-memory-slice-2a-embedder) ---
+    # embedEnabled: Tier-1 bundled pure-WASM embedder (all-MiniLM-L6-v2, 384-dim)
+    #   is ON by default — meaning-based recall with ZERO egress and no native
+    #   module, works offline. Set false to force keyword-only (FTS) recall.
+    embedEnabled: true
+    # embedEndpoint (optional): Tier-0 opt-in. An OpenAI-compatible
+    #   /v1/embeddings provider (e.g. a local server or a cloud endpoint).
+    #   When set, prompt text egresses ONLY to this endpoint you choose; when
+    #   unset (default) embedding is 100% local. Must be an http(s) URL.
+    #   Example: embedEndpoint: "http://localhost:11434"
+    # embedModel (optional): the model name sent to embedEndpoint.
+    #   Example: embedModel: "nomic-embed-text"
+  # --- Contradiction / supersede gate (plan-living-memory-slice-2-temporal-model) ---
+  # When a new decision/correction is captured, Massu finds related past records
+  # and, if the new one CONTRADICTS an old one, marks the old record superseded
+  # (keeps its history, hides it from current recall) instead of letting both
+  # coexist. Runs in the session-end sweep; fully fail-open + local by default.
+  contradiction:
+    # enabled: master switch. false → every memory is kept as-is (no superseding).
+    enabled: true
+    # judgeEndpoint (optional): a stronger external judge (OpenAI-compatible).
+    #   Unset (default) = local heuristic only, ZERO egress. When set, the new
+    #   record + related records egress ONLY to this endpoint you choose.
+    # similarityThreshold: how alike two records must be (0–1) to be considered
+    #   the same topic. Calibrated to the bundled model (contradictions ≈0.65–0.86).
+    similarityThreshold: 0.6
+    # dedupThreshold: at/above this similarity a new record is a near-duplicate
+    #   (kept, nothing superseded).
+    dedupThreshold: 0.93
+    # gatedTypes: which memory kinds the gate runs for. High-volume file edits are
+    #   intentionally excluded so normal work is never slowed.
+    gatedTypes:
+      - decision
+      - cr_violation
+      - failed_attempt
+    # annotateSuperseded: when true, superseded records may still appear in recall
+    #   labeled "(superseded on <date> by #<id>)" instead of being hidden.
+    annotateSuperseded: false
+    # budgetMs: time budget for the check; exceeded → nothing superseded (fail-open).
+    budgetMs: 800
+
+  # --- Background consolidation, the "sleep-time" pass
+  #     (plan-living-memory-slice-3-consolidation) ---
+  # Keeps memory sharp over years: merges duplicates, distills each session into
+  # ONE durable lesson before its raw transcript is deleted, spots corrections
+  # you keep repeating, notices which memories actually get used, and retires
+  # dead weight by EXPIRING it (it is never deleted — history stays answerable).
+  #
+  # Runs with ZERO AI model and ZERO network by default. It happens
+  # automatically at session end; `massu consolidate` runs a full pass on demand.
+  consolidation:
+    # enabled: master switch for the whole pass.
+    enabled: true
+    # sessionSweepEnabled: do a small, bounded slice of the work at session end.
+    #   This is what makes consolidation automatic with no scheduler at all.
+    sessionSweepEnabled: true
+
+    # --- OPTIONAL: a local AI model (improves ONE thing only) ---
+    # By default, a session's lesson is built by SELECTING the most important
+    # lines Massu already recorded. Point llmEndpoint at a local model (Ollama,
+    # LM Studio, any OpenAI-compatible server) and it will instead write that
+    # lesson as readable prose. That is the ONLY difference: merging duplicates,
+    # spotting repeated mistakes, reweighting and expiry are all arithmetic and
+    # are already at full strength without it.
+    #
+    # Leave these UNSET (the default) and nothing ever leaves your machine.
+    # NOTE: the API key is NEVER put here — this file is committed to git. It is
+    # read only from the MASSU_MEMORY_LLM_API_KEY environment variable.
+    #   Example: llmEndpoint: "http://localhost:11434"
+    #            llmModel: "llama3.1:8b"
+
+    # summarizeAfterDays: distill a session once it is this old. MUST stay below
+    #   7 — raw transcripts are deleted at 7 days, so a larger value would let
+    #   the raw material die before the lesson is ever written.
+    summarizeAfterDays: 5
+    # retentionDays: how old a memory must be before it can be retired at all.
+    retentionDays: 90
+    # importanceFloor: only memories at or below this importance (1-5) can be retired.
+    importanceFloor: 2
+    # protectedTypes: these are NEVER retired, however old and however unused.
+    protectedTypes:
+      - decision
+      - cr_violation
+      - incident_near_miss
+    # usageWarmupDays: Massu refuses to retire ANYTHING until it has watched
+    #   which memories you actually use for this long. On a fresh install nothing
+    #   has "ever been used" yet — without this, the first run would retire
+    #   almost everything you have.
+    usageWarmupDays: 30
+    # usageDecay: usefulness must be SUSTAINED — each pass fades the usage score,
+    #   so one accidental retrieval years ago does not keep junk alive forever.
+    usageDecay: 0.9
+    # reweightIntervalDays: also the GRACE PERIOD — a memory that just got
+    #   downgraded survives at least this long, so a retrieval can rescue it.
+    reweightIntervalDays: 1
+    # promoteMinOccurrences: how many times you must repeat a correction (across
+    #   at least 2 sessions) before Massu proposes it as a rule. It only ever
+    #   PROPOSES — you approve it via /massu-rule.
+    promoteMinOccurrences: 3
+    # budgetMs: time budget for the automatic session-end slice.
+    budgetMs: 3000
+    # suggestUpgrades: tell you in chat when Massu spots an optional upgrade on
+    #   your machine (e.g. "you have a local model — your session lessons could
+    #   read as prose"). Shown once, again if your setup changes, and otherwise
+    #   at most every suggestIntervalDays. Massu NEVER turns it on by itself.
+    suggestUpgrades: true
+    suggestIntervalDays: 30

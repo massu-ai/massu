@@ -31,7 +31,7 @@
  * ```
  */
 
-import { realpathSync } from 'fs';
+import { isContainedIn } from '../lib/safe-write.ts';
 import { resolve } from 'path';
 import fg from 'fast-glob';
 import type { SupportedLanguage } from './package-detector.ts';
@@ -154,15 +154,22 @@ function topSegment(rel: string): string {
 /**
  * Check that a path (after realpath) is inside the projectRoot.
  * Symlinks escaping the tree are rejected.
+ *
+ * B-02/F-05 — this WAS a third hand-rolled containment check (realpath + a
+ * `startsWith(realRoot + '/')` compare). Two copies of a containment check is how a
+ * containment check ends up containing nothing; three is how nobody notices. It now
+ * delegates to the shared core in `lib/safe-write.ts`.
+ *
+ * `allowRoot` because this detector legitimately probes the root itself (the `.`
+ * sentinel for a root-source repo) — a case a WRITE-path check must refuse and a
+ * READ-path detector must accept. That difference is why the core is separate from
+ * `assertContainedIn` rather than being a flag on it.
+ *
+ * Behaviour is preserved exactly, including the "any error ⇒ false" posture: the core
+ * returns a boolean and never throws.
  */
 function isInsideRoot(root: string, candidate: string): boolean {
-  try {
-    const realRoot = realpathSync(root);
-    const realCand = realpathSync(resolve(root, candidate));
-    return realCand === realRoot || realCand.startsWith(realRoot + '/');
-  } catch {
-    return false;
-  }
+  return isContainedIn(root, candidate, { allowRoot: true });
 }
 
 /**

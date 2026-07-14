@@ -10,11 +10,16 @@
 
 import { getMemoryDb, getSessionSummaries, getRecentObservations, getFailedAttempts, getCrossTaskProgress, autoDetectTaskId, linkSessionToTask, createSession } from '../memory-db.ts';
 import { pullTeamPromotions } from '../team-rule-sync.ts';
+import { reconcileMemoryFileObservations, backfillMemoryFiles } from '../memory-file-ingest.ts';
 import { getConfig, getResolvedPaths } from '../config.ts';
+import { parseCorrectionRules } from '../lib/corrections-md.ts';
 import { readFileSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { parse as parseYaml } from 'yaml';
 import type Database from 'better-sqlite3';
+import { runAdvisors } from '../capability-advisor.ts';
+import { localModelAdvisor } from '../advisors/local-model-advisor.ts';
+import { resolveConsolidationConfig } from '../consolidation-config.ts';
 // P-E-013 (plan-stage-e-low-info-sweep, wave1-hooks:F-HOOK-010): the
 // detection layer + fingerprint helpers compose to ~280KB of compiled
 // bundle. Most session-start invocations DO NOT need them — the drift
@@ -26,6 +31,7 @@ import type Database from 'better-sqlite3';
 type DetectionMod = typeof import('../detect/index.ts');
 type DriftMod = typeof import('../detect/drift.ts');
 import { isPidAlive } from '../lib/pidLiveness.ts';
+import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
   session_id: string;
@@ -70,6 +76,71 @@ async function main(): Promise<void> {
         );
       }
 
+      // S-2 (plan-silent-failure-remediation) — THE MEMORY CORPUS HAD NO INGEST PATH.
+      //
+      // Measured 2026-07-13: 77 memory files on disk, 0 rows in `memory_files`. So
+      // auto-recall (Slice 1) was searching an EMPTY TABLE and finding nothing — the
+      // entire living-memory system was dead on this machine, silently, and looked
+      // exactly like "you have no relevant memories".
+      //
+      // WHY: `backfillMemoryFiles()` — the only bulk file->DB path — was called from
+      // exactly two places: the `massu_memory_backfill` MCP tool (manual) and `init`
+      // (once, at install). NOTHING called it at session start. The only automatic
+      // ingest lived inside `post-tool-use`, which was 100% dead (S-1). So a file
+      // written after install never reached the DB, and Slice 4A's sweep wiped the
+      // init-time rows anyway.
+      //
+      // The reconcile below is NOT a fallback: it only EXPIRES rows whose file is gone.
+      // It cannot ingest. Retiring without ingesting is a one-way ratchet to zero.
+      //
+      // Ingest FIRST, then reconcile. Order matters: reconciling before ingest would
+      // consider every not-yet-ingested file "orphaned".
+      // Idempotent (hash/mtime-gated: inserted/updated/skipped) and fail-open.
+      try {
+        const memoryDir = getMemoryDir();
+        if (memoryDir) backfillMemoryFiles(db, memoryDir, session_id);
+      } catch (err) {
+        // G-2: fail-open (never block session start) but NEVER silent — a memory
+        // system that cannot ingest must not look like a user with no memories.
+        recordHookFailure('session-start:memory-ingest', err);
+      }
+
+      // P4-002 (plan-living-memory-slice-1): GC orphaned [memory-file]
+      // observations whose backing memory/*.md file was deleted. Runs before
+      // context build so stale entries don't surface. Fail-open by design.
+      try {
+        const memoryDir = getMemoryDir();
+        if (memoryDir) reconcileMemoryFileObservations(db, memoryDir);
+      } catch (err) {
+        // G-2: was `catch (_reconcileErr) {}` — silent.
+        recordHookFailure('session-start:reconcile', err);
+      }
+
+      // 4B (plan-living-memory-slice-4, B-08/B-12) — THE RENDERER'S ONE PRODUCTION CALLER.
+      //
+      // ⛔ THIS CALL IS THE FEATURE. Without it the entire renderer is dead code: every
+      // gate, guard and test would pass, `renderEnabled: true` would do NOTHING, and the
+      // capability would be "built and never switched on" — the exact silent-failure class
+      // this workstream exists to kill. It was caught by asking "who CALLS this?" (the
+      // renderer had exactly one caller: the CLI's --dry-run path), not by any test.
+      //
+      // Everything dangerous is INSIDE renderMemoryFiles():
+      //   - renderEnabled defaults FALSE and is its FIRST statement (zero side effects on
+      //     refusal), so this call is a no-op for every user who has not opted in;
+      //   - no memory dir ⇒ inert; lock busy ⇒ skip after 2s, write 0 bytes;
+      //   - it NEVER throws — and this try/catch is the belt to that braces, because
+      //     session start's contract is FAIL-OPEN everywhere.
+      try {
+        const memoryDir = getMemoryDir();
+        if (memoryDir) {
+          const { renderMemoryFiles } = await import('../memory-renderer.ts');
+          const { loadRenderCandidates } = await import('../memory-render-candidates.ts');
+          renderMemoryFiles(db, loadRenderCandidates(db), { memoryDir });
+        }
+      } catch (_renderErr) {
+        // Non-blocking, always. A renderer failure must never block session start.
+      }
+
       // Build context
       const context = await buildContext(db, session_id, source ?? 'startup', tokenBudget, session?.task_id ?? null);
 
@@ -88,6 +159,31 @@ async function main(): Promise<void> {
         if (watcherBanner) process.stdout.write(watcherBanner);
       }
 
+      // Capability advisor (P6-004/005, plan-living-memory-slice-3).
+      //
+      // Surfaces an optional upgrade the user is not using — e.g. "you have a
+      // local model; Massu could write your session lessons as prose instead of
+      // clipped notes" — with the full explanation, the honest downsides, and
+      // the exact steps. This is IN CHAT and unprompted, on purpose: most people
+      // never run `massu doctor`, and a capability nobody can find does not
+      // exist.
+      //
+      // It is quiet by design: silent when nothing is detected, when the user
+      // already configured it, or when they dismissed it — and it re-offers only
+      // if their machine CHANGES (they install a model later) or after a long
+      // interval. Its state is USER-level, so a 10-repo operator hears it once,
+      // not ten times. Fail-open + budgeted: never delays or breaks session start.
+      try {
+        const consolidationCfg = resolveConsolidationConfig();
+        const advisorBlock = await runAdvisors([localModelAdvisor], {
+          enabled: consolidationCfg.enabled && consolidationCfg.suggestUpgrades,
+          suggestIntervalDays: consolidationCfg.suggestIntervalDays,
+        });
+        if (advisorBlock) process.stdout.write(`\n${advisorBlock}\n`);
+      } catch {
+        // A suggestion is a nicety; it must never cost the user a session.
+      }
+
       // PB3-002: cache-gated team-promotion PULL at session START (in addition to
       // session-end), so a new session materializes pending org promotions promptly
       // instead of waiting a full session for the session-end pull. Runs AFTER all
@@ -104,8 +200,28 @@ async function main(): Promise<void> {
     } finally {
       db.close();
     }
-  } catch (_e) {
-    // Best-effort: never block Claude Code
+  } catch (err) {
+    // S-5 + G-2: THE MOST DECEPTIVE FAILURE IN THE PRODUCT.
+    //
+    // This used to swallow and exit 0 with ZERO bytes written. The visible effect of a
+    // completely broken Massu was that the "MASSU AI: Active" banner simply DID NOT
+    // APPEAR — which a user reads as "it isn't installed", not "it is broken". Massu
+    // went quiet at exactly the moment it most needed to speak. Verified 2026-07-13:
+    // fired against a destroyed DB, this hook emitted 0 bytes on stdout AND stderr.
+    //
+    // Now the failure is ANNOUNCED, in the same place the healthy banner would go, so
+    // "broken" and "absent" can never again render identically (this is CR-65).
+    recordHookFailure('session-start', err);
+    try {
+      process.stdout.write(
+        '⚠️  MASSU AI: DEGRADED — Massu is installed but failed to start.\n' +
+          '   This is a Massu bug, not a problem with your project.\n' +
+          '   Details: .massu/hook-failures.jsonl · Run `massu doctor` to diagnose.\n',
+      );
+    } catch {
+      // SWALLOW-OK: stdout is closed; the JSONL + stderr channels in
+      // recordHookFailure have already fired, so the failure is not silent.
+    }
     process.exit(0);
   }
 }
@@ -352,45 +468,76 @@ function safeParseJson(json: string): Record<string, string> | null {
  * Returns only the prevention rule column values.
  * Graceful degradation: returns empty array if file doesn't exist or can't be parsed.
  */
+/**
+ * Resolve the memory directory for the current project, following Claude's
+ * project-directory convention (mirrors loadCorrectionsPreventionRules).
+ * Returns '' if it cannot be resolved.
+ */
+/**
+ * A-00 — THE memory dir. One resolver, repo-wide.
+ *
+ * This function used to build the path itself:
+ *     cwd.replace(/[/\\]/g, '-').replace(/^-/, '')
+ * Two independent bugs in one line.
+ *
+ *   1. `.replace(/^-/, '')` STRIPPED THE LEADING DASH. An absolute path starts
+ *      with '/', so the encoded name always starts with exactly one '-'. The
+ *      canonical encoder says so in as many words (`lib/memory-path.ts:18-21`:
+ *      "the result always starts with `-` exactly once"). This function deleted
+ *      it, so it resolved to `~/.claude/projects/Users-…/memory` — A DIRECTORY
+ *      THAT DOES NOT EXIST — while the real corpus sat in `-Users-…/memory`.
+ *   2. It keyed off `process.cwd()` rather than the project root, so running
+ *      from a subdirectory resolved somewhere else again.
+ *
+ * The damage was not cosmetic. `reconcileMemoryFileObservations` is called with
+ * this path at every session start. A nonexistent directory yielded an empty
+ * live-file set, which (before A-01) took the unbounded branch:
+ *     DELETE FROM observations WHERE title LIKE '[memory-file] %'
+ * Meanwhile `massu init` and the backfill tool populate those very rows using the
+ * CORRECT resolver (`config.ts:965`, `commands/init.ts:1789`). So the two halves
+ * formed a death loop: backfill inserts 69 rows -> the next session start deletes
+ * all 69. Forever. The live store showed exactly that: 0 `[memory-file]` rows
+ * against 69 files on disk.
+ *
+ * `lib/memory-path.ts` already exists precisely to be the single source of truth
+ * here — its own header records that it was written to close this SAME bug class
+ * once before (a writer that mangled the dash and "orphaned MEMORY.md in a
+ * directory the reader could never find"). This hook was never migrated onto it.
+ * It is now. There is ONE resolver, and a drift-guard keeps it that way.
+ */
+function getMemoryDir(): string {
+  try {
+    return getResolvedPaths().memoryDir;
+  } catch (err) {
+    // G-2: returning '' here is how the memory directory becomes a PHANTOM — every
+    // caller then resolves against cwd, finds nothing, and reports "no memories"
+    // instead of "I could not find the memory directory". That is A-00 all over
+    // again. The empty return is preserved (callers depend on it) but it now SAYS SO.
+    recordHookFailure('session-start:getMemoryDir', err);
+    return '';
+  }
+}
+
 function loadCorrectionsPreventionRules(): string[] {
   try {
-    // Memory path follows Claude's project directory convention
-    const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? '';
-    const cwd = process.cwd();
-    const config = getConfig();
-    const claudeDirName = config.conventions?.claudeDirName ?? '.claude';
-    // Convert cwd to Claude's directory format: /Users/x/project -> -Users-x-project.
-    // Match both forward slashes (POSIX) and backslashes (Windows) so the lookup
-    // works cross-platform — without this, Windows users silently miss prevention
-    // rules because their projectDirName never resolves.
-    const projectDirName = cwd.replace(/[/\\]/g, '-').replace(/^-/, '');
-    const correctionsPath = join(homeDir, claudeDirName, 'projects', projectDirName, 'memory', 'corrections.md');
+    // A-00 — the SAME phantom-directory bug lived here (a second hand-rolled copy
+    // of the encoder, with the same dash-stripping `.replace(/^-/, '')`). So this
+    // reader has been looking in a directory that does not exist, and would have
+    // found nothing even if corrections.md had been written in the format it
+    // parses. The "dead corrections read" (D2) was diagnosed as a FORMAT mismatch;
+    // it was ALSO a path bug. Fixing only the format would have left it dead.
+    const correctionsPath = join(getResolvedPaths().memoryDir, 'corrections.md');
 
     if (!existsSync(correctionsPath)) return [];
 
-    const content = readFileSync(correctionsPath, 'utf-8');
-    const lines = content.split('\n');
-    const rules: string[] = [];
-
-    for (const line of lines) {
-      // Match table rows: | date | wrong | correction | prevention |
-      // Skip header row and separator row
-      const trimmed = line.trim();
-      if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) continue;
-
-      const cells = trimmed.split('|').map(c => c.trim()).filter(c => c.length > 0);
-      if (cells.length < 4) continue;
-
-      // Skip header and separator rows
-      if (cells[0] === 'Date' || cells[0].startsWith('-')) continue;
-
-      const preventionRule = cells[3];
-      if (preventionRule && !preventionRule.startsWith('-') && !preventionRule.startsWith('<!--')) {
-        rules.push(preventionRule);
-      }
-    }
-
-    return rules;
+    // A-09 — ONE parser, shared with both writers (`lib/corrections-md.ts`).
+    //
+    // This used to hand-roll a 4-column TABLE parser while the two writers emitted
+    // heading+bullet formats — so the reader found NOTHING either writer produced, and
+    // every prevention rule ever written was invisible to the injection that exists to
+    // surface them. (A-00 also showed it was looking in a directory that does not
+    // exist; fixing only the format would have left it dead.)
+    return parseCorrectionRules(readFileSync(correctionsPath, 'utf-8'));
   } catch (_e) {
     // Graceful degradation: never block session start
     return [];

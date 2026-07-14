@@ -32,12 +32,47 @@ else
   fail "Repository URL does not contain massu-ai/massu"
 fi
 
-# Check 2: No old URLs
-echo "Check 2: No old URLs"
-if grep -q 'ethankowen-73/massu' "$PKG_JSON"; then
-  fail "Old URL ethankowen-73/massu found in package.json"
+# Check 2: every GitHub URL points at the PUBLIC org — no stale/foreign owner.
+#
+# This used to grep the file for one specific hardcoded old owner slug. Two problems: it named the
+# maintainer's personal GitHub account in a file that is PUBLISHED (so the check itself leaked the
+# identity it was checking for), and it only ever caught the ONE owner someone remembered to type —
+# any other wrong owner sailed through.
+#
+# Now: parse the JSON, ENUMERATE every github.com URL in it, and require each to be massu-ai/massu.
+# Strictly stronger than the original, and it names only the public org.
+#
+# (Written field-scoped, not as a whole-file grep. A whole-file grep for "is massu-ai/massu present?"
+#  is satisfied by `homepage` even when `repository` points somewhere else entirely — a false PASS
+#  proven by planting a foreign repository URL and watching the check stay green.)
+echo "Check 2: All GitHub URLs point at massu-ai/massu"
+BAD_URLS="$(python3 - "$PKG_JSON" <<'PY'
+import json, re, sys
+d = json.load(open(sys.argv[1]))
+bad = []
+def walk(v, path=""):
+    if isinstance(v, dict):
+        for k, x in v.items():
+            walk(x, f"{path}.{k}" if path else k)
+    elif isinstance(v, list):
+        for i, x in enumerate(v):
+            walk(x, f"{path}[{i}]")
+    elif isinstance(v, str):
+        # Stop the repo name at the first '.', '#', '?' or quote so that
+        # `https://github.com/massu-ai/massu#readme` and `...massu.git` both
+        # normalise to the repo `massu` rather than `massu#readme` / `massu.git`.
+        for m in re.finditer(r"github\.com[:/]([^/\s]+)/([^/\s\"'.#?]+)", v):
+            owner, repo = m.group(1), m.group(2)
+            if f"{owner}/{repo}" != "massu-ai/massu":
+                bad.append(f"{path} → {owner}/{repo}")
+walk(d)
+print("\n".join(bad))
+PY
+)"
+if [ -n "$BAD_URLS" ]; then
+  fail "package.json has GitHub URL(s) not pointing at massu-ai/massu: $BAD_URLS"
 else
-  pass "No old URLs found"
+  pass "No foreign or stale GitHub URLs found"
 fi
 
 # Check 3: LICENSE exists

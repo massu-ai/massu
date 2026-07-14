@@ -9,6 +9,7 @@
 // ============================================================
 
 import { writeHookMessage } from './lib/write-hook-message.ts';
+import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 // Force module mode for TypeScript (no external deps needed)
 export {};
@@ -112,8 +113,11 @@ async function main(): Promise<void> {
     }
 
     writeHookMessage(`Tip: Use ${match.command} to ${match.description}.`);
-  } catch (_e) {
-    // Best-effort: never block Claude Code
+  } catch (err) {
+    // G-2: a hook may fail; it may not fail SILENTLY. Exit stays 0 (a Massu
+    // bug must never block the user's session) but the failure now leaves a
+    // durable trace: .massu/hook-failures.jsonl + stderr + hook_health.
+    recordHookFailure('intent-suggester', err);
   }
   process.exit(0);
 }

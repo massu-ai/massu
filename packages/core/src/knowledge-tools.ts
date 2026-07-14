@@ -13,6 +13,7 @@
 // the sub-module split — there is no alternative escape path.
 
 import Database from 'better-sqlite3';
+import { formatCorrectionEntry } from './lib/corrections-md.ts';
 import type { ToolDefinition, ToolResult } from './tools.ts';
 import { indexIfStale } from './knowledge-indexer.ts';
 import { readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync } from 'fs';
@@ -1038,7 +1039,15 @@ function handleCorrect(db: Database.Database, args: Record<string, unknown>): To
   const today = new Date().toISOString().split('T')[0];
   const title = rule.slice(0, 60);
 
-  const entry = `\n### ${today} - ${title}\n- **Wrong**: ${wrong}\n- **Correction**: ${correction}\n- **Rule**: ${rule}\n${crRule ? `- **CR**: ${crRule}\n` : ''}\n`;
+  // A-09 — ONE formatter, shared with the reader and the applier (lib/corrections-md.ts).
+  const entry = formatCorrectionEntry({
+    date: today,
+    title,
+    wrong,
+    correction,
+    rule,
+    ...(crRule ? { extra: { CR: crRule } } : {}),
+  });
 
   // Read existing content, find insertion point (before ## Archived if present, else append)
   let existing = '';

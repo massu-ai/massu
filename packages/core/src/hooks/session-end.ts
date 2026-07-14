@@ -8,7 +8,7 @@
 // Dependencies: P1-002, P5-001, P5-002
 // ============================================================
 
-import { getMemoryDb, endSession, addSummary, createSession, addConversationTurn, addToolCallDetail, getLastProcessedLine, setLastProcessedLine, drainTeamPromotions, drainTeamRevocations, drainRulePromotionEvents, getRecurrenceCountForPromptHash } from '../memory-db.ts';
+import { getMemoryDb, endSession, addSummary, createSession, addConversationTurn, addToolCallDetail, getLastProcessedLine, setLastProcessedLine, drainTeamPromotions, drainTeamRevocations, drainRulePromotionEvents, getRecurrenceCountForPromptHash, embedMissingObservations } from '../memory-db.ts';
 import { generateCurrentMd } from '../session-state-generator.ts';
 import { archiveAndRegenerate } from '../session-archiver.ts';
 import { parseTranscriptFrom, estimateTokens } from '../transcript-parser.ts';
@@ -18,9 +18,13 @@ import { getConfig } from '../config.ts';
 import { calculateQualityScore, storeQualityScore, backfillQualityScores } from '../analytics.ts';
 import { extractTokenUsage, calculateCost, storeSessionCost } from '../cost-tracker.ts';
 import { analyzeSessionPrompts } from '../prompt-analyzer.ts';
+import { runSessionSupersedeSweep } from '../memory-supersede.ts';
+import { runConsolidation } from '../memory-consolidate.ts';
+import { resolveConsolidationConfig } from '../consolidation-config.ts';
 import type { SyncPayload } from '../cloud-sync.ts';
 import type { SessionSummary } from '../memory-db.ts';
 import type { TranscriptEntry, TranscriptContentBlock } from '../transcript-parser.ts';
+import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
   session_id: string;
@@ -33,7 +37,7 @@ async function main(): Promise<void> {
   try {
     const input = await readStdin();
     const hookInput = JSON.parse(input) as HookInput;
-    const { session_id } = hookInput;
+    const { session_id, cwd } = hookInput;
 
     const db = getMemoryDb();
     try {
@@ -94,6 +98,58 @@ async function main(): Promise<void> {
         // Best-effort: never block session end
       }
 
+      // 4.9. Embed-on-capture sweep (P2-002, plan-living-memory-slice-2a).
+      // Embed this session's new observations so semantic recall works next
+      // turn. Budgeted (~3s) + fail-open: NEVER delays or breaks session end —
+      // a slow/absent embedder just embeds fewer rows (recall stays FTS-only).
+      try {
+        await embedMissingObservations(db, { budgetMs: 3000 });
+      } catch (_embedErr) {
+        // Best-effort: never block session end.
+      }
+
+      // 4.10. Supersede-don't-delete contradiction sweep (P2-003,
+      // plan-living-memory-slice-2-temporal-model). Runs AFTER the embed sweep
+      // so this session's gated observations + auto-captured decisions have
+      // vectors to compare. When a new record contradicts a semantically-related
+      // live prior, the prior is marked superseded (valid_to/expired_at set) —
+      // NEVER deleted. Budgeted + fail-open: a slow/absent embedder or disabled
+      // config just supersedes nothing (prior behavior). Kept here (not in the
+      // hot post-tool-use hook) because it embeds text.
+      try {
+        await runSessionSupersedeSweep(db, session_id, { budgetMs: 4000 });
+      } catch (_supersedeErr) {
+        // Best-effort: never block session end.
+      }
+
+      // 4.11. Bounded consolidation sweep (plan-living-memory-slice-3).
+      //
+      // THIS is how consolidation reaches someone who just downloaded Massu:
+      // no scheduler, no cron, no Guardian, no OS dependency — each session
+      // does a small, budgeted slice of the maintenance work (dedupe,
+      // summarize dying sessions, promote repeated corrections, expire dead
+      // weight, reweight by what actually got used). The engine is resumable
+      // and idempotent, so "a slice per session" converges to the same result
+      // as one big nightly pass.
+      //
+      // A scheduled deep pass (`massu consolidate`) is an OPTIONAL extra for
+      // people who want one; the lease inside runConsolidation guarantees the
+      // two can never run at once and corrupt each other's cursors.
+      //
+      // Budgeted + fail-open: session end is never delayed or broken by it.
+      try {
+        const consolidationCfg = resolveConsolidationConfig();
+        if (consolidationCfg.enabled && consolidationCfg.sessionSweepEnabled) {
+          await runConsolidation(db, {
+            config: consolidationCfg,
+            budgetMs: consolidationCfg.budgetMs,
+            projectRoot: cwd,
+          });
+        }
+      } catch (_consolidateErr) {
+        // Best-effort: never block session end.
+      }
+
       // 5. Mark session as completed
       endSession(db, session_id, 'completed');
 
@@ -130,8 +186,11 @@ async function main(): Promise<void> {
     } finally {
       db.close();
     }
-  } catch (_e) {
-    // Best-effort: never block Claude Code
+  } catch (err) {
+    // G-2: a hook may fail; it may not fail SILENTLY. Exit stays 0 (a Massu
+    // bug must never block the user's session) but the failure now leaves a
+    // durable trace: .massu/hook-failures.jsonl + stderr + hook_health.
+    recordHookFailure('session-end', err);
   }
   process.exit(0);
 }

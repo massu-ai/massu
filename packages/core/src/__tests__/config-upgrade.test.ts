@@ -8,11 +8,17 @@
  * real-world failure modes we've seen in the wild:
  *
  *   - python-fastapi-prefix/         TS-flavored v1 config with a Python+FastAPI repo
- *   - incident-2026-04-19-12key-loss/  12-top-level-key shape (regression pin)
- *   - glyphwise/                       TS v1 on Python+Swift (severe stale)
- *   - eko-ultra-automations/           Hand-customized v1 with invalid router value
- *   - nuroflo/                         Multi-runtime (Python + TS+Next) in v1
- *   - massu-internal/                  Self-host (baseline / mild adjustment)
+ *   - twelve-key-passthrough/        12-top-level-key shape (regression pin)
+ *   - ts-template-on-python-swift/   TS v1 on Python+Swift (severe stale)
+ *   - invalid-router-enum/           Hand-customized v1 with a non-canonical router value
+ *   - multi-runtime-fastapi-next/    Multi-runtime (Python + TS+Next) in v1
+ *   - massu-internal/                Self-host (baseline / mild adjustment)
+ *
+ * EVERY FIXTURE IS SYNTHETIC. Fixture directories are named for the SCENARIO they pin, never
+ * for a repository they were copied from. Four of them used to be named after — and contain
+ * the verbatim config of — real private repos, which is how private project names and a
+ * third-party vendor reference reached a public GitHub repo and a public npm tarball.
+ * A fixture that is a copy of a real repo is a leak with a test around it.
  *
  * Each snapshot lives at:
  *   packages/core/src/__tests__/fixtures/stale-configs/<name>/
@@ -57,14 +63,14 @@ describe('P7-003: migrateV1ToV2 on known stale configs', () => {
     expect(v2.rules).toEqual(v1.rules);
     expect(v2.domains).toEqual(v1.domains);
     // toolPrefix preserved
-    expect(v2.toolPrefix).toBe('trading');
+    expect(v2.toolPrefix).toBe('inventory');
     // Verification block populated from detection
     const ver = v2.verification as Record<string, Record<string, string>>;
     expect(ver.python.test).toContain('pytest');
   });
 
-  it('glyphwise: severely stale (TS template on Python+Swift) → multi-runtime v2', async () => {
-    const { v2 } = await loadFixture('glyphwise');
+  it('ts-template-on-python-swift: severely stale (TS template on Python+Swift) → multi-runtime v2', async () => {
+    const { v2 } = await loadFixture('ts-template-on-python-swift');
     const fw = v2.framework as Record<string, unknown>;
     expect(fw.type).toBe('multi');
     const langs = fw.languages as Record<string, Record<string, unknown>>;
@@ -78,8 +84,8 @@ describe('P7-003: migrateV1ToV2 on known stale configs', () => {
     expect(ver.swift.test).toContain('swift test');
   });
 
-  it('eko-ultra-automations: invalid router enum v1 → v2 preserves the user value', async () => {
-    const { v1, v2 } = await loadFixture('eko-ultra-automations');
+  it('invalid-router-enum: invalid router enum v1 → v2 preserves the user value', async () => {
+    const { v1, v2 } = await loadFixture('invalid-router-enum');
     // The user had `router: 'hand-rolled'` — NOT a canonical enum value. The
     // migrator should preserve user intent; legacy top-level `router` stays
     // `hand-rolled` because it's a concrete user value (non-empty, non-'none').
@@ -90,14 +96,14 @@ describe('P7-003: migrateV1ToV2 on known stale configs', () => {
     // canonical_paths preserved verbatim
     expect(v2.canonical_paths).toEqual(v1.canonical_paths);
     // toolPrefix preserved
-    expect(v2.toolPrefix).toBe('eko');
+    expect(v2.toolPrefix).toBe('acme');
     // Detection found express+vitest
     const langs = fw.languages as Record<string, Record<string, unknown>>;
     expect(langs.typescript.test_framework).toBe('vitest');
   });
 
-  it('nuroflo: multi-runtime v1 → v2 with per-language entries and preserved domains', async () => {
-    const { v1, v2 } = await loadFixture('nuroflo');
+  it('multi-runtime-fastapi-next: multi-runtime v1 → v2 with per-language entries and preserved domains', async () => {
+    const { v1, v2 } = await loadFixture('multi-runtime-fastapi-next');
     const fw = v2.framework as Record<string, unknown>;
     expect(fw.type).toBe('multi');
     const langs = fw.languages as Record<string, Record<string, unknown>>;
@@ -106,7 +112,7 @@ describe('P7-003: migrateV1ToV2 on known stale configs', () => {
     // Domains preserved
     expect(v2.domains).toEqual(v1.domains);
     // toolPrefix preserved
-    expect(v2.toolPrefix).toBe('nuroflo');
+    expect(v2.toolPrefix).toBe('orchestra');
   });
 
   it('massu-internal: fresh-ish v1 → v2 idempotent on re-run', async () => {
@@ -186,7 +192,7 @@ describe('migrateV1ToV2: top-level passthrough (P2-001)', () => {
 
 describe('migrateV1ToV2: incident-2026-04-19 regression (P2-003)', () => {
   it('12-top-level-key trading-monorepo shape survives migration with zero top-level loss', async () => {
-    const { v1, v2 } = await loadFixture('incident-2026-04-19-12key-loss');
+    const { v1, v2 } = await loadFixture('twelve-key-passthrough');
     // Every top-level key from v1 must appear in v2. (schema_version + detection are additions.)
     for (const key of Object.keys(v1)) {
       expect(v2, `missing top-level key: ${key}`).toHaveProperty(key);
@@ -206,9 +212,11 @@ describe('migrateV1ToV2: incident-2026-04-19 regression (P2-003)', () => {
     expect(paths.monorepo_root).toBe('apps');
     expect(paths.plans).toBe('docs/plans');
     const project = v2.project as Record<string, unknown>;
-    expect(project.description).toBe('World-class enterprise-grade auto-trading platform');
-    // toolPrefix preserved as 'trading'.
-    expect(v2.toolPrefix).toBe('trading');
+    expect(project.description).toBe(
+      'Sample multi-runtime monorepo used to pin config-migration behaviour'
+    );
+    // toolPrefix preserved as 'ledger'.
+    expect(v2.toolPrefix).toBe('ledger');
   });
 });
 

@@ -1,0 +1,151 @@
+{
+  "$comment": [
+    "G-1 REALITY GATE \u2014 the committed list of every boundary Massu talks to.",
+    "",
+    "WHY THIS FILE EXISTS: `massu rule packs` called /v1/installed-rules, which the gateway",
+    "never routed. It 404'd. The client's `!res.ok -> return ZERO` turned that into",
+    "'pulled=0 packs' and exit 0. Curated Rule Packs were DEAD for every customer since",
+    "launch, and no test could ever have found it \u2014 because the tests mocked the endpoint.",
+    "Only asking the real server can answer 'does this route exist?'.",
+    "",
+    "THE 404/401 DISTINCTION IS THE WHOLE TRICK:",
+    "  404 = the route does not exist        -> ALWAYS a failure, no credentials needed.",
+    "  401 = the route exists and wants auth -> the boundary is ALIVE. That is a PASS.",
+    "So this gate catches dead endpoints in CI with NO SECRETS. With MASSU_API_KEY set it",
+    "goes further and asserts a real 2xx.",
+    "",
+    "expect_unauth: the status we require WITHOUT credentials.",
+    "expect_auth:   the status we require WITH a real key (only checked when one is present)."
+  ],
+  "base": "https://api.massu.ai/v1",
+  "endpoints": [
+    {
+      "path": "/validate-key",
+      "method": "POST",
+      "expect_unauth": [
+        "400",
+        "401",
+        "403"
+      ],
+      "expect_auth": [
+        "200"
+      ],
+      "routed": true,
+      "why": "License/tier resolution. If this dies, every paying customer silently drops to Free.",
+      "callers": "packages/core/src/license.ts"
+    },
+    {
+      "path": "/sync",
+      "method": "POST",
+      "expect_unauth": [
+        "400",
+        "401",
+        "403"
+      ],
+      "expect_auth": [
+        "200"
+      ],
+      "routed": true,
+      "why": "Cloud sync. The 10-counter/3-counter mismatch (T-23) lives here.",
+      "callers": "packages/core/src/cloud-sync.ts"
+    },
+    {
+      "path": "/promoted-rules",
+      "method": "GET",
+      "expect_unauth": [
+        "400",
+        "401",
+        "403"
+      ],
+      "expect_auth": [
+        "200"
+      ],
+      "routed": true,
+      "why": "Team rule propagation (CR-55).",
+      "callers": "packages/core/src/team-rule-sync.ts"
+    },
+    {
+      "path": "/installed-rules",
+      "method": "GET",
+      "expect_unauth": [
+        "400",
+        "401",
+        "403"
+      ],
+      "expect_auth": [
+        "200"
+      ],
+      "routed": true,
+      "why": "E-1: Curated Rule Packs. Routed + verified live 2026-07-13.json -> 404 -> swallowed as 'pulled=0'. DEAD SINCE LAUNCH.",
+      "callers": "packages/core/src/rule-pack-sync.ts"
+    },
+    {
+      "path": "/rules",
+      "method": "GET",
+      "expect_unauth": [
+        "400",
+        "401",
+        "403"
+      ],
+      "expect_auth": [
+        "200"
+      ],
+      "routed": true,
+      "why": "Rule fetch. Declares verify_jwt=false but is not routed.",
+      "callers": "packages/core/src (38 files)"
+    },
+    {
+      "path": "/audit-export",
+      "method": "GET",
+      "expect_unauth": [
+        "400",
+        "401",
+        "403"
+      ],
+      "expect_auth": [
+        "200"
+      ],
+      "routed": true,
+      "why": "ENTERPRISE Signed Audit Export (1.15.0). GET only (index.ts:228 -> 405 on anything else). Was 404 (unrouted) until 2026-07-13.",
+      "callers": "packages/core/src (5 files)"
+    },
+    {
+      "path": "/evaluate-policy",
+      "method": "POST",
+      "expect_unauth": [
+        "400",
+        "401",
+        "403"
+      ],
+      "expect_auth": [
+        "200"
+      ],
+      "routed": true,
+      "why": "ENTERPRISE Governance N-of-M policy, shipped in 1.15.0. Declares verify_jwt=false, Routed + verified live 2026-07-13.",
+      "callers": "website only"
+    }
+  ],
+  "sites": [
+    {
+      "url": "https://massu.ai/",
+      "expect": [
+        "200"
+      ],
+      "why": "the marketing site"
+    },
+    {
+      "url": "https://massu.ai/docs",
+      "expect": [
+        "200"
+      ],
+      "why": "customer docs"
+    },
+    {
+      "url": "https://massu.ai/changelog",
+      "expect": [
+        "200"
+      ],
+      "why": "CHANGELOG is the SoT (drift-guarded)"
+    }
+  ]
+}

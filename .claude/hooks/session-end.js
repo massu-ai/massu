@@ -1,22 +1,40 @@
 #!/usr/bin/env node
 import{createRequire as __cr}from"module";const require=__cr(import.meta.url);
-
-// src/memory-db.ts
-import Database from "better-sqlite3";
-import { dirname as dirname2, basename } from "path";
-import { existsSync as existsSync3, mkdirSync as mkdirSync2 } from "fs";
-
-// src/config.ts
-import { resolve as resolve2, dirname } from "path";
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "fs";
-import { homedir as homedir2 } from "os";
-import { parse as parseYaml } from "yaml";
-import { z } from "zod";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __esm = (fn, res, err) => function __init() {
+  if (err) throw err[0];
+  try {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  } catch (e) {
+    throw err = [e], e;
+  }
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/lib/memory-path.ts
 function encodeMemoryDirName(projectRoot) {
   return projectRoot.replace(/\//g, "-");
 }
+var init_memory_path = __esm({
+  "src/lib/memory-path.ts"() {
+    "use strict";
+  }
+});
 
 // src/credentials.ts
 import { homedir } from "os";
@@ -29,9 +47,6 @@ import {
   rmSync,
   chmodSync
 } from "fs";
-var MASSU_ENV_API_KEY = "MASSU_API_KEY";
-var MASSU_ENV_CLOUD_ENDPOINT = "MASSU_CLOUD_ENDPOINT";
-var DEFAULT_CLOUD_ENDPOINT = "https://api.massu.ai/v1";
 function credentialsDir(home = homedir()) {
   return resolve(home, ".massu");
 }
@@ -79,391 +94,160 @@ function resolveEndpoint(opts = {}) {
   if (envEp.length > 0) return envEp;
   return DEFAULT_CLOUD_ENDPOINT;
 }
+var MASSU_ENV_API_KEY, MASSU_ENV_CLOUD_ENDPOINT, DEFAULT_CLOUD_ENDPOINT;
+var init_credentials = __esm({
+  "src/credentials.ts"() {
+    "use strict";
+    MASSU_ENV_API_KEY = "MASSU_API_KEY";
+    MASSU_ENV_CLOUD_ENDPOINT = "MASSU_CLOUD_ENDPOINT";
+    DEFAULT_CLOUD_ENDPOINT = "https://api.massu.ai/v1";
+  }
+});
+
+// src/config-memory-schema.ts
+import { z } from "zod";
+var MemoryConfigSchema;
+var init_config_memory_schema = __esm({
+  "src/config-memory-schema.ts"() {
+    "use strict";
+    MemoryConfigSchema = z.object({
+      recall: z.object({
+        enabled: z.boolean().default(true),
+        maxTokens: z.number().int().positive().default(1200),
+        sources: z.array(
+          z.enum([
+            "observation",
+            "architecture_decision",
+            "knowledge_chunk",
+            "failure_class"
+          ])
+        ).default(["observation", "architecture_decision", "knowledge_chunk", "failure_class"]),
+        timeoutMs: z.number().int().positive().default(8e3),
+        limit: z.number().int().positive().default(8),
+        minScore: z.number().min(0).default(0),
+        // --- Semantic embedder (plan-living-memory-slice-2a-embedder, P3-001) ---
+        // embedEnabled: Tier-1 bundled WASM embedder on by default; false forces
+        //   Tier-2 (FTS keyword-only) recall.
+        // embedEndpoint: optional Tier-0 OpenAI-compatible /v1/embeddings provider
+        //   (Ollama, LM Studio, vLLM, or any hosted API). When set, embedding egresses ONLY to this
+        //   operator-chosen endpoint; unset means zero egress (bundled model).
+        // embedModel: optional Tier-0 model name sent to that endpoint.
+        embedEnabled: z.boolean().default(true),
+        embedEndpoint: z.string().url().refine((s) => /^https?:\/\//i.test(s), {
+          message: "memory.recall.embedEndpoint must be an http(s) URL"
+        }).optional(),
+        embedModel: z.string().min(1).optional()
+      }).default({}),
+      // --- Contradiction / supersede gate (plan-living-memory-slice-2-temporal-model, P5-001) ---
+      // When a new high-value memory (decision/correction) is written, find
+      // semantically-related existing records and, if the new one contradicts an
+      // old one, supersede-don't-delete the old row. Fully fail-open + gated to a
+      // small set of high-value types so the hot capture path is untouched.
+      contradiction: z.object({
+        // Master switch. false → every write is a plain insert (prior behavior).
+        enabled: z.boolean().default(true),
+        // Optional Tier-0 external judge (OpenAI-compatible). null/unset → local
+        // heuristic only, ZERO egress. When set, candidate + related records egress
+        // ONLY to this operator-chosen endpoint; any error falls back to heuristic.
+        judgeEndpoint: z.string().url().refine((s) => /^https?:\/\//i.test(s), {
+          message: "memory.contradiction.judgeEndpoint must be an http(s) URL"
+        }).optional(),
+        // Cosine similarity above which a correction-flavored new record is treated
+        // as superseding a related existing record. Calibrated to all-MiniLM-L6-v2
+        // (same-topic contradictions ≈0.65–0.86; related-but-complementary ≈0.47).
+        similarityThreshold: z.number().min(0).max(1).default(0.6),
+        // Cosine similarity above which a new record is a near-duplicate (NOOP).
+        dedupThreshold: z.number().min(0).max(1).default(0.93),
+        // Observation types the gate runs for. High-volume 'file_change' is
+        // deliberately excluded so the hot path never triggers a hybridSearch.
+        gatedTypes: z.array(z.string()).default(["decision", "cr_violation", "failed_attempt"]),
+        // When true, superseded rows may still surface in recall with a
+        // "(superseded on <date> by #<id>)" annotation instead of being excluded.
+        annotateSuperseded: z.boolean().default(false),
+        // Time budget (ms) for the contradiction check; exceeded → fail-open (ADD).
+        budgetMs: z.number().int().positive().default(800)
+      }).default({}),
+      // --- Background consolidation, the "sleep-time" pass
+      //     (plan-living-memory-slice-3-consolidation) ---
+      // Keeps memory sharp over years: dedupes, distills dying sessions into
+      // durable lessons, spots corrections you keep repeating, reweights by what
+      // actually gets used, and retires dead weight by EXPIRING it (never deleting).
+      //
+      // Runs with ZERO LLM and ZERO network by default — every stage is arithmetic
+      // plus the embedding model Massu already bundles. `llmEndpoint` is OPTIONAL
+      // and upgrades the prose of session summaries ONLY.
+      consolidation: z.object({
+        enabled: z.boolean().default(true),
+        // Bounded sweep at session end — the automatic path (no scheduler needed).
+        sessionSweepEnabled: z.boolean().default(true),
+        // OPTIONAL local/remote OpenAI-compatible chat endpoint. UNSET = zero egress.
+        // When set, session text egresses ONLY to this endpoint you chose.
+        // NOTE: the API key is NEVER configured here — it is read exclusively from
+        // the MASSU_MEMORY_LLM_API_KEY env var, so a key can never be committed.
+        llmEndpoint: z.string().url().refine((s) => /^https?:\/\//i.test(s), {
+          message: "memory.consolidation.llmEndpoint must be an http(s) URL"
+        }).optional(),
+        // Model NAME/ALIAS sent to llmEndpoint (e.g. "llama3.1:8b").
+        llmModel: z.string().optional(),
+        // Distill a session once its newest turn is older than this. Must stay
+        // INSIDE the 7-day conversation_turns prune window or the raw material is
+        // destroyed before it is ever summarized.
+        summarizeAfterDays: z.number().int().positive().default(5),
+        // Age past which an unprotected, never-retrieved, low-importance row may expire.
+        retentionDays: z.number().int().positive().default(90),
+        importanceFloor: z.number().int().min(1).max(5).default(2),
+        // Types that may NEVER expire, however old.
+        protectedTypes: z.array(z.string()).default(["decision", "cr_violation", "incident_near_miss"]),
+        // Days the retrieval counter must observe usage BEFORE any expiry is armed.
+        // The cold-start guard: on a fresh counter nothing has "ever been
+        // retrieved", so without this the first pass would gut the store.
+        usageWarmupDays: z.number().int().nonnegative().default(30),
+        // Per-pass decay on the windowed hit count, so usefulness must be sustained.
+        usageDecay: z.number().min(0).max(1).default(0.9),
+        // A record is reweighted at most once per this many days (idempotency).
+        reweightIntervalDays: z.number().int().positive().default(1),
+        // Recurrences (across >= 2 sessions) before a rule candidate is proposed.
+        promoteMinOccurrences: z.number().int().positive().default(3),
+        budgetMs: z.number().int().positive().default(3e3),
+        // Surface optional upgrades (e.g. "a local model was detected") in chat.
+        suggestUpgrades: z.boolean().default(true),
+        suggestIntervalDays: z.number().int().positive().default(30)
+      }).default({}),
+      // A-20 (Slice 4) — memory FILES: the mirror, and the one switch that decides whether
+      // Massu may ever WRITE into the user's memory directory.
+      //
+      // ⛔ `renderEnabled` DEFAULTS TO FALSE. 4B is the first capability in Massu's history
+      // that writes files into the place the user keeps their own hand-written prose. A new
+      // write capability that arrives switched-on in an `npm update` is a capability nobody
+      // consented to. The path is: the advisor OFFERS it in chat -> the user runs
+      // `massu memory render --dry-run` and sees exactly what WOULD be written -> the user
+      // turns it on. Three deliberate steps, none implicit. A drift-guard pins this default.
+      files: z.object({
+        // The lossless file<->store mirror (ingest side). Read-only; it writes nothing.
+        enabled: z.boolean().default(true),
+        // The ONLY flag here that grants a WRITE. Never auto-enable.
+        renderEnabled: z.boolean().default(false),
+        // Anti-spam: files Massu may render in ONE session.
+        renderMaxFilesPerSession: z.number().int().min(0).default(3),
+        // Only memories at/above this importance are worth a durable file.
+        renderMinImportance: z.number().int().min(1).max(5).default(4),
+        // The clearly-labelled MEMORY.md section Massu's pointers live under.
+        indexSection: z.string().default("Learned by Massu"),
+        // Hard bound on the managed MEMORY.md region. MEMORY.md is auto-loaded into EVERY
+        // turn of EVERY session, so an unbounded index is a permanent context tax — and the
+        // per-session cap bounds only the RATE, never the total.
+        indexMaxLines: z.number().int().min(1).default(50)
+      }).default({})
+    }).optional();
+  }
+});
 
 // src/config.ts
-var DomainConfigSchema = z.object({
-  name: z.string().default("Unknown"),
-  routers: z.array(z.string()).default([]),
-  pages: z.array(z.string()).default([]),
-  tables: z.array(z.string()).default([]),
-  allowedImportsFrom: z.array(z.string()).default([])
-});
-var PatternRuleConfigSchema = z.object({
-  pattern: z.string().default("**"),
-  rules: z.array(z.string()).default([]),
-  language: z.string().optional()
-});
-var CostModelSchema = z.object({
-  input_per_million: z.number(),
-  output_per_million: z.number(),
-  cache_read_per_million: z.number().optional(),
-  cache_write_per_million: z.number().optional()
-});
-var AnalyticsConfigSchema = z.object({
-  quality: z.object({
-    weights: z.record(z.string(), z.number()).default({
-      bug_found: -5,
-      vr_failure: -10,
-      incident: -20,
-      cr_violation: -3,
-      vr_pass: 2,
-      clean_commit: 5,
-      successful_verification: 3
-    }),
-    categories: z.array(z.string()).default(["security", "architecture", "coupling", "tests", "rule_compliance"])
-  }).optional(),
-  cost: z.object({
-    models: z.record(z.string(), CostModelSchema).default({}),
-    currency: z.string().default("USD")
-  }).optional(),
-  prompts: z.object({
-    success_indicators: z.array(z.string()).default(["committed", "approved", "looks good", "perfect", "great", "thanks"]),
-    failure_indicators: z.array(z.string()).default(["revert", "wrong", "that's not", "undo", "incorrect"]),
-    max_turns_for_success: z.number().default(2)
-  }).optional()
-}).optional();
-var CustomPatternSchema = z.object({
-  pattern: z.string(),
-  severity: z.string(),
-  message: z.string()
-});
-var GovernanceConfigSchema = z.object({
-  audit: z.object({
-    formats: z.array(z.string()).default(["summary", "detailed", "soc2"]),
-    retention_days: z.number().default(365),
-    auto_log: z.record(z.string(), z.boolean()).default({
-      code_changes: true,
-      rule_enforcement: true,
-      approvals: true,
-      commits: true
-    })
-  }).optional(),
-  validation: z.object({
-    realtime: z.boolean().default(true),
-    checks: z.record(z.string(), z.boolean()).default({
-      rule_compliance: true,
-      import_existence: true,
-      naming_conventions: true
-    }),
-    custom_patterns: z.array(CustomPatternSchema).default([])
-  }).optional(),
-  adr: z.object({
-    detection_phrases: z.array(z.string()).default(["chose", "decided", "switching to", "moving from", "going with"]),
-    template: z.string().default("default"),
-    storage: z.string().default("database"),
-    output_dir: z.string().default("docs/adr")
-  }).optional()
-}).optional();
-var SecurityPatternSchema = z.object({
-  pattern: z.string(),
-  severity: z.string(),
-  category: z.string(),
-  description: z.string()
-});
-var SecurityConfigSchema = z.object({
-  patterns: z.array(SecurityPatternSchema).default([]),
-  auto_score_on_edit: z.boolean().default(true),
-  score_threshold_alert: z.number().default(50),
-  severity_weights: z.record(z.string(), z.number()).optional(),
-  restrictive_licenses: z.array(z.string()).optional(),
-  dep_alternatives: z.record(z.string(), z.array(z.string())).optional(),
-  dependencies: z.object({
-    package_manager: z.string().default("npm"),
-    blocked_packages: z.array(z.string()).default([]),
-    preferred_packages: z.record(z.string(), z.string()).default({}),
-    max_bundle_size_kb: z.number().default(500)
-  }).optional()
-}).optional();
-var TeamConfigSchema = z.object({
-  enabled: z.boolean().default(false),
-  sync_backend: z.string().default("local"),
-  developer_id: z.string().default("auto"),
-  share_by_default: z.boolean().default(false),
-  expertise_weights: z.object({
-    session: z.number().default(20),
-    observation: z.number().default(10)
-  }).optional(),
-  privacy: z.object({
-    share_file_paths: z.boolean().default(true),
-    share_code_snippets: z.boolean().default(false),
-    share_observations: z.boolean().default(true)
-  }).optional()
-}).optional();
-var RegressionConfigSchema = z.object({
-  test_patterns: z.array(z.string()).default([
-    "{dir}/__tests__/{name}.test.{ext}",
-    "{dir}/{name}.spec.{ext}",
-    "tests/{path}.test.{ext}"
-  ]),
-  test_runner: z.string().default("npm test"),
-  health_thresholds: z.object({
-    healthy: z.number().default(80),
-    warning: z.number().default(50)
-  }).optional()
-}).optional();
-var AutoLearningConfigSchema = z.object({
-  enabled: z.boolean().default(true),
-  incidentDir: z.string().default("docs/incidents"),
-  memoryDir: z.string().default("memory"),
-  memoryIndexFile: z.string().default("MEMORY.md"),
-  enforcementHooksDir: z.string().default("scripts/hooks"),
-  fixDetection: z.object({
-    enabled: z.boolean().default(true),
-    lookbackDays: z.number().default(7),
-    signals: z.array(z.string()).default([
-      "removed_broken_code",
-      "added_error_handling",
-      "method_name_correction",
-      "auth_fix",
-      "nil_handling_fix",
-      "concurrency_fix",
-      "async_pattern_fix",
-      "added_missing_import"
-    ])
-  }).default({}),
-  failureClassification: z.object({
-    enabled: z.boolean().default(true),
-    thresholds: z.object({
-      known: z.number().default(5),
-      similar: z.number().default(3)
-    }).default({}),
-    scoring: z.object({
-      diffPatternWeight: z.number().default(3),
-      filePatternWeight: z.number().default(2),
-      promptKeywordWeight: z.number().default(2)
-    }).default({})
-  }).default({}),
-  pipeline: z.object({
-    requireIncidentReport: z.boolean().default(true),
-    requirePreventionRule: z.boolean().default(true),
-    requireEnforcement: z.boolean().default(true)
-  }).default({}),
-  // plan-v0.2-interactive-rule-approval P-D-008 / P-D-009: project-configured
-  // custom destinations for the rule-candidate funnel. The classifier matches
-  // a candidate to one of these entries when none of the framework
-  // destinations (pattern-scanner / claude-md-cr / corrections-md) apply.
-  customDestinations: z.array(z.object({
-    name: z.string(),
-    path: z.string(),
-    triggerKeywords: z.array(z.string()).default([]),
-    template: z.string()
-  })).default([])
-}).optional();
-var CloudConfigSchema = z.object({
-  enabled: z.boolean().default(false),
-  apiKey: z.string().optional(),
-  endpoint: z.string().optional(),
-  sync: z.object({
-    memory: z.boolean().default(true),
-    analytics: z.boolean().default(true),
-    audit: z.boolean().default(true)
-  }).default({ memory: true, analytics: true, audit: true })
-}).optional();
-var ConventionsConfigSchema = z.object({
-  claudeDirName: z.string().default(".claude").refine(
-    (s) => !s.includes("..") && !s.startsWith("/"),
-    { message: 'claudeDirName must not contain ".." or start with "/"' }
-  ),
-  sessionStatePath: z.string().default(".claude/session-state/CURRENT.md").refine(
-    (s) => !s.includes("..") && !s.startsWith("/"),
-    { message: 'sessionStatePath must not contain ".." or start with "/"' }
-  ),
-  sessionArchivePath: z.string().default(".claude/session-state/archive").refine(
-    (s) => !s.includes("..") && !s.startsWith("/"),
-    { message: 'sessionArchivePath must not contain ".." or start with "/"' }
-  ),
-  knowledgeCategories: z.array(z.string()).default([
-    "patterns",
-    "commands",
-    "incidents",
-    "reference",
-    "protocols",
-    "checklists",
-    "playbooks",
-    "critical",
-    "scripts",
-    "status",
-    "templates",
-    "loop-state",
-    "session-state",
-    "agents"
-  ]),
-  knowledgeSourceFiles: z.array(z.string()).default(["CLAUDE.md", "MEMORY.md", "corrections.md"]),
-  excludePatterns: z.array(z.string()).default(["/ARCHIVE/", "/SESSION-HISTORY/"])
-}).optional();
-var PythonDomainConfigSchema = z.object({
-  name: z.string(),
-  packages: z.array(z.string()),
-  allowed_imports_from: z.array(z.string()).default([])
-});
-var PythonConfigSchema = z.object({
-  root: z.string(),
-  alembic_dir: z.string().optional(),
-  domains: z.array(PythonDomainConfigSchema).default([]),
-  exclude_dirs: z.array(z.string()).default(["__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache"])
-}).optional();
-var PathsConfigSchema = z.object({
-  source: z.string().default("src"),
-  aliases: z.record(z.string(), z.string()).default({ "@": "src" }),
-  monorepo_roots: z.array(z.string()).optional(),
-  routers: z.string().optional(),
-  routerRoot: z.string().optional(),
-  pages: z.string().optional(),
-  middleware: z.string().optional(),
-  schema: z.string().optional(),
-  components: z.string().optional(),
-  hooks: z.string().optional()
-});
-var LanguageFrameworkEntrySchema = z.object({
-  framework: z.string().optional(),
-  test_framework: z.string().optional(),
-  test: z.string().optional(),
-  runtime: z.string().optional(),
-  orm: z.string().optional(),
-  router: z.string().optional(),
-  ui: z.string().optional()
-}).passthrough();
-var FrameworkConfigSchema = z.object({
-  type: z.string().default("typescript"),
-  primary: z.string().optional(),
-  router: z.string().default("none"),
-  orm: z.string().default("none"),
-  ui: z.string().default("none"),
-  languages: z.record(z.string(), LanguageFrameworkEntrySchema).optional()
-}).passthrough();
-var DetectedConfigSchema = z.object({}).passthrough().optional();
-var VerificationEntrySchema = z.object({
-  type: z.string().optional(),
-  test: z.string().optional(),
-  syntax: z.string().optional(),
-  lint: z.string().optional(),
-  build: z.string().optional()
-}).passthrough();
-var VerificationConfigSchema = z.record(z.string(), VerificationEntrySchema).optional();
-var CanonicalPathsSchema = z.record(z.string(), z.string()).optional();
-var VerificationTypesSchema = z.record(z.string(), z.string()).optional();
-var DetectionRuleEntrySchema = z.object({
-  signals: z.array(z.string()).default([]),
-  priority: z.number().optional()
-}).passthrough();
-var DetectionConfigSchema = z.object({
-  rules: z.record(
-    z.string(),
-    // language
-    z.record(z.string(), DetectionRuleEntrySchema)
-    // framework -> rule entry
-  ).optional(),
-  signal_weights: z.record(z.string(), z.number()).optional(),
-  disable_builtin: z.boolean().optional()
-}).passthrough().optional();
-var WatchConfigSchema = z.object({
-  debounce_ms: z.number().int().positive().default(3e3),
-  storm_threshold: z.number().int().positive().default(50),
-  deep_storm_threshold: z.number().int().positive().default(500),
-  hard_timeout_ms: z.number().int().positive().default(3e5),
-  scope: z.enum(["paths", "full"]).default("paths"),
-  // Plan 3a hotfix 2026-05-02: refuse to start if the watch surface
-  // exceeds this many files. Prevents the misconfig pattern where
-  // `paths.source_dirs` includes `.` or otherwise expands to a 60K+
-  // file tree, producing 30-100% steady CPU. Override via
-  // `paths_full_root_opt_in: true` for users on small repos who genuinely
-  // need root-level watching.
-  max_watched_files: z.number().int().positive().default(1e4),
-  paths_full_root_opt_in: z.boolean().default(false)
-}).passthrough().optional();
-var AdapterLocalPathSchema = z.string().refine((s) => !/^([A-Za-z]:[\\/]|[\\/])/.test(s), {
-  message: "absolute paths are rejected; adapters.local entries must be relative to the massu.config.yaml directory"
-}).refine((s) => !s.split(/[\\/]/).includes(".."), {
-  message: "parent-directory traversal (`..`) is rejected; adapters.local entries must stay inside the project tree"
-}).transform((s) => s.split(/[\\/]/).filter((part) => part !== "" && part !== ".").join("/"));
-var AdaptersConfigSchema = z.object({
-  enabled: z.boolean().default(false),
-  local: z.array(AdapterLocalPathSchema).default([])
-}).passthrough().optional();
-var TelemetryConfigSchema = z.object({
-  adapters: z.boolean().default(false)
-}).passthrough().optional();
-var LSPConfigSchema = z.object({
-  enabled: z.boolean().default(false),
-  servers: z.array(z.object({
-    language: z.string(),
-    command: z.string(),
-    // F-014 (closed 2026-05-06): explicit opt-in to spawn SUID/SGID
-    // binaries. Default false — argv[0] with the SUID bit is rejected
-    // unless this is true. Decision is auditable in the YAML.
-    allow_setuid: z.boolean().default(false),
-    // F-015 (closed 2026-05-06): per-server RSS budget (MB). Watchdog
-    // SIGKILLs the server after sustained breach. Default 1024 MB.
-    // Set to 0 to disable the watchdog for this server.
-    max_rss_mb: z.number().int().nonnegative().default(1024)
-  })).default([]),
-  autoDetect: z.object({
-    viaPortScan: z.boolean().default(false)
-  }).optional()
-}).passthrough();
-var RawConfigSchema = z.object({
-  schema_version: z.union([z.literal(1), z.literal(2)]).default(1),
-  project: z.object({
-    name: z.string().default("my-project"),
-    root: z.string().default("auto")
-  }).default({ name: "my-project", root: "auto" }),
-  framework: FrameworkConfigSchema.default({
-    type: "typescript",
-    router: "none",
-    orm: "none",
-    ui: "none"
-  }),
-  paths: PathsConfigSchema.default({ source: "src", aliases: { "@": "src" } }),
-  toolPrefix: z.string().default("massu"),
-  dbAccessPattern: z.string().optional(),
-  knownMismatches: z.record(z.string(), z.record(z.string(), z.string())).optional(),
-  accessScopes: z.array(z.string()).optional(),
-  domains: z.array(DomainConfigSchema).default([]),
-  rules: z.array(PatternRuleConfigSchema).default([]),
-  // P-M-036 (plan-stage-d-medium-sweep): customer-authored CR-style
-  // governance rules. DISTINCT from `rules:` above (path-scoped lint hints
-  // used by pattern-scanner). At config-refresh time these entries are
-  // loaded into the `knowledge_rules` SQLite table with
-  // `source = 'customer-config'` so `massu_knowledge_rule` and the
-  // governance docs surface customer-defined rules alongside framework CRs.
-  governance_rules: z.array(
-    z.object({
-      id: z.string().min(1, "governance_rules[].id is required"),
-      title: z.string().min(1, "governance_rules[].title is required"),
-      description: z.string().min(1, "governance_rules[].description is required"),
-      vr_type: z.string().default("VR-CUSTOM"),
-      reference_path: z.string().optional(),
-      severity: z.enum(["critical", "high", "medium", "low", "info"]).default("medium")
-    }).passthrough()
-  ).default([]),
-  analytics: AnalyticsConfigSchema,
-  governance: GovernanceConfigSchema,
-  security: SecurityConfigSchema,
-  team: TeamConfigSchema,
-  regression: RegressionConfigSchema,
-  cloud: CloudConfigSchema,
-  conventions: ConventionsConfigSchema,
-  autoLearning: AutoLearningConfigSchema,
-  python: PythonConfigSchema,
-  // P2-004 / P2-005 / P2-006 / P2-008: v2 extensions (all optional)
-  verification: VerificationConfigSchema,
-  canonical_paths: CanonicalPathsSchema,
-  verification_types: VerificationTypesSchema,
-  detection: DetectionConfigSchema,
-  // Plan #2: detector-owned per-language conventions (free-form passthrough)
-  detected: DetectedConfigSchema,
-  // Plan 3a: file-watcher daemon tunables
-  watch: WatchConfigSchema,
-  // Plan 3c: third-party adapter registry kill-switch + signing override + local-path opt-in.
-  adapters: AdaptersConfigSchema,
-  // Plan 3c: anonymous adapter-discovery telemetry opt-in (default off).
-  telemetry: TelemetryConfigSchema,
-  // Plan 3b Phase 4: optional LSP enrichment of AST adapter results.
-  lsp: LSPConfigSchema.optional()
-}).passthrough();
-var _config = null;
-var _resolvedApiKeySource = "none";
-var _projectRoot = null;
+import { resolve as resolve2, dirname } from "path";
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "fs";
+import { homedir as homedir2 } from "os";
+import { parse as parseYaml } from "yaml";
+import { z as z2 } from "zod";
 function findProjectRoot() {
   const cwd = process.cwd();
   let dir = cwd;
@@ -563,6 +347,7 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
     team: parsed.team,
     regression: parsed.regression,
     cloud: parsed.cloud,
+    memory: parsed.memory,
     conventions: parsed.conventions,
     autoLearning: parsed.autoLearning,
     python: parsed.python,
@@ -627,19 +412,1281 @@ function getResolvedPaths() {
     settingsLocalPath: resolve2(root, claudeDirName, "settings.local.json")
   };
 }
+var DomainConfigSchema, PatternRuleConfigSchema, CostModelSchema, AnalyticsConfigSchema, CustomPatternSchema, GovernanceConfigSchema, SecurityPatternSchema, SecurityConfigSchema, TeamConfigSchema, RegressionConfigSchema, AutoLearningConfigSchema, CloudConfigSchema, ConventionsConfigSchema, PythonDomainConfigSchema, PythonConfigSchema, PathsConfigSchema, LanguageFrameworkEntrySchema, FrameworkConfigSchema, DetectedConfigSchema, VerificationEntrySchema, VerificationConfigSchema, CanonicalPathsSchema, VerificationTypesSchema, DetectionRuleEntrySchema, DetectionConfigSchema, WatchConfigSchema, AdapterLocalPathSchema, AdaptersConfigSchema, TelemetryConfigSchema, LSPConfigSchema, RawConfigSchema, _config, _resolvedApiKeySource, _projectRoot;
+var init_config = __esm({
+  "src/config.ts"() {
+    "use strict";
+    init_memory_path();
+    init_credentials();
+    init_config_memory_schema();
+    DomainConfigSchema = z2.object({
+      name: z2.string().default("Unknown"),
+      routers: z2.array(z2.string()).default([]),
+      pages: z2.array(z2.string()).default([]),
+      tables: z2.array(z2.string()).default([]),
+      allowedImportsFrom: z2.array(z2.string()).default([])
+    });
+    PatternRuleConfigSchema = z2.object({
+      pattern: z2.string().default("**"),
+      rules: z2.array(z2.string()).default([]),
+      language: z2.string().optional()
+    });
+    CostModelSchema = z2.object({
+      input_per_million: z2.number(),
+      output_per_million: z2.number(),
+      cache_read_per_million: z2.number().optional(),
+      cache_write_per_million: z2.number().optional()
+    });
+    AnalyticsConfigSchema = z2.object({
+      quality: z2.object({
+        weights: z2.record(z2.string(), z2.number()).default({
+          bug_found: -5,
+          vr_failure: -10,
+          incident: -20,
+          cr_violation: -3,
+          vr_pass: 2,
+          clean_commit: 5,
+          successful_verification: 3
+        }),
+        categories: z2.array(z2.string()).default(["security", "architecture", "coupling", "tests", "rule_compliance"])
+      }).optional(),
+      cost: z2.object({
+        models: z2.record(z2.string(), CostModelSchema).default({}),
+        currency: z2.string().default("USD")
+      }).optional(),
+      prompts: z2.object({
+        success_indicators: z2.array(z2.string()).default(["committed", "approved", "looks good", "perfect", "great", "thanks"]),
+        failure_indicators: z2.array(z2.string()).default(["revert", "wrong", "that's not", "undo", "incorrect"]),
+        max_turns_for_success: z2.number().default(2)
+      }).optional()
+    }).optional();
+    CustomPatternSchema = z2.object({
+      pattern: z2.string(),
+      severity: z2.string(),
+      message: z2.string()
+    });
+    GovernanceConfigSchema = z2.object({
+      audit: z2.object({
+        formats: z2.array(z2.string()).default(["summary", "detailed", "soc2"]),
+        retention_days: z2.number().default(365),
+        auto_log: z2.record(z2.string(), z2.boolean()).default({
+          code_changes: true,
+          rule_enforcement: true,
+          approvals: true,
+          commits: true
+        })
+      }).optional(),
+      validation: z2.object({
+        realtime: z2.boolean().default(true),
+        checks: z2.record(z2.string(), z2.boolean()).default({
+          rule_compliance: true,
+          import_existence: true,
+          naming_conventions: true
+        }),
+        custom_patterns: z2.array(CustomPatternSchema).default([])
+      }).optional(),
+      adr: z2.object({
+        detection_phrases: z2.array(z2.string()).default(["chose", "decided", "switching to", "moving from", "going with"]),
+        template: z2.string().default("default"),
+        storage: z2.string().default("database"),
+        output_dir: z2.string().default("docs/adr")
+      }).optional()
+    }).optional();
+    SecurityPatternSchema = z2.object({
+      pattern: z2.string(),
+      severity: z2.string(),
+      category: z2.string(),
+      description: z2.string()
+    });
+    SecurityConfigSchema = z2.object({
+      patterns: z2.array(SecurityPatternSchema).default([]),
+      auto_score_on_edit: z2.boolean().default(true),
+      score_threshold_alert: z2.number().default(50),
+      severity_weights: z2.record(z2.string(), z2.number()).optional(),
+      restrictive_licenses: z2.array(z2.string()).optional(),
+      dep_alternatives: z2.record(z2.string(), z2.array(z2.string())).optional(),
+      dependencies: z2.object({
+        package_manager: z2.string().default("npm"),
+        blocked_packages: z2.array(z2.string()).default([]),
+        preferred_packages: z2.record(z2.string(), z2.string()).default({}),
+        max_bundle_size_kb: z2.number().default(500)
+      }).optional()
+    }).optional();
+    TeamConfigSchema = z2.object({
+      enabled: z2.boolean().default(false),
+      sync_backend: z2.string().default("local"),
+      developer_id: z2.string().default("auto"),
+      share_by_default: z2.boolean().default(false),
+      expertise_weights: z2.object({
+        session: z2.number().default(20),
+        observation: z2.number().default(10)
+      }).optional(),
+      privacy: z2.object({
+        share_file_paths: z2.boolean().default(true),
+        share_code_snippets: z2.boolean().default(false),
+        share_observations: z2.boolean().default(true)
+      }).optional()
+    }).optional();
+    RegressionConfigSchema = z2.object({
+      test_patterns: z2.array(z2.string()).default([
+        "{dir}/__tests__/{name}.test.{ext}",
+        "{dir}/{name}.spec.{ext}",
+        "tests/{path}.test.{ext}"
+      ]),
+      test_runner: z2.string().default("npm test"),
+      health_thresholds: z2.object({
+        healthy: z2.number().default(80),
+        warning: z2.number().default(50)
+      }).optional()
+    }).optional();
+    AutoLearningConfigSchema = z2.object({
+      enabled: z2.boolean().default(true),
+      incidentDir: z2.string().default("docs/incidents"),
+      memoryDir: z2.string().default("memory"),
+      memoryIndexFile: z2.string().default("MEMORY.md"),
+      enforcementHooksDir: z2.string().default("scripts/hooks"),
+      fixDetection: z2.object({
+        enabled: z2.boolean().default(true),
+        lookbackDays: z2.number().default(7),
+        signals: z2.array(z2.string()).default([
+          "removed_broken_code",
+          "added_error_handling",
+          "method_name_correction",
+          "auth_fix",
+          "nil_handling_fix",
+          "concurrency_fix",
+          "async_pattern_fix",
+          "added_missing_import"
+        ])
+      }).default({}),
+      failureClassification: z2.object({
+        enabled: z2.boolean().default(true),
+        thresholds: z2.object({
+          known: z2.number().default(5),
+          similar: z2.number().default(3)
+        }).default({}),
+        scoring: z2.object({
+          diffPatternWeight: z2.number().default(3),
+          filePatternWeight: z2.number().default(2),
+          promptKeywordWeight: z2.number().default(2)
+        }).default({})
+      }).default({}),
+      pipeline: z2.object({
+        requireIncidentReport: z2.boolean().default(true),
+        requirePreventionRule: z2.boolean().default(true),
+        requireEnforcement: z2.boolean().default(true)
+      }).default({}),
+      // plan-v0.2-interactive-rule-approval P-D-008 / P-D-009: project-configured
+      // custom destinations for the rule-candidate funnel. The classifier matches
+      // a candidate to one of these entries when none of the framework
+      // destinations (pattern-scanner / claude-md-cr / corrections-md) apply.
+      customDestinations: z2.array(z2.object({
+        name: z2.string(),
+        path: z2.string(),
+        triggerKeywords: z2.array(z2.string()).default([]),
+        template: z2.string()
+      })).default([])
+    }).optional();
+    CloudConfigSchema = z2.object({
+      enabled: z2.boolean().default(false),
+      apiKey: z2.string().optional(),
+      endpoint: z2.string().optional(),
+      sync: z2.object({
+        memory: z2.boolean().default(true),
+        analytics: z2.boolean().default(true),
+        audit: z2.boolean().default(true)
+      }).default({ memory: true, analytics: true, audit: true })
+    }).optional();
+    ConventionsConfigSchema = z2.object({
+      claudeDirName: z2.string().default(".claude").refine(
+        (s) => !s.includes("..") && !s.startsWith("/"),
+        { message: 'claudeDirName must not contain ".." or start with "/"' }
+      ),
+      sessionStatePath: z2.string().default(".claude/session-state/CURRENT.md").refine(
+        (s) => !s.includes("..") && !s.startsWith("/"),
+        { message: 'sessionStatePath must not contain ".." or start with "/"' }
+      ),
+      sessionArchivePath: z2.string().default(".claude/session-state/archive").refine(
+        (s) => !s.includes("..") && !s.startsWith("/"),
+        { message: 'sessionArchivePath must not contain ".." or start with "/"' }
+      ),
+      knowledgeCategories: z2.array(z2.string()).default([
+        "patterns",
+        "commands",
+        "incidents",
+        "reference",
+        "protocols",
+        "checklists",
+        "playbooks",
+        "critical",
+        "scripts",
+        "status",
+        "templates",
+        "loop-state",
+        "session-state",
+        "agents"
+      ]),
+      knowledgeSourceFiles: z2.array(z2.string()).default(["CLAUDE.md", "MEMORY.md", "corrections.md"]),
+      excludePatterns: z2.array(z2.string()).default(["/ARCHIVE/", "/SESSION-HISTORY/"])
+    }).optional();
+    PythonDomainConfigSchema = z2.object({
+      name: z2.string(),
+      packages: z2.array(z2.string()),
+      allowed_imports_from: z2.array(z2.string()).default([])
+    });
+    PythonConfigSchema = z2.object({
+      root: z2.string(),
+      alembic_dir: z2.string().optional(),
+      domains: z2.array(PythonDomainConfigSchema).default([]),
+      exclude_dirs: z2.array(z2.string()).default(["__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache"])
+    }).optional();
+    PathsConfigSchema = z2.object({
+      source: z2.string().default("src"),
+      aliases: z2.record(z2.string(), z2.string()).default({ "@": "src" }),
+      monorepo_roots: z2.array(z2.string()).optional(),
+      routers: z2.string().optional(),
+      routerRoot: z2.string().optional(),
+      pages: z2.string().optional(),
+      middleware: z2.string().optional(),
+      schema: z2.string().optional(),
+      components: z2.string().optional(),
+      hooks: z2.string().optional()
+    });
+    LanguageFrameworkEntrySchema = z2.object({
+      framework: z2.string().optional(),
+      test_framework: z2.string().optional(),
+      test: z2.string().optional(),
+      runtime: z2.string().optional(),
+      orm: z2.string().optional(),
+      router: z2.string().optional(),
+      ui: z2.string().optional()
+    }).passthrough();
+    FrameworkConfigSchema = z2.object({
+      type: z2.string().default("typescript"),
+      primary: z2.string().optional(),
+      router: z2.string().default("none"),
+      orm: z2.string().default("none"),
+      ui: z2.string().default("none"),
+      languages: z2.record(z2.string(), LanguageFrameworkEntrySchema).optional()
+    }).passthrough();
+    DetectedConfigSchema = z2.object({}).passthrough().optional();
+    VerificationEntrySchema = z2.object({
+      type: z2.string().optional(),
+      test: z2.string().optional(),
+      syntax: z2.string().optional(),
+      lint: z2.string().optional(),
+      build: z2.string().optional()
+    }).passthrough();
+    VerificationConfigSchema = z2.record(z2.string(), VerificationEntrySchema).optional();
+    CanonicalPathsSchema = z2.record(z2.string(), z2.string()).optional();
+    VerificationTypesSchema = z2.record(z2.string(), z2.string()).optional();
+    DetectionRuleEntrySchema = z2.object({
+      signals: z2.array(z2.string()).default([]),
+      priority: z2.number().optional()
+    }).passthrough();
+    DetectionConfigSchema = z2.object({
+      rules: z2.record(
+        z2.string(),
+        // language
+        z2.record(z2.string(), DetectionRuleEntrySchema)
+        // framework -> rule entry
+      ).optional(),
+      signal_weights: z2.record(z2.string(), z2.number()).optional(),
+      disable_builtin: z2.boolean().optional()
+    }).passthrough().optional();
+    WatchConfigSchema = z2.object({
+      debounce_ms: z2.number().int().positive().default(3e3),
+      storm_threshold: z2.number().int().positive().default(50),
+      deep_storm_threshold: z2.number().int().positive().default(500),
+      hard_timeout_ms: z2.number().int().positive().default(3e5),
+      scope: z2.enum(["paths", "full"]).default("paths"),
+      // Plan 3a hotfix 2026-05-02: refuse to start if the watch surface
+      // exceeds this many files. Prevents the misconfig pattern where
+      // `paths.source_dirs` includes `.` or otherwise expands to a 60K+
+      // file tree, producing 30-100% steady CPU. Override via
+      // `paths_full_root_opt_in: true` for users on small repos who genuinely
+      // need root-level watching.
+      max_watched_files: z2.number().int().positive().default(1e4),
+      paths_full_root_opt_in: z2.boolean().default(false)
+    }).passthrough().optional();
+    AdapterLocalPathSchema = z2.string().refine((s) => !/^([A-Za-z]:[\\/]|[\\/])/.test(s), {
+      message: "absolute paths are rejected; adapters.local entries must be relative to the massu.config.yaml directory"
+    }).refine((s) => !s.split(/[\\/]/).includes(".."), {
+      message: "parent-directory traversal (`..`) is rejected; adapters.local entries must stay inside the project tree"
+    }).transform((s) => s.split(/[\\/]/).filter((part) => part !== "" && part !== ".").join("/"));
+    AdaptersConfigSchema = z2.object({
+      enabled: z2.boolean().default(false),
+      local: z2.array(AdapterLocalPathSchema).default([])
+    }).passthrough().optional();
+    TelemetryConfigSchema = z2.object({
+      adapters: z2.boolean().default(false)
+    }).passthrough().optional();
+    LSPConfigSchema = z2.object({
+      enabled: z2.boolean().default(false),
+      servers: z2.array(z2.object({
+        language: z2.string(),
+        command: z2.string(),
+        // F-014 (closed 2026-05-06): explicit opt-in to spawn SUID/SGID
+        // binaries. Default false — argv[0] with the SUID bit is rejected
+        // unless this is true. Decision is auditable in the YAML.
+        allow_setuid: z2.boolean().default(false),
+        // F-015 (closed 2026-05-06): per-server RSS budget (MB). Watchdog
+        // SIGKILLs the server after sustained breach. Default 1024 MB.
+        // Set to 0 to disable the watchdog for this server.
+        max_rss_mb: z2.number().int().nonnegative().default(1024)
+      })).default([]),
+      autoDetect: z2.object({
+        viaPortScan: z2.boolean().default(false)
+      }).optional()
+    }).passthrough();
+    RawConfigSchema = z2.object({
+      schema_version: z2.union([z2.literal(1), z2.literal(2)]).default(1),
+      project: z2.object({
+        name: z2.string().default("my-project"),
+        root: z2.string().default("auto")
+      }).default({ name: "my-project", root: "auto" }),
+      framework: FrameworkConfigSchema.default({
+        type: "typescript",
+        router: "none",
+        orm: "none",
+        ui: "none"
+      }),
+      paths: PathsConfigSchema.default({ source: "src", aliases: { "@": "src" } }),
+      toolPrefix: z2.string().default("massu"),
+      dbAccessPattern: z2.string().optional(),
+      knownMismatches: z2.record(z2.string(), z2.record(z2.string(), z2.string())).optional(),
+      accessScopes: z2.array(z2.string()).optional(),
+      domains: z2.array(DomainConfigSchema).default([]),
+      rules: z2.array(PatternRuleConfigSchema).default([]),
+      // P-M-036 (plan-stage-d-medium-sweep): customer-authored CR-style
+      // governance rules. DISTINCT from `rules:` above (path-scoped lint hints
+      // used by pattern-scanner). At config-refresh time these entries are
+      // loaded into the `knowledge_rules` SQLite table with
+      // `source = 'customer-config'` so `massu_knowledge_rule` and the
+      // governance docs surface customer-defined rules alongside framework CRs.
+      governance_rules: z2.array(
+        z2.object({
+          id: z2.string().min(1, "governance_rules[].id is required"),
+          title: z2.string().min(1, "governance_rules[].title is required"),
+          description: z2.string().min(1, "governance_rules[].description is required"),
+          vr_type: z2.string().default("VR-CUSTOM"),
+          reference_path: z2.string().optional(),
+          severity: z2.enum(["critical", "high", "medium", "low", "info"]).default("medium")
+        }).passthrough()
+      ).default([]),
+      analytics: AnalyticsConfigSchema,
+      governance: GovernanceConfigSchema,
+      security: SecurityConfigSchema,
+      team: TeamConfigSchema,
+      regression: RegressionConfigSchema,
+      cloud: CloudConfigSchema,
+      // plan-living-memory-slice-1 P6-002: automatic-recall tunables.
+      memory: MemoryConfigSchema,
+      conventions: ConventionsConfigSchema,
+      autoLearning: AutoLearningConfigSchema,
+      python: PythonConfigSchema,
+      // P2-004 / P2-005 / P2-006 / P2-008: v2 extensions (all optional)
+      verification: VerificationConfigSchema,
+      canonical_paths: CanonicalPathsSchema,
+      verification_types: VerificationTypesSchema,
+      detection: DetectionConfigSchema,
+      // Plan #2: detector-owned per-language conventions (free-form passthrough)
+      detected: DetectedConfigSchema,
+      // Plan 3a: file-watcher daemon tunables
+      watch: WatchConfigSchema,
+      // Plan 3c: third-party adapter registry kill-switch + signing override + local-path opt-in.
+      adapters: AdaptersConfigSchema,
+      // Plan 3c: anonymous adapter-discovery telemetry opt-in (default off).
+      telemetry: TelemetryConfigSchema,
+      // Plan 3b Phase 4: optional LSP enrichment of AST adapter results.
+      lsp: LSPConfigSchema.optional()
+    }).passthrough();
+    _config = null;
+    _resolvedApiKeySource = "none";
+    _projectRoot = null;
+  }
+});
+
+// src/memory-vector.ts
+function float32ToBlob(vec) {
+  return Buffer.from(new Uint8Array(vec.buffer, vec.byteOffset, vec.byteLength));
+}
+function blobToFloat32(buf) {
+  if (!buf || buf.byteLength % 4 !== 0) return null;
+  const bytes = new Uint8Array(buf.byteLength);
+  bytes.set(buf instanceof Buffer ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) : buf);
+  return new Float32Array(bytes.buffer, 0, buf.byteLength / 4);
+}
+function l2normalize(vec) {
+  let sumSq = 0;
+  for (let i = 0; i < vec.length; i++) sumSq += vec[i] * vec[i];
+  const norm = Math.sqrt(sumSq);
+  if (norm === 0 || !Number.isFinite(norm)) return vec;
+  const out = new Float32Array(vec.length);
+  for (let i = 0; i < vec.length; i++) out[i] = vec[i] / norm;
+  return out;
+}
+function cosineSim(a, b) {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  if (na === 0 || nb === 0) return 0;
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  if (denom === 0 || !Number.isFinite(denom)) return 0;
+  return dot / denom;
+}
+var init_memory_vector = __esm({
+  "src/memory-vector.ts"() {
+    "use strict";
+  }
+});
+
+// src/db-backup.ts
+import Database from "better-sqlite3";
+import { existsSync as existsSync3, mkdirSync as mkdirSync2, readdirSync, statSync, unlinkSync, copyFileSync, rmSync as rmSync2 } from "fs";
+import { resolve as resolve3, join, basename, dirname as dirname2 } from "path";
+import { homedir as homedir3 } from "os";
+function dbBackupsRoot(home = homedir3()) {
+  return resolve3(home, ".massu", "db-backups");
+}
+function projectBackupDir(projectRoot, home = homedir3()) {
+  const slug = basename(projectRoot).replace(/[^A-Za-z0-9._-]/g, "_") || "project";
+  return join(dbBackupsRoot(home), slug);
+}
+function backupStamp(nowMs) {
+  return new Date(nowMs).toISOString().replace(/[:.]/g, "-");
+}
+function listDbBackups(projectRoot, home = homedir3()) {
+  const dir = projectBackupDir(projectRoot, home);
+  if (!existsSync3(dir)) return [];
+  const out = [];
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith(".db")) continue;
+    const p = join(dir, f);
+    const st = statSync(p);
+    const db = f.replace(/-\d{4}-\d{2}-\d{2}T.*$/, "");
+    out.push({ db, path: p, bytes: st.size, mtimeMs: st.mtimeMs });
+  }
+  return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+function hasFreshDbBackup(projectRoot, dbPath, nowMs = Date.now(), home = homedir3()) {
+  const name = basename(dbPath, ".db");
+  const backups = listDbBackups(projectRoot, home).filter((b) => b.db === name);
+  if (backups.length === 0) return false;
+  const newest = backups[0];
+  if (nowMs - newest.mtimeMs > FRESH_WINDOW_MS) return false;
+  if (existsSync3(dbPath) && statSync(dbPath).mtimeMs > newest.mtimeMs) return false;
+  return true;
+}
+function integrityOk(dbPath) {
+  let db = null;
+  try {
+    db = new Database(dbPath, { readonly: true });
+    const rows = db.pragma("integrity_check");
+    return rows.length === 1 && rows[0].integrity_check === "ok";
+  } catch {
+    return false;
+  } finally {
+    try {
+      db?.close();
+    } catch {
+    }
+  }
+}
+function backupDb(projectRoot, dbPath, nowMs = Date.now(), home = homedir3()) {
+  if (!existsSync3(dbPath)) {
+    throw new DbBackupError(`cannot back up a database that does not exist: ${dbPath}`);
+  }
+  const dir = projectBackupDir(projectRoot, home);
+  mkdirSync2(dir, { recursive: true });
+  const name = basename(dbPath, ".db");
+  const dest = join(dir, `${name}-${backupStamp(nowMs)}.db`);
+  let src = null;
+  try {
+    src = new Database(dbPath, { readonly: true });
+    src.exec(`VACUUM INTO '${dest.replace(/'/g, "''")}'`);
+  } catch (err) {
+    throw new DbBackupError(
+      `VACUUM INTO failed for ${dbPath}: ${err instanceof Error ? err.message : String(err)}`
+    );
+  } finally {
+    try {
+      src?.close();
+    } catch {
+    }
+  }
+  if (!integrityOk(dest)) {
+    try {
+      unlinkSync(dest);
+    } catch {
+    }
+    throw new DbBackupError(
+      `the backup of ${dbPath} FAILED its own integrity check and was deleted. A corrupt backup is worse than none \u2014 you only discover it when you need it.`
+    );
+  }
+  pruneDbBackups(projectRoot, name, DEFAULT_RETENTION, home);
+  const st = statSync(dest);
+  return { db: name, path: dest, bytes: st.size, mtimeMs: st.mtimeMs };
+}
+function pruneDbBackups(projectRoot, dbName, keep = DEFAULT_RETENTION, home = homedir3()) {
+  const mine = listDbBackups(projectRoot, home).filter((b) => b.db === dbName);
+  let removed = 0;
+  for (const old of mine.slice(keep)) {
+    try {
+      unlinkSync(old.path);
+      removed++;
+    } catch {
+    }
+  }
+  return removed;
+}
+function backupBeforeSchemaChange(projectRoot, dbPath, onError, nowMs = Date.now(), home = homedir3()) {
+  try {
+    if (!existsSync3(dbPath)) return null;
+    if (hasFreshDbBackup(projectRoot, dbPath, nowMs, home)) return null;
+    return backupDb(projectRoot, dbPath, nowMs, home);
+  } catch (err) {
+    onError(err);
+    return null;
+  }
+}
+var DEFAULT_RETENTION, FRESH_WINDOW_MS, DbBackupError;
+var init_db_backup = __esm({
+  "src/db-backup.ts"() {
+    "use strict";
+    DEFAULT_RETENTION = 5;
+    FRESH_WINDOW_MS = 24 * 60 * 60 * 1e3;
+    DbBackupError = class extends Error {
+      constructor(message) {
+        super(message);
+        this.name = "DbBackupError";
+      }
+    };
+  }
+});
+
+// src/hooks/lib/hook-failure-signal.ts
+import { appendFileSync, mkdirSync as mkdirSync3, existsSync as existsSync4 } from "fs";
+import { join as join2, dirname as dirname3 } from "path";
+function resolveFailureLogPath() {
+  const explicit = process.env.MASSU_HOOK_FAILURE_LOG;
+  if (explicit) return explicit;
+  let dir = process.cwd();
+  for (let i = 0; i < 12; i++) {
+    if (existsSync4(join2(dir, ".massu")) || existsSync4(join2(dir, "massu.config.yaml"))) {
+      return join2(dir, ".massu", "hook-failures.jsonl");
+    }
+    const parent = dirname3(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return join2(process.cwd(), ".massu", "hook-failures.jsonl");
+}
+function recordHookFailure(hook, error, context) {
+  const record = {
+    hook,
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack?.split("\n").slice(0, 6).join("\n") : void 0,
+    context,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  let wroteSomething = false;
+  try {
+    const path = resolveFailureLogPath();
+    mkdirSync3(dirname3(path), { recursive: true });
+    appendFileSync(path, JSON.stringify(record) + "\n", "utf-8");
+    wroteSomething = true;
+  } catch {
+  }
+  try {
+    process.stderr.write(
+      `[massu] HOOK FAILURE in ${hook}: ${record.error}
+[massu]   This is a bug in Massu, not in your code. See .massu/hook-failures.jsonl
+`
+    );
+    wroteSomething = true;
+  } catch {
+  }
+  try {
+    recordHookHealthRow(record);
+  } catch {
+  }
+  return wroteSomething;
+}
+function recordHookHealthRow(record) {
+  const { getMemoryDb: getMemoryDb2 } = (init_memory_db(), __toCommonJS(memory_db_exports));
+  const db = getMemoryDb2();
+  try {
+    db.prepare(
+      `INSERT INTO hook_health (hook, error, context_json, occurred_at)
+       VALUES (?, ?, ?, ?)`
+    ).run(
+      record.hook,
+      record.error,
+      record.context ? JSON.stringify(record.context) : null,
+      record.timestamp
+    );
+  } finally {
+    db.close();
+  }
+}
+var init_hook_failure_signal = __esm({
+  "src/hooks/lib/hook-failure-signal.ts"() {
+    "use strict";
+  }
+});
+
+// src/memory-embedder-tokenizer.ts
+import { readFileSync as readFileSync3 } from "fs";
+function loadVocab(vocabPath) {
+  const lines = readFileSync3(vocabPath, "utf-8").split("\n");
+  const vocab = /* @__PURE__ */ new Map();
+  for (let i = 0; i < lines.length; i++) {
+    const tok = lines[i].replace(/\r$/, "");
+    if (tok.length === 0 && i === lines.length - 1) continue;
+    vocab.set(tok, i);
+  }
+  return vocab;
+}
+function isWhitespace(ch) {
+  if (ch === " " || ch === "	" || ch === "\n" || ch === "\r") return true;
+  const cp = ch.codePointAt(0);
+  return cp === 160 || cp >= 8192 && cp <= 8202 || cp === 8232 || cp === 8233 || cp === 8239 || cp === 8287 || cp === 12288 || cp === 65279;
+}
+function isControl(ch) {
+  if (ch === "	" || ch === "\n" || ch === "\r") return false;
+  const cp = ch.codePointAt(0);
+  return cp <= 31 || cp >= 127 && cp <= 159;
+}
+function isPunctuation(ch) {
+  const cp = ch.codePointAt(0);
+  if (cp >= 33 && cp <= 47 || cp >= 58 && cp <= 64 || cp >= 91 && cp <= 96 || cp >= 123 && cp <= 126)
+    return true;
+  return /\p{P}|\p{S}/u.test(ch);
+}
+function isCJK(cp) {
+  return cp >= 19968 && cp <= 40959 || cp >= 13312 && cp <= 19903 || cp >= 131072 && cp <= 173791 || cp >= 173824 && cp <= 177983 || cp >= 177984 && cp <= 178207 || cp >= 178208 && cp <= 183983 || cp >= 63744 && cp <= 64255 || cp >= 194560 && cp <= 195103;
+}
+function stripAccents(text) {
+  return text.normalize("NFD").replace(/\p{Mn}/gu, "");
+}
+function basicTokenize(text) {
+  let cleaned = "";
+  for (const ch of text) {
+    const cp = ch.codePointAt(0);
+    if (cp === 0 || cp === 65533 || isControl(ch)) continue;
+    if (isWhitespace(ch)) {
+      cleaned += " ";
+      continue;
+    }
+    if (isCJK(cp)) {
+      cleaned += " " + ch + " ";
+      continue;
+    }
+    cleaned += ch;
+  }
+  const rawTokens = cleaned.split(/\s+/).filter(Boolean);
+  const out = [];
+  for (let tok of rawTokens) {
+    tok = stripAccents(tok.toLowerCase());
+    let cur = "";
+    for (const ch of tok) {
+      if (isPunctuation(ch)) {
+        if (cur) {
+          out.push(cur);
+          cur = "";
+        }
+        out.push(ch);
+      } else {
+        cur += ch;
+      }
+    }
+    if (cur) out.push(cur);
+  }
+  return out;
+}
+function wordpieceTokenize(token, vocab, maxChars = 100) {
+  if (token.length > maxChars) return [UNK];
+  const chars = Array.from(token);
+  const subTokens = [];
+  let start = 0;
+  let bad = false;
+  while (start < chars.length) {
+    let end = chars.length;
+    let curSub = null;
+    while (start < end) {
+      let substr = chars.slice(start, end).join("");
+      if (start > 0) substr = "##" + substr;
+      if (vocab.has(substr)) {
+        curSub = substr;
+        break;
+      }
+      end -= 1;
+    }
+    if (curSub === null) {
+      bad = true;
+      break;
+    }
+    subTokens.push(curSub);
+    start = end;
+  }
+  return bad ? [UNK] : subTokens;
+}
+function encode(text, vocab, opts = {}) {
+  const maxLen = opts.maxLen ?? 256;
+  const basic = basicTokenize(text);
+  const wpTokens = [];
+  for (const t of basic) {
+    for (const sub of wordpieceTokenize(t, vocab)) wpTokens.push(sub);
+  }
+  const truncated = wpTokens.slice(0, maxLen - 2);
+  const tokens = [CLS, ...truncated, SEP];
+  const unkId = vocab.get(UNK) ?? 100;
+  const input_ids = tokens.map((t) => vocab.get(t) ?? unkId);
+  const attention_mask = tokens.map(() => 1);
+  const token_type_ids = tokens.map(() => 0);
+  return { tokens, input_ids, attention_mask, token_type_ids };
+}
+var UNK, CLS, SEP;
+var init_memory_embedder_tokenizer = __esm({
+  "src/memory-embedder-tokenizer.ts"() {
+    "use strict";
+    UNK = "[UNK]";
+    CLS = "[CLS]";
+    SEP = "[SEP]";
+  }
+});
+
+// src/memory-embedder.ts
+import { fileURLToPath } from "url";
+import { dirname as dirname4, join as join3 } from "path";
+import { existsSync as existsSync5 } from "fs";
+import { createRequire } from "module";
+function getActiveEmbedModel() {
+  return _activeModel;
+}
+function loadEmbedSettings() {
+  try {
+    const r = getConfig().memory?.recall;
+    return {
+      enabled: r?.embedEnabled ?? true,
+      endpoint: r?.embedEndpoint,
+      model: r?.embedModel
+    };
+  } catch {
+    return { enabled: true };
+  }
+}
+function embeddingsDisabled() {
+  return process.env.MASSU_DISABLE_EMBEDDINGS === "1";
+}
+function resolveModelDir() {
+  try {
+    let dir = dirname4(fileURLToPath(import.meta.url));
+    let root = null;
+    for (let i = 0; i < 8; i++) {
+      if (existsSync5(join3(dir, "package.json"))) {
+        root = dir;
+        break;
+      }
+      const parent = dirname4(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    if (!root) return null;
+    for (const rel of ["dist/embedder", "assets/embedder"]) {
+      const candidate = join3(root, rel);
+      if (existsSync5(join3(candidate, "model_quantized.onnx"))) return candidate;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+function resolveWasmDir() {
+  try {
+    const req = createRequire(import.meta.url);
+    const main2 = req.resolve(ORT_PKG);
+    return dirname4(main2);
+  } catch {
+    return null;
+  }
+}
+async function getSession() {
+  if (_sessionPromise) return _sessionPromise;
+  _sessionPromise = (async () => {
+    try {
+      const modelDir = resolveModelDir();
+      const wasmDir = resolveWasmDir();
+      if (!modelDir || !wasmDir) return null;
+      const ort = await import(
+        /* @vite-ignore */
+        ORT_PKG
+      );
+      ort.env.wasm.numThreads = 1;
+      ort.env.wasm.proxy = false;
+      ort.env.wasm.wasmPaths = wasmDir.endsWith("/") ? wasmDir : wasmDir + "/";
+      _ortTensor = ort.Tensor;
+      const modelPath = join3(modelDir, "model_quantized.onnx");
+      const vocabPath = join3(modelDir, "vocab.txt");
+      _vocab = loadVocab(vocabPath);
+      const session = await ort.InferenceSession.create(modelPath, {
+        executionProviders: ["wasm"],
+        graphOptimizationLevel: "all"
+      });
+      return session;
+    } catch {
+      return null;
+    }
+  })();
+  return _sessionPromise;
+}
+function meanPool(hidden, mask, seqLen, hiddenSize) {
+  const out = new Float32Array(hiddenSize);
+  let maskSum = 0;
+  for (let t = 0; t < seqLen; t++) {
+    const m = mask[t];
+    if (m === 0) continue;
+    maskSum += m;
+    const base = t * hiddenSize;
+    for (let h = 0; h < hiddenSize; h++) out[h] += hidden[base + h] * m;
+  }
+  const denom = Math.max(maskSum, 1e-9);
+  for (let h = 0; h < hiddenSize; h++) out[h] /= denom;
+  return out;
+}
+function chunkForEmbedding(text) {
+  const t = text.trim();
+  if (!t) return [];
+  if (t.length <= CHUNK_TARGET_CHARS) return [t];
+  const chunks = [];
+  let start = 0;
+  while (start < t.length && chunks.length < MAX_CHUNKS_PER_RECORD) {
+    let end = Math.min(start + CHUNK_TARGET_CHARS, t.length);
+    if (end < t.length) {
+      const floor = start + Math.floor(CHUNK_TARGET_CHARS / 2);
+      const slice = t.slice(start, end);
+      const para = slice.lastIndexOf("\n\n");
+      const sent = Math.max(slice.lastIndexOf(". "), slice.lastIndexOf(".\n"));
+      const space = slice.lastIndexOf(" ");
+      for (const rel of [para, sent, space]) {
+        const abs = start + rel;
+        if (rel > 0 && abs > floor) {
+          end = abs + 1;
+          break;
+        }
+      }
+    }
+    const chunk = t.slice(start, end).trim();
+    if (chunk) chunks.push(chunk);
+    if (end >= t.length) break;
+    start = Math.max(end - CHUNK_OVERLAP_CHARS, start + 1);
+  }
+  return chunks;
+}
+async function embedTier1(text) {
+  try {
+    const session = await getSession();
+    if (!session || !_vocab || !_ortTensor) return null;
+    const { input_ids, attention_mask, token_type_ids } = encode(text, _vocab);
+    const seqLen = input_ids.length;
+    const ids = BigInt64Array.from(input_ids.map((x) => BigInt(x)));
+    const mask = BigInt64Array.from(attention_mask.map((x) => BigInt(x)));
+    const types = BigInt64Array.from(token_type_ids.map((x) => BigInt(x)));
+    const dims = [1, seqLen];
+    const Tensor = _ortTensor;
+    const feeds = {
+      input_ids: new Tensor("int64", ids, dims),
+      attention_mask: new Tensor("int64", mask, dims)
+    };
+    if (session.inputNames.includes("token_type_ids")) {
+      feeds.token_type_ids = new Tensor("int64", types, dims);
+    }
+    const results = await session.run(feeds);
+    const outName = session.outputNames.find((n) => results[n].dims.length === 3) ?? session.outputNames[0];
+    const outTensor = results[outName];
+    const hiddenSize = outTensor.dims[2];
+    const pooled = meanPool(outTensor.data, attention_mask, seqLen, hiddenSize);
+    const vec = l2normalize(pooled);
+    if (vec.length !== EMBED_DIM) return null;
+    _activeModel = { modelId: EMBED_MODEL_ID, dim: EMBED_DIM };
+    return vec;
+  } catch {
+    return null;
+  }
+}
+async function embedTier0(text, settings) {
+  const endpoint = settings.endpoint;
+  if (!endpoint) return null;
+  const requestModel = settings.model || EMBED_MODEL_ID;
+  const base = endpoint.replace(/\/+$/, "");
+  const url = `${base}/v1/embeddings`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIER0_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: requestModel, input: text }),
+      signal: controller.signal
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    const raw = body?.data?.[0]?.embedding;
+    if (!Array.isArray(raw) || raw.length === 0) return null;
+    const vec = l2normalize(Float32Array.from(raw));
+    _activeModel = { modelId: requestModel, dim: vec.length };
+    return vec;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function embed(text) {
+  if (!text || !text.trim()) return null;
+  if (embeddingsDisabled()) return null;
+  try {
+    const settings = loadEmbedSettings();
+    if (!settings.enabled) return null;
+    if (settings.endpoint) {
+      const t0 = await embedTier0(text, settings);
+      if (t0) return t0;
+    }
+    return await embedTier1(text);
+  } catch {
+    return null;
+  }
+}
+async function embedBatch(texts) {
+  if (!texts || texts.length === 0) return [];
+  if (embeddingsDisabled()) return texts.map(() => null);
+  const settings = loadEmbedSettings();
+  if (!settings.enabled) return texts.map(() => null);
+  const results = [];
+  for (const t of texts) {
+    if (!t || !t.trim()) {
+      results.push(null);
+      continue;
+    }
+    try {
+      let vec = null;
+      if (settings.endpoint) {
+        vec = await embedTier0(t, settings);
+      }
+      if (!vec) vec = await embedTier1(t);
+      results.push(vec);
+    } catch {
+      results.push(null);
+    }
+  }
+  return results;
+}
+var EMBED_MODEL_ID, EMBED_DIM, ORT_PKG, _activeModel, _sessionPromise, _vocab, _ortTensor, CHUNK_TARGET_CHARS, CHUNK_OVERLAP_CHARS, MAX_CHUNKS_PER_RECORD, TIER0_TIMEOUT_MS;
+var init_memory_embedder = __esm({
+  "src/memory-embedder.ts"() {
+    "use strict";
+    init_memory_vector();
+    init_memory_embedder_tokenizer();
+    init_config();
+    EMBED_MODEL_ID = "all-MiniLM-L6-v2";
+    EMBED_DIM = 384;
+    ORT_PKG = "onnxruntime-web";
+    _activeModel = null;
+    _sessionPromise = null;
+    _vocab = null;
+    _ortTensor = null;
+    CHUNK_TARGET_CHARS = 900;
+    CHUNK_OVERLAP_CHARS = 120;
+    MAX_CHUNKS_PER_RECORD = 24;
+    TIER0_TIMEOUT_MS = 2e3;
+  }
+});
+
+// src/memory-embed-sweep.ts
+function readCursor(db, metaTable, key) {
+  if (!KNOWN_META_TABLES.has(metaTable)) return 0;
+  try {
+    const row = db.prepare(`SELECT value FROM ${metaTable} WHERE key = ?`).get(key);
+    const n = row ? Number(row.value) : 0;
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+function writeCursor(db, metaTable, key, value) {
+  if (!KNOWN_META_TABLES.has(metaTable)) return;
+  try {
+    db.prepare(`INSERT OR REPLACE INTO ${metaTable} (key, value) VALUES (?, ?)`).run(
+      key,
+      String(value)
+    );
+  } catch {
+  }
+}
+async function runEmbedSweep(db, cfg, opts = {}) {
+  const batchSize = Math.max(1, opts.batchSize ?? 16);
+  const limit = opts.limit ?? Infinity;
+  const budgetMs = opts.budgetMs;
+  const start = Date.now();
+  const cursorKey = `embed_sweep_cursor_${cfg.sourceLabel}`;
+  let embedded = 0;
+  let scanned = 0;
+  let active = getActiveEmbedModel();
+  let cursor = readCursor(db, cfg.metaTable, cursorKey);
+  try {
+    while (true) {
+      if (embedded >= limit) break;
+      if (budgetMs !== void 0 && Date.now() - start >= budgetMs) break;
+      const remaining = limit === Infinity ? batchSize : Math.min(batchSize, limit - embedded);
+      const rows = cfg.selectMissing(db, cursor, active, Math.max(1, remaining));
+      if (rows.length === 0) {
+        writeCursor(db, cfg.metaTable, cursorKey, 0);
+        break;
+      }
+      const units = [];
+      for (const r of rows) {
+        if (cfg.chunked) {
+          const parts = chunkForEmbedding(r.text);
+          if (parts.length === 0) continue;
+          parts.forEach((text, chunkIx) => units.push({ id: r.id, chunkIx, text }));
+        } else {
+          units.push({ id: r.id, chunkIx: 0, text: r.text });
+        }
+      }
+      const vecs = await embedBatch(units.map((u) => u.text));
+      if (!active) active = getActiveEmbedModel();
+      if (!active) {
+        break;
+      }
+      const tx = db.transaction(() => {
+        const del = cfg.chunked ? db.prepare(
+          `DELETE FROM ${cfg.embeddingTable}
+                WHERE ${cfg.idCol} = ? AND model_id = ? AND dim = ?`
+        ) : null;
+        const stmt = cfg.chunked ? db.prepare(
+          `INSERT OR REPLACE INTO ${cfg.embeddingTable}
+                 (${cfg.idCol}, chunk_ix, model_id, dim, vec, created_at)
+               VALUES (?, ?, ?, ?, ?, datetime('now'))`
+        ) : db.prepare(
+          `INSERT OR REPLACE INTO ${cfg.embeddingTable}
+                 (${cfg.idCol}, model_id, dim, vec, created_at)
+               VALUES (?, ?, ?, ?, datetime('now'))`
+        );
+        const cleared = /* @__PURE__ */ new Set();
+        const embeddedIds = /* @__PURE__ */ new Set();
+        for (let i = 0; i < units.length; i++) {
+          const v = vecs[i];
+          if (!v) continue;
+          const u = units[i];
+          if (del && !cleared.has(u.id)) {
+            del.run(u.id, active.modelId, active.dim);
+            cleared.add(u.id);
+          }
+          if (cfg.chunked) {
+            stmt.run(u.id, u.chunkIx, active.modelId, active.dim, float32ToBlob(v));
+          } else {
+            stmt.run(u.id, active.modelId, active.dim, float32ToBlob(v));
+          }
+          embeddedIds.add(u.id);
+        }
+        embedded += embeddedIds.size;
+      });
+      tx();
+      scanned += rows.length;
+      cursor = rows[rows.length - 1].id;
+      writeCursor(db, cfg.metaTable, cursorKey, cursor);
+    }
+  } catch {
+  }
+  return { embedded, scanned };
+}
+var KNOWN_META_TABLES;
+var init_memory_embed_sweep = __esm({
+  "src/memory-embed-sweep.ts"() {
+    "use strict";
+    init_memory_embedder();
+    init_memory_vector();
+    KNOWN_META_TABLES = /* @__PURE__ */ new Set(["memory_meta", "knowledge_meta"]);
+  }
+});
 
 // src/memory-db.ts
+var memory_db_exports = {};
+__export(memory_db_exports, {
+  CONSOLIDATION_LESSON_EVIDENCE: () => CONSOLIDATION_LESSON_EVIDENCE,
+  MEMORY_FILE_TITLE_LIKE: () => MEMORY_FILE_TITLE_LIKE,
+  MEMORY_FILE_TITLE_PREFIX: () => MEMORY_FILE_TITLE_PREFIX,
+  MEMORY_SCHEMA_VERSION: () => MEMORY_SCHEMA_VERSION,
+  TOOL_COST_EVENTS_RETENTION_DAYS: () => TOOL_COST_EVENTS_RETENTION_DAYS,
+  USAGE_COUNTER_ARMED_KEY: () => USAGE_COUNTER_ARMED_KEY,
+  addConversationTurn: () => addConversationTurn,
+  addFailureClass: () => addFailureClass,
+  addObservation: () => addObservation,
+  addSummary: () => addSummary,
+  addToolCallDetail: () => addToolCallDetail,
+  addUserPrompt: () => addUserPrompt,
+  appendIncidentToFailureClass: () => appendIncidentToFailureClass,
+  armUsageCounter: () => armUsageCounter,
+  assignImportance: () => assignImportance,
+  autoDetectTaskId: () => autoDetectTaskId,
+  createSession: () => createSession,
+  deduplicateFailedAttempt: () => deduplicateFailedAttempt,
+  dequeuePendingSync: () => dequeuePendingSync,
+  drainRulePromotionEvents: () => drainRulePromotionEvents,
+  drainTeamPromotions: () => drainTeamPromotions,
+  drainTeamRevocations: () => drainTeamRevocations,
+  embedMissingObservations: () => embedMissingObservations,
+  endSession: () => endSession,
+  enqueueRulePromotionEvent: () => enqueueRulePromotionEvent,
+  enqueueSyncPayload: () => enqueueSyncPayload,
+  enqueueTeamPromotion: () => enqueueTeamPromotion,
+  enqueueTeamRevocation: () => enqueueTeamRevocation,
+  expireOldLowValueObservations: () => expireOldLowValueObservations,
+  getConversationTurns: () => getConversationTurns,
+  getCrossTaskProgress: () => getCrossTaskProgress,
+  getDecisionsAbout: () => getDecisionsAbout,
+  getFailedAttempts: () => getFailedAttempts,
+  getFailureClasses: () => getFailureClasses,
+  getLastProcessedLine: () => getLastProcessedLine,
+  getMemoryDb: () => getMemoryDb,
+  getMemoryMeta: () => getMemoryMeta,
+  getObservabilityDbSize: () => getObservabilityDbSize,
+  getRecentObservations: () => getRecentObservations,
+  getRecurrenceCountForPromptHash: () => getRecurrenceCountForPromptHash,
+  getSessionStats: () => getSessionStats,
+  getSessionSummaries: () => getSessionSummaries,
+  getSessionTimeline: () => getSessionTimeline,
+  getSessionsByTask: () => getSessionsByTask,
+  getToolPatterns: () => getToolPatterns,
+  incrementRetryCount: () => incrementRetryCount,
+  initMemorySchema: () => initMemorySchema,
+  linkSessionToTask: () => linkSessionToTask,
+  markRecordSuperseded: () => markRecordSuperseded,
+  memoryTableHasTemporal: () => memoryTableHasTemporal,
+  migrateAuditLogCheckExtension: () => migrateAuditLogCheckExtension,
+  migrateMemoryFilesFor4B: () => migrateMemoryFilesFor4B,
+  migrateObservationEmbeddingChunks: () => migrateObservationEmbeddingChunks,
+  pruneOldConversationTurns: () => pruneOldConversationTurns,
+  pruneOldObservations: () => pruneOldObservations,
+  pruneToolCostEvents: () => pruneToolCostEvents,
+  recordRecallHits: () => recordRecallHits,
+  recordTelemetry: () => recordTelemetry,
+  removePendingSync: () => removePendingSync,
+  sanitizeFts5Query: () => sanitizeFts5Query,
+  sanitizeFts5QueryOr: () => sanitizeFts5QueryOr,
+  scoreFailureClasses: () => scoreFailureClasses,
+  searchConversationTurns: () => searchConversationTurns,
+  searchObservations: () => searchObservations,
+  setLastProcessedLine: () => setLastProcessedLine,
+  setMemoryMeta: () => setMemoryMeta,
+  upsertObservationEmbedding: () => upsertObservationEmbedding,
+  usageWarmupElapsed: () => usageWarmupElapsed
+});
+import Database2 from "better-sqlite3";
+import { dirname as dirname5, basename as basename2 } from "path";
+import { existsSync as existsSync6, mkdirSync as mkdirSync4 } from "fs";
+function sanitizeFts5Query(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return '""';
+  const tokens = trimmed.replace(/"/g, "").split(/\s+/).filter(Boolean);
+  return tokens.map((t) => `"${t}"`).join(" ");
+}
+function sanitizeFts5QueryOr(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return '""';
+  const tokens = trimmed.replace(/"/g, "").split(/\s+/).filter((t) => t.replace(/[^a-zA-Z0-9]/g, "").length >= 3);
+  if (tokens.length === 0) return '""';
+  return tokens.map((t) => `"${t}"`).join(" OR ");
+}
 function getMemoryDb() {
   const dbPath = getResolvedPaths().memoryDbPath;
-  const dir = dirname2(dbPath);
-  if (!existsSync3(dir)) {
-    mkdirSync2(dir, { recursive: true });
+  const dir = dirname5(dbPath);
+  if (!existsSync6(dir)) {
+    mkdirSync4(dir, { recursive: true });
   }
-  const db = new Database(dbPath);
+  const preExisting = existsSync6(dbPath);
+  const db = new Database2(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  const onDisk = db.pragma("user_version", { simple: true });
+  if (preExisting && onDisk !== MEMORY_SCHEMA_VERSION) {
+    backupBeforeSchemaChange(
+      getProjectRoot(),
+      dbPath,
+      (err) => recordHookFailure("memory-db:pre-ddl-backup", err, { dbPath, onDisk })
+    );
+  }
   initMemorySchema(db);
+  if (onDisk !== MEMORY_SCHEMA_VERSION) {
+    db.pragma(`user_version = ${MEMORY_SCHEMA_VERSION}`);
+  }
   return db;
+}
+function pruneToolCostEvents(db) {
+  const result = db.prepare(
+    `DELETE FROM tool_cost_events WHERE created_at < datetime('now', '-' || ? || ' days')`
+  ).run(TOOL_COST_EVENTS_RETENTION_DAYS);
+  return result.changes;
+}
+function migrateObservationEmbeddingChunks(db) {
+  const cols = db.pragma("table_info(observation_embeddings)");
+  if (cols.length === 0) return;
+  if (cols.some((c) => c.name === "chunk_ix")) return;
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.exec("BEGIN TRANSACTION");
+    db.exec(`
+      CREATE TABLE observation_embeddings_new (
+        observation_id INTEGER NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+        chunk_ix INTEGER NOT NULL DEFAULT 0,
+        model_id TEXT NOT NULL,
+        dim INTEGER NOT NULL,
+        vec BLOB NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (observation_id, model_id, dim, chunk_ix)
+      );
+      INSERT INTO observation_embeddings_new
+        (observation_id, chunk_ix, model_id, dim, vec, created_at)
+        SELECT observation_id, 0, model_id, dim, vec, created_at FROM observation_embeddings;
+      DROP TABLE observation_embeddings;
+      ALTER TABLE observation_embeddings_new RENAME TO observation_embeddings;
+      CREATE INDEX IF NOT EXISTS idx_obs_emb_model ON observation_embeddings(model_id);
+    `);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+}
+function migrateMemoryFilesFor4B(db) {
+  const ADDITIONS = [
+    // The renderer's authorship credential (OD-1). NULL on every pre-existing row,
+    // which is the safe direction: no MAC ⇒ unverifiable ⇒ the file is HUMAN.
+    { table: "memory_files", name: "massu_render_mac", decl: "TEXT" },
+    // F-15 stickiness: once a file is human, only `massu memory adopt` reverses it.
+    { table: "memory_files", name: "adopted_human_at_epoch", decl: "INTEGER" },
+    // OD-2: a CACHE of `.massu-tombstones.jsonl`. The ledger is the source of truth.
+    { table: "memory_files", name: "tombstoned_at_epoch", decl: "INTEGER" },
+    { table: "memory_files", name: "origin", decl: "TEXT NOT NULL DEFAULT 'local'" },
+    { table: "memory_files", name: "render_suppressed", decl: "INTEGER NOT NULL DEFAULT 0" },
+    // N-03 — the SOURCE row. This is the one F-08 actually requires.
+    { table: "observations", name: "origin", decl: "TEXT NOT NULL DEFAULT 'local'" }
+  ];
+  for (const add of ADDITIONS) {
+    const cols = db.prepare(`PRAGMA table_info(${add.table})`).all();
+    if (cols.length === 0) continue;
+    if (cols.some((c) => c.name === add.name)) continue;
+    db.exec(`ALTER TABLE ${add.table} ADD COLUMN ${add.name} ${add.decl}`);
+  }
 }
 function migrateAuditLogCheckExtension(db) {
   const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_log'").get();
@@ -653,7 +1700,17 @@ function migrateAuditLogCheckExtension(db) {
     "compaction",
     "rule_candidate_emitted",
     "rule_promoted",
-    "rule_dismissed"
+    "rule_dismissed",
+    // A-19/N-02 — without these the memory-file events throw a CHECK violation.
+    // In the ingest path the throw is swallowed by a bare catch, so observability
+    // silently produces NOTHING; in the renderer's transaction it ROLLS BACK a
+    // legitimate render. This migration is what lets an EXISTING db accept them.
+    "memory_file_ingested",
+    "memory_file_expired",
+    "memory_file_adopted_human",
+    "memory_file_rendered",
+    "memory_file_render_refused",
+    "memory_file_tombstoned"
   ];
   const checkClauseMatch = row.sql.match(/event_type\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*event_type\s+IN\s*\(([\s\S]*?)\)\s*\)/i);
   if (checkClauseMatch) {
@@ -670,7 +1727,9 @@ function migrateAuditLogCheckExtension(db) {
         timestamp TEXT DEFAULT (datetime('now')),
         event_type TEXT NOT NULL CHECK(event_type IN (
           'code_change', 'rule_enforced', 'approval', 'review', 'commit', 'compaction',
-          'rule_candidate_emitted', 'rule_promoted', 'rule_dismissed'
+          'rule_candidate_emitted', 'rule_promoted', 'rule_dismissed',
+          'memory_file_ingested', 'memory_file_expired', 'memory_file_adopted_human',
+          'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned'
         )),
         actor TEXT NOT NULL DEFAULT 'ai' CHECK(actor IN ('ai', 'human', 'hook', 'agent')),
         model_id TEXT,
@@ -742,6 +1801,11 @@ function initMemorySchema(db) {
       importance INTEGER NOT NULL DEFAULT 3 CHECK(importance BETWEEN 1 AND 5),
       recurrence_count INTEGER NOT NULL DEFAULT 1,
       original_tokens INTEGER DEFAULT 0,
+      -- B-10/F-08/N-03: the SOURCE-row provenance flag. The renderer refuses any
+      -- row whose origin is not 'local' BEFORE it computes a path, mints a
+      -- credential, or takes a snapshot. A Slice-5 synced memory arrives here with
+      -- origin='team' and must never reach disk without CR-55's gates.
+      origin TEXT NOT NULL DEFAULT 'local',
       created_at TEXT NOT NULL,
       created_at_epoch INTEGER NOT NULL,
       FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
@@ -839,6 +1903,27 @@ function initMemorySchema(db) {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memory_usage (
+      source TEXT NOT NULL,
+      record_id INTEGER NOT NULL,
+      hit_count INTEGER NOT NULL DEFAULT 0,
+      hits_windowed REAL NOT NULL DEFAULT 0,
+      last_hit_epoch INTEGER,
+      last_reweight_epoch INTEGER,
+      PRIMARY KEY (source, record_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS memory_usage_sessions (
+      source TEXT NOT NULL,
+      record_id INTEGER NOT NULL,
+      session_id TEXT NOT NULL,
+      PRIMARY KEY (source, record_id, session_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_memory_usage_hits
+      ON memory_usage(source, hits_windowed DESC);
   `);
   db.exec(`
     CREATE TABLE IF NOT EXISTS conversation_turns (
@@ -992,7 +2077,9 @@ function initMemorySchema(db) {
       timestamp TEXT DEFAULT (datetime('now')),
       event_type TEXT NOT NULL CHECK(event_type IN (
         'code_change', 'rule_enforced', 'approval', 'review', 'commit', 'compaction',
-        'rule_candidate_emitted', 'rule_promoted', 'rule_dismissed'
+        'rule_candidate_emitted', 'rule_promoted', 'rule_dismissed',
+        'memory_file_ingested', 'memory_file_expired', 'memory_file_adopted_human',
+        'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned'
       )),
       actor TEXT NOT NULL DEFAULT 'ai' CHECK(actor IN ('ai', 'human', 'hook', 'agent')),
       model_id TEXT,
@@ -1013,6 +2100,17 @@ function initMemorySchema(db) {
       WHERE event_type = 'rule_promoted';
   `);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS hook_health (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hook TEXT NOT NULL,
+      error TEXT NOT NULL,
+      context_json TEXT,
+      occurred_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_hook_health_hook ON hook_health(hook);
+    CREATE INDEX IF NOT EXISTS idx_hook_health_time ON hook_health(occurred_at DESC);
+  `);
+  db.exec(`
     CREATE TABLE IF NOT EXISTS prompt_outcomes_signal_blacklist (
       signal TEXT PRIMARY KEY,
       dismissal_count INTEGER NOT NULL DEFAULT 0,
@@ -1023,6 +2121,30 @@ function initMemorySchema(db) {
       ON prompt_outcomes_signal_blacklist(dismissal_count DESC);
   `);
   migrateAuditLogCheckExtension(db);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memory_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rel_path TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      name TEXT,
+      raw TEXT NOT NULL,
+      frontmatter_json TEXT,
+      body TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      ingest_schema_version INTEGER NOT NULL DEFAULT 1,
+      massu_authored INTEGER NOT NULL DEFAULT 0,
+      massu_render_mac TEXT,
+      adopted_human_at_epoch INTEGER,
+      tombstoned_at_epoch INTEGER,
+      origin TEXT NOT NULL DEFAULT 'local',
+      render_suppressed INTEGER NOT NULL DEFAULT 0,
+      observation_id INTEGER,
+      synced_at_epoch INTEGER,
+      expired_at_epoch INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_mf_hash ON memory_files(content_hash);
+    CREATE INDEX IF NOT EXISTS idx_mf_expired ON memory_files(expired_at_epoch);
+    CREATE INDEX IF NOT EXISTS idx_mf_obs ON memory_files(observation_id);
+  `);
   db.exec(`
     CREATE TABLE IF NOT EXISTS validation_results (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1244,6 +2366,55 @@ function initMemorySchema(db) {
   if (!outboundCols.some((c) => c.name === "review_attestation_json")) {
     db.exec(`ALTER TABLE team_promotion_outbound ADD COLUMN review_attestation_json TEXT`);
   }
+  const sessionCols = db.prepare(`PRAGMA table_info(sessions)`).all();
+  if (!sessionCols.some((c) => c.name === "consolidated_at")) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN consolidated_at TEXT`);
+  }
+  if (!sessionCols.some((c) => c.name === "consolidated_at_epoch")) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN consolidated_at_epoch INTEGER`);
+  }
+  if (!sessionCols.some((c) => c.name === "consolidated_status")) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN consolidated_status TEXT`);
+  }
+  const BITEMPORAL_COLUMNS = [
+    { name: "valid_from", type: "TEXT" },
+    { name: "valid_to", type: "TEXT" },
+    { name: "ingested_at", type: "TEXT" },
+    { name: "expired_at", type: "TEXT" },
+    { name: "valid_from_epoch", type: "INTEGER" },
+    { name: "valid_to_epoch", type: "INTEGER" },
+    { name: "ingested_at_epoch", type: "INTEGER" },
+    { name: "expired_at_epoch", type: "INTEGER" },
+    { name: "superseded_by", type: "INTEGER" }
+  ];
+  for (const table of ["observations", "architecture_decisions"]) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+    for (const col of BITEMPORAL_COLUMNS) {
+      if (!cols.some((c) => c.name === col.name)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${col.name} ${col.type}`);
+      }
+    }
+  }
+  db.exec(`
+    UPDATE observations
+       SET valid_from = created_at,
+           ingested_at = created_at,
+           valid_from_epoch = created_at_epoch,
+           ingested_at_epoch = created_at_epoch
+     WHERE valid_from_epoch IS NULL;
+  `);
+  db.exec(`
+    UPDATE architecture_decisions
+       SET valid_from = created_at,
+           ingested_at = created_at,
+           valid_from_epoch = CAST(strftime('%s', created_at) AS INTEGER),
+           ingested_at_epoch = CAST(strftime('%s', created_at) AS INTEGER)
+     WHERE valid_from_epoch IS NULL AND created_at IS NOT NULL;
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_observations_expired ON observations(expired_at_epoch);
+    CREATE INDEX IF NOT EXISTS idx_ad_expired ON architecture_decisions(expired_at_epoch);
+  `);
   db.exec(`
     CREATE TABLE IF NOT EXISTS failure_classes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1263,6 +2434,20 @@ function initMemorySchema(db) {
     CREATE INDEX IF NOT EXISTS idx_fc_name ON failure_classes(name);
     CREATE INDEX IF NOT EXISTS idx_fc_needs_review ON failure_classes(needs_review);
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS observation_embeddings (
+      observation_id INTEGER NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+      chunk_ix INTEGER NOT NULL DEFAULT 0,
+      model_id TEXT NOT NULL,
+      dim INTEGER NOT NULL,
+      vec BLOB NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (observation_id, model_id, dim, chunk_ix)
+    );
+    CREATE INDEX IF NOT EXISTS idx_obs_emb_model ON observation_embeddings(model_id);
+  `);
+  migrateObservationEmbeddingChunks(db);
+  migrateMemoryFilesFor4B(db);
 }
 function enqueueSyncPayload(db, payload) {
   db.prepare("INSERT INTO pending_sync (payload) VALUES (?)").run(payload);
@@ -1273,6 +2458,69 @@ function getMemoryMeta(db, key) {
 }
 function setMemoryMeta(db, key, value) {
   db.prepare("INSERT OR REPLACE INTO memory_meta (key, value) VALUES (?, ?)").run(key, value);
+}
+function upsertObservationEmbedding(db, observationId, vec, modelId, dim) {
+  db.prepare(
+    `INSERT OR REPLACE INTO observation_embeddings (observation_id, model_id, dim, vec, created_at)
+     VALUES (?, ?, ?, ?, datetime('now'))`
+  ).run(observationId, modelId, dim, float32ToBlob(vec));
+}
+function observationEmbedText(title, detail) {
+  const t = (title ?? "").trim();
+  const d = (detail ?? "").trim();
+  return d ? `${t}. ${d}` : t;
+}
+async function embedMissingObservations(db, opts = {}) {
+  return runEmbedSweep(
+    db,
+    {
+      embeddingTable: "observation_embeddings",
+      idCol: "observation_id",
+      metaTable: "memory_meta",
+      sourceLabel: "observation",
+      // A-04: memory bodies are now stored WHOLE (up to ~14K chars). One vector per
+      // memory would cover only its first ~1,000 chars.
+      chunked: true,
+      selectMissing: (d, cursor, model, batchSize) => {
+        const rows = model ? d.prepare(
+          `SELECT o.id AS id, o.title AS title, o.detail AS detail
+                 FROM observations o
+                 WHERE o.id > ?
+                   AND NOT EXISTS (
+                     SELECT 1 FROM observation_embeddings e
+                     WHERE e.observation_id = o.id AND e.model_id = ? AND e.dim = ?
+                   )
+                 ORDER BY o.id LIMIT ?`
+        ).all(cursor, model.modelId, model.dim, batchSize) : d.prepare(
+          `SELECT o.id AS id, o.title AS title, o.detail AS detail
+                 FROM observations o
+                 WHERE o.id > ?
+                   AND NOT EXISTS (
+                     SELECT 1 FROM observation_embeddings e WHERE e.observation_id = o.id
+                   )
+                 ORDER BY o.id LIMIT ?`
+        ).all(cursor, batchSize);
+        return rows.map((r) => ({ id: r.id, text: observationEmbedText(r.title, r.detail) }));
+      }
+    },
+    opts
+  );
+}
+function enqueueTeamPromotion(db, promo) {
+  db.prepare(`
+    INSERT OR REPLACE INTO team_promotion_outbound
+      (prompt_hash, destination, draft_text, score, signals_json, content_hash, hardened, review_attestation_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `).run(
+    promo.prompt_hash,
+    promo.destination,
+    promo.draft_text.slice(0, MAX_DRAFT_TEXT_LEN),
+    promo.score ?? null,
+    JSON.stringify(promo.signals ?? []),
+    promo.content_hash,
+    promo.hardened ? 1 : 0,
+    promo.review_attestation !== void 0 ? JSON.stringify(promo.review_attestation) : null
+  );
 }
 function drainTeamPromotions(db) {
   const rows = db.prepare(`
@@ -1291,6 +2539,12 @@ function drainTeamPromotions(db) {
     hardened: r.hardened === 1,
     review_attestation: r.review_attestation_json ? safeJsonParse(r.review_attestation_json) : void 0
   }));
+}
+function enqueueTeamRevocation(db, promptHash) {
+  db.prepare(`
+    INSERT OR REPLACE INTO team_revocation_outbound (prompt_hash, created_at)
+    VALUES (?, datetime('now'))
+  `).run(promptHash);
 }
 function drainTeamRevocations(db) {
   const rows = db.prepare(
@@ -1315,7 +2569,27 @@ function getRecurrenceCountForPromptHash(db, promptHash) {
     return null;
   }
 }
-var FUNNEL_EVENT_DRAIN_LIMIT = 5e3;
+function enqueueRulePromotionEvent(db, ev) {
+  try {
+    db.prepare(`
+      INSERT INTO rule_promotion_events_outbound
+        (prompt_hash, event_type, metadata_json, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run(
+      ev.prompt_hash,
+      ev.event_type,
+      JSON.stringify(ev.metadata ?? {}),
+      ev.created_at
+    );
+    db.prepare(`
+      DELETE FROM rule_promotion_events_outbound
+      WHERE id NOT IN (
+        SELECT id FROM rule_promotion_events_outbound ORDER BY id DESC LIMIT ?
+      )
+    `).run(FUNNEL_EVENT_OUTBOX_CAP);
+  } catch {
+  }
+}
 function drainRulePromotionEvents(db) {
   const rows = db.prepare(`
     SELECT id, prompt_hash, event_type, metadata_json, created_at
@@ -1393,9 +2667,33 @@ function incrementRetryCount(db, id, error) {
     "UPDATE pending_sync SET retry_count = retry_count + 1, last_error = ? WHERE id = ?"
   ).run(error, id);
 }
+function assignImportance(type, vrResult) {
+  switch (type) {
+    case "decision":
+    case "failed_attempt":
+      return 5;
+    case "cr_violation":
+    case "incident_near_miss":
+      return 4;
+    case "vr_check":
+      return vrResult === "PASS" ? 2 : 4;
+    case "pattern_compliance":
+      return vrResult === "PASS" ? 2 : 4;
+    case "feature":
+    case "bugfix":
+      return 3;
+    case "refactor":
+      return 2;
+    case "file_change":
+    case "discovery":
+      return 1;
+    default:
+      return 3;
+  }
+}
 function autoDetectTaskId(planFile) {
   if (!planFile) return null;
-  const base = basename(planFile);
+  const base = basename2(planFile);
   return base.replace(/\.md$/, "");
 }
 function createSession(db, sessionId, opts) {
@@ -1411,6 +2709,85 @@ function endSession(db, sessionId, status = "completed") {
   db.prepare(`
     UPDATE sessions SET status = ?, ended_at = ?, ended_at_epoch = ? WHERE session_id = ?
   `).run(status, now.toISOString(), Math.floor(now.getTime() / 1e3), sessionId);
+}
+function memoryTableHasTemporal(db, table) {
+  let perDb = _temporalColCache.get(db);
+  if (!perDb) {
+    perDb = /* @__PURE__ */ new Map();
+    _temporalColCache.set(db, perDb);
+  }
+  let has = perDb.get(table);
+  if (has === void 0) {
+    try {
+      const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+      has = cols.some((c) => c.name === "valid_from_epoch");
+    } catch {
+      has = false;
+    }
+    perDb.set(table, has);
+  }
+  return has;
+}
+function addObservation(db, sessionId, type, title, detail, opts) {
+  const now = /* @__PURE__ */ new Date();
+  const importance = opts?.importance ?? assignImportance(type, opts?.evidence?.includes("PASS") ? "PASS" : void 0);
+  const iso = now.toISOString();
+  const epochSec = Math.floor(now.getTime() / 1e3);
+  let result;
+  if (memoryTableHasTemporal(db, "observations")) {
+    result = db.prepare(`
+      INSERT INTO observations (session_id, type, title, detail, files_involved, plan_item, cr_rule, vr_type, evidence, importance, original_tokens, created_at, created_at_epoch, valid_from, ingested_at, valid_from_epoch, ingested_at_epoch)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      sessionId,
+      type,
+      title,
+      detail,
+      JSON.stringify(opts?.filesInvolved ?? []),
+      opts?.planItem ?? null,
+      opts?.crRule ?? null,
+      opts?.vrType ?? null,
+      opts?.evidence ?? null,
+      importance,
+      opts?.originalTokens ?? 0,
+      iso,
+      epochSec,
+      iso,
+      iso,
+      epochSec,
+      epochSec
+    );
+  } else {
+    result = db.prepare(`
+      INSERT INTO observations (session_id, type, title, detail, files_involved, plan_item, cr_rule, vr_type, evidence, importance, original_tokens, created_at, created_at_epoch)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      sessionId,
+      type,
+      title,
+      detail,
+      JSON.stringify(opts?.filesInvolved ?? []),
+      opts?.planItem ?? null,
+      opts?.crRule ?? null,
+      opts?.vrType ?? null,
+      opts?.evidence ?? null,
+      importance,
+      opts?.originalTokens ?? 0,
+      iso,
+      epochSec
+    );
+  }
+  return Number(result.lastInsertRowid);
+}
+function markRecordSuperseded(db, table, recordId, successorId, nowEpochSec = Math.floor(Date.now() / 1e3)) {
+  const iso = new Date(nowEpochSec * 1e3).toISOString();
+  const statusClause = table === "architecture_decisions" ? `, status = 'superseded'` : "";
+  const res = db.prepare(
+    `UPDATE ${table}
+          SET valid_to = ?, expired_at = ?, valid_to_epoch = ?, expired_at_epoch = ?, superseded_by = ?${statusClause}
+        WHERE id = ? AND expired_at IS NULL AND id != ?`
+  ).run(iso, iso, nowEpochSec, nowEpochSec, successorId, recordId, successorId);
+  return res.changes > 0;
 }
 function addSummary(db, sessionId, summary) {
   const now = /* @__PURE__ */ new Date();
@@ -1432,6 +2809,243 @@ function addSummary(db, sessionId, summary) {
     now.toISOString(),
     Math.floor(now.getTime() / 1e3)
   );
+}
+function addUserPrompt(db, sessionId, text, promptNumber) {
+  const now = /* @__PURE__ */ new Date();
+  db.prepare(`
+    INSERT INTO user_prompts (session_id, prompt_text, prompt_number, created_at, created_at_epoch)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(sessionId, text, promptNumber, now.toISOString(), Math.floor(now.getTime() / 1e3));
+}
+function searchObservations(db, query, opts) {
+  const limit = opts?.limit ?? 20;
+  let sql = `
+    SELECT o.id, o.type, o.title, o.created_at, o.session_id, o.importance,
+           rank
+    FROM observations_fts
+    JOIN observations o ON observations_fts.rowid = o.id
+    WHERE observations_fts MATCH ?
+  `;
+  const params = [sanitizeFts5Query(query)];
+  if (opts?.type) {
+    sql += " AND o.type = ?";
+    params.push(opts.type);
+  }
+  if (opts?.crRule) {
+    sql += " AND o.cr_rule = ?";
+    params.push(opts.crRule);
+  }
+  if (opts?.dateFrom) {
+    sql += " AND o.created_at >= ?";
+    params.push(opts.dateFrom);
+  }
+  sql += " ORDER BY rank LIMIT ?";
+  params.push(limit);
+  return db.prepare(sql).all(...params);
+}
+function getRecentObservations(db, limit = 20, sessionId) {
+  if (sessionId) {
+    return db.prepare(`
+      SELECT id, type, title, detail, importance, created_at, session_id
+      FROM observations WHERE session_id = ?
+      ORDER BY created_at_epoch DESC LIMIT ?
+    `).all(sessionId, limit);
+  }
+  return db.prepare(`
+    SELECT id, type, title, detail, importance, created_at, session_id
+    FROM observations
+    ORDER BY created_at_epoch DESC LIMIT ?
+  `).all(limit);
+}
+function getSessionSummaries(db, limit = 10) {
+  return db.prepare(`
+    SELECT session_id, request, completed, failed_attempts, plan_progress, created_at
+    FROM session_summaries
+    ORDER BY created_at_epoch DESC LIMIT ?
+  `).all(limit);
+}
+function getSessionTimeline(db, sessionId) {
+  const session = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get(sessionId);
+  const observations = db.prepare("SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC").all(sessionId);
+  const summary = db.prepare("SELECT * FROM session_summaries WHERE session_id = ? ORDER BY created_at_epoch DESC LIMIT 1").get(sessionId);
+  const prompts = db.prepare("SELECT * FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC").all(sessionId);
+  return {
+    session: session ?? null,
+    observations,
+    summary: summary ?? null,
+    prompts
+  };
+}
+function getFailedAttempts(db, query, limit = 20) {
+  if (query) {
+    return db.prepare(`
+      SELECT o.id, o.title, o.detail, o.session_id, o.recurrence_count, o.created_at
+      FROM observations_fts
+      JOIN observations o ON observations_fts.rowid = o.id
+      WHERE observations_fts MATCH ? AND o.type = 'failed_attempt'
+      ORDER BY o.recurrence_count DESC, rank LIMIT ?
+    `).all(sanitizeFts5Query(query), limit);
+  }
+  return db.prepare(`
+    SELECT id, title, detail, session_id, recurrence_count, created_at
+    FROM observations WHERE type = 'failed_attempt'
+    ORDER BY recurrence_count DESC, created_at_epoch DESC LIMIT ?
+  `).all(limit);
+}
+function getDecisionsAbout(db, query, limit = 20) {
+  return db.prepare(`
+    SELECT o.id, o.title, o.detail, o.session_id, o.created_at
+    FROM observations_fts
+    JOIN observations o ON observations_fts.rowid = o.id
+    WHERE observations_fts MATCH ? AND o.type = 'decision'
+    ORDER BY rank LIMIT ?
+  `).all(sanitizeFts5Query(query), limit);
+}
+function armUsageCounter(db, nowEpochSec) {
+  const existing = getMemoryMeta(db, USAGE_COUNTER_ARMED_KEY);
+  if (existing) {
+    const n = Number(existing);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  const now = nowEpochSec ?? Math.floor(Date.now() / 1e3);
+  setMemoryMeta(db, USAGE_COUNTER_ARMED_KEY, String(now));
+  return now;
+}
+function usageWarmupElapsed(db, warmupDays, nowEpochSec) {
+  const armed = getMemoryMeta(db, USAGE_COUNTER_ARMED_KEY);
+  if (!armed) return false;
+  const armedEpoch = Number(armed);
+  if (!Number.isFinite(armedEpoch) || armedEpoch <= 0) return false;
+  const now = nowEpochSec ?? Math.floor(Date.now() / 1e3);
+  return now - armedEpoch >= warmupDays * 86400;
+}
+function expireOldLowValueObservations(db, opts) {
+  const now = opts.nowEpochSec ?? Math.floor(Date.now() / 1e3);
+  if (!usageWarmupElapsed(db, opts.usageWarmupDays, now)) return 0;
+  const cutoffEpoch = now - opts.retentionDays * 86400;
+  const typePlaceholders = opts.protectedTypes.length ? opts.protectedTypes.map(() => "?").join(",") : "''";
+  const iso = new Date(now * 1e3).toISOString();
+  const result = db.prepare(
+    `UPDATE observations
+          SET expired_at = ?,
+              expired_at_epoch = ?,
+              valid_to = ?,
+              valid_to_epoch = ?
+        WHERE expired_at IS NULL
+          AND created_at_epoch < ?
+          AND importance <= ?
+          AND type NOT IN (${typePlaceholders})
+          AND COALESCE(evidence, '') != ?
+          -- A file-backed row mirrors a file the human still keeps on disk.
+          -- Value-decay may never retire it; only the file's removal can.
+          AND title NOT LIKE ?
+          AND NOT EXISTS (
+                SELECT 1 FROM memory_usage u
+                 WHERE u.source = 'observation'
+                   AND u.record_id = observations.id
+                   AND u.hit_count > 0
+              )
+          AND NOT EXISTS (
+                -- The grace period: a row demoted within the last cadence
+                -- window is NOT yet expirable, so being pushed to the floor can
+                -- never be immediately fatal.
+                SELECT 1 FROM memory_usage u
+                 WHERE u.source = 'observation'
+                   AND u.record_id = observations.id
+                   AND u.last_reweight_epoch IS NOT NULL
+                   AND u.last_reweight_epoch > ?
+              )`
+  ).run(
+    iso,
+    now,
+    iso,
+    now,
+    cutoffEpoch,
+    opts.importanceFloor,
+    ...opts.protectedTypes,
+    CONSOLIDATION_LESSON_EVIDENCE,
+    MEMORY_FILE_TITLE_LIKE,
+    now - (opts.reweightIntervalDays ?? 1) * 86400
+  );
+  return result.changes;
+}
+function pruneOldObservations(db, opts) {
+  return expireOldLowValueObservations(db, opts);
+}
+function recordRecallHits(db, sessionId, hits, nowEpochSec) {
+  if (!hits.length) return 0;
+  const now = nowEpochSec ?? Math.floor(Date.now() / 1e3);
+  let recorded = 0;
+  const claim = db.prepare(
+    `INSERT OR IGNORE INTO memory_usage_sessions (source, record_id, session_id)
+     VALUES (?, ?, ?)`
+  );
+  const bump = db.prepare(
+    `INSERT INTO memory_usage (source, record_id, hit_count, hits_windowed, last_hit_epoch)
+     VALUES (?, ?, 1, 1, ?)
+     ON CONFLICT(source, record_id) DO UPDATE SET
+       hit_count     = hit_count + 1,
+       hits_windowed = hits_windowed + 1,
+       last_hit_epoch = excluded.last_hit_epoch`
+  );
+  const tx = db.transaction(() => {
+    for (const h of hits) {
+      if (claim.run(h.source, h.id, sessionId).changes === 0) continue;
+      bump.run(h.source, h.id, now);
+      recorded++;
+    }
+  });
+  tx();
+  return recorded;
+}
+function deduplicateFailedAttempt(db, sessionId, title, detail, opts) {
+  const existing = db.prepare(`
+    SELECT id, recurrence_count FROM observations
+    WHERE type = 'failed_attempt' AND title = ?
+    ORDER BY created_at_epoch DESC LIMIT 1
+  `).get(title);
+  if (existing) {
+    db.prepare("UPDATE observations SET recurrence_count = recurrence_count + 1, detail = COALESCE(?, detail) WHERE id = ?").run(detail, existing.id);
+    return existing.id;
+  }
+  return addObservation(db, sessionId, "failed_attempt", title, detail, {
+    ...opts,
+    importance: 5
+  });
+}
+function getSessionsByTask(db, taskId) {
+  return db.prepare(`
+    SELECT session_id, status, started_at, ended_at, plan_phase
+    FROM sessions WHERE task_id = ?
+    ORDER BY started_at_epoch DESC
+    LIMIT 10000
+  `).all(taskId);
+}
+function getCrossTaskProgress(db, taskId) {
+  const sessions = db.prepare(`
+    SELECT session_id FROM sessions WHERE task_id = ? LIMIT 10000
+  `).all(taskId);
+  const merged = {};
+  for (const session of sessions) {
+    const summaries = db.prepare(`
+      SELECT plan_progress FROM session_summaries WHERE session_id = ? LIMIT 10000
+    `).all(session.session_id);
+    for (const summary of summaries) {
+      try {
+        const progress = JSON.parse(summary.plan_progress);
+        for (const [key, value] of Object.entries(progress)) {
+          if (!merged[key] || value === "complete" || value === "in_progress" && merged[key] === "pending") {
+            merged[key] = value;
+          }
+        }
+      } catch (_e) {
+      }
+    }
+  }
+  return merged;
+}
+function linkSessionToTask(db, sessionId, taskId) {
+  db.prepare("UPDATE sessions SET task_id = ? WHERE session_id = ?").run(taskId, sessionId);
 }
 function addConversationTurn(db, sessionId, turnNumber, userPrompt, assistantResponse, toolCallsJson, toolCallCount, promptTokens, responseTokens) {
   const result = db.prepare(`
@@ -1471,10 +3085,276 @@ function getLastProcessedLine(db, sessionId) {
 function setLastProcessedLine(db, sessionId, lineNumber) {
   db.prepare("INSERT OR REPLACE INTO memory_meta (key, value) VALUES (?, ?)").run(`last_processed_line:${sessionId}`, String(lineNumber));
 }
+function pruneOldConversationTurns(db, retentionDays = 90) {
+  const cutoffEpoch = Math.floor(Date.now() / 1e3) - retentionDays * 86400;
+  const turnsResult = db.prepare("DELETE FROM conversation_turns WHERE created_at_epoch < ?").run(cutoffEpoch);
+  const detailsResult = db.prepare("DELETE FROM tool_call_details WHERE created_at_epoch < ?").run(cutoffEpoch);
+  return { turnsDeleted: turnsResult.changes, detailsDeleted: detailsResult.changes };
+}
+function getConversationTurns(db, sessionId, opts) {
+  let sql = "SELECT id, turn_number, user_prompt, assistant_response, tool_calls_json, tool_call_count, prompt_tokens, response_tokens, created_at FROM conversation_turns WHERE session_id = ?";
+  const params = [sessionId];
+  if (opts?.turnFrom !== void 0) {
+    sql += " AND turn_number >= ?";
+    params.push(opts.turnFrom);
+  }
+  if (opts?.turnTo !== void 0) {
+    sql += " AND turn_number <= ?";
+    params.push(opts.turnTo);
+  }
+  sql += " ORDER BY turn_number ASC";
+  return db.prepare(sql).all(...params);
+}
+function searchConversationTurns(db, query, opts) {
+  const limit = opts?.limit ?? 20;
+  let sql = `
+    SELECT ct.id, ct.session_id, ct.turn_number, ct.user_prompt, ct.tool_call_count, ct.response_tokens, ct.created_at, rank
+    FROM conversation_turns_fts
+    JOIN conversation_turns ct ON conversation_turns_fts.rowid = ct.id
+    WHERE conversation_turns_fts MATCH ?
+  `;
+  const params = [sanitizeFts5Query(query)];
+  if (opts?.sessionId) {
+    sql += " AND ct.session_id = ?";
+    params.push(opts.sessionId);
+  }
+  if (opts?.dateFrom) {
+    sql += " AND ct.created_at >= ?";
+    params.push(opts.dateFrom);
+  }
+  if (opts?.dateTo) {
+    sql += " AND ct.created_at <= ?";
+    params.push(opts.dateTo);
+  }
+  if (opts?.minToolCalls !== void 0) {
+    sql += " AND ct.tool_call_count >= ?";
+    params.push(opts.minToolCalls);
+  }
+  sql += " ORDER BY rank LIMIT ?";
+  params.push(limit);
+  return db.prepare(sql).all(...params);
+}
+function getToolPatterns(db, opts) {
+  const groupBy = opts?.groupBy ?? "tool";
+  const params = [];
+  let whereClause = "";
+  const conditions = [];
+  if (opts?.sessionId) {
+    conditions.push("session_id = ?");
+    params.push(opts.sessionId);
+  }
+  if (opts?.toolName) {
+    conditions.push("tool_name = ?");
+    params.push(opts.toolName);
+  }
+  if (opts?.dateFrom) {
+    conditions.push("created_at >= ?");
+    params.push(opts.dateFrom);
+  }
+  if (conditions.length > 0) {
+    whereClause = "WHERE " + conditions.join(" AND ");
+  }
+  let sql;
+  switch (groupBy) {
+    case "session":
+      sql = `SELECT session_id, COUNT(*) as call_count, COUNT(DISTINCT tool_name) as unique_tools,
+             SUM(CASE WHEN tool_success = 1 THEN 1 ELSE 0 END) as successes,
+             SUM(CASE WHEN tool_success = 0 THEN 1 ELSE 0 END) as failures,
+             AVG(tool_output_size) as avg_output_size
+             FROM tool_call_details ${whereClause}
+             GROUP BY session_id ORDER BY call_count DESC`;
+      break;
+    case "day":
+      sql = `SELECT date(created_at) as day, COUNT(*) as call_count, COUNT(DISTINCT tool_name) as unique_tools,
+             SUM(CASE WHEN tool_success = 1 THEN 1 ELSE 0 END) as successes
+             FROM tool_call_details ${whereClause}
+             GROUP BY date(created_at) ORDER BY day DESC`;
+      break;
+    default:
+      sql = `SELECT tool_name, COUNT(*) as call_count,
+             SUM(CASE WHEN tool_success = 1 THEN 1 ELSE 0 END) as successes,
+             SUM(CASE WHEN tool_success = 0 THEN 1 ELSE 0 END) as failures,
+             AVG(tool_output_size) as avg_output_size,
+             AVG(tool_input_size) as avg_input_size
+             FROM tool_call_details ${whereClause}
+             GROUP BY tool_name ORDER BY call_count DESC`;
+      break;
+  }
+  return db.prepare(sql).all(...params);
+}
+function getSessionStats(db, opts) {
+  if (opts?.sessionId) {
+    const turns = db.prepare("SELECT COUNT(*) as turn_count, SUM(tool_call_count) as total_tool_calls, SUM(prompt_tokens) as total_prompt_tokens, SUM(response_tokens) as total_response_tokens FROM conversation_turns WHERE session_id = ?").get(opts.sessionId);
+    const toolBreakdown = db.prepare("SELECT tool_name, COUNT(*) as count FROM tool_call_details WHERE session_id = ? GROUP BY tool_name ORDER BY count DESC").all(opts.sessionId);
+    const session = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get(opts.sessionId);
+    return [{
+      session_id: opts.sessionId,
+      status: session?.status ?? "unknown",
+      started_at: session?.started_at ?? null,
+      ended_at: session?.ended_at ?? null,
+      ...turns,
+      tool_breakdown: toolBreakdown
+    }];
+  }
+  const limit = opts?.limit ?? 10;
+  return db.prepare(`
+    SELECT s.session_id, s.status, s.started_at, s.ended_at,
+           COUNT(ct.id) as turn_count,
+           COALESCE(SUM(ct.tool_call_count), 0) as total_tool_calls,
+           COALESCE(SUM(ct.prompt_tokens), 0) as total_prompt_tokens,
+           COALESCE(SUM(ct.response_tokens), 0) as total_response_tokens
+    FROM sessions s
+    LEFT JOIN conversation_turns ct ON s.session_id = ct.session_id
+    GROUP BY s.session_id
+    ORDER BY s.started_at_epoch DESC
+    LIMIT ?
+  `).all(limit);
+}
+function getObservabilityDbSize(db) {
+  const turnsCount = db.prepare("SELECT COUNT(*) as c FROM conversation_turns").get().c;
+  const detailsCount = db.prepare("SELECT COUNT(*) as c FROM tool_call_details").get().c;
+  const obsCount = db.prepare("SELECT COUNT(*) as c FROM observations").get().c;
+  const pageCount = db.pragma("page_count")[0]?.page_count ?? 0;
+  const pageSize = db.pragma("page_size")[0]?.page_size ?? 4096;
+  return {
+    conversation_turns_count: turnsCount,
+    tool_call_details_count: detailsCount,
+    observations_count: obsCount,
+    db_page_count: pageCount,
+    db_page_size: pageSize,
+    estimated_size_mb: Math.round(pageCount * pageSize / (1024 * 1024) * 100) / 100
+  };
+}
+function addFailureClass(db, opts) {
+  const result = db.prepare(`
+    INSERT OR IGNORE INTO failure_classes (name, description, diff_patterns, file_patterns, prompt_keywords, incidents, rules, scanner_checks, known_message, needs_review)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    opts.name,
+    opts.description,
+    JSON.stringify(opts.diffPatterns ?? []),
+    JSON.stringify(opts.filePatterns ?? []),
+    JSON.stringify(opts.promptKeywords ?? []),
+    JSON.stringify(opts.incidents ?? []),
+    JSON.stringify(opts.rules ?? []),
+    JSON.stringify(opts.scannerChecks ?? []),
+    opts.knownMessage ?? "",
+    opts.needsReview ? 1 : 0
+  );
+  return Number(result.lastInsertRowid);
+}
+function getFailureClasses(db) {
+  const rows = db.prepare("SELECT * FROM failure_classes ORDER BY name LIMIT 10000").all();
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    diff_patterns: JSON.parse(row.diff_patterns || "[]"),
+    file_patterns: JSON.parse(row.file_patterns || "[]"),
+    prompt_keywords: JSON.parse(row.prompt_keywords || "[]"),
+    incidents: JSON.parse(row.incidents || "[]"),
+    rules: JSON.parse(row.rules || "[]"),
+    scanner_checks: JSON.parse(row.scanner_checks || "[]"),
+    known_message: row.known_message,
+    needs_review: !!row.needs_review
+  }));
+}
+function appendIncidentToFailureClass(db, className, incidentId) {
+  const row = db.prepare("SELECT incidents FROM failure_classes WHERE name = ?").get(className);
+  if (!row) return;
+  const incidents = JSON.parse(row.incidents || "[]");
+  if (!incidents.includes(incidentId)) {
+    incidents.push(incidentId);
+    db.prepare("UPDATE failure_classes SET incidents = ?, updated_at = datetime('now') WHERE name = ?").run(JSON.stringify(incidents), className);
+  }
+}
+function scoreFailureClasses(db, matchText, filePath, promptContext, weights) {
+  const classes = getFailureClasses(db);
+  if (classes.length === 0) return null;
+  const diffWeight = weights?.diffPatternWeight ?? 3;
+  const fileWeight = weights?.filePatternWeight ?? 2;
+  const promptWeight = weights?.promptKeywordWeight ?? 2;
+  let bestMatch = null;
+  for (const fc of classes) {
+    let score = 0;
+    for (const pattern of fc.diff_patterns) {
+      if (!pattern) continue;
+      try {
+        if (new RegExp(pattern, "i").test(matchText)) {
+          score += diffWeight;
+        }
+      } catch {
+        if (matchText.toLowerCase().includes(pattern.toLowerCase())) {
+          score += diffWeight;
+        }
+      }
+    }
+    for (const pattern of fc.file_patterns) {
+      if (!pattern) continue;
+      try {
+        if (new RegExp(pattern).test(filePath)) {
+          score += fileWeight;
+        }
+      } catch {
+        if (filePath.includes(pattern)) {
+          score += fileWeight;
+        }
+      }
+    }
+    if (promptContext) {
+      for (const keyword of fc.prompt_keywords) {
+        if (!keyword) continue;
+        try {
+          if (new RegExp(keyword, "i").test(promptContext)) {
+            score += promptWeight;
+          }
+        } catch {
+          if (promptContext.toLowerCase().includes(keyword.toLowerCase())) {
+            score += promptWeight;
+          }
+        }
+      }
+    }
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = {
+        name: fc.name,
+        score,
+        incidentCount: fc.incidents.length,
+        rules: fc.rules,
+        knownMessage: fc.known_message
+      };
+    }
+  }
+  return bestMatch;
+}
+var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_DRAIN_LIMIT, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
+var init_memory_db = __esm({
+  "src/memory-db.ts"() {
+    "use strict";
+    init_config();
+    init_memory_vector();
+    init_db_backup();
+    init_hook_failure_signal();
+    init_memory_embed_sweep();
+    MEMORY_SCHEMA_VERSION = 1;
+    TOOL_COST_EVENTS_RETENTION_DAYS = 90;
+    MAX_DRAFT_TEXT_LEN = 16384;
+    FUNNEL_EVENT_DRAIN_LIMIT = 5e3;
+    FUNNEL_EVENT_OUTBOX_CAP = 2e4;
+    _temporalColCache = /* @__PURE__ */ new WeakMap();
+    CONSOLIDATION_LESSON_EVIDENCE = "consolidation:session-summary";
+    MEMORY_FILE_TITLE_PREFIX = "[memory-file] ";
+    MEMORY_FILE_TITLE_LIKE = `${MEMORY_FILE_TITLE_PREFIX}%`;
+    USAGE_COUNTER_ARMED_KEY = "usage_counter_armed_epoch";
+  }
+});
+
+// src/hooks/session-end.ts
+init_memory_db();
 
 // src/session-archiver.ts
-import { existsSync as existsSync4, readFileSync as readFileSync3, writeFileSync as writeFileSync2, mkdirSync as mkdirSync3, renameSync } from "fs";
-import { resolve as resolve4, dirname as dirname3 } from "path";
+import { existsSync as existsSync7, readFileSync as readFileSync4, writeFileSync as writeFileSync2, mkdirSync as mkdirSync5, renameSync } from "fs";
+import { resolve as resolve5, dirname as dirname6 } from "path";
 
 // src/session-state-generator.ts
 function generateCurrentMd(db, sessionId) {
@@ -1619,19 +3499,20 @@ function safeParseJson(json, fallback) {
 }
 
 // src/session-archiver.ts
+init_config();
 function archiveAndRegenerate(db, sessionId) {
   const resolved = getResolvedPaths();
   const currentMdPath = resolved.sessionStatePath;
   const archiveDir = resolved.sessionArchivePath;
   let archived = false;
   let archivePath;
-  if (existsSync4(currentMdPath)) {
-    const existingContent = readFileSync3(currentMdPath, "utf-8");
+  if (existsSync7(currentMdPath)) {
+    const existingContent = readFileSync4(currentMdPath, "utf-8");
     if (existingContent.trim().length > 10) {
       const { date, slug } = extractArchiveInfo(existingContent);
-      archivePath = resolve4(archiveDir, `${date}-${slug}.md`);
-      if (!existsSync4(archiveDir)) {
-        mkdirSync3(archiveDir, { recursive: true });
+      archivePath = resolve5(archiveDir, `${date}-${slug}.md`);
+      if (!existsSync7(archiveDir)) {
+        mkdirSync5(archiveDir, { recursive: true });
       }
       try {
         renameSync(currentMdPath, archivePath);
@@ -1643,9 +3524,9 @@ function archiveAndRegenerate(db, sessionId) {
     }
   }
   const newContent = generateCurrentMd(db, sessionId);
-  const dir = dirname3(currentMdPath);
-  if (!existsSync4(dir)) {
-    mkdirSync3(dir, { recursive: true });
+  const dir = dirname6(currentMdPath);
+  if (!existsSync7(dir)) {
+    mkdirSync5(dir, { recursive: true });
   }
   writeFileSync2(currentMdPath, newContent, "utf-8");
   return { archived, archivePath, newContent };
@@ -1747,7 +3628,18 @@ function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
+// src/cloud-sync.ts
+init_config();
+init_memory_db();
+
 // src/observation-extractor.ts
+init_memory_db();
+
+// src/adr-generator.ts
+init_config();
+
+// src/observation-extractor.ts
+init_config();
 var PRIVATE_PATTERNS = [
   /\/Users\/\w+/,
   // Absolute macOS paths
@@ -1936,14 +3828,17 @@ async function drainSyncQueue(db) {
   }
 }
 function sleep(ms) {
-  return new Promise((resolve5) => setTimeout(resolve5, ms));
+  return new Promise((resolve6) => setTimeout(resolve6, ms));
 }
 
 // src/team-rule-sync.ts
-import { existsSync as existsSync5, writeFileSync as writeFileSync3, unlinkSync, mkdirSync as mkdirSync4 } from "fs";
-import { join, dirname as dirname4 } from "path";
+init_config();
+import { existsSync as existsSync8, writeFileSync as writeFileSync3, unlinkSync as unlinkSync2, mkdirSync as mkdirSync6 } from "fs";
+import { join as join4, dirname as dirname7 } from "path";
 
 // src/license.ts
+init_config();
+init_memory_db();
 import { createHash } from "crypto";
 
 // src/security/ed25519-envelope-verifier.ts
@@ -2145,6 +4040,10 @@ function getCachedOrgId(memDb) {
 }
 
 // src/auto-learning-entitlement.ts
+var AUTO_LEARNING_MIN_TIER = "pro";
+function entitledForAutoLearning(tier) {
+  return tierLevel(tier) >= tierLevel(AUTO_LEARNING_MIN_TIER);
+}
 var TEAM_SHARED_PROMOTION_MIN_TIER = "team";
 function entitledForTeamSharedPromotion(tier) {
   return tierLevel(tier) >= tierLevel(TEAM_SHARED_PROMOTION_MIN_TIER);
@@ -2170,6 +4069,22 @@ function verifyPromotionEnvelope(payload) {
   );
 }
 
+// src/lib/fileLock.ts
+import * as lockfile from "proper-lockfile";
+
+// src/rule-candidate-applier.ts
+init_config();
+init_memory_path();
+
+// src/audit-trail.ts
+init_config();
+
+// src/rule-candidate-applier.ts
+init_memory_db();
+
+// src/rule-candidate-funnel.ts
+init_memory_db();
+
 // src/rule-candidate-hardened.ts
 var TEAM_HARDENED_SHAREABLE_DESTINATIONS = [
   "pattern-scanner",
@@ -2189,6 +4104,7 @@ function isTeamShareableDestination(destination) {
 }
 
 // src/team-knowledge.ts
+init_config();
 function shareObservation(db, developerId, project, observationType, summary, opts) {
   const result = db.prepare(`
     INSERT INTO shared_observations
@@ -2208,6 +4124,7 @@ function shareObservation(db, developerId, project, observationType, summary, op
 }
 
 // src/team-rule-sync.ts
+init_memory_db();
 var CURSOR_KEY = "team_promotions_cursor";
 var DEFAULT_TIMEOUT_MS = 2e3;
 var PROMPT_HASH_RE = /^[0-9a-f]{16}$/;
@@ -2286,7 +4203,7 @@ async function pullTeamPromotions(db, opts = {}) {
       result.revoked_handled += 1;
       continue;
     }
-    if (existsSync5(candidatePath) || alreadyApplied(db, p.prompt_hash)) {
+    if (existsSync8(candidatePath) || alreadyApplied(db, p.prompt_hash)) {
       result.skipped += 1;
       continue;
     }
@@ -2322,7 +4239,7 @@ function isValidWirePromotion(p) {
   return typeof r.prompt_hash === "string" && PROMPT_HASH_RE.test(r.prompt_hash) && typeof r.destination === "string" && typeof r.draft_text === "string" && typeof r.promoted_by === "string" && typeof r.promoted_at === "string";
 }
 function sidecarPath(projectRoot, promptHash) {
-  return join(projectRoot, ".massu", "rule-candidates", `${promptHash}.json`);
+  return join4(projectRoot, ".massu", "rule-candidates", `${promptHash}.json`);
 }
 function alreadyApplied(db, promptHash) {
   try {
@@ -2336,9 +4253,9 @@ function alreadyApplied(db, promptHash) {
   }
 }
 function handleRevocation(db, projectRoot, candidatePath, promptHash) {
-  if (existsSync5(candidatePath)) {
+  if (existsSync8(candidatePath)) {
     try {
-      unlinkSync(candidatePath);
+      unlinkSync2(candidatePath);
     } catch {
     }
     return;
@@ -2384,8 +4301,8 @@ function materializeCandidate(db, projectRoot, candidatePath, p, orgId) {
     draft_text: p.draft_text,
     ...p.review_attestation !== void 0 ? { publisher_review_attestation: p.review_attestation } : {}
   };
-  const dir = dirname4(candidatePath);
-  if (!existsSync5(dir)) mkdirSync4(dir, { recursive: true });
+  const dir = dirname7(candidatePath);
+  if (!existsSync8(dir)) mkdirSync6(dir, { recursive: true });
   writeFileSync3(candidatePath, JSON.stringify(sidecar, null, 2), "utf-8");
   try {
     shareObservation(db, p.promoted_by, getProjectName(), "rule_promotion", promptText, {
@@ -2429,7 +4346,11 @@ function emitDropTelemetry(db, eventType, data) {
   );
 }
 
+// src/hooks/session-end.ts
+init_config();
+
 // src/analytics.ts
+init_config();
 var DEFAULT_WEIGHTS = {
   bug_found: -5,
   vr_failure: -10,
@@ -2504,6 +4425,7 @@ function backfillQualityScores(db) {
 }
 
 // src/cost-tracker.ts
+init_config();
 var DEFAULT_MODEL_PRICING = {
   "claude-opus-4-6": { input_per_million: 15, output_per_million: 75, cache_read_per_million: 1.5, cache_write_per_million: 18.75 },
   "claude-sonnet-4-6": { input_per_million: 3, output_per_million: 15, cache_read_per_million: 0.3, cache_write_per_million: 3.75 },
@@ -2574,6 +4496,7 @@ function storeSessionCost(db, sessionId, usage, cost) {
 }
 
 // src/prompt-analyzer.ts
+init_config();
 import { createHash as createHash2 } from "crypto";
 
 // src/security-utils.ts
@@ -2678,12 +4601,1040 @@ function analyzeSessionPrompts(db, sessionId) {
   return stored;
 }
 
+// src/memory-supersede.ts
+init_config();
+init_memory_embedder();
+init_memory_vector();
+
+// src/memory-hybrid-search.ts
+init_memory_db();
+init_memory_vector();
+function temporalPredicate(asOf, includeSuperseded, prefix) {
+  const c = (name) => `${prefix}${name}`;
+  if (asOf != null && Number.isFinite(asOf)) {
+    const t = Math.floor(Number(asOf) / 1e3);
+    return `${c("ingested_at_epoch")} <= ${t} AND (${c("expired_at_epoch")} IS NULL OR ${c("expired_at_epoch")} > ${t}) AND ${c("valid_from_epoch")} <= ${t} AND (${c("valid_to_epoch")} IS NULL OR ${c("valid_to_epoch")} > ${t})`;
+  }
+  if (!includeSuperseded) {
+    return `${c("expired_at_epoch")} IS NULL`;
+  }
+  return "";
+}
+var RRF_K = 10;
+var RECENCY_HALF_LIFE_DAYS = 180;
+var DEFAULT_LIMIT = 8;
+var DEFAULT_POOL = 30;
+var ALL_SOURCES = [
+  "observation",
+  "architecture_decision",
+  "knowledge_chunk",
+  "failure_class"
+];
+function snippetOf(text, max = 160) {
+  if (!text) return "";
+  const clean = text.replace(/\s+/g, " ").trim();
+  return clean.length > max ? clean.slice(0, max - 1) + "\u2026" : clean;
+}
+function ageDaysFrom(epochMs, nowMs) {
+  const days = (nowMs - epochMs) / 864e5;
+  return days < 0 ? 0 : days;
+}
+function recencyWeight(ageDays) {
+  const freshness = Math.pow(0.5, ageDays / RECENCY_HALF_LIFE_DAYS);
+  return 0.7 + 0.3 * freshness;
+}
+function importanceWeightOf(importance) {
+  const clamped = Math.max(1, Math.min(5, importance));
+  return 0.7 + 0.3 * (clamped / 5);
+}
+function collectObservations(memDb, queryText, pool, nowMs, loadVec, modelId, dim, asOf, includeSuperseded) {
+  const map = /* @__PURE__ */ new Map();
+  const bm25Temporal = temporalPredicate(asOf, includeSuperseded, "o.");
+  const plainTemporal = temporalPredicate(asOf, includeSuperseded, "");
+  try {
+    const rows = memDb.prepare(
+      `SELECT o.id, o.title, o.detail, o.importance, o.created_at_epoch
+         FROM observations_fts
+         JOIN observations o ON observations_fts.rowid = o.id
+         WHERE observations_fts MATCH ?${bm25Temporal ? ` AND ${bm25Temporal}` : ""}
+         ORDER BY rank LIMIT ?`
+    ).all(sanitizeFts5QueryOr(queryText), pool);
+    rows.forEach((r, i) => {
+      map.set(r.id, {
+        id: r.id,
+        source: "observation",
+        title: r.title,
+        snippet: snippetOf(r.detail ?? r.title),
+        importance: r.importance,
+        ageDays: ageDaysFrom(r.created_at_epoch * 1e3, nowMs),
+        bm25Order: i,
+        vecs: []
+      });
+    });
+  } catch {
+  }
+  const recent = memDb.prepare(
+    `SELECT id, title, detail, importance, created_at_epoch
+       FROM observations${plainTemporal ? ` WHERE ${plainTemporal}` : ""} ORDER BY created_at_epoch DESC LIMIT ?`
+  ).all(pool);
+  for (const r of recent) {
+    if (!map.has(r.id)) {
+      map.set(r.id, {
+        id: r.id,
+        source: "observation",
+        title: r.title,
+        snippet: snippetOf(r.detail ?? r.title),
+        importance: r.importance,
+        ageDays: ageDaysFrom(r.created_at_epoch * 1e3, nowMs),
+        bm25Order: null,
+        vecs: []
+      });
+    }
+  }
+  if (loadVec && map.size > 0) {
+    loadEmbeddings(
+      memDb,
+      "observation_embeddings",
+      "observation_id",
+      [...map.keys()],
+      modelId,
+      dim,
+      (id, vec) => {
+        const c = map.get(id);
+        if (c) c.vecs.push(vec);
+      }
+    );
+  }
+  return [...map.values()];
+}
+function collectLikeSource(db, source, cfg, queryText, pool, nowMs) {
+  const map = /* @__PURE__ */ new Map();
+  const tokens = queryText.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length >= 3).slice(0, 8);
+  const ageExpr = (created) => {
+    const ms = cfg.createdIsEpoch ? Number(created) * 1e3 : Date.parse(String(created));
+    return Number.isFinite(ms) ? ageDaysFrom(ms, nowMs) : 0;
+  };
+  if (tokens.length > 0) {
+    const likeClause = cfg.searchCols.map((col) => tokens.map(() => `${col} LIKE ?`).join(" OR ")).join(" OR ");
+    const params = [];
+    for (const _col of cfg.searchCols) for (const t of tokens) params.push(`%${t}%`);
+    try {
+      const rows = db.prepare(
+        `SELECT ${cfg.idCol} AS id, ${cfg.titleExpr} AS title,
+                  ${cfg.snippetCol} AS snippet, ${cfg.createdCol} AS created
+           FROM ${cfg.table} WHERE (${likeClause})${cfg.temporalClause ? ` AND ${cfg.temporalClause}` : ""}
+           ORDER BY ${cfg.createdCol} DESC LIMIT ?`
+      ).all(...params, pool);
+      rows.forEach((r, i) => {
+        map.set(r.id, {
+          id: r.id,
+          source,
+          title: r.title,
+          snippet: snippetOf(r.snippet ?? r.title),
+          importance: 3,
+          ageDays: ageExpr(r.created),
+          bm25Order: i,
+          vecs: []
+        });
+      });
+    } catch {
+    }
+  }
+  const recent = db.prepare(
+    `SELECT ${cfg.idCol} AS id, ${cfg.titleExpr} AS title,
+              ${cfg.snippetCol} AS snippet, ${cfg.createdCol} AS created
+       FROM ${cfg.table}${cfg.temporalClause ? ` WHERE ${cfg.temporalClause}` : ""} ORDER BY ${cfg.createdCol} DESC LIMIT ?`
+  ).all(pool);
+  for (const r of recent) {
+    if (!map.has(r.id)) {
+      map.set(r.id, {
+        id: r.id,
+        source,
+        title: r.title,
+        snippet: snippetOf(r.snippet ?? r.title),
+        importance: 3,
+        ageDays: ageExpr(r.created),
+        bm25Order: null,
+        vecs: []
+      });
+    }
+  }
+  return [...map.values()];
+}
+function collectKnowledgeChunks(knowledgeDb, queryText, pool, nowMs, loadVec, modelId, dim) {
+  const map = /* @__PURE__ */ new Map();
+  try {
+    const rows = knowledgeDb.prepare(
+      `SELECT kc.id AS id, kc.heading AS heading, kc.content AS content,
+                kd.indexed_at_epoch AS epoch
+         FROM knowledge_fts
+         JOIN knowledge_chunks kc ON knowledge_fts.rowid = kc.id
+         JOIN knowledge_documents kd ON kd.id = kc.document_id
+         WHERE knowledge_fts MATCH ?
+         ORDER BY rank LIMIT ?`
+    ).all(sanitizeFts5QueryOr(queryText), pool);
+    rows.forEach((r, i) => {
+      map.set(r.id, {
+        id: r.id,
+        source: "knowledge_chunk",
+        title: r.heading || snippetOf(r.content, 60),
+        snippet: snippetOf(r.content),
+        importance: 3,
+        ageDays: ageDaysFrom((r.epoch ?? 0) * 1e3, nowMs),
+        bm25Order: i,
+        vecs: []
+      });
+    });
+  } catch {
+  }
+  if (loadVec && map.size > 0) {
+    loadEmbeddings(
+      knowledgeDb,
+      "knowledge_chunk_embeddings",
+      "chunk_id",
+      [...map.keys()],
+      modelId,
+      dim,
+      (id, vec) => {
+        const c = map.get(id);
+        if (c) c.vecs.push(vec);
+      }
+    );
+  }
+  return [...map.values()];
+}
+function loadEmbeddings(db, table, idCol, ids, modelId, dim, assign) {
+  if (!modelId || !dim || ids.length === 0) return;
+  try {
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = db.prepare(
+      `SELECT ${idCol} AS id, vec FROM ${table}
+         WHERE ${idCol} IN (${placeholders}) AND model_id = ? AND dim = ?
+         LIMIT ?`
+    ).all(...ids, modelId, dim, ids.length);
+    for (const r of rows) {
+      const v = blobToFloat32(r.vec);
+      if (v && v.length === dim) assign(r.id, v);
+    }
+  } catch {
+  }
+}
+function hybridSearch(memDb, knowledgeDb, opts) {
+  const sources = opts.sources ?? ALL_SOURCES;
+  const limit = opts.limit ?? DEFAULT_LIMIT;
+  const minScore = opts.minScore ?? 0;
+  const pool = opts.candidatePool ?? DEFAULT_POOL;
+  const nowMs = opts.now ?? Date.now();
+  const queryVec = opts.queryVec ?? null;
+  const modelId = queryVec ? opts.modelId ?? null : null;
+  const dim = queryVec ? opts.dim ?? null : null;
+  const loadVec = !!(queryVec && modelId && dim);
+  const includeSuperseded = opts.includeSuperseded ?? false;
+  let candidates = [];
+  if (sources.includes("observation")) {
+    candidates = candidates.concat(
+      collectObservations(
+        memDb,
+        opts.queryText,
+        pool,
+        nowMs,
+        loadVec,
+        modelId,
+        dim,
+        opts.asOf,
+        includeSuperseded
+      )
+    );
+  }
+  if (sources.includes("architecture_decision")) {
+    candidates = candidates.concat(
+      collectLikeSource(
+        memDb,
+        "architecture_decision",
+        {
+          table: "architecture_decisions",
+          idCol: "id",
+          titleExpr: "title",
+          snippetCol: "decision",
+          searchCols: ["title", "decision", "context"],
+          createdCol: "created_at",
+          createdIsEpoch: false,
+          temporalClause: temporalPredicate(opts.asOf, includeSuperseded, "")
+        },
+        opts.queryText,
+        pool,
+        nowMs
+      )
+    );
+  }
+  if (sources.includes("failure_class")) {
+    candidates = candidates.concat(
+      collectLikeSource(
+        memDb,
+        "failure_class",
+        {
+          table: "failure_classes",
+          idCol: "id",
+          titleExpr: "name",
+          snippetCol: "description",
+          searchCols: ["name", "description", "known_message"],
+          createdCol: "created_at",
+          createdIsEpoch: false
+        },
+        opts.queryText,
+        pool,
+        nowMs
+      )
+    );
+  }
+  if (sources.includes("knowledge_chunk") && knowledgeDb) {
+    candidates = candidates.concat(
+      collectKnowledgeChunks(knowledgeDb, opts.queryText, pool, nowMs, loadVec, modelId, dim)
+    );
+  }
+  if (candidates.length === 0) return [];
+  const worstBm25 = pool + 1;
+  let cosineOrder = null;
+  if (loadVec && queryVec) {
+    const scored = candidates.map((c) => ({
+      key: `${c.source}:${c.id}`,
+      // MAX-POOL: score the record by its BEST-matching passage.
+      sim: c.vecs.length ? Math.max(...c.vecs.map((v) => cosineSim(queryVec, v))) : -Infinity
+    })).filter((s) => s.sim > -Infinity).sort((a, b) => b.sim - a.sim);
+    cosineOrder = /* @__PURE__ */ new Map();
+    scored.forEach((s, i) => cosineOrder.set(s.key, i));
+  }
+  const worstCosine = candidates.length + 1;
+  const ranked = candidates.map((c) => {
+    const key = `${c.source}:${c.id}`;
+    const bm25Rank = c.bm25Order ?? worstBm25;
+    let rrf = 1 / (RRF_K + bm25Rank);
+    if (cosineOrder) {
+      const cRank = cosineOrder.has(key) ? cosineOrder.get(key) : worstCosine;
+      rrf += 1 / (RRF_K + cRank);
+    }
+    const score = rrf * importanceWeightOf(c.importance) * recencyWeight(c.ageDays);
+    return {
+      id: c.id,
+      source: c.source,
+      title: c.title,
+      snippet: c.snippet,
+      score,
+      importance: c.importance,
+      ageDays: c.ageDays
+    };
+  });
+  const top = ranked.filter((r) => r.score >= minScore).sort((a, b) => b.score - a.score || a.ageDays - b.ageDays).slice(0, limit);
+  if (includeSuperseded && opts.asOf == null) {
+    for (const r of top) {
+      const table = r.source === "observation" ? "observations" : r.source === "architecture_decision" ? "architecture_decisions" : null;
+      if (!table) continue;
+      try {
+        const row = memDb.prepare(`SELECT valid_to, superseded_by, expired_at_epoch FROM ${table} WHERE id = ?`).get(r.id);
+        if (row && row.expired_at_epoch != null) {
+          const when = row.valid_to ? row.valid_to.slice(0, 10) : "an earlier date";
+          const by = row.superseded_by != null ? ` by #${row.superseded_by}` : "";
+          r.snippet = `(superseded on ${when}${by}) ${r.snippet}`;
+        }
+      } catch {
+      }
+    }
+  }
+  return top;
+}
+
+// src/memory-supersede.ts
+init_memory_db();
+var DEFAULT_CONFIG = {
+  enabled: true,
+  similarityThreshold: 0.6,
+  dedupThreshold: 0.93,
+  gatedTypes: ["decision", "cr_violation", "failed_attempt"],
+  annotateSuperseded: false,
+  budgetMs: 800
+};
+var REPLACEMENT_SIGNAL = /\b(instead of|no longer|not\s+\w+\s+anymore|switch(?:ing|ed)?\s+(?:from|to)|replac(?:e|es|ed|ing)|deprecat(?:e|ed|es)|supersed(?:e|ed|es)|now\s+(?:we|use|using)|actually|correction|revert(?:ed|ing)?|changed?\s+to|moved?\s+(?:from|to)|abandon(?:ed)?|rolled?\s+back)\b/i;
+function hasReplacementSignal(text) {
+  return REPLACEMENT_SIGNAL.test(text);
+}
+function resolveContradictionConfig() {
+  try {
+    const c = getConfig().memory?.contradiction;
+    if (!c) return { ...DEFAULT_CONFIG };
+    return { ...DEFAULT_CONFIG, ...c };
+  } catch {
+    return { ...DEFAULT_CONFIG };
+  }
+}
+function judgeContradiction(newText, candidates, cfg) {
+  if (candidates.length === 0) {
+    return { op: "ADD", reason: "no related candidates" };
+  }
+  const top = [...candidates].sort((a, b) => b.cosine - a.cosine)[0];
+  if (top.cosine >= cfg.dedupThreshold) {
+    return { op: "NOOP", targetId: top.id, targetSource: top.source, reason: `near-duplicate (cos=${top.cosine.toFixed(3)})` };
+  }
+  if (top.cosine >= cfg.similarityThreshold && hasReplacementSignal(newText)) {
+    return {
+      op: "UPDATE",
+      targetId: top.id,
+      targetSource: top.source,
+      reason: `contradiction: related (cos=${top.cosine.toFixed(3)}) + replacement signal`
+    };
+  }
+  return { op: "ADD", reason: `related but no contradiction (top cos=${top.cosine.toFixed(3)})` };
+}
+async function judgeViaEndpoint(endpoint, newText, candidates, budgetMs) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budgetMs);
+    let resp;
+    try {
+      resp = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: newText, candidates }),
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (data.op !== "ADD" && data.op !== "UPDATE" && data.op !== "NOOP") return null;
+    if (data.op === "UPDATE" && typeof data.targetId !== "number") return null;
+    const match = candidates.find((c) => c.id === data.targetId);
+    return {
+      op: data.op,
+      targetId: data.op === "UPDATE" ? data.targetId : void 0,
+      targetSource: match?.source,
+      reason: "external judge"
+    };
+  } catch {
+    return null;
+  }
+}
+async function candidateVec(memDb, source, id) {
+  try {
+    if (source === "observation") {
+      const row = memDb.prepare(
+        `SELECT vec FROM observation_embeddings
+            WHERE observation_id = ? ORDER BY chunk_ix ASC LIMIT 1`
+      ).get(id);
+      if (row?.vec) {
+        const v = blobToFloat32(row.vec);
+        if (v) return v;
+      }
+      const obs = memDb.prepare(`SELECT title, detail FROM observations WHERE id = ?`).get(id);
+      if (!obs) return null;
+      return await embed(`${obs.title}
+${obs.detail ?? ""}`.trim());
+    }
+    const ad = memDb.prepare(`SELECT title, decision FROM architecture_decisions WHERE id = ?`).get(id);
+    if (!ad) return null;
+    return await embed(`${ad.title}
+${ad.decision}`.trim());
+  } catch {
+    return null;
+  }
+}
+async function supersedeIfContradicted(memDb, knowledgeDb, args) {
+  const cfg = args.config ?? resolveContradictionConfig();
+  if (!cfg.enabled) return { op: "ADD", superseded: null, reason: "disabled" };
+  const start = Date.now();
+  try {
+    const queryVec = await embed(args.text);
+    if (!queryVec) return { op: "ADD", superseded: null, reason: "no embedder (fail-open)" };
+    const active = getActiveEmbedModel();
+    const results = hybridSearch(memDb, knowledgeDb, {
+      queryText: args.text,
+      queryVec,
+      modelId: active?.modelId ?? null,
+      dim: active?.dim ?? null,
+      sources: [args.source],
+      limit: 5,
+      candidatePool: 20
+    });
+    const scored = [];
+    for (const r of results) {
+      if (r.id === args.newId) continue;
+      if (Date.now() - start > cfg.budgetMs) break;
+      const vec = await candidateVec(memDb, args.source, r.id);
+      if (vec) scored.push({ id: r.id, source: args.source, cosine: cosineSim(queryVec, vec) });
+    }
+    let verdict = null;
+    if (cfg.judgeEndpoint && Date.now() - start < cfg.budgetMs) {
+      verdict = await judgeViaEndpoint(cfg.judgeEndpoint, args.text, scored, cfg.budgetMs);
+    }
+    if (!verdict) verdict = judgeContradiction(args.text, scored, cfg);
+    if (verdict.op === "UPDATE" && typeof verdict.targetId === "number") {
+      const table = args.source === "observation" ? "observations" : "architecture_decisions";
+      const ok = markRecordSuperseded(memDb, table, verdict.targetId, args.newId, args.nowEpochSec);
+      return { op: "UPDATE", superseded: ok ? verdict.targetId : null, reason: verdict.reason };
+    }
+    return { op: verdict.op, superseded: null, reason: verdict.reason };
+  } catch (e) {
+    return { op: "ADD", superseded: null, reason: `fail-open: ${e.message}` };
+  }
+}
+var SWEEP_MAX_RECORDS = 500;
+async function runSessionSupersedeSweep(memDb, sessionId, opts) {
+  const cfg = opts?.config ?? resolveContradictionConfig();
+  if (!cfg.enabled) return { superseded: 0 };
+  const overallBudget = opts?.budgetMs ?? 4e3;
+  const start = Date.now();
+  let count = 0;
+  const stillLive = (table, id) => {
+    const row = memDb.prepare(`SELECT expired_at FROM ${table} WHERE id = ?`).get(id);
+    return !!row && row.expired_at == null;
+  };
+  try {
+    if (cfg.gatedTypes.length > 0) {
+      const placeholders = cfg.gatedTypes.map(() => "?").join(",");
+      const obs = memDb.prepare(
+        `SELECT id, title, detail FROM observations
+            WHERE session_id = ? AND expired_at IS NULL AND type IN (${placeholders})
+            ORDER BY created_at_epoch DESC LIMIT ?`
+      ).all(sessionId, ...cfg.gatedTypes, SWEEP_MAX_RECORDS);
+      for (const o of obs) {
+        if (Date.now() - start > overallBudget) break;
+        if (!stillLive("observations", o.id)) continue;
+        const res = await supersedeIfContradicted(memDb, null, {
+          text: `${o.title}
+${o.detail ?? ""}`.trim(),
+          source: "observation",
+          newId: o.id,
+          config: cfg,
+          nowEpochSec: opts?.nowEpochSec
+        });
+        if (res.superseded != null) count++;
+      }
+    }
+    const decs = memDb.prepare(
+      `SELECT id, title, decision FROM architecture_decisions
+          WHERE session_id = ? AND expired_at IS NULL ORDER BY id DESC LIMIT ?`
+    ).all(sessionId, SWEEP_MAX_RECORDS);
+    for (const d of decs) {
+      if (Date.now() - start > overallBudget) break;
+      if (!stillLive("architecture_decisions", d.id)) continue;
+      const res = await supersedeIfContradicted(memDb, null, {
+        text: `${d.title}
+${d.decision}`.trim(),
+        source: "architecture_decision",
+        newId: d.id,
+        config: cfg,
+        nowEpochSec: opts?.nowEpochSec
+      });
+      if (res.superseded != null) count++;
+    }
+  } catch {
+  }
+  return { superseded: count };
+}
+
+// src/memory-consolidate.ts
+init_memory_db();
+import { createHash as createHash3 } from "crypto";
+import { existsSync as existsSync9, mkdirSync as mkdirSync7, writeFileSync as writeFileSync4 } from "fs";
+import { join as join5 } from "path";
+
+// src/consolidation-config.ts
+init_config();
+var DEFAULT_CONSOLIDATION_CONFIG = {
+  enabled: true,
+  sessionSweepEnabled: true,
+  // llmEndpoint / llmModel deliberately UNSET: the shipped default is
+  // zero-LLM, zero-network, works offline on any machine.
+  summarizeAfterDays: 5,
+  // inside the 7-day conversation_turns prune window
+  retentionDays: 90,
+  importanceFloor: 2,
+  protectedTypes: ["decision", "cr_violation", "incident_near_miss"],
+  usageWarmupDays: 30,
+  usageDecay: 0.9,
+  reweightIntervalDays: 1,
+  promoteMinOccurrences: 3,
+  budgetMs: 3e3,
+  suggestUpgrades: true,
+  suggestIntervalDays: 30
+};
+function resolveConsolidationConfig() {
+  try {
+    const c = getConfig().memory?.consolidation;
+    if (!c) return { ...DEFAULT_CONSOLIDATION_CONFIG };
+    return { ...DEFAULT_CONSOLIDATION_CONFIG, ...c };
+  } catch {
+    return { ...DEFAULT_CONSOLIDATION_CONFIG };
+  }
+}
+
+// src/memory-llm.ts
+var LLM_API_KEY_ENV = "MASSU_MEMORY_LLM_API_KEY";
+var DEFAULT_BUDGET_MS = 2e4;
+var DEFAULT_MAX_CHARS = 900;
+var NOISE_PATTERNS = [
+  /<command-(name|message|args)>/i,
+  /<local-command-[^>]*>/i,
+  /^\s*<[a-z-]+>\s*$/i,
+  /^\s*(ok|okay|thanks|thank you|yes|no|yep|nope|sure|continue|proceed|go ahead)\s*[.!]?\s*$/i,
+  /^\s*\/[a-z-]+\s*$/i,
+  // a bare slash-command invocation
+  /system-reminder/i
+];
+function isSummarizableSignal(text) {
+  const t = text.trim();
+  if (t.length < 25) return false;
+  return !NOISE_PATTERNS.some((re) => re.test(t));
+}
+var CREDENTIAL_LABELS = ["api[_-]?key", "secret", "password", "token"];
+var LABELLED_CREDENTIAL = new RegExp(
+  `\\b[A-Za-z0-9_-]*(?:${CREDENTIAL_LABELS.join("|")})["'\\s:=]+[A-Za-z0-9_\\-/+]{16,}`,
+  "gi"
+);
+var SECRET_PATTERNS = [
+  [/\bms_live_[A-Za-z0-9_-]{6,}/g, "ms_live_[REDACTED]", "MASSU_LIVE_KEY"],
+  [/\bsk-[A-Za-z0-9_-]{16,}/g, "sk-[REDACTED]", "OPENAI_STYLE_KEY"],
+  [/\b(gh[pousr]|github_pat)_[A-Za-z0-9_]{16,}/g, "[REDACTED_TOKEN]", "GITHUB_TOKEN"],
+  [/\bsbp_[A-Za-z0-9]{16,}/g, "sbp_[REDACTED]", "SUPABASE_TOKEN"],
+  [/\bAKIA[0-9A-Z]{12,}/g, "[REDACTED_AWS_KEY]", "AWS_ACCESS_KEY"],
+  [
+    /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}/g,
+    "[REDACTED_JWT]",
+    "JWT"
+  ],
+  [LABELLED_CREDENTIAL, "[REDACTED_CREDENTIAL]", "LABELLED_CREDENTIAL"]
+];
+function redactSecrets(text) {
+  let out = text;
+  for (const [re, replacement] of SECRET_PATTERNS) out = out.replace(re, replacement);
+  return out;
+}
+function extractiveSummary(sources, maxChars = DEFAULT_MAX_CHARS) {
+  const cleaned = sources.map((s, i) => ({ ...s, i, text: s.text.replace(/\s+/g, " ").trim() })).filter((s) => isSummarizableSignal(s.text));
+  if (cleaned.length === 0) return "";
+  const ranked = [...cleaned].sort((a, b) => b.weight - a.weight || a.i - b.i);
+  const picked = [];
+  let used = 0;
+  for (const s of ranked) {
+    const cost = s.text.length + 1;
+    if (used + cost > maxChars) continue;
+    picked.push(s);
+    used += cost;
+  }
+  if (picked.length === 0) {
+    return ranked[0].text.slice(0, maxChars);
+  }
+  picked.sort((a, b) => a.i - b.i);
+  return picked.map((s) => s.text).join(" ");
+}
+async function summarizeViaEndpoint(endpoint, model, material, budgetMs, maxChars) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budgetMs);
+    const apiKey = process.env[LLM_API_KEY_ENV];
+    const headers = { "content-type": "application/json" };
+    if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
+    let resp;
+    try {
+      resp = await fetch(`${endpoint.replace(/\/+$/, "")}/v1/chat/completions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model,
+          // a NAME/ALIAS the user configured — never a physical model id
+          messages: [
+            {
+              role: "system",
+              content: "You distill a software engineering session into ONE durable lesson a developer will read months later. Be concrete and factual. State what broke, what was tried and rejected, and what actually worked. Invent nothing that is not in the input."
+            },
+            { role: "user", content: material }
+          ],
+          max_tokens: 400,
+          temperature: 0.2
+        }),
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const text = data.choices?.[0]?.message?.content;
+    if (typeof text !== "string" || !text.trim()) return null;
+    return text.trim().slice(0, maxChars);
+  } catch {
+    return null;
+  }
+}
+async function summarizeText(sources, opts = {}) {
+  const cfg = opts.config ?? resolveConsolidationConfig();
+  const maxChars = opts.maxChars ?? DEFAULT_MAX_CHARS;
+  const budgetMs = opts.budgetMs ?? DEFAULT_BUDGET_MS;
+  const extractive = extractiveSummary(sources, maxChars);
+  if (!cfg.llmEndpoint || !cfg.llmModel || !extractive) {
+    return { text: extractive, tier: "extractive" };
+  }
+  const material = redactSecrets(
+    sources.map((s) => s.text.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n")
+  );
+  const viaModel = await summarizeViaEndpoint(
+    cfg.llmEndpoint,
+    cfg.llmModel,
+    material,
+    budgetMs,
+    maxChars
+  );
+  return viaModel ? { text: viaModel, tier: "model" } : { text: extractive, tier: "extractive" };
+}
+
+// src/memory-consolidate.ts
+init_memory_embedder();
+init_memory_vector();
+var LEASE_KEY = "consolidate_lease";
+var DEDUPE_CURSOR = "consolidate_cursor_dedupe";
+var MAX_ROWS_PER_STAGE = 500;
+function emptyResult() {
+  return {
+    deduped: 0,
+    summarized: 0,
+    promoted: 0,
+    reweighted: 0,
+    expired: 0,
+    sessionsMissed: 0,
+    candidatesRefusedByTier: 0,
+    embedderUnavailable: false,
+    summaryTier: null,
+    stagesRun: [],
+    stagesFailed: [],
+    warmingUp: false
+  };
+}
+function acquireLease(db, now, ttlSec) {
+  const raw = getMemoryMeta(db, LEASE_KEY);
+  if (raw) {
+    const expiry = Number(raw.split(":")[1]);
+    if (Number.isFinite(expiry) && expiry > now) return false;
+  }
+  setMemoryMeta(db, LEASE_KEY, `${process.pid}:${now + ttlSec}`);
+  return true;
+}
+function releaseLease(db) {
+  try {
+    setMemoryMeta(db, LEASE_KEY, "");
+  } catch {
+  }
+}
+async function stageDedupe(db, cfg, deadline, now) {
+  const gated = ["decision", "cr_violation", "failed_attempt"];
+  const cursor = Number(getMemoryMeta(db, DEDUPE_CURSOR) ?? "0") || 0;
+  const rows = db.prepare(
+    `SELECT id, title, detail FROM observations
+        WHERE expired_at IS NULL AND id > ?
+          AND type IN (${gated.map(() => "?").join(",")})
+          AND title NOT LIKE ?
+        ORDER BY id ASC LIMIT ?`
+  ).all(cursor, ...gated, MEMORY_FILE_TITLE_LIKE, MAX_ROWS_PER_STAGE);
+  if (rows.length === 0) {
+    setMemoryMeta(db, DEDUPE_CURSOR, "0");
+    return 0;
+  }
+  let deduped = 0;
+  for (const r of rows) {
+    if (Date.now() > deadline) break;
+    const live = db.prepare(`SELECT expired_at FROM observations WHERE id = ?`).get(r.id);
+    if (!live || live.expired_at != null) continue;
+    const res = await supersedeIfContradicted(db, null, {
+      text: `${r.title}
+${r.detail ?? ""}`.trim(),
+      source: "observation",
+      newId: r.id,
+      nowEpochSec: now
+    });
+    if (res.superseded != null) deduped++;
+    setMemoryMeta(db, DEDUPE_CURSOR, String(r.id));
+  }
+  return deduped;
+}
+async function stageSummarize(db, cfg, deadline, now) {
+  const cutoff = now - cfg.summarizeAfterDays * 86400;
+  const sessions = db.prepare(
+    `SELECT s.session_id AS sid,
+              (SELECT MAX(t.created_at_epoch) FROM conversation_turns t
+                WHERE t.session_id = s.session_id) AS newest_turn
+         FROM sessions s
+        WHERE s.consolidated_at IS NULL
+        ORDER BY s.session_id ASC
+        LIMIT ?`
+  ).all(MAX_ROWS_PER_STAGE);
+  let summarized = 0;
+  let sessionsMissed = 0;
+  let tier = null;
+  const stamp = db.prepare(
+    `UPDATE sessions
+        SET consolidated_at = ?, consolidated_at_epoch = ?, consolidated_status = ?
+      WHERE session_id = ?`
+  );
+  const iso = new Date(now * 1e3).toISOString();
+  for (const s of sessions) {
+    if (Date.now() > deadline) break;
+    if (s.newest_turn == null) {
+      stamp.run(iso, now, "no_turns", s.sid);
+      sessionsMissed++;
+      continue;
+    }
+    if (s.newest_turn > cutoff) continue;
+    const obs = db.prepare(
+      `SELECT type, title, detail, importance FROM observations
+          WHERE session_id = ? AND expired_at IS NULL
+            AND COALESCE(evidence,'') != ?
+          ORDER BY importance DESC LIMIT 40`
+    ).all(s.sid, CONSOLIDATION_LESSON_EVIDENCE);
+    const sources = obs.map((o) => ({
+      text: redactSecrets(`${o.type}: ${o.title}${o.detail ? ` \u2014 ${o.detail}` : ""}`),
+      weight: o.importance
+    }));
+    const summary = sources.length > 0 ? await summarizeText(sources, { config: cfg }) : null;
+    if (summary) tier = summary.tier;
+    if (!summary || !summary.text) {
+      stamp.run(iso, now, "no_signal", s.sid);
+      continue;
+    }
+    addObservation(
+      db,
+      s.sid,
+      "discovery",
+      `Session lesson: ${s.sid.slice(0, 8)}`,
+      redactSecrets(summary.text),
+      // also redact model output — it echoes its input
+      { importance: 4, evidence: CONSOLIDATION_LESSON_EVIDENCE }
+    );
+    stamp.run(iso, now, "summarized", s.sid);
+    summarized++;
+  }
+  return { summarized, sessionsMissed, tier };
+}
+async function stagePromote(db, cfg, projectRoot, deadline, now, dryRun) {
+  const tier = getCachedTierReadOnly(db);
+  if (!entitledForAutoLearning(tier)) {
+    const wouldHave = db.prepare(
+      `SELECT COUNT(*) AS n FROM observations
+          WHERE type IN ('cr_violation','failed_attempt') AND recurrence_count >= ?`
+    ).get(cfg.promoteMinOccurrences);
+    return { promoted: 0, refusedByTier: wouldHave.n, embedderUnavailable: false };
+  }
+  const rows = db.prepare(
+    `SELECT id, title, detail, session_id, recurrence_count FROM observations
+        WHERE type IN ('cr_violation','failed_attempt')
+        ORDER BY id DESC LIMIT ?`
+  ).all(MAX_ROWS_PER_STAGE);
+  if (rows.length === 0) return { promoted: 0, refusedByTier: 0, embedderUnavailable: false };
+  const vecs = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    if (Date.now() > deadline) break;
+    const v = await embed(`${r.title}
+${r.detail ?? ""}`.trim());
+    if (v) vecs.set(r.id, v);
+  }
+  if (vecs.size === 0) {
+    return { promoted: 0, refusedByTier: 0, embedderUnavailable: true };
+  }
+  const CLUSTER_THRESHOLD = 0.8;
+  const used = /* @__PURE__ */ new Set();
+  const clusters = [];
+  for (const r of rows) {
+    if (used.has(r.id) || !vecs.has(r.id)) continue;
+    const cluster = [r];
+    used.add(r.id);
+    for (const other of rows) {
+      if (used.has(other.id) || !vecs.has(other.id)) continue;
+      if (cosineSim(vecs.get(r.id), vecs.get(other.id)) >= CLUSTER_THRESHOLD) {
+        cluster.push(other);
+        used.add(other.id);
+      }
+    }
+    clusters.push(cluster);
+  }
+  const candidateDir = join5(projectRoot, ".massu", "rule-candidates");
+  let promoted = 0;
+  for (const cluster of clusters) {
+    const occurrences = cluster.reduce((n, c) => n + (c.recurrence_count || 1), 0);
+    const sessions = new Set(cluster.map((c) => c.session_id));
+    if (occurrences < cfg.promoteMinOccurrences || sessions.size < 2) continue;
+    const representative = [...cluster].sort(
+      (a, b) => (b.recurrence_count || 1) - (a.recurrence_count || 1)
+    )[0];
+    const promptText = `${representative.title}${representative.detail ? `
+${representative.detail}` : ""}`;
+    const clusterKey = cluster.map((c) => c.title.toLowerCase().replace(/\s+/g, " ").trim()).sort().join("|");
+    const promptHash = createHash3("sha256").update(clusterKey).digest("hex").slice(0, 16);
+    const candidatePath = join5(candidateDir, `${promptHash}.json`);
+    if (existsSync9(candidatePath)) continue;
+    if (dryRun) {
+      promoted++;
+      continue;
+    }
+    mkdirSync7(candidateDir, { recursive: true });
+    writeFileSync4(
+      candidatePath,
+      JSON.stringify(
+        {
+          prompt: promptText,
+          prompt_hash: promptHash,
+          score: Math.min(100, 60 + occurrences * 5 + sessions.size * 5),
+          signals: [
+            {
+              type: "consolidation-cluster",
+              occurrences,
+              sessions: sessions.size,
+              detail: `This correction has recurred ${occurrences}x across ${sessions.size} sessions.`
+            }
+          ],
+          prior_turn_files: [],
+          timestamp: new Date(now * 1e3).toISOString(),
+          session_id: representative.session_id,
+          // Marks this as machine-clustered, so /massu-rule can label it and
+          // does not re-classify it as an ordinary per-prompt local candidate.
+          provenance: { origin: "consolidation" }
+        },
+        null,
+        2
+      )
+    );
+    promoted++;
+  }
+  return { promoted, refusedByTier: 0, embedderUnavailable: false };
+}
+function stageReweight(db, cfg, now) {
+  const staleCutoff = now - cfg.retentionDays * 86400;
+  const reweightCutoff = now - cfg.reweightIntervalDays * 86400;
+  db.prepare(`UPDATE memory_usage SET hits_windowed = hits_windowed * ?`).run(cfg.usageDecay);
+  let changed = 0;
+  const promote = db.prepare(
+    `SELECT u.record_id AS id FROM memory_usage u
+         JOIN observations o ON o.id = u.record_id
+        WHERE u.source = 'observation'
+          AND u.hits_windowed >= 2
+          AND o.importance < 5
+          AND o.expired_at IS NULL
+          AND (u.last_reweight_epoch IS NULL OR u.last_reweight_epoch <= ?)
+        LIMIT ?`
+  ).all(reweightCutoff, MAX_ROWS_PER_STAGE);
+  const demote = db.prepare(
+    `SELECT o.id AS id FROM observations o
+         LEFT JOIN memory_usage u
+           ON u.source = 'observation' AND u.record_id = o.id
+        WHERE o.expired_at IS NULL
+          AND o.created_at_epoch < ?
+          AND o.importance > 1
+          AND COALESCE(o.evidence,'') != ?
+          AND o.title NOT LIKE ?
+          AND COALESCE(u.hit_count, 0) = 0
+          AND (u.last_reweight_epoch IS NULL OR u.last_reweight_epoch <= ?)
+        LIMIT ?`
+  ).all(
+    staleCutoff,
+    CONSOLIDATION_LESSON_EVIDENCE,
+    MEMORY_FILE_TITLE_LIKE,
+    reweightCutoff,
+    MAX_ROWS_PER_STAGE
+  );
+  const bump = db.prepare(`UPDATE observations SET importance = importance + 1 WHERE id = ?`);
+  const drop = db.prepare(`UPDATE observations SET importance = importance - 1 WHERE id = ?`);
+  const mark = db.prepare(
+    `INSERT INTO memory_usage (source, record_id, hit_count, hits_windowed, last_reweight_epoch)
+     VALUES ('observation', ?, 0, 0, ?)
+     ON CONFLICT(source, record_id) DO UPDATE SET last_reweight_epoch = excluded.last_reweight_epoch`
+  );
+  const tx = db.transaction(() => {
+    for (const r of promote) {
+      bump.run(r.id);
+      mark.run(r.id, now);
+      changed++;
+    }
+    for (const r of demote) {
+      drop.run(r.id);
+      mark.run(r.id, now);
+      changed++;
+    }
+  });
+  tx();
+  return changed;
+}
+async function runConsolidation(db, opts = {}) {
+  const cfg = opts.config ?? resolveConsolidationConfig();
+  const result = emptyResult();
+  if (!cfg.enabled) return { ...result, skipped: "disabled" };
+  const now = opts.nowEpochSec ?? Math.floor(Date.now() / 1e3);
+  const budgetMs = opts.budgetMs ?? 6e4;
+  const deadline = Date.now() + budgetMs;
+  const dryRun = opts.dryRun === true;
+  const projectRoot = opts.projectRoot ?? process.cwd();
+  if (!dryRun) armUsageCounter(db, now);
+  result.warmingUp = !usageWarmupElapsed(db, cfg.usageWarmupDays, now);
+  if (!dryRun && !acquireLease(db, now, Math.ceil(budgetMs * 2 / 1e3))) {
+    return { ...result, skipped: "lease-held" };
+  }
+  try {
+    try {
+      result.deduped = await stageDedupe(db, cfg, deadline, now);
+      result.stagesRun.push("dedupe");
+    } catch {
+      result.stagesFailed.push("dedupe");
+    }
+    try {
+      if (!dryRun) {
+        const s = await stageSummarize(db, cfg, deadline, now);
+        result.summarized = s.summarized;
+        result.sessionsMissed = s.sessionsMissed;
+        result.summaryTier = s.tier;
+      }
+      result.stagesRun.push("summarize");
+    } catch {
+      result.stagesFailed.push("summarize");
+    }
+    try {
+      const p = await stagePromote(db, cfg, projectRoot, deadline, now, dryRun);
+      result.promoted = p.promoted;
+      result.candidatesRefusedByTier = p.refusedByTier;
+      result.embedderUnavailable = p.embedderUnavailable;
+      result.stagesRun.push("promote");
+    } catch {
+      result.stagesFailed.push("promote");
+    }
+    try {
+      if (!dryRun) {
+        result.expired = expireOldLowValueObservations(db, {
+          retentionDays: cfg.retentionDays,
+          importanceFloor: cfg.importanceFloor,
+          protectedTypes: cfg.protectedTypes,
+          usageWarmupDays: cfg.usageWarmupDays,
+          reweightIntervalDays: cfg.reweightIntervalDays,
+          nowEpochSec: now
+        });
+      }
+      result.stagesRun.push("expire");
+    } catch {
+      result.stagesFailed.push("expire");
+    }
+    try {
+      if (!dryRun) result.reweighted = stageReweight(db, cfg, now);
+      result.stagesRun.push("reweight");
+    } catch {
+      result.stagesFailed.push("reweight");
+    }
+  } finally {
+    if (!dryRun) releaseLease(db);
+  }
+  return result;
+}
+
 // src/hooks/session-end.ts
+init_hook_failure_signal();
 async function main() {
   try {
     const input = await readStdin();
     const hookInput = JSON.parse(input);
-    const { session_id } = hookInput;
+    const { session_id, cwd } = hookInput;
     const db = getMemoryDb();
     try {
       createSession(db, session_id);
@@ -2718,6 +5669,25 @@ async function main() {
         analyzeSessionPrompts(db, session_id);
       } catch (_promptErr) {
       }
+      try {
+        await embedMissingObservations(db, { budgetMs: 3e3 });
+      } catch (_embedErr) {
+      }
+      try {
+        await runSessionSupersedeSweep(db, session_id, { budgetMs: 4e3 });
+      } catch (_supersedeErr) {
+      }
+      try {
+        const consolidationCfg = resolveConsolidationConfig();
+        if (consolidationCfg.enabled && consolidationCfg.sessionSweepEnabled) {
+          await runConsolidation(db, {
+            config: consolidationCfg,
+            budgetMs: consolidationCfg.budgetMs,
+            projectRoot: cwd
+          });
+        }
+      } catch (_consolidateErr) {
+      }
       endSession(db, session_id, "completed");
       archiveAndRegenerate(db, session_id);
       try {
@@ -2735,7 +5705,8 @@ async function main() {
     } finally {
       db.close();
     }
-  } catch (_e) {
+  } catch (err) {
+    recordHookFailure("session-end", err);
   }
   process.exit(0);
 }
@@ -2990,14 +5961,14 @@ function extractFilesFromToolCall(toolName, input) {
   return [];
 }
 function readStdin() {
-  return new Promise((resolve5) => {
+  return new Promise((resolve6) => {
     let data = "";
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (chunk) => {
       data += chunk;
     });
-    process.stdin.on("end", () => resolve5(data));
-    setTimeout(() => resolve5(data), 5e3);
+    process.stdin.on("end", () => resolve6(data));
+    setTimeout(() => resolve6(data), 5e3);
   });
 }
 main();

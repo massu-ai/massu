@@ -1,5 +1,7 @@
 # Pattern Quick Reference
 
+> **Verification laws apply.** Read `.claude/commands/_verification-laws.md` — CR-64 (a gate must prove it can fail), CR-65 (broken and empty may never render identically), and: an audit that does not run commands is not an audit.
+
 **Purpose**: Condensed pattern reference. Full patterns with code examples in `patterns/*.md`.
 
 **When to Read**: Quick lookup during implementation. For full details, read the linked pattern file.

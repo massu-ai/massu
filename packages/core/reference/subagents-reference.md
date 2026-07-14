@@ -1,5 +1,7 @@
 # Subagent Reference
 
+> **Verification laws apply.** Read `.claude/commands/_verification-laws.md` — CR-64 (a gate must prove it can fail), CR-65 (broken and empty may never render identically), and: an audit that does not run commands is not an audit.
+
 **Subagents**: Use the Task tool for spawning agents. **One task per agent** (Principle #20). Use for exploration to keep main context clean.
 
 | Agent | Focus | Trigger |

@@ -1,5 +1,7 @@
 # Hook Execution Order Reference
 
+> **Verification laws apply.** Read `.claude/commands/_verification-laws.md` — CR-64 (a gate must prove it can fail), CR-65 (broken and empty may never render identically), and: an audit that does not run commands is not an audit.
+
 **Purpose**: Authoritative reference for hook execution ordering across all event types in `.claude/settings.json`.
 
 **Scope**: Project hooks only (`.claude/settings.json`). User hooks (`~/.claude/settings.json`) run in a separate pipeline and are not covered here.

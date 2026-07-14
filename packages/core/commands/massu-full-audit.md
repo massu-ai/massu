@@ -1,3 +1,5 @@
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding — including **THE VERIFICATION LAWS** (CR-64: a gate must prove it can fail; CR-65: broken and empty may never render identically; an audit that does not run commands is not an audit).
+
 name: massu-full-audit
 
 # Massu Full Audit

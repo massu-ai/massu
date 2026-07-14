@@ -1,5 +1,7 @@
 # Tool Routing Patterns
 
+> **Verification laws apply.** Read `.claude/commands/_verification-laws.md` — CR-64 (a gate must prove it can fail), CR-65 (broken and empty may never render identically), and: an audit that does not run commands is not an audit.
+
 **Purpose**: Decision trees for selecting the correct tool/MCP for browser automation, Google services, and code search.
 
 **When to Read**: Before using any browser automation, Google service, or code search tool.

@@ -1,5 +1,7 @@
 # VR-VISUAL Calibration Examples
 
+> **Verification laws apply.** Read `.claude/commands/_verification-laws.md` — CR-64 (a gate must prove it can fail), CR-65 (broken and empty may never render identically), and: an audit that does not run commands is not an audit.
+
 > Reference doc for VR-VISUAL 4-dimension weighted scoring.
 > Used by `scripts/ui-review.sh` and golden-path Phase 2.5 gap analysis.
 

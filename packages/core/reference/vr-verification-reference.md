@@ -1,5 +1,7 @@
 # VR-* Verification Reference
 
+> **Verification laws apply.** Read `.claude/commands/_verification-laws.md` — CR-64 (a gate must prove it can fail), CR-65 (broken and empty may never render identically), and: an audit that does not run commands is not an audit.
+
 **Purpose**: Master reference for ALL verification types used across massu commands. Every verification prevents a specific class of bugs from reaching production.
 
 **When to Read**: Before claiming ANY work is complete. During massu command execution. After any audit failure.

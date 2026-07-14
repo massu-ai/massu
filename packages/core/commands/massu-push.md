@@ -3,6 +3,8 @@ name: massu-push
 description: "When user says 'push', 'push to remote', 'deploy', or wants to push committed changes to the remote repository"
 allowed-tools: Bash(*), Read(*), Edit(*), Write(*), Grep(*), Glob(*)
 ---
+
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding — including **THE VERIFICATION LAWS** (CR-64: a gate must prove it can fail; CR-65: broken and empty may never render identically; an audit that does not run commands is not an audit).
 name: massu-push
 
 # Massu Push: Verify, Push, Monitor CI

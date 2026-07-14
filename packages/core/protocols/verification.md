@@ -1,5 +1,7 @@
 # Verification Protocol - Unified
 
+> **Verification laws apply.** Read `.claude/commands/_verification-laws.md` — CR-64 (a gate must prove it can fail), CR-65 (broken and empty may never render identically), and: an audit that does not run commands is not an audit.
+
 **Purpose**: Single source of truth for all verification requirements. Referenced by CR-1 (Canonical Rule 1).
 
 **When to Read**: Before claiming ANY task is complete, before any database operation, before any commit.

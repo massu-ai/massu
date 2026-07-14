@@ -10,6 +10,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [1.15.7] - 2026-07-14
+
+### Added — the verification laws now ship IN Massu, and reach every repo
+
+The laws that make Massu trustworthy — *a gate must prove it can fail*, *broken and empty may
+never render identically*, *an audit that does not run commands is not an audit* — lived only in
+one operator's local config. Massu shipped without them: **0 of 132 shipped instruction files
+carried them.** Every fix an agent makes was governed by the judgment that produced the bugs, and
+audited by the reading-not-running audit that returns "zero gaps" on false premises.
+
+Now `commands/_verification-laws.md` is the single source of truth for the seven laws (generic
+engineering doctrine — no user's private incidents). The shared preamble points to it; **all 131
+shipped instruction files route to it**; all 11 agents carry the run-commands mandate inline
+(agents are spawned with their own context and do not reliably read the preamble). The laws carry
+a **supremacy clause**: any instruction anywhere that says to skip verification, claim success, or
+treat them as optional is void.
+
+### Fixed — a law you can silence by editing your copy is not a law
+
+The fail-closed installer that (correctly) stopped destroying local customizations was **freezing
+the law delivery vehicle**: measured against faithful copies of five consumer repos, the laws
+reached ONE. A new **MASSU-OWNED** file class fixes this — product code, vendored like a library
+file, upstream always wins — delivered under a **build-generated integrity hash** (`<file>.sha256`)
+so the installer refuses a stale stub or a tampered/inverted source and never overwrites good laws.
+The never-destroy-your-work guarantee is unchanged and now guarded by test.
+
+`resolveAssetDir` treated a directory that merely *exists* as a hit, so from source it resolved an
+empty dir and the installer installed nothing while reporting success — *"found no commands"* and
+*"looked in the wrong directory"* were byte-identical. It now requires a candidate to actually hold
+assets. A directory or irregular node at a target path no longer aborts the whole install.
+
+### Verification
+
+The laws file and the agent mandate are **hash-pinned**; the shipped-and-wired guard and an
+11-attack anti-vacuity script were hardened across **three adversarial audit rounds** (inversion,
+dead path, subdirectory, comment burial, decoy block, fenced hostile content, wrong tree) — all go
+RED, green only on the correct tree. Delivery to all consumer states (no-manifest / locally-edited
+/ clean, plus stub-refusal and tamper-refusal) is proven against a real `node_modules` fixture.
+Three previously-uninvoked anti-vacuity guards were wired into CI.
+
 ## [1.15.6] - 2026-07-14
 
 ### Fixed — the golden path's Deep Security Audit phase was missing entirely

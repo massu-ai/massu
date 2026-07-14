@@ -1,5 +1,7 @@
 # Approval Points
 
+> **Verification laws apply.** Read `.claude/commands/_verification-laws.md` — CR-64 (a gate must prove it can fail), CR-65 (broken and empty may never render identically), and: an audit that does not run commands is not an audit.
+
 > Reference doc for `/massu-golden-path`. Return to main file for overview.
 
 There are exactly 4 approval points (5 when using `--competitive` mode) where the golden path pauses for user input. Everything else runs automatically.

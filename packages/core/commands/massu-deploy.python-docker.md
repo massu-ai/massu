@@ -4,6 +4,8 @@ description: "Deploy a containerized Python service via docker compose — force
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding — including **THE VERIFICATION LAWS** (CR-64: a gate must prove it can fail; CR-65: broken and empty may never render identically; an audit that does not run commands is not an audit).
+
 # Massu Deploy: Python Service — Docker Compose
 
 Force-recreates the Docker container for a Python service using `docker compose`. Use this variant when your service is containerized and `massu.config.yaml` declares `config.python.service_label` matching the compose service name.

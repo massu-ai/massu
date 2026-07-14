@@ -1,5 +1,7 @@
 # Security Patterns
 
+> **Verification laws apply.** Read `.claude/commands/_verification-laws.md` — CR-64 (a gate must prove it can fail), CR-65 (broken and empty may never render identically), and: an audit that does not run commands is not an audit.
+
 **Purpose**: Security patterns for credential management, authentication, and code safety.
 
 **When to Read**: Before handling secrets, authentication, or security-sensitive code.

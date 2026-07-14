@@ -1,5 +1,7 @@
 # Integration Testing Checklist
 
+> **Verification laws apply.** Read `.claude/commands/_verification-laws.md` — CR-64 (a gate must prove it can fail), CR-65 (broken and empty may never render identically), and: an audit that does not run commands is not an audit.
+
 **Purpose**: Router contract verification, pre-test writing steps, test templates, common anti-patterns, prevention system.
 
 **When to Read**: Before writing integration tests.

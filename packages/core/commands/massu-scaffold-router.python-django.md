@@ -4,6 +4,8 @@ description: "Django-specific scaffold for {{paths.python_source | default("djan
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding — including **THE VERIFICATION LAWS** (CR-64: a gate must prove it can fail; CR-65: broken and empty may never render identically; an audit that does not run commands is not an audit).
+
 # Scaffold New Django View
 
 Creates Django views in `{{paths.python_source | default("django_app")}}` following the project's conventions. Covers function-based views (FBV), class-based views (CBV), and the corresponding `urls.py` registration. Auth guard uses `{{detected.python.auth_dep | default("login_required")}}`.

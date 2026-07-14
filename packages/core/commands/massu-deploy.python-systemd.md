@@ -4,6 +4,8 @@ description: "Deploy a Python service supervised by systemd (Linux) — restart 
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding — including **THE VERIFICATION LAWS** (CR-64: a gate must prove it can fail; CR-65: broken and empty may never render identically; an audit that does not run commands is not an audit).
+
 # Massu Deploy: Python Service — systemd (Linux)
 
 Restarts a Python service running under a `systemd --user` unit on Linux. Use this variant when your `massu.config.yaml` declares `config.python.service_label` and your host is Linux.

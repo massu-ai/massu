@@ -4,6 +4,8 @@ description: "Deploy a Python service to Fly.io — flyctl deploy, status check,
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding — including **THE VERIFICATION LAWS** (CR-64: a gate must prove it can fail; CR-65: broken and empty may never render identically; an audit that does not run commands is not an audit).
+
 # Massu Deploy: Python Service — Fly.io
 
 Deploys a Python service to Fly.io using `flyctl deploy`. Use this variant when your project targets Fly.io and has a `fly.toml` in the repository root. The app name comes from `fly.toml` (or `config.python.service_label` as a fallback).

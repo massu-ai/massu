@@ -4,6 +4,8 @@ description: "When user wants to create a new Claude Code hook — scaffolds the
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding — including **THE VERIFICATION LAWS** (CR-64: a gate must prove it can fail; CR-65: broken and empty may never render identically; an audit that does not run commands is not an audit).
+
 # Scaffold New Hook
 
 Creates a complete Claude Code hook following the 3-tier profile system.

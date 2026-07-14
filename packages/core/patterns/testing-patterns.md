@@ -1,5 +1,7 @@
 # Testing Patterns
 
+> **Verification laws apply.** Read `.claude/commands/_verification-laws.md` — CR-64 (a gate must prove it can fail), CR-65 (broken and empty may never render identically), and: an audit that does not run commands is not an audit.
+
 **Purpose**: Testing pyramid, patterns, and best practices for unit, integration, and E2E tests.
 
 **When to Read**: Before writing tests, setting up test infrastructure, or debugging test failures.

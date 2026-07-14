@@ -1,5 +1,7 @@
 # Component Patterns
 
+> **Verification laws apply.** Read `.claude/commands/_verification-laws.md` — CR-64 (a gate must prove it can fail), CR-65 (broken and empty may never render identically), and: an audit that does not run commands is not an audit.
+
 **Purpose**: Standard patterns for UI components, forms, search inputs, and common interactive elements.
 
 **When to Read**: Before creating or modifying UI components.

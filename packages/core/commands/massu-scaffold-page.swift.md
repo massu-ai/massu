@@ -4,6 +4,8 @@ description: "When user wants to create a new view, screen, or page in a SwiftUI
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*)
 ---
 
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding — including **THE VERIFICATION LAWS** (CR-64: a gate must prove it can fail; CR-65: broken and empty may never render identically; an audit that does not run commands is not an audit).
+
 # Scaffold New SwiftUI View
 
 Creates a SwiftUI View + `@MainActor` ViewModel + Decodable response model. Suitable for iOS, visionOS, or any cross-platform SwiftUI target.

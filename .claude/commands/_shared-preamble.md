@@ -28,6 +28,27 @@ This applies universally to:
 
 **"Clean pass" means ZERO findings at ALL severity levels.** Declaring completion with unfixed LOW/MEDIUM findings is a protocol violation.
 
+---
+
+## ⛔ THE VERIFICATION LAWS — MANDATORY, READ THEM
+
+**Read `.claude/commands/_verification-laws.md` before you claim anything.** It is the single
+source of truth for the seven laws that decide whether any claim you make is admissible:
+
+| Law | In one line |
+|---|---|
+| **CR-64** | **A gate must prove it can fail.** A gate never seen to go RED is decoration. *Deletion must go red.* |
+| **CR-65** | **Broken and empty may never render identically.** Cannot-see is not nothing-found. Fail LOUD or fail CLOSED. |
+| — | **An audit that does not run commands is not an audit.** `file:line` + pasted output, or it is not a finding. |
+| — | **A universal claim requires a DISCOVERED candidate set.** A hand-typed list is your memory wearing a script's clothes. |
+| — | **A guard is not proven until you have tried to DEFEAT it.** A regression test cannot find a false negative. |
+| — | **You cannot be the sole verifier of your own artifact.** Spawn reviewers that RUN COMMANDS. |
+| — | **Never write a measured number from a description.** Re-run it or delete it. |
+
+**Everything was tested. Nothing was verified.** That sentence is why these exist.
+
+---
+
 ## ENTERPRISE-GRADE SOLUTIONS ONLY (CR-14)
 
 All work MUST be enterprise-grade: production-ready, permanent, professional. No temporary fixes, workarounds, or "quick fixes". If a proper solution requires more work, do that work.

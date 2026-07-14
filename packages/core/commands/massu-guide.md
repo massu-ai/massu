@@ -3,6 +3,8 @@ name: massu-guide
 description: "When a new user or contributor asks 'how does this work', 'give me a tour', 'onboarding', or needs an interactive walkthrough of the codebase"
 allowed-tools: Bash(*), Read(*), Grep(*), Glob(*)
 ---
+
+> **Shared rules apply.** Read `.claude/commands/_shared-preamble.md` before proceeding — including **THE VERIFICATION LAWS** (CR-64: a gate must prove it can fail; CR-65: broken and empty may never render identically; an audit that does not run commands is not an audit).
 name: massu-guide
 
 # Massu Guide: Codebase Onboarding Walkthrough

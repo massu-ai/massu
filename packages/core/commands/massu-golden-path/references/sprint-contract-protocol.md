@@ -1,5 +1,7 @@
 # Sprint Contract Protocol
 
+> **Verification laws apply.** Read `.claude/commands/_verification-laws.md` — CR-64 (a gate must prove it can fail), CR-65 (broken and empty may never render identically), and: an audit that does not run commands is not an audit.
+
 > Reference doc for `/massu-golden-path` Phase 2A.5. Return to `phase-2-implementation.md` for full Phase 2.
 
 ## What Is a Sprint Contract?

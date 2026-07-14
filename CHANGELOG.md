@@ -10,6 +10,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [1.15.4] - 2026-07-13
+
+### Security
+
+- **Test fixtures are now synthetic.** Five config-migration fixtures were snapshots of real
+  private repositories, carrying their project names, stacks and custom verification-type names
+  into this package. They are replaced with invented projects, and each fixture directory is now
+  named for the migration SCENARIO it pins (`multi-runtime-fastapi-next`, `invalid-router-enum`,
+  `twelve-key-passthrough`, …) rather than for a repo it was copied from. A fixture that is a copy
+  of a real repository is a leak with a test around it.
+- **CI conditions no longer name a private repository or a maintainer account.** Job gates now
+  match positively on the public repo (`github.repository == 'massu-ai/massu'`) instead of matching
+  negatively against a private upstream. Same behaviour; nothing private in the expression.
+- **Docs reference the maintainer by role, not by personal account.**
+- **`prepublish-check.sh` now enumerates every GitHub URL in `package.json`** and requires each to
+  point at `massu-ai/massu`, replacing a check that grepped for one hardcoded legacy owner slug.
+  Strictly stronger: it catches any wrong owner, not only the one that was remembered.
+
+No functional or API changes. Every one of these is a docs/fixture/CI-metadata change.
+
 ## [1.15.3] - 2026-07-06
 
 **`massu login` hung forever in non-interactive shells (CI / scripts / agents) with `MASSU_API_KEY` set** (`plan-2026-07-06-login-noninteractive-env-hang`). `runLogin()` never read the `MASSU_API_KEY` environment variable and then read a non-TTY stdin unbounded (`for await … process.stdin`, blocking on an EOF that never arrives on an idle non-TTY stdin), so the documented, non-exposing scripted path (`MASSU_API_KEY=<key> massu login`) blocked indefinitely — the only working non-interactive path was `--key`, which leaks the key to shell history. Patch per semver: a bug fix with no API change, scoped entirely to the `login` command. Incident #1.

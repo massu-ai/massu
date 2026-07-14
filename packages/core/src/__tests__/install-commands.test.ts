@@ -419,12 +419,38 @@ describe('manifest — MANIFEST-01..08', () => {
 
       // Edited file content preserved.
       expect(readFileSync(resolve(targetDir, 'edited.md'), 'utf-8')).toBe('user-edited-v0');
-      // Manifest seeded with EXISTING hash for kept and source hash for skipped.
-      expect(manifest.entries['commands/edited.md']).toBe(hashContent('user-edited-v0'));
+
+      // ─── ASSERTION INVERTED 2026-07-14 — this test was PROTECTING THE BUG ───────────────
+      //
+      // It used to read:
+      //     expect(manifest.entries['commands/edited.md']).toBe(hashContent('user-edited-v0'));
+      // with the comment "Manifest seeded with EXISTING hash for kept". That is the fail-open,
+      // codified as correct: the installer recording the hash of a file IT DID NOT WRITE.
+      //
+      // The manifest means "this is the hash of what massu installed". Seeding it with the USER'S
+      // hash makes the next run's safe-upgrade branch fire (existingHash === lastInstalledHash)
+      // and OVERWRITE the user's work. Run 1 arms it; run 2 detonates it. Measured against a real
+      // repo: 36 files of local work destroyed on the second install, reported as success.
+      //
+      // The test agreed with the code because both were written from the same wrong assumption —
+      // which is precisely why it stayed green for the bug's entire lifetime.
+      //
+      // CORRECT: a KEPT file (massu cannot prove it wrote it) gets NO manifest entry at all, so
+      // the ambiguity is re-detected on every run and the file is kept forever.
+      expect(manifest.entries['commands/edited.md']).toBeUndefined();
+
+      // A file byte-identical to upstream is a different case: massu can honestly claim those
+      // bytes, because they ARE its bytes. Recording it is correct.
       expect(manifest.entries['commands/identical.md']).toBe(hashContent('same'));
 
       const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
-      expect(stderrText).toMatch(/First-install heuristic/);
+      // The notice no longer calls itself a "heuristic" — it was renamed when the branch was made
+      // fail-closed. A heuristic guesses; this branch now refuses to. It must also tell the user
+      // the file will be kept on EVERY future install, because that is the new (deliberate)
+      // consequence: no provenance means the file freezes rather than being silently overwritten.
+      expect(stderrText).toMatch(/First-install: keeping existing/);
+      expect(stderrText).toMatch(/massu has no record of writing it/);
+      expect(stderrText).toMatch(/kept on every future install/);
     } finally {
       stderrSpy.mockRestore();
     }

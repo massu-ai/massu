@@ -1607,7 +1607,21 @@ fi
 # CR-61's three-layer enforcement — the drift-guard tests are layer 1, the single
 # shared MEMORY_FILE_TITLE_LIKE chokepoint is layer 3.
 echo "Check 40: Memory integrity invariants (CR-61)"
-CORE_SRC="packages/core/src"
+# ABSOLUTE, anchored to the script's own repo root — like every other check in this file.
+#
+# This was `packages/core/src`, a RELATIVE path, and it only ever worked because the scanner
+# happened to be invoked from the repo root. `npm` runs `prepublishOnly` with the cwd set to
+# `packages/core/`, so `prepublish-check.sh`'s Check 5 — which exists precisely to run this
+# scanner before a publish — invoked it from the wrong directory. Every one of Check 40's file
+# probes then read a path that does not exist, every probe "failed", and the publish aborted with
+# a wall of violations that were not real.
+#
+# Note the shape of it: a check that is GREEN from one directory and RED from another is not
+# checking the code, it is checking the cwd. Had the paths resolved to something that existed but
+# was wrong, it would have failed the other way — green while checking nothing — which is the
+# exact failure class this whole session has been chasing. Anchor the path; do not rely on where
+# the caller happened to stand.
+CORE_SRC="$REPO_ROOT/packages/core/src"
 CHECK40_VIOLATIONS=0
 c40fail() { fail "$1"; CHECK40_VIOLATIONS=$((CHECK40_VIOLATIONS + 1)); }
 

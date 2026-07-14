@@ -435,11 +435,42 @@ export function syncDirectory(
       }
 
       if (lastInstalledHash === undefined) {
-        // First-install ambiguity: file exists but no manifest entry.
-        // Treat as user-edited: keep, record existing hash, print one-line notice.
-        manifest.entries[manifestKey] = existingHash;
+        // ─── FIRST-INSTALL AMBIGUITY — FAIL CLOSED ───────────────────────────────────────
+        //
+        // The file exists, differs from upstream, and there is NO manifest entry. So we do not
+        // know who wrote it: massu (from a version predating the manifest) or a human.
+        //
+        // KEEP IT — and record NOTHING.
+        //
+        // This branch used to do `manifest.entries[manifestKey] = existingHash`, i.e. record the
+        // hash of a file it DID NOT WRITE. The manifest's entire meaning is "this is the hash of
+        // what massu installed"; that line wrote a LIE into it. On the NEXT run the safe-upgrade
+        // branch below read the lie back — `existingHash === lastInstalledHash` — concluded the
+        // file was untouched since massu wrote it, and OVERWROTE the user's work.
+        //
+        // RUN 1 ARMED IT. RUN 2 DETONATED IT. Measured with the real installer against a scratch
+        // copy of a real repo: run 1 reported "36 kept (local edits)", run 2 reported
+        // "36 updated" — 36 files of local work destroyed, silently, reported as success.
+        //
+        // It was a FAIL-OPEN inside a branch whose own comment announced it was handling
+        // AMBIGUITY. Asked "who wrote this?", the installer answered "massu, probably" and took
+        // the destructive action. The only safe answer to not knowing is to write nothing: the
+        // ambiguity is then re-detected on every subsequent run, and the file is kept on every
+        // subsequent run — forever, idempotently.
+        //
+        // THE DELIBERATE CONSEQUENCE: a customized file with no provenance FREEZES. Upstream's
+        // improvements will not reach it until either (a) a real three-way merge exists, or
+        // (b) the user explicitly runs `rm <file> && massu install-commands`. It is stale, and it
+        // is SAFE. Between "stale" and "your work is silently deleted", the operator's binding
+        // rule — "never delete YOUR customizations; upstream may change its own content" —
+        // chooses stale, every time.
+        //
+        // Guarded by: src/__tests__/install-commands-never-destroys-local-edits.test.ts
+        // (FAILOPEN-01..07), which is RED against the previous behaviour.
         process.stderr.write(
-          `First-install heuristic: keeping existing ${targetPath} (differs from upstream).\n` +
+          `First-install: keeping existing ${targetPath} (differs from upstream, and massu has ` +
+            `no record of writing it).\n` +
+            `  It will be kept on every future install until you resolve it explicitly.\n` +
             `  To accept upstream: rm ${targetPath} && npx massu install-commands\n`,
         );
         stats.kept++;

@@ -17,7 +17,17 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+# Anchored to THIS SCRIPT's location, not to the caller's cwd.
+#
+# This was `git rev-parse --show-toplevel 2>/dev/null || pwd`. Run from anywhere outside a git
+# working tree, `git rev-parse` fails, the `|| pwd` swallows it, and REPO_ROOT silently becomes the
+# CALLER'S directory. The script then looks for `.claude/commands` under, say, /tmp, finds nothing,
+# and reports "docs drift" — a failure that says nothing about the repo and everything about where
+# you were standing.
+#
+# The `|| pwd` is the tell: a fallback that turns "I could not find the repo" into a confident
+# wrong answer. Cheap to write, and it makes the failure look like a real finding.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMMANDS_DIR="$REPO_ROOT/.claude/commands"
 # Internal repo: `website/content/docs/commands/<name>.mdx`.
 # Public mirror (sync-public.sh:113-116): same files synced to

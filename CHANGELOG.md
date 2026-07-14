@@ -10,6 +10,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [1.15.5] - 2026-07-14
+
+### Fixed — CRITICAL: `install-commands` could destroy your customizations
+
+- **The installer recorded a hash for a file it did not write.** On meeting a command file with no
+  manifest entry, it kept the file (correct) and then recorded THAT FILE'S hash into the manifest —
+  a manifest whose entire meaning is "this is the hash of what massu installed". On the next run the
+  safe-upgrade path read that back, concluded the file was untouched, and **overwrote it**.
+  **Run 1 armed it; run 2 destroyed the work.** Measured against a real repo: 36 files of local
+  customization deleted on the second install, reported as success.
+
+  It now records **nothing** when it cannot prove authorship. The ambiguity is re-detected on every
+  run and the file is kept on every run. A customized file with no provenance now FREEZES: safe, but
+  stale. Upstream changes reach it via an explicit `rm <file> && massu install-commands`, or a future
+  three-way merge. Between "stale" and "your work is silently deleted", we choose stale.
+
+- **A test was protecting the bug.** `MANIFEST-06` asserted the fail-open as correct behaviour
+  ("Manifest seeded with EXISTING hash for kept"). The test agreed with the code because both were
+  written from the same wrong assumption. Assertion inverted.
+
+- **`scripts/quarantine-poisoned-manifest.mjs`** — repairs a manifest that already contains such a
+  hash. It does not re-derive what massu "would have written" (the installer resolves variants and
+  renders templates, so the installed bytes are a function of the repo's config); it runs the REAL
+  installer against a scratch copy and drops any entry that authorises an overwrite. Dry run by
+  default; backs the manifest up before writing.
+
+### Fixed — the golden path was missing the machinery that checks the work
+
+`8fff05d`, whose message announced only additions, silently **deleted** three quality subsystems.
+The spec files kept shipping; nothing invoked them. Restored and re-wired:
+
+- **Sprint contracts (2A.5)** — agree definition-of-done per item BEFORE implementing it.
+- **QA evaluator (2C)** — adversarial acceptance testing AGAINST those contracts.
+- **VR-VISUAL** — weighted 4-dimension scoring (threshold >= 3.0).
+- **Gap analyzer's 7th category** — sprint-contract compliance. Without it the loop could report
+  zero gaps while the work missed the definition of done it was built against.
+
+And a fourth that was **never wired at all**: **Phase 5.5 — Production Verification**, shipped in
+v0.6.0 and invoked by nothing for its entire life. Its own first line reads *"A feature is NOT
+complete until it is verified working in production with real data. 'Deployed' and 'working' are two
+completely different things."*
+
+- **A new gate that deletion cannot satisfy.** The previous check asked only "does every reference
+  file have a link?" — so deleting the spec files made it pass. The new one asserts, per subsystem,
+  that the file EXISTS **and** is LINKED **and** is INVOKED by name. Proven by attacking all three.
+
+### Fixed
+- `massu-pattern-scanner.sh` Check 40 used a relative path and silently failed from any directory but
+  the repo root — including `packages/core/`, which is where npm runs `prepublishOnly`. The
+  pre-publish check that runs it had therefore never worked.
+- `diff-commands-vs-docs.sh` derived its repo root via `git rev-parse || pwd`; outside a git tree the
+  fallback turned "I cannot find the repo" into a confident wrong answer.
+
 ## [1.15.4] - 2026-07-13
 
 ### Security

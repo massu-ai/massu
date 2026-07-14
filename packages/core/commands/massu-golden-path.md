@@ -106,14 +106,24 @@ Read `references/phase-1-plan-creation.md` for full details.
 
 Read `references/phase-2-implementation.md` for full details.
 
-**Summary**: Seven sub-phases:
+**Summary**: Eight sub-phases:
 - **2A**: Extract plan items into tracking table, initialize session state
+- **2A.5**: **Sprint contracts** — negotiate definition-of-done per plan item BEFORE implementing it (scope boundary, acceptance criteria, VR-* mapping). See `references/sprint-contract-protocol.md`
 - **2B**: Implementation loop (pre-check, execute, guardrail, verify, update per item)
-- **2C**: Multi-perspective review (3 parallel agents: security, architecture, quality)
-- **2D**: Verification audit loop (subagent, circuit breaker CR-37, max 10 iterations)
+- **2C**: Multi-perspective review (3 parallel agents: security, architecture, quality) + **QA evaluator** (conditional, UI plans only — adversarial Playwright-based acceptance testing **against the sprint contracts agreed in 2A.5**). See `references/qa-evaluator-spec.md`
+- **2D**: Verification audit loop (subagent, circuit breaker CR-37, sprint-contract verification, max 10 iterations)
 - **2E**: Post-build reflection + memory persist (CR-38)
 - **2F**: Documentation sync (if user-facing features)
 - **2G**: Browser verification & fix loop (auto-triggers if UI files changed, Playwright MCP)
+
+> **2A.5 and 2C are load-bearing, and they were missing.** Commit `8fff05d` — whose message
+> announced only ADDITIONS ("CR-45 zero-tolerance mandate") — silently deleted the sprint
+> contracts and the QA evaluator from this file. Every golden-path run since has implemented
+> against no agreed definition of done, and accepted its own work without an adversarial check.
+> The spec files never stopped shipping; nothing invoked them. Restored 2026-07-14.
+>
+> The order matters: **2A.5 agrees what "done" means BEFORE 2B builds it, so 2C has something
+> to judge against.** A QA evaluator with no contract is grading an exam with no answer key.
 
 **Gate**: APPROVAL POINT #2: NEW PATTERN (if needed, any sub-phase)
 
@@ -123,7 +133,12 @@ Read `references/phase-2-implementation.md` for full details.
 
 Read `references/phase-2.5-gap-analyzer.md` for full details.
 
-**Summary**: After implementation completes, run a continuous gap and enhancement analysis loop. A subagent analyzes all changed files across 6 categories (functional gaps, UX gaps, data integrity, security, pattern compliance, enhancements). Every gap/enhancement found is fixed immediately. The loop re-runs until a full pass discovers ZERO gaps. Max 10 iterations. Skippable only for documentation-only changes or explicit user request.
+**Summary**: After implementation completes, run a continuous gap and enhancement analysis loop. A subagent analyzes all changed files across **7 categories** (functional gaps, UX gaps, data integrity, security, pattern compliance, enhancements, **sprint-contract compliance**). **VR-VISUAL uses weighted 4-dimension scoring (threshold >= 3.0)** — see `references/vr-visual-calibration.md` for the 5/3/1 calibration examples. Every gap/enhancement found is fixed immediately. The loop re-runs until a full pass discovers ZERO gaps. Max 10 iterations. Skippable only for documentation-only changes or explicit user request.
+
+> **The 7th category and VR-VISUAL's scoring were deleted by `8fff05d` and restored 2026-07-14.**
+> Without the sprint-contract category, the loop could report ZERO gaps while the work missed the
+> definition of done it was built against. Without the weighted scoring, VR-VISUAL was a
+> pass/fail vibe check with a calibration file nobody read.
 
 ---
 
@@ -155,6 +170,30 @@ Read `references/phase-5-push.md` for full details.
 
 ---
 
+## PHASE 5.5: PRODUCTION VERIFICATION
+
+Read `references/phase-5.5-production-verify.md` for full details.
+
+**Summary**: After push and CI success, verify the deployment actually LANDED and the feature
+actually WORKS — against production, with real data. Confirm the deploy reached READY, read the
+runtime logs for startup errors, then exercise the feature itself and read back what the system
+returns. Skippable ONLY when the change has no deployed surface (docs-only, tooling-only).
+
+**Core principle**: *A feature is NOT complete until it is verified working in production with real
+data. "Deployed" and "working" are two completely different things.*
+
+> **This phase was written, shipped in v0.6.0 — and NEVER WIRED IN.** It has been sitting in
+> `references/` for its entire life with nothing invoking it: a `git log -S` over this file finds
+> no commit that ever linked it. It was not deleted; it was never enabled. That is its own failure
+> class ("hunt the built-and-never-enabled"), and it is the more embarrassing one, because the
+> phase that would have caught "we shipped it but never checked it worked" was itself shipped and
+> never checked. Wired 2026-07-14.
+>
+> It goes AFTER the push (you cannot verify a deployment that has not happened) and BEFORE
+> completion (you may not call it done until the world agrees it is).
+
+---
+
 ## PHASE 6: COMPLETION
 
 Read `references/phase-6-completion.md` for full details.
@@ -171,12 +210,16 @@ This skill is a folder. The following files are available for reference:
 |------|---------|-----------|
 | `references/phase-0-requirements.md` | Requirements interview, ambiguity detection, 10-dimension coverage map | Starting a new implementation from a task description |
 | `references/phase-1-plan-creation.md` | Config/schema reality check, blast radius analysis, plan generation, audit loop | Writing or auditing a plan |
-| `references/phase-2-implementation.md` | Item loop, multi-perspective review, verification audit, browser testing | Executing implementation; any Phase 2 sub-phase |
-| `references/phase-2.5-gap-analyzer.md` | Gap/enhancement analysis loop, 6 categories, fix-and-repass until zero | After implementation, before simplification |
+| `references/phase-2-implementation.md` | Item loop, sprint contracts, multi-perspective review, QA evaluator, verification audit, browser testing | Executing implementation; any Phase 2 sub-phase |
+| `references/sprint-contract-protocol.md` | Sprint contract template, quality bar, negotiation rules, skip conditions | Phase 2A.5 — agreeing definition-of-done before implementing |
+| `references/qa-evaluator-spec.md` | Adversarial QA evaluator: 4 dimensions, anti-leniency rules, known failure patterns | Phase 2C — QA evaluation (UI plans only) |
+| `references/vr-visual-calibration.md` | Score 5/3/1 calibration examples for VR-VISUAL weighted dimensions | Calibrating VR-VISUAL scoring in Phase 2.5 |
+| `references/phase-2.5-gap-analyzer.md` | Gap/enhancement analysis loop, 7 categories (incl. sprint-contract compliance), fix-and-repass until zero | After implementation, before simplification |
 | `references/phase-3-simplify.md` | Pattern scanner fast gate, dead code detection, parallel semantic review agents | Running simplification after implementation |
 | `references/phase-4-commit.md` | Auto-verification gates, quality scoring, commit format | Preparing a commit |
 | `references/phase-5-push.md` | Pre-flight, 4-tier push verification, regression detection | Preparing to push to remote |
-| `references/phase-6-completion.md` | Final report, plan status update, auto-learning | After push; completing the golden path |
+| `references/phase-5.5-production-verify.md` | Deployment landed, runtime logs clean, feature exercised against production with real data | Phase 5.5 — after push, before calling it done |
+| `references/phase-6-completion.md` | Final report, plan status update, auto-learning | After production verification; completing the golden path |
 | `references/approval-points.md` | Exact format and options for all 4 approval points (5 with --competitive: Plan, New Pattern, Winner Selection, Commit, Push) | Presenting any approval gate to the user |
 | `references/competitive-mode.md` | Competitive mode protocol: agent spawning, scoring, winner selection | Using --competitive flag |
 | `references/error-handling.md` | Abort handling, non-recoverable errors, post-compaction re-verification, competitive mode errors | On user abort, blocker error, or after context compaction |

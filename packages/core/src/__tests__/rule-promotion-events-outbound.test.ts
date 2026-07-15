@@ -14,9 +14,9 @@ import {
   initMemorySchema,
   createSession,
   enqueueRulePromotionEvent,
-  drainRulePromotionEvents,
   getRecurrenceCountForPromptHash,
 } from '../memory-db.ts';
+import { leaseLearning, ackLearning, nackLearning } from '../rule-delivery.ts';
 import { logAuditEntry } from '../audit-trail.ts';
 
 let db: Database.Database;
@@ -32,34 +32,54 @@ afterEach(() => {
 
 const HASH = 'a'.repeat(16);
 
-describe('rule_promotion_events outbound store (P1-002)', () => {
-  it('enqueue → drain round-trips append-only events in order, with metadata', () => {
+// Layer 2: `drainRulePromotionEvents` (SELECT-then-DELETE) is GONE. Reading no
+// longer destroys. These tests now pin the lease/ack contract that replaced it.
+describe('rule_promotion_events outbound store (P1-002) — lease/ack', () => {
+  it('lease → ack round-trips append-only events in order, with metadata', () => {
     enqueueRulePromotionEvent(db, { prompt_hash: HASH, event_type: 'proposed', created_at: '2026-06-01T00:00:00.000Z', metadata: { score: 7 } });
     enqueueRulePromotionEvent(db, { prompt_hash: HASH, event_type: 'shown', created_at: '2026-06-01T00:00:01.000Z' });
     enqueueRulePromotionEvent(db, { prompt_hash: HASH, event_type: 'approved', created_at: '2026-06-01T00:00:02.000Z', metadata: { destination: 'corrections-md' } });
 
-    const drained = drainRulePromotionEvents(db);
-    expect(drained.map((e) => e.event_type)).toEqual(['proposed', 'shown', 'approved']);
-    expect(drained[0].metadata).toEqual({ score: 7 });
-    expect(drained[1].metadata).toEqual({});
-    expect(drained[2].prompt_hash).toBe(HASH);
+    const lease = leaseLearning(db);
+    expect(lease.events.map((e) => e.event_type)).toEqual(['proposed', 'shown', 'approved']);
+    expect(lease.events[0].metadata).toEqual({ score: 7 });
+    expect(lease.events[1].metadata).toEqual({});
+    expect(lease.events[2].prompt_hash).toBe(HASH);
   });
 
   it('is append-only: the SAME (prompt_hash, event_type) can repeat', () => {
     enqueueRulePromotionEvent(db, { prompt_hash: HASH, event_type: 'shown', created_at: '2026-06-01T00:00:00.000Z' });
     enqueueRulePromotionEvent(db, { prompt_hash: HASH, event_type: 'shown', created_at: '2026-06-01T00:00:05.000Z' });
-    const drained = drainRulePromotionEvents(db);
-    expect(drained.length).toBe(2);
+    expect(leaseLearning(db).events.length).toBe(2);
   });
 
-  it('drain deletes — a second drain is empty', () => {
+  it('A LEASE DOES NOT DELETE — the row survives until the server confirms it', () => {
     enqueueRulePromotionEvent(db, { prompt_hash: HASH, event_type: 'proposed', created_at: '2026-06-01T00:00:00.000Z' });
-    expect(drainRulePromotionEvents(db).length).toBe(1);
-    expect(drainRulePromotionEvents(db)).toEqual([]);
+    const lease = leaseLearning(db);
+    expect(lease.events.length).toBe(1);
+    // The old drain deleted here. Nothing may be gone until ack.
+    const still = db.prepare('SELECT COUNT(*) AS n FROM rule_promotion_events_outbound').get() as { n: number };
+    expect(still.n).toBe(1);
+    ackLearning(db, lease);
+    const after = db.prepare('SELECT COUNT(*) AS n FROM rule_promotion_events_outbound').get() as { n: number };
+    expect(after.n).toBe(0);
   });
 
-  it('empty store drains to []', () => {
-    expect(drainRulePromotionEvents(db)).toEqual([]);
+  it('THE REGRESSION THAT KILLED 17 RULES: a failed delivery must KEEP the row', () => {
+    enqueueRulePromotionEvent(db, { prompt_hash: HASH, event_type: 'proposed', created_at: '2026-06-01T00:00:00.000Z' });
+    const lease = leaseLearning(db);
+    nackLearning(db, lease, 'HTTP 401: ');
+    const row = db
+      .prepare('SELECT COUNT(*) AS n, MAX(attempts) AS a FROM rule_promotion_events_outbound')
+      .get() as { n: number; a: number };
+    expect(row.n).toBe(1);   // survived a failure
+    expect(row.a).toBe(1);   // and counted the attempt
+    // ...and it is claimable again on the next session.
+    expect(leaseLearning(db).events.length).toBe(1);
+  });
+
+  it('empty store leases to []', () => {
+    expect(leaseLearning(db).events).toEqual([]);
   });
 });
 

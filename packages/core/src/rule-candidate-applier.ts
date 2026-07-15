@@ -48,6 +48,8 @@ import {
 } from './auto-learning-entitlement.ts';
 import { enqueueTeamPromotion } from './memory-db.ts';
 import { recordApprovalFunnelEvent, recordDismissalFunnelEvent } from './rule-candidate-funnel.ts';
+// D-11: the candidate lifecycle lives in a real table, so the funnel is queryable.
+import { setCandidateStatus } from './rule-candidate-store.ts';
 
 // SEC-01 fix: candidate IDs are sha-keyed via `hashPrompt()` which returns
 // 16 hex chars (sha-256 truncated). Reject any other shape at the I/O
@@ -701,15 +703,20 @@ export async function applyRuleCandidate(
     // Step 4: consume the candidate file.
     if (existsSync(candidatePath)) unlinkSync(candidatePath);
 
-    db.exec('COMMIT');
-
-    // PB-005: team-shared publish branch. After a successful LOCAL promotion, a
-    // Team+ seat enqueues the promotion for cross-seat propagation IF the
-    // destination is shareable (H1: corrections-md / claude-md-cr only).
-    // Best-effort and post-COMMIT — a failure here NEVER fails the local
-    // promotion. Team- and pack-ORIGIN candidates are skipped: we don't re-publish
-    // what we pulled (no echo loop). `ent` is the already-resolved entitlement (no
-    // new tier resolution — the caller cannot inject a forged tier).
+    // PB-005: team-shared publish branch. A Team+ seat enqueues the promotion for
+    // cross-seat propagation IF the destination is shareable (H1: corrections-md /
+    // claude-md-cr only). Team- and pack-ORIGIN candidates are skipped: we don't
+    // re-publish what we pulled (no echo loop). `ent` is the already-resolved
+    // entitlement (the caller cannot inject a forged tier).
+    //
+    // S-9 (Layer 2): THIS NOW RUNS INSIDE THE TRANSACTION, and its failure is no
+    // longer swallowed. It used to sit post-COMMIT wrapped in an EMPTY catch —
+    // which meant a failed enqueue produced: a rule committed locally, its candidate
+    // file already deleted (step 4), no outbound row, no log line, and a cheerful
+    // `ok: true`. The rule could then NEVER propagate and nobody could ever know.
+    // A promotion and its outbound queue row are ONE fact; they commit together or
+    // not at all, and a throw here rolls the whole promotion back so the user can
+    // retry. Fail closed, never silent.
     let teamShared = false;
     const localOrigin =
       candidate.provenance?.origin !== 'team' && candidate.provenance?.origin !== 'pack';
@@ -722,25 +729,29 @@ export async function applyRuleCandidate(
     const hardenedShare =
       isHardenedShareableDestination(opts.destination) && opts.reviewAttestation != null;
     if (localOrigin && entitledTeam && (nonHardenedShare || hardenedShare)) {
-      try {
-        enqueueTeamPromotion(db, {
-          prompt_hash: candidate.prompt_hash,
-          destination: opts.destination,
-          draft_text: opts.draftText,
-          score: candidate.score,
-          signals: candidate.signals,
-          content_hash: createHash('sha256')
-            .update(`${opts.destination}\n${opts.draftText}`)
-            .digest('hex'),
-          ...(hardenedShare
-            ? { hardened: true, review_attestation: opts.reviewAttestation }
-            : {}),
-        });
-        teamShared = true;
-      } catch {
-        // best-effort — the local promotion is already committed
-      }
+      enqueueTeamPromotion(db, {
+        prompt_hash: candidate.prompt_hash,
+        destination: opts.destination,
+        draft_text: opts.draftText,
+        score: candidate.score,
+        signals: candidate.signals,
+        content_hash: createHash('sha256')
+          .update(`${opts.destination}\n${opts.draftText}`)
+          .digest('hex'),
+        ...(hardenedShare
+          ? { hardened: true, review_attestation: opts.reviewAttestation }
+          : {}),
+      });
+      teamShared = true;
     }
+
+    // D-11: record the lifecycle transition. Inside the transaction, so a promoted
+    // rule and the fact that it was promoted are one atomic fact. This is the row
+    // that lets anyone ask "have we EVER promoted a candidate?" — the question that
+    // went unanswerable, and unanswered, for the product's whole life.
+    setCandidateStatus(db, candidate.prompt_hash, 'promoted', opts.destination);
+
+    db.exec('COMMIT');
 
     // P1-002: capture the APPROVED funnel event (post-COMMIT, best-effort; skip
     // team-origin so the funnel counts only this seat's own proposals).
@@ -1118,6 +1129,9 @@ export function dismissRuleCandidate(
     };
     logAuditEntry(db, entry);
     auditRowId = (db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id;
+
+    // D-11: a dismissal is a funnel outcome, not a deletion. Record it.
+    setCandidateStatus(db, candidate.prompt_hash, 'dismissed');
 
     db.exec('COMMIT');
   } catch (err) {

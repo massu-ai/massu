@@ -283,9 +283,15 @@ describe('pullInstalledPackRules — drops', () => {
     expect(listCandidates()).toHaveLength(0);
   });
 
-  it('a non-ok HTTP response is a no-op', async () => {
+  it('a non-ok HTTP response FAILS loudly — distinct from an empty pull (BND-3)', async () => {
     const res = await pullInstalledPackRules(db, { ...BASE, fetchImpl: fakeFetch(envelopeFor(ORG, [pack()]), false), projectRoot });
-    expect(res).toEqual({ pulled: 0, materialized: 0, skipped: 0, dropped_unverified: 0 });
+    // No rules were pulled...
+    expect(res.pulled).toBe(0);
+    expect(res.materialized).toBe(0);
+    // ...but the failure must NOT be byte-identical to "nothing to sync":
+    // sync_error is set so callers / outcome-watchers can distinguish the two.
+    expect(res.sync_error).toBeDefined();
+    expect(res.sync_error).toMatch(/^http_/);
   });
 });
 

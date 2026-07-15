@@ -10,6 +10,115 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [1.16.2] - 2026-07-15
+
+### Fixed
+
+- **Public-sync boundary correction (repo tooling; no npm-package change).** Completing the `1.16.1`
+  public sync surfaced that its sync tooling wrongly copied `.claude/agents/` and
+  `.claude/commands/_verification-laws.md` into the public git repo to satisfy an
+  internal-governance test's DOGFOOD assertion. That crosses the documented public/internal boundary:
+  the review/workflow agents reach users through the npm package (`@massu/core` `files:
+  ["agents/**/*"]`), not the public git repo, and the public-repo leak-guard allowlist intentionally
+  omits `.claude/agents/`. `1.16.2` reverts those copies and instead excludes
+  `verification-laws-shipped-and-wired.test.ts` from the mirror (the same pattern already used for
+  the other internal-only governance drift-guards), and genericizes two dev-script comments that
+  referenced internal incident paths so the public mirror carries no dangling internal references.
+
+## [1.16.1] - 2026-07-14
+
+### Security
+
+- **License-response signing key rotated (SEC-1).** The Ed25519 key that signs `/validate-key`
+  responses was rotated after a live private key was found committed in a tracked runbook (SEC-1,
+  `docs/reports/2026-07-14-codebase-audit-findings.md`). Production now signs with the new key and
+  stamps the new fingerprint `18c04567…`; the bundled client pubkey (`license-pubkey.generated.ts`)
+  is regenerated to trust the new key as primary while keeping the old key in the allowlist for the
+  transition grace window. A live signature smoke confirmed a real `/validate-key` success is signed
+  by the new key and verifies. The drift-guard `no-committed-private-keys.test.ts` forbids
+  re-introduction of any private key.
+
+### Fixed
+
+- **The 2026-07-14 codebase-audit closure is now actually delivered.** The audit-closure fixes were
+  committed (`4f4c688`) but never published — `1.16.0` on npm predates all of them. `1.16.1` ships:
+  fail-closed engine startup on a fatal DB/ABI error (SF-1), Pro-tier gating of the `/v1` capability
+  endpoints (SEC-2), the two wired-but-previously-dead CLI subcommands `massu rule show` /
+  `massu rule effectiveness` (DF-1/DF-2), the documented-but-missing webhook-test route (BND-1), and
+  the cloud-sync "server-error-as-empty" fix (BND-3).
+
+### Added
+
+- **CR-64 release-integrity gate — a published version number is immutable.** A pre-push + CI gate
+  (`scripts/release-integrity-check.mjs`) fails the moment `packages/core`'s version equals an
+  already-published npm version whose `vX.Y.Z` tag is missing or not at HEAD. This closes the class
+  where `1.16.0` was published without a git tag or release ceremony and then reused for six more
+  commits that read as "SHIPPED" while never delivered to customers. Incident:
+  `docs/incidents/2026-07-14-npm-publish-decoupled-from-release-ceremony.md`.
+
+## [1.16.0] - 2026-07-14
+
+### Fixed — cloud sync had, in practice, NEVER succeeded for a real session
+
+The client's request timeout was `2_000ms`, shipped with a comment asserting it was "well under
+hook timeout while still tolerating typical latency." Nobody had ever timed the endpoint. Measured
+against the live API (`scripts/measure-sync-latency.sh`, now committed so the number is re-derived
+rather than believed):
+
+| payload | mean | worst |
+|---|---|---|
+| empty (auth/bcrypt only) | ~900ms | 1191ms |
+| 1 session + 50 observations | ~2090ms | **2168ms** |
+
+An ordinary session payload **exceeded the timeout every time** — it was queued, retried, timed out
+again, and after 10 retries **the data was discarded**. A timeout is indistinguishable from an idle
+seat, so this went unnoticed for the product's entire life.
+
+- Request timeout is now `8_000ms`, sized from the measurement (~4× the real figure).
+- The whole sync runs under a `20_000ms` **deadline**, and every attempt is clamped to the time
+  actually remaining. Bounding only the per-request timeout left total time =
+  `retries × timeout + backoff`, which silently exceeds the hook budget the moment a knob is tuned.
+  The deadline is the structural guarantee.
+
+### Fixed — a learned rule could be destroyed before it was ever delivered
+
+`drainTeamPromotions` / `drainTeamRevocations` / `drainRulePromotionEvents` **deleted a promoted
+rule at the moment they READ it** into a sync payload. If the upload then failed, the payload went
+to `pending_sync`, was retried, and was **discarded after 10 attempts**. `read == delete` is the
+whole disease: *delivery failure* and *nothing to deliver* produced the same end state, and that
+state was the quiet one.
+
+**Delivery is now ACK-based** (`rule-delivery.ts`): `lease() → deliver → ack()` on a confirmed
+server receipt, `nack()` on any failure. A rule leaves an outbound store on exactly ONE event — the
+server confirmed it. A failed delivery **keeps every row**, counts the attempt, and raises a LOUD
+stall alarm rather than a silent zero. The `pending_sync` give-up path now **rescues** learned rules
+back into the durable store instead of destroying them.
+
+An ack requires `SyncResult.transmitted` — set only after a real 2xx. `success` alone is not a
+receipt: it is also `true` when cloud sync is *disabled*, i.e. nothing was sent.
+
+### Added
+
+- **`rule_candidates` table.** Candidates previously existed only as loose JSON on disk, so the
+  product could not answer "has anything ever been promoted?" — and could not detect that the
+  answer was no. The lifecycle (`proposed → shown → promoted | dismissed`) is now queryable.
+- **`massu rule approve` / `dismiss` / `review` / `delivery-status`.** `applyRuleCandidate()` — the
+  promotion chokepoint carrying the whole transaction, rollback, audit and team-publish machinery —
+  had **zero callers**. The protocol said "invoke `applyRuleCandidate(...)`"; no command existed
+  that could. The CR-57 hardened-promotion preview (two-operator review of *executable* rules) was
+  likewise unreachable. All are now wired to real entry points.
+- `massu rule delivery-status` reads the `cloud_sync_giveup` telemetry — which until now was the
+  only analytics event Massu had ever recorded, and nothing read it.
+
+### Changed (internal API)
+
+- Removed `drainTeamPromotions`, `drainTeamRevocations`, `drainRulePromotionEvents` from
+  `memory-db`. Deleted rather than deprecated: a destructive drain that still exists is a
+  destructive drain someone will call again. Use `leaseLearning` / `ackLearning` / `nackLearning`.
+- The team-promotion enqueue now runs **inside** the promotion transaction. It previously sat
+  post-COMMIT in an empty `catch`, so a failed enqueue produced a rule committed locally, its
+  candidate file already deleted, no outbound row, no log line, and a cheerful `ok: true`.
+
 ## [1.15.7] - 2026-07-14
 
 ### Added — the verification laws now ship IN Massu, and reach every repo

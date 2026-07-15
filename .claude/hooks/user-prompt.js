@@ -950,22 +950,147 @@ var init_db_backup = __esm({
   }
 });
 
+// src/rule-delivery.ts
+function tableExists(db, table) {
+  const row = db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=?").get(table);
+  return row !== void 0;
+}
+function columns(db, table) {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+  return new Set(rows.map((r) => r.name));
+}
+function migrateRuleDelivery(db) {
+  const ADDITIONS = [
+    { name: "attempts", decl: "INTEGER NOT NULL DEFAULT 0" },
+    { name: "lease_token", decl: "TEXT" },
+    { name: "leased_at_ms", decl: "INTEGER" },
+    { name: "last_error", decl: "TEXT" }
+  ];
+  for (const table of ALL_OUTBOUND_TABLES) {
+    if (!tableExists(db, table)) continue;
+    const cols = columns(db, table);
+    for (const add of ADDITIONS) {
+      if (cols.has(add.name)) continue;
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${add.name} ${add.decl}`);
+    }
+  }
+}
+function capTelemetry(db, cap = TELEMETRY_OUTBOX_CAP) {
+  if (!tableExists(db, TELEMETRY_OUTBOUND_TABLE)) return 0;
+  const before = db.prepare(`SELECT COUNT(*) AS n FROM ${TELEMETRY_OUTBOUND_TABLE}`).get();
+  if (before.n <= cap) return 0;
+  const info = db.prepare(
+    `DELETE FROM ${TELEMETRY_OUTBOUND_TABLE}
+        WHERE id NOT IN (SELECT id FROM ${TELEMETRY_OUTBOUND_TABLE} ORDER BY id DESC LIMIT ?)`
+  ).run(cap);
+  const dropped = info.changes;
+  if (dropped > 0) {
+    process.stderr.write(
+      `[massu] NOTE: dropped ${dropped} oldest promotion-funnel telemetry row(s) at the ${cap}-row cap. No learned rules were affected (rules are never dropped).
+`
+    );
+    recordAnalytics(db, EVENT_TELEMETRY_CAPPED, { dropped, cap });
+  }
+  return dropped;
+}
+function recordAnalytics(db, eventType, data) {
+  try {
+    db.prepare(
+      `INSERT INTO analytics_events (event_type, event_data, created_at)
+       VALUES (?, ?, datetime('now'))`
+    ).run(eventType, JSON.stringify(data));
+  } catch (err) {
+    process.stderr.write(
+      `[massu] WARNING: could not record '${eventType}' telemetry: ${err instanceof Error ? err.message : String(err)}
+`
+    );
+  }
+}
+var RULE_OUTBOUND_TABLES, TELEMETRY_OUTBOUND_TABLE, ALL_OUTBOUND_TABLES, TELEMETRY_OUTBOX_CAP, LEASE_TTL_MS, EVENT_TELEMETRY_CAPPED;
+var init_rule_delivery = __esm({
+  "src/rule-delivery.ts"() {
+    "use strict";
+    RULE_OUTBOUND_TABLES = [
+      "team_promotion_outbound",
+      "team_revocation_outbound"
+    ];
+    TELEMETRY_OUTBOUND_TABLE = "rule_promotion_events_outbound";
+    ALL_OUTBOUND_TABLES = [
+      ...RULE_OUTBOUND_TABLES,
+      TELEMETRY_OUTBOUND_TABLE
+    ];
+    TELEMETRY_OUTBOX_CAP = 2e4;
+    LEASE_TTL_MS = 15 * 60 * 1e3;
+    EVENT_TELEMETRY_CAPPED = "rule_telemetry_capped";
+  }
+});
+
+// src/rule-candidate-store.ts
+import { existsSync as existsSync4, mkdirSync as mkdirSync3, writeFileSync as writeFileSync2, readdirSync as readdirSync2, readFileSync as readFileSync3 } from "node:fs";
+import { join as join2 } from "node:path";
+function ensureRuleCandidatesTable(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rule_candidates (
+      prompt_hash  TEXT PRIMARY KEY,
+      status       TEXT NOT NULL DEFAULT 'proposed'
+                     CHECK (status IN ('proposed','shown','promoted','dismissed')),
+      origin       TEXT NOT NULL DEFAULT 'local'
+                     CHECK (origin IN ('local','team','pack')),
+      score        REAL,
+      destination  TEXT,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_rule_candidates_status ON rule_candidates(status);
+    CREATE INDEX IF NOT EXISTS idx_rule_candidates_created ON rule_candidates(created_at);
+  `);
+}
+function sidecarPath(projectRoot, promptHash) {
+  return join2(projectRoot, ".massu", "rule-candidates", `${promptHash}.json`);
+}
+function upsertCandidate(db, projectRoot, candidate, opts = {}) {
+  ensureRuleCandidatesTable(db);
+  const origin = opts.origin ?? "local";
+  const score = opts.score ?? (typeof candidate.score === "number" ? candidate.score : null);
+  db.prepare(`
+    INSERT INTO rule_candidates (prompt_hash, status, origin, score, payload_json, created_at, updated_at)
+    VALUES (?, 'proposed', ?, ?, ?, datetime('now'), datetime('now'))
+    ON CONFLICT(prompt_hash) DO UPDATE SET
+      payload_json = excluded.payload_json,
+      score        = excluded.score,
+      origin       = excluded.origin,
+      updated_at   = datetime('now')
+  `).run(candidate.prompt_hash, origin, score, JSON.stringify(candidate));
+  const dir = join2(projectRoot, ".massu", "rule-candidates");
+  mkdirSync3(dir, { recursive: true });
+  const path = sidecarPath(projectRoot, candidate.prompt_hash);
+  if (!existsSync4(path)) {
+    writeFileSync2(path, JSON.stringify(candidate, null, 2), "utf-8");
+  }
+}
+var init_rule_candidate_store = __esm({
+  "src/rule-candidate-store.ts"() {
+    "use strict";
+  }
+});
+
 // src/hooks/lib/hook-failure-signal.ts
-import { appendFileSync, mkdirSync as mkdirSync3, existsSync as existsSync4 } from "fs";
-import { join as join2, dirname as dirname3 } from "path";
+import { appendFileSync, mkdirSync as mkdirSync4, existsSync as existsSync5 } from "fs";
+import { join as join3, dirname as dirname3 } from "path";
 function resolveFailureLogPath() {
   const explicit = process.env.MASSU_HOOK_FAILURE_LOG;
   if (explicit) return explicit;
   let dir = process.cwd();
   for (let i = 0; i < 12; i++) {
-    if (existsSync4(join2(dir, ".massu")) || existsSync4(join2(dir, "massu.config.yaml"))) {
-      return join2(dir, ".massu", "hook-failures.jsonl");
+    if (existsSync5(join3(dir, ".massu")) || existsSync5(join3(dir, "massu.config.yaml"))) {
+      return join3(dir, ".massu", "hook-failures.jsonl");
     }
     const parent = dirname3(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return join2(process.cwd(), ".massu", "hook-failures.jsonl");
+  return join3(process.cwd(), ".massu", "hook-failures.jsonl");
 }
 function recordHookFailure(hook, error, context) {
   const record = {
@@ -978,7 +1103,7 @@ function recordHookFailure(hook, error, context) {
   let wroteSomething = false;
   try {
     const path = resolveFailureLogPath();
-    mkdirSync3(dirname3(path), { recursive: true });
+    mkdirSync4(dirname3(path), { recursive: true });
     appendFileSync(path, JSON.stringify(record) + "\n", "utf-8");
     wroteSomething = true;
   } catch {
@@ -1022,9 +1147,9 @@ var init_hook_failure_signal = __esm({
 });
 
 // src/memory-embedder-tokenizer.ts
-import { readFileSync as readFileSync3 } from "fs";
+import { readFileSync as readFileSync4 } from "fs";
 function loadVocab(vocabPath) {
-  const lines = readFileSync3(vocabPath, "utf-8").split("\n");
+  const lines = readFileSync4(vocabPath, "utf-8").split("\n");
   const vocab = /* @__PURE__ */ new Map();
   for (let i = 0; i < lines.length; i++) {
     const tok = lines[i].replace(/\r$/, "");
@@ -1144,8 +1269,8 @@ var init_memory_embedder_tokenizer = __esm({
 
 // src/memory-embedder.ts
 import { fileURLToPath } from "url";
-import { dirname as dirname4, join as join3 } from "path";
-import { existsSync as existsSync5 } from "fs";
+import { dirname as dirname4, join as join4 } from "path";
+import { existsSync as existsSync6 } from "fs";
 import { createRequire } from "module";
 function getActiveEmbedModel() {
   return _activeModel;
@@ -1170,7 +1295,7 @@ function resolveModelDir() {
     let dir = dirname4(fileURLToPath(import.meta.url));
     let root = null;
     for (let i = 0; i < 8; i++) {
-      if (existsSync5(join3(dir, "package.json"))) {
+      if (existsSync6(join4(dir, "package.json"))) {
         root = dir;
         break;
       }
@@ -1180,8 +1305,8 @@ function resolveModelDir() {
     }
     if (!root) return null;
     for (const rel of ["dist/embedder", "assets/embedder"]) {
-      const candidate = join3(root, rel);
-      if (existsSync5(join3(candidate, "model_quantized.onnx"))) return candidate;
+      const candidate = join4(root, rel);
+      if (existsSync6(join4(candidate, "model_quantized.onnx"))) return candidate;
     }
     return null;
   } catch {
@@ -1212,8 +1337,8 @@ async function getSession() {
       ort.env.wasm.proxy = false;
       ort.env.wasm.wasmPaths = wasmDir.endsWith("/") ? wasmDir : wasmDir + "/";
       _ortTensor = ort.Tensor;
-      const modelPath = join3(modelDir, "model_quantized.onnx");
-      const vocabPath = join3(modelDir, "vocab.txt");
+      const modelPath = join4(modelDir, "model_quantized.onnx");
+      const vocabPath = join4(modelDir, "vocab.txt");
       _vocab = loadVocab(vocabPath);
       const session = await ort.InferenceSession.create(modelPath, {
         executionProviders: ["wasm"],
@@ -1503,9 +1628,6 @@ __export(memory_db_exports, {
   createSession: () => createSession,
   deduplicateFailedAttempt: () => deduplicateFailedAttempt,
   dequeuePendingSync: () => dequeuePendingSync,
-  drainRulePromotionEvents: () => drainRulePromotionEvents,
-  drainTeamPromotions: () => drainTeamPromotions,
-  drainTeamRevocations: () => drainTeamRevocations,
   embedMissingObservations: () => embedMissingObservations,
   endSession: () => endSession,
   enqueueRulePromotionEvent: () => enqueueRulePromotionEvent,
@@ -1555,7 +1677,7 @@ __export(memory_db_exports, {
 });
 import Database2 from "better-sqlite3";
 import { dirname as dirname5, basename as basename2 } from "path";
-import { existsSync as existsSync6, mkdirSync as mkdirSync4 } from "fs";
+import { existsSync as existsSync7, mkdirSync as mkdirSync5 } from "fs";
 function sanitizeFts5Query(raw) {
   const trimmed = raw.trim();
   if (!trimmed) return '""';
@@ -1572,10 +1694,10 @@ function sanitizeFts5QueryOr(raw) {
 function getMemoryDb() {
   const dbPath = getResolvedPaths().memoryDbPath;
   const dir = dirname5(dbPath);
-  if (!existsSync6(dir)) {
-    mkdirSync4(dir, { recursive: true });
+  if (!existsSync7(dir)) {
+    mkdirSync5(dir, { recursive: true });
   }
-  const preExisting = existsSync6(dbPath);
+  const preExisting = existsSync7(dbPath);
   const db = new Database2(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
@@ -2412,6 +2534,8 @@ function initMemorySchema(db) {
   `);
   migrateObservationEmbeddingChunks(db);
   migrateMemoryFilesFor4B(db);
+  ensureRuleCandidatesTable(db);
+  migrateRuleDelivery(db);
 }
 function enqueueSyncPayload(db, payload) {
   db.prepare("INSERT INTO pending_sync (payload) VALUES (?)").run(payload);
@@ -2486,37 +2610,11 @@ function enqueueTeamPromotion(db, promo) {
     promo.review_attestation !== void 0 ? JSON.stringify(promo.review_attestation) : null
   );
 }
-function drainTeamPromotions(db) {
-  const rows = db.prepare(`
-    SELECT prompt_hash, destination, draft_text, score, signals_json, content_hash, hardened, review_attestation_json
-    FROM team_promotion_outbound ORDER BY created_at ASC LIMIT 1000
-  `).all();
-  if (rows.length === 0) return [];
-  db.prepare("DELETE FROM team_promotion_outbound").run();
-  return rows.map((r) => ({
-    prompt_hash: r.prompt_hash,
-    destination: r.destination,
-    draft_text: r.draft_text,
-    score: r.score ?? void 0,
-    signals: safeJsonArray(r.signals_json),
-    content_hash: r.content_hash,
-    hardened: r.hardened === 1,
-    review_attestation: r.review_attestation_json ? safeJsonParse(r.review_attestation_json) : void 0
-  }));
-}
 function enqueueTeamRevocation(db, promptHash) {
   db.prepare(`
     INSERT OR REPLACE INTO team_revocation_outbound (prompt_hash, created_at)
     VALUES (?, datetime('now'))
   `).run(promptHash);
-}
-function drainTeamRevocations(db) {
-  const rows = db.prepare(
-    `SELECT prompt_hash FROM team_revocation_outbound ORDER BY created_at ASC LIMIT 1000`
-  ).all();
-  if (rows.length === 0) return [];
-  db.prepare("DELETE FROM team_revocation_outbound").run();
-  return rows.map((r) => r.prompt_hash);
 }
 function getRecurrenceCountForPromptHash(db, promptHash) {
   try {
@@ -2545,29 +2643,13 @@ function enqueueRulePromotionEvent(db, ev) {
       JSON.stringify(ev.metadata ?? {}),
       ev.created_at
     );
-    db.prepare(`
-      DELETE FROM rule_promotion_events_outbound
-      WHERE id NOT IN (
-        SELECT id FROM rule_promotion_events_outbound ORDER BY id DESC LIMIT ?
-      )
-    `).run(FUNNEL_EVENT_OUTBOX_CAP);
-  } catch {
+    capTelemetry(db, FUNNEL_EVENT_OUTBOX_CAP);
+  } catch (err) {
+    process.stderr.write(
+      `[massu] WARNING: failed to record promotion-funnel event (${ev.event_type} / ${ev.prompt_hash}): ${err instanceof Error ? err.message : String(err)}
+`
+    );
   }
-}
-function drainRulePromotionEvents(db) {
-  const rows = db.prepare(`
-    SELECT id, prompt_hash, event_type, metadata_json, created_at
-    FROM rule_promotion_events_outbound ORDER BY id ASC LIMIT ?
-  `).all(FUNNEL_EVENT_DRAIN_LIMIT);
-  if (rows.length === 0) return [];
-  const maxId = rows[rows.length - 1].id;
-  db.prepare("DELETE FROM rule_promotion_events_outbound WHERE id <= ?").run(maxId);
-  return rows.map((r) => ({
-    prompt_hash: r.prompt_hash,
-    event_type: r.event_type,
-    created_at: r.created_at,
-    metadata: safeJsonParse(r.metadata_json) ?? {}
-  }));
 }
 function recordTelemetry(db, eventType, data) {
   try {
@@ -2578,28 +2660,55 @@ function recordTelemetry(db, eventType, data) {
   } catch {
   }
 }
-function safeJsonArray(json) {
-  try {
-    const v = JSON.parse(json);
-    return Array.isArray(v) ? v : [];
-  } catch {
-    return [];
+function rescueLearningFromStalePayloads(db, stale) {
+  let rescued = 0;
+  for (const item of stale) {
+    let payload;
+    try {
+      payload = JSON.parse(item.payload);
+    } catch {
+      continue;
+    }
+    try {
+      const promotions = Array.isArray(payload.rule_promotions) ? payload.rule_promotions : [];
+      for (const p of promotions) {
+        enqueueTeamPromotion(db, p);
+        rescued++;
+      }
+      const revocations = Array.isArray(payload.rule_revocations) ? payload.rule_revocations : [];
+      for (const r of revocations) {
+        if (typeof r?.prompt_hash === "string") {
+          enqueueTeamRevocation(db, r.prompt_hash);
+          rescued++;
+        }
+      }
+      const events = Array.isArray(payload.rule_promotion_events) ? payload.rule_promotion_events : [];
+      for (const e of events) {
+        enqueueRulePromotionEvent(db, e);
+      }
+    } catch (err) {
+      process.stderr.write(
+        `[massu] WARNING: failed to rescue learned rules from give-up payload ${item.id}: ${err instanceof Error ? err.message : String(err)}
+`
+      );
+    }
   }
-}
-function safeJsonParse(json) {
-  try {
-    return JSON.parse(json);
-  } catch {
-    return void 0;
-  }
+  return rescued;
 }
 function dequeuePendingSync(db, limit = 10) {
   const stale = db.prepare(
-    "SELECT id, retry_count, last_error FROM pending_sync WHERE retry_count >= 10 LIMIT 10000"
+    "SELECT id, retry_count, last_error, payload FROM pending_sync WHERE retry_count >= 10 LIMIT 10000"
   ).all();
   if (stale.length > 0) {
+    const rescued = rescueLearningFromStalePayloads(db, stale);
     const ids = stale.map((s) => s.id);
     db.prepare(`DELETE FROM pending_sync WHERE id IN (${ids.map(() => "?").join(",")})`).run(...ids);
+    if (rescued > 0) {
+      process.stderr.write(
+        `[massu] RESCUED ${rescued} learned rule(s) from ${stale.length} give-up payload(s) \u2014 they were re-queued for delivery, NOT discarded.
+`
+      );
+    }
     const lastErrors = [...new Set(stale.map((s) => s.last_error).filter(Boolean))];
     process.stderr.write(
       `[massu] WARNING: ${stale.length} cloud-sync queue item(s) discarded after 10+ retries. Likely cause: invalid API key or unreachable endpoint. Recent errors: ${lastErrors.slice(0, 3).join("; ") || "(none recorded)"}
@@ -3291,19 +3400,20 @@ function scoreFailureClasses(db, matchText, filePath, promptContext, weights) {
   }
   return bestMatch;
 }
-var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_DRAIN_LIMIT, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
+var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
 var init_memory_db = __esm({
   "src/memory-db.ts"() {
     "use strict";
     init_config();
     init_memory_vector();
     init_db_backup();
+    init_rule_delivery();
+    init_rule_candidate_store();
     init_hook_failure_signal();
     init_memory_embed_sweep();
     MEMORY_SCHEMA_VERSION = 1;
     TOOL_COST_EVENTS_RETENTION_DAYS = 90;
     MAX_DRAFT_TEXT_LEN = 16384;
-    FUNNEL_EVENT_DRAIN_LIMIT = 5e3;
     FUNNEL_EVENT_OUTBOX_CAP = 2e4;
     _temporalColCache = /* @__PURE__ */ new WeakMap();
     CONSOLIDATION_LESSON_EVIDENCE = "consolidation:session-summary";
@@ -3316,8 +3426,8 @@ var init_memory_db = __esm({
 // src/hooks/user-prompt.ts
 init_memory_db();
 init_config();
-import { existsSync as existsSync7, mkdirSync as mkdirSync5, writeFileSync as writeFileSync2, readFileSync as readFileSync4, readdirSync as readdirSync2, openSync, fstatSync, readSync, closeSync } from "fs";
-import { join as join4 } from "path";
+import { existsSync as existsSync8, mkdirSync as mkdirSync6, writeFileSync as writeFileSync3, readFileSync as readFileSync5, readdirSync as readdirSync3, openSync, fstatSync, readSync, closeSync } from "fs";
+import { join as join5 } from "path";
 
 // src/rule-candidate-detector.ts
 var CORRECTION_DISMISSAL_PATTERN = /\b(nevermind|never\s+mind|forget\s+it|ignore\s+(that|it)|actually\s+you('?re|\s+were)\s+right|on\s+second\s+thought|no\s+wait|scratch\s+that|disregard|abandon\s+(that|it))\b/i;
@@ -3505,10 +3615,11 @@ function verifyEd25519SignedEnvelope(key, payload) {
 }
 
 // src/security/license-pubkey.generated.ts
-var LICENSE_PUBKEY_ED25519 = new Uint8Array([39, 136, 108, 146, 85, 233, 119, 252, 223, 226, 123, 155, 234, 168, 200, 150, 36, 249, 174, 6, 130, 146, 125, 196, 136, 224, 202, 150, 53, 228, 114, 15]);
-var LICENSE_PUBKEY_FINGERPRINT_HEX = "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475";
+var LICENSE_PUBKEY_ED25519 = new Uint8Array([254, 188, 221, 150, 111, 252, 154, 100, 253, 247, 113, 192, 144, 224, 127, 160, 202, 111, 75, 40, 35, 169, 108, 89, 252, 250, 255, 233, 250, 120, 47, 160]);
+var LICENSE_PUBKEY_FINGERPRINT_HEX = "18c0456789a70eeee28012719f04725f43f59e693f735227ff73f0475f2290e3";
 var KNOWN_LICENSE_PUBKEY_FINGERPRINTS = /* @__PURE__ */ new Set([
-  "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475"
+  "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475",
+  "18c0456789a70eeee28012719f04725f43f59e693f735227ff73f0475f2290e3"
 ]);
 
 // src/security/license-response-verifier.ts
@@ -3624,6 +3735,7 @@ function entitledForTeamSharedPromotion(tier) {
 }
 
 // src/hooks/user-prompt.ts
+init_rule_candidate_store();
 init_hook_failure_signal();
 async function main() {
   try {
@@ -3656,7 +3768,7 @@ async function main() {
         const fileRefs = extractFileReferences(prompt);
         if (fileRefs.length > 0) {
           const knowledgeDbPath = getResolvedPaths().knowledgeDbPath;
-          if (knowledgeDbPath && existsSync7(knowledgeDbPath)) {
+          if (knowledgeDbPath && existsSync8(knowledgeDbPath)) {
             const BetterSqlite3Ctor = (await import("better-sqlite3")).default;
             const kdb = new BetterSqlite3Ctor(knowledgeDbPath, { readonly: true });
             try {
@@ -3710,15 +3822,15 @@ async function main() {
           category: categorizePrompt(prompt),
           blacklist
         });
-        const candidateDir = join4(hookInput.cwd, ".massu", "rule-candidates");
+        const candidateDir = join5(hookInput.cwd, ".massu", "rule-candidates");
         if (scoreResult.emitCandidate) {
           const cachedTier = getCachedTierReadOnly(db);
           if (entitledForAutoLearning(cachedTier)) {
-            mkdirSync5(candidateDir, { recursive: true });
+            mkdirSync6(candidateDir, { recursive: true });
             const promptHash = hashPrompt(prompt);
-            const candidatePath = join4(candidateDir, `${promptHash}.json`);
-            if (!existsSync7(candidatePath)) {
-              writeFileSync2(candidatePath, JSON.stringify({
+            const candidatePath = join5(candidateDir, `${promptHash}.json`);
+            if (!existsSync8(candidatePath)) {
+              upsertCandidate(db, hookInput.cwd, {
                 prompt,
                 prompt_hash: promptHash,
                 score: scoreResult.score,
@@ -3726,7 +3838,7 @@ async function main() {
                 prior_turn_files: priorTurn.files,
                 timestamp: (/* @__PURE__ */ new Date()).toISOString(),
                 session_id
-              }, null, 2));
+              }, { origin: "local", score: scoreResult.score });
               if (entitledForTeamSharedPromotion(cachedTier)) {
                 enqueueRulePromotionEvent(db, {
                   prompt_hash: promptHash,
@@ -3741,28 +3853,28 @@ async function main() {
               }
             }
           } else {
-            const nudgePath = join4(candidateDir, ".last-tier-nudge");
-            if (!existsSync7(nudgePath)) {
-              mkdirSync5(candidateDir, { recursive: true });
+            const nudgePath = join5(candidateDir, ".last-tier-nudge");
+            if (!existsSync8(nudgePath)) {
+              mkdirSync6(candidateDir, { recursive: true });
               process.stderr.write(
                 `
 [RULE CANDIDATE] ${autoLearningUpgradeMessage(cachedTier)}
 
 `
               );
-              writeFileSync2(nudgePath, (/* @__PURE__ */ new Date()).toISOString());
+              writeFileSync3(nudgePath, (/* @__PURE__ */ new Date()).toISOString());
             }
           }
         }
-        if (existsSync7(candidateDir)) {
-          const candidates = readdirSync2(candidateDir).filter(
+        if (existsSync8(candidateDir)) {
+          const candidates = readdirSync3(candidateDir).filter(
             (f) => f.endsWith(".json") && !f.startsWith(".")
           );
           const candidateCount = candidates.length;
-          const surfacedPath = join4(candidateDir, ".last-surfaced");
+          const surfacedPath = join5(candidateDir, ".last-surfaced");
           let lastSurfaced = 0;
-          if (existsSync7(surfacedPath)) {
-            const raw = readFileSync4(surfacedPath, "utf-8").trim();
+          if (existsSync8(surfacedPath)) {
+            const raw = readFileSync5(surfacedPath, "utf-8").trim();
             const parsed = parseInt(raw, 10);
             if (!Number.isNaN(parsed)) lastSurfaced = parsed;
           }
@@ -3773,17 +3885,17 @@ async function main() {
 
 `
             );
-            writeFileSync2(surfacedPath, String(candidateCount));
+            writeFileSync3(surfacedPath, String(candidateCount));
           }
         }
       } catch (candidateErr) {
         try {
-          const dir = join4(hookInput.cwd, ".massu", "rule-candidates");
-          if (!existsSync7(dir)) mkdirSync5(dir, { recursive: true });
-          const logPath = join4(dir, ".detector-failures.jsonl");
-          const pre = existsSync7(logPath) ? readFileSync4(logPath, "utf-8") : "";
+          const dir = join5(hookInput.cwd, ".massu", "rule-candidates");
+          if (!existsSync8(dir)) mkdirSync6(dir, { recursive: true });
+          const logPath = join5(dir, ".detector-failures.jsonl");
+          const pre = existsSync8(logPath) ? readFileSync5(logPath, "utf-8") : "";
           const sep = pre && !pre.endsWith("\n") ? "\n" : "";
-          writeFileSync2(logPath, pre + sep + JSON.stringify({
+          writeFileSync3(logPath, pre + sep + JSON.stringify({
             session_id,
             // Security review (plan-2026-05-27): log the prompt HASH, never a
             // raw prompt excerpt — the failure log must not persist PII/secrets.
@@ -3804,7 +3916,7 @@ async function main() {
 }
 function detectPriorAssistantTurn(transcriptPath) {
   try {
-    if (!transcriptPath || !existsSync7(transcriptPath)) {
+    if (!transcriptPath || !existsSync8(transcriptPath)) {
       return { hadEditOrWrite: false, files: [] };
     }
     if (!transcriptPath.includes("/.claude/projects/")) {

@@ -285,6 +285,11 @@ echo "Check 9: Memory system does not hardcode sensitive file paths"
 MEMORY_PATH_COUNT=0
 if [ -d "$CORE_SRC" ]; then
   # Check for hardcoded absolute paths to home directory in non-hook library code
+  # BASE-2 (audit 2026-07-14): exclude the env-PASSTHROUGH shape `HOME: process.env.HOME`.
+  # Passing the real HOME into a spawned subprocess's minimal env (lsp/client.ts) is a
+  # security HARDENING, not a hardcoded home-relative storage path. This exemption is the
+  # exact object-literal shape only — `path.join(process.env.HOME, …)` path-building is
+  # still flagged.
   MEMORY_PATH_COUNT=$(grep -rn 'process\.env\.HOME\|\/Users\/\|\/home\/' "$CORE_SRC" --include="*.ts" \
     | grep -v 'node_modules' \
     | grep -v '__tests__' \
@@ -293,13 +298,14 @@ if [ -d "$CORE_SRC" ]; then
     | grep -v 'getProjectRoot\|config\.ts\|commands/' \
     | grep -v 'hooks/' \
     | grep -v 'backfill-' \
+    | grep -v 'HOME: process\.env\.HOME' \
     | wc -l | tr -d ' ')
 fi
 if [ "$MEMORY_PATH_COUNT" -gt 0 ]; then
   warn "Found $MEMORY_PATH_COUNT hardcoded home-relative paths in library code (use getProjectRoot() from config.ts)"
   grep -rn 'process\.env\.HOME\|\/Users\/\|\/home\/' "$CORE_SRC" --include="*.ts" \
     | grep -v 'node_modules' | grep -v '__tests__' | grep -v 'config\.ts' | grep -v 'commands/' \
-    | grep -v 'hooks/' | grep -v 'backfill-' | head -5
+    | grep -v 'hooks/' | grep -v 'backfill-' | grep -v 'HOME: process\.env\.HOME' | head -5
 else
   pass "No hardcoded home-relative paths in library code (hooks and backfill excluded)"
 fi

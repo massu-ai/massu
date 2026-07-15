@@ -19,6 +19,11 @@ import { existsSync, mkdirSync } from 'fs';
 import { getConfig, getResolvedPaths, getProjectRoot } from './config.ts';
 import { float32ToBlob } from './memory-vector.ts';
 import { backupBeforeSchemaChange } from './db-backup.ts';
+// Layer 2: the funnel-telemetry cap. Trims TELEMETRY only and announces the trim —
+// learned rules live under the lease/ack contract and are never dropped.
+import { capTelemetry, migrateRuleDelivery } from './rule-delivery.ts';
+// D-11: rule candidates are rows, not loose files.
+import { ensureRuleCandidatesTable } from './rule-candidate-store.ts';
 import { recordHookFailure } from './hooks/lib/hook-failure-signal.ts';
 import {
   runEmbedSweep,
@@ -1278,6 +1283,15 @@ export function initMemorySchema(db: Database.Database): void {
   // `memory_files` and `observations` already, and CREATE TABLE IF NOT EXISTS
   // will never add a column to them. Idempotent; a no-op once applied.
   migrateMemoryFilesFor4B(db);
+
+  // D-11 (Layer 2): rule candidates are ROWS. Before this they existed only as
+  // loose JSON on disk, so the product could not answer "has anything ever been
+  // promoted?" — and the answer, for its entire life, was no.
+  ensureRuleCandidatesTable(db);
+
+  // Layer 2: the lease/ack bookkeeping on the outbound stores. A learned rule is
+  // deleted ONLY on a confirmed server receipt (rule-delivery.ts).
+  migrateRuleDelivery(db);
 }
 
 // ============================================================
@@ -1439,40 +1453,12 @@ export function enqueueTeamPromotion(db: Database.Database, promo: TeamPromotion
   );
 }
 
-/**
- * Drain (SELECT + DELETE) all queued outbound promotions into the wire shape the
- * /sync `rule_promotions[]` ingest expects. On sync failure the whole payload is
- * re-enqueued to `pending_sync` (offline resilience), so draining here is safe.
- */
-export function drainTeamPromotions(db: Database.Database): TeamPromotionOutbound[] {
-  const rows = db.prepare(`
-    SELECT prompt_hash, destination, draft_text, score, signals_json, content_hash, hardened, review_attestation_json
-    FROM team_promotion_outbound ORDER BY created_at ASC LIMIT 1000
-  `).all() as Array<{
-    prompt_hash: string;
-    destination: string;
-    draft_text: string;
-    score: number | null;
-    signals_json: string;
-    content_hash: string;
-    hardened: number;
-    review_attestation_json: string | null;
-  }>;
-  if (rows.length === 0) return [];
-  db.prepare('DELETE FROM team_promotion_outbound').run();
-  return rows.map((r) => ({
-    prompt_hash: r.prompt_hash,
-    destination: r.destination,
-    draft_text: r.draft_text,
-    score: r.score ?? undefined,
-    signals: safeJsonArray(r.signals_json),
-    content_hash: r.content_hash,
-    hardened: r.hardened === 1,
-    review_attestation: r.review_attestation_json
-      ? safeJsonParse(r.review_attestation_json)
-      : undefined,
-  }));
-}
+// REMOVED (Layer 2): `drainTeamPromotions` — a SELECT-then-DELETE that destroyed a
+// promoted rule the moment it was read, before anyone knew whether it had been
+// delivered. Deleted rather than deprecated: a destructive drain that still exists
+// is a destructive drain someone will call again. Use `leaseLearning` /
+// `ackLearning` / `nackLearning` in rule-delivery.ts — a rule is deleted ONLY when
+// the server confirms receipt. Enforced by tests/rule-delivery-no-destructive-drain.
 
 /**
  * Enqueue a publisher-initiated revocation (PB-016 / H3). Idempotent on
@@ -1485,15 +1471,8 @@ export function enqueueTeamRevocation(db: Database.Database, promptHash: string)
   `).run(promptHash);
 }
 
-/** Drain (SELECT + DELETE) queued revocation prompt_hashes for the /sync payload. */
-export function drainTeamRevocations(db: Database.Database): string[] {
-  const rows = db.prepare(
-    `SELECT prompt_hash FROM team_revocation_outbound ORDER BY created_at ASC LIMIT 1000`,
-  ).all() as Array<{ prompt_hash: string }>;
-  if (rows.length === 0) return [];
-  db.prepare('DELETE FROM team_revocation_outbound').run();
-  return rows.map((r) => r.prompt_hash);
-}
+// REMOVED (Layer 2): `drainTeamRevocations` — same destructive SELECT-then-DELETE.
+// Superseded by the lease/ack contract in rule-delivery.ts.
 
 /**
  * Read the CR-53 effectiveness signal for a promoted rule (P1-002a). Returns the
@@ -1575,48 +1554,29 @@ export function enqueueRulePromotionEvent(
       JSON.stringify(ev.metadata ?? {}),
       ev.created_at,
     );
-    // L4: bound local growth (keep the newest CAP rows) so a never-draining seat
-    // can't accumulate without limit. Indexed PK scan; the table is tiny normally.
-    db.prepare(`
-      DELETE FROM rule_promotion_events_outbound
-      WHERE id NOT IN (
-        SELECT id FROM rule_promotion_events_outbound ORDER BY id DESC LIMIT ?
-      )
-    `).run(FUNNEL_EVENT_OUTBOX_CAP);
-  } catch {
-    // Best-effort funnel telemetry — never throw into the caller.
+    // L4: bound local growth on a seat that never syncs. This trims funnel
+    // TELEMETRY only — never a learned rule (see rule-delivery.ts for why that
+    // distinction is load-bearing). `capTelemetry` announces the trim instead of
+    // performing it silently.
+    capTelemetry(db, FUNNEL_EVENT_OUTBOX_CAP);
+  } catch (err) {
+    // S-9: still non-throwing (a telemetry failure must not break the promotion
+    // that triggered it) — but NO LONGER SILENT. An empty catch here is what made
+    // "the funnel is broken" and "there was nothing to record" indistinguishable.
+    process.stderr.write(
+      `[massu] WARNING: failed to record promotion-funnel event ` +
+        `(${ev.event_type} / ${ev.prompt_hash}): ` +
+        `${err instanceof Error ? err.message : String(err)}\n`,
+    );
   }
 }
 
-/**
- * Drain queued funnel events into the wire shape the /sync
- * `rule_promotion_events[]` ingest expects. DELETEs ONLY the drained rows (by id)
- * so any tail beyond FUNNEL_EVENT_DRAIN_LIMIT survives to the next session (no
- * silent loss). On sync failure the whole payload is re-enqueued to
- * `pending_sync` (offline resilience), so draining here is safe. Ordered by id
- * (the reliable monotonic insert order — client created_at may not be monotonic).
- */
-export function drainRulePromotionEvents(db: Database.Database): RulePromotionEventOutbound[] {
-  const rows = db.prepare(`
-    SELECT id, prompt_hash, event_type, metadata_json, created_at
-    FROM rule_promotion_events_outbound ORDER BY id ASC LIMIT ?
-  `).all(FUNNEL_EVENT_DRAIN_LIMIT) as Array<{
-    id: number;
-    prompt_hash: string;
-    event_type: string;
-    metadata_json: string;
-    created_at: string;
-  }>;
-  if (rows.length === 0) return [];
-  const maxId = rows[rows.length - 1].id;
-  db.prepare('DELETE FROM rule_promotion_events_outbound WHERE id <= ?').run(maxId);
-  return rows.map((r) => ({
-    prompt_hash: r.prompt_hash,
-    event_type: r.event_type as RulePromotionEventType,
-    created_at: r.created_at,
-    metadata: (safeJsonParse(r.metadata_json) as Record<string, unknown>) ?? {},
-  }));
-}
+// REMOVED (Layer 2): `drainRulePromotionEvents` — the SELECT-then-DELETE whose
+// docstring promised that "on sync failure the whole payload is re-enqueued to
+// pending_sync, so draining here is safe". It was not safe. `pending_sync` DISCARDS
+// after 10 retries, so the events were deleted here, queued, retried against an
+// HTTP 401, and then destroyed. The docstring was a capability claim nobody probed.
+// Superseded by the lease/ack contract in rule-delivery.ts.
 
 /**
  * Best-effort telemetry insert into `analytics_events` (H5 observability). Used
@@ -1666,17 +1626,87 @@ function safeJsonParse(json: string): unknown {
  * Previously this was a silent DELETE; customers lost all queued
  * observations with no visibility.
  */
+/**
+ * Pull learned rules out of about-to-be-discarded `pending_sync` payloads and put
+ * them back into their durable outbound stores (Layer 2). Returns how many rules
+ * were rescued.
+ *
+ * Re-enqueue is idempotent: `team_promotion_outbound` / `team_revocation_outbound`
+ * are keyed by prompt_hash (INSERT OR REPLACE), so rescuing a rule that is already
+ * queued is a no-op rather than a duplicate.
+ *
+ * FAIL LOUD, NEVER SILENT: if a rescue itself fails we say so on stderr. The one
+ * thing we must never do is delete the payload while pretending the rule survived.
+ */
+function rescueLearningFromStalePayloads(
+  db: Database.Database,
+  stale: Array<{ id: number; payload: string }>,
+): number {
+  let rescued = 0;
+  for (const item of stale) {
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(item.payload) as Record<string, unknown>;
+    } catch {
+      continue; // Unparseable payload cannot contain a recoverable rule.
+    }
+    try {
+      const promotions = Array.isArray(payload.rule_promotions) ? payload.rule_promotions : [];
+      for (const p of promotions as TeamPromotionOutbound[]) {
+        enqueueTeamPromotion(db, p);
+        rescued++;
+      }
+      const revocations = Array.isArray(payload.rule_revocations) ? payload.rule_revocations : [];
+      for (const r of revocations as Array<{ prompt_hash?: string }>) {
+        if (typeof r?.prompt_hash === 'string') {
+          enqueueTeamRevocation(db, r.prompt_hash);
+          rescued++;
+        }
+      }
+      const events = Array.isArray(payload.rule_promotion_events)
+        ? payload.rule_promotion_events
+        : [];
+      for (const e of events as RulePromotionEventOutbound[]) {
+        enqueueRulePromotionEvent(db, e);
+      }
+    } catch (err) {
+      process.stderr.write(
+        `[massu] WARNING: failed to rescue learned rules from give-up payload ${item.id}: ` +
+          `${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+  }
+  return rescued;
+}
+
 export function dequeuePendingSync(
   db: Database.Database,
   limit: number = 10
 ): Array<{ id: number; payload: string; retry_count: number }> {
-  // First, discard items that have exceeded max retries
+  // First, discard items that have exceeded max retries.
+  //
+  // LAYER 2 — RESCUE BEFORE DISCARD. This DELETE is the shredder that destroyed 17
+  // of the 18 promotion events ever created: a payload carrying a promoted rule was
+  // retried 10 times against an HTTP 401 and then silently deleted. Learned rules
+  // are the product; they are NEVER discarded. New payloads no longer carry them
+  // (cloud-sync strips them — they live under the lease/ack contract instead), but
+  // payloads queued by an OLDER build still can. So before deleting anything, we
+  // pull any learned rules back out into their durable outbound stores, where they
+  // will be retried forever. Sessions/observations remain best-effort and are
+  // discarded here, loudly, as before.
   const stale = db.prepare(
-    'SELECT id, retry_count, last_error FROM pending_sync WHERE retry_count >= 10 LIMIT 10000'
-  ).all() as Array<{ id: number; retry_count: number; last_error: string | null }>;
+    'SELECT id, retry_count, last_error, payload FROM pending_sync WHERE retry_count >= 10 LIMIT 10000'
+  ).all() as Array<{ id: number; retry_count: number; last_error: string | null; payload: string }>;
   if (stale.length > 0) {
+    const rescued = rescueLearningFromStalePayloads(db, stale);
     const ids = stale.map(s => s.id);
     db.prepare(`DELETE FROM pending_sync WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+    if (rescued > 0) {
+      process.stderr.write(
+        `[massu] RESCUED ${rescued} learned rule(s) from ${stale.length} give-up payload(s) — ` +
+        `they were re-queued for delivery, NOT discarded.\n`,
+      );
+    }
     // P-H012: stderr warning so the customer's terminal sees what happened.
     const lastErrors = [...new Set(stale.map(s => s.last_error).filter(Boolean))];
     process.stderr.write(

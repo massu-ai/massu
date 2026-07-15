@@ -18,6 +18,7 @@ import { getMemoryDb, pruneOldConversationTurns, pruneOldObservations, pruneTool
 import { resolveConsolidationConfig } from './consolidation-config.ts';
 import { getCurrentTier } from './license.ts';
 import { createDispatcher } from './server-dispatch.ts';
+import { assertMemoryEngineHealthy, FatalStartupError } from './startup-health.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_VERSION = (() => {
@@ -82,6 +83,21 @@ function pruneMemoryOnStartup(): void {
       `massu: Memory pruning failed (non-fatal): ${error instanceof Error ? error.message : String(error)}\n`
     );
   }
+}
+
+// === Startup: PROBE the memory engine before anything reports "connected" ===
+// A native-binding / ABI failure here is FATAL — every DB tool would fail — so we
+// fail closed and loud rather than swallow it (the "connected but broken" class).
+// This runs BEFORE the non-fatal prune below so an open failure can never be
+// misclassified as a transient maintenance hiccup.
+try {
+  assertMemoryEngineHealthy(getMemoryDb);
+} catch (error) {
+  if (error instanceof FatalStartupError) {
+    process.stderr.write(`massu: FATAL — ${error.message}\n`);
+    process.exit(1);
+  }
+  throw error;
 }
 
 pruneMemoryOnStartup();

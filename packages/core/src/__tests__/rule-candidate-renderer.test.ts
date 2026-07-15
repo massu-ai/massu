@@ -1,8 +1,10 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
-// plan-v0.2-interactive-rule-approval P-B-003: tests for the six-section
-// rule-candidate preview renderer.
+// Tests for the `massu rule show <id>` candidate preview renderer.
+// DF-1 (audit 2026-07-14): reshaped from the abandoned six-section v0.2 model
+// (whose proposed_rule/enforcement_example/conflicts fields had no producer) to
+// render ONLY the data the pipeline actually records — and now actually wired.
 
 import { describe, it, expect } from 'vitest';
 import { renderCandidatePreview, type RuleCandidate } from '../rule-candidate-renderer.ts';
@@ -20,31 +22,21 @@ function baseCandidate(): RuleCandidate {
     ],
     prior_turn_files: ['packages/core/src/config-loader.ts'],
     prior_turn_diff_snippet: '-  const cfg = parse(readFileSync(yamlPath))\n+  const cfg = getConfig()',
-    destination: 'pattern-scanner',
-    destination_reason: 'literal-grepable token detected: getConfig()',
-    proposed_rule: {
-      rule_id: 'require_get_config_over_direct_yaml',
-      scope: 'packages/core/src/**',
-      enforcement_mechanism: 'pattern-scanner grep against direct YAML parse calls',
-      example_violation: 'const cfg = yaml.load(readFileSync(path));',
-      example_fix: 'import { getConfig } from "./config.ts"; const cfg = getConfig();',
-    },
-    enforcement_example: 'grep -RnE "yaml\\.(load|parse)\\(readFileSync" packages/core/src/',
-    conflicts: [],
+    origin: 'local',
+    status: 'proposed',
+    destination: null,
     timestamp: '2026-05-20T12:00:00Z',
   };
 }
 
 describe('rule-candidate-renderer', () => {
-  it('renders all six sections with section headers', () => {
+  it('renders all four sections with section headers', () => {
     const out = renderCandidatePreview(baseCandidate());
     expect(out).toMatch(/^## Candidate abcdef0123456789/);
     expect(out).toContain('### 1. Detected correction');
     expect(out).toContain('### 2. Reacting to');
-    expect(out).toContain('### 3. Proposed rule');
-    expect(out).toContain('### 4. Destination + reason');
-    expect(out).toContain('### 5. Example enforcement');
-    expect(out).toContain('### 6. Conflict check');
+    expect(out).toContain('### 3. Origin & status');
+    expect(out).toContain('### 4. Next steps');
   });
 
   it('lists every fired signal with applied weight', () => {
@@ -56,21 +48,31 @@ describe('rule-candidate-renderer', () => {
     expect(out).toContain('Score: 90/100 (threshold 60)');
   });
 
-  it('renders empty conflict list as "No conflicting rules found."', () => {
+  it('renders origin, status, and an unrouted destination hint', () => {
     const out = renderCandidatePreview(baseCandidate());
-    expect(out).toContain('No conflicting rules found.');
+    expect(out).toContain('- origin: local');
+    expect(out).toContain('- status: proposed');
+    expect(out).toContain('- destination: (not yet chosen — decided at approve time)');
   });
 
-  it('renders non-empty conflicts with source:line + preview', () => {
+  it('renders a chosen destination and team/pack draft when present', () => {
     const c = baseCandidate();
-    c.conflicts = [
-      { source: 'scripts/massu-pattern-scanner.sh', line: 142, preview: 'Check 7 already covers yaml.load' },
-      { source: 'scripts/hooks/pattern-feedback.sh', line: 56, preview: 'allow-list for config.ts itself' },
-    ];
+    c.origin = 'team';
+    c.status = 'proposed';
+    c.destination = 'corrections-md';
+    c.draft_text = 'Always verify the end state.';
     const out = renderCandidatePreview(c);
-    expect(out).toContain('Conflicts detected — operator must resolve before approving');
-    expect(out).toContain('- scripts/massu-pattern-scanner.sh:142 — Check 7 already covers yaml.load');
-    expect(out).toContain('- scripts/hooks/pattern-feedback.sh:56 — allow-list for config.ts itself');
+    expect(out).toContain('- origin: team');
+    expect(out).toContain('- destination: corrections-md');
+    expect(out).toContain('- authoritative draft (team/pack):');
+    expect(out).toContain('Always verify the end state.');
+  });
+
+  it('surfaces the review/approve/dismiss next-step commands keyed to the id', () => {
+    const out = renderCandidatePreview(baseCandidate());
+    expect(out).toContain('massu rule review abcdef0123456789 --destination');
+    expect(out).toContain('massu rule approve abcdef0123456789 --destination');
+    expect(out).toContain('massu rule dismiss abcdef0123456789 --reason');
   });
 
   it('handles missing prior_turn_diff_snippet gracefully', () => {
@@ -96,21 +98,5 @@ describe('rule-candidate-renderer', () => {
     c.score = 0;
     const out = renderCandidatePreview(c);
     expect(out).toContain('Signals fired:\n- (none)');
-  });
-
-  it('renders the proposed-rule schema fields', () => {
-    const out = renderCandidatePreview(baseCandidate());
-    expect(out).toContain('- rule_id: require_get_config_over_direct_yaml');
-    expect(out).toContain('- scope: packages/core/src/**');
-    expect(out).toContain('- enforcement_mechanism:');
-    expect(out).toContain('- example_violation:');
-    expect(out).toContain('- example_fix:');
-  });
-
-  it('renders destination_extra when present', () => {
-    const c = baseCandidate();
-    c.destination_extra = 'matched config-driven keyword "brand-voice"';
-    const out = renderCandidatePreview(c);
-    expect(out).toContain('Extra: matched config-driven keyword "brand-voice"');
   });
 });

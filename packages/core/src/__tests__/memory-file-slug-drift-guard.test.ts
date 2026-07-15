@@ -26,7 +26,17 @@ import {
 const SRC = join(__dirname, '..');
 
 function walk(dir: string, acc: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
+  // BASE-3a (audit 2026-07-14): tolerate a directory vanishing mid-walk. A
+  // concurrently-running test may create+remove a scratch dir under src/ while
+  // this guard recurses; an unguarded readdirSync then throws ENOENT and the
+  // guard CRASHES instead of guarding (a blind gate). A vanished dir = skip it.
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return acc;
+  }
+  for (const entry of entries) {
     const full = join(dir, entry);
     let st;
     try {

@@ -8,7 +8,10 @@
 // Dependencies: P1-002, P5-001, P5-002
 // ============================================================
 
-import { getMemoryDb, endSession, addSummary, createSession, addConversationTurn, addToolCallDetail, getLastProcessedLine, setLastProcessedLine, drainTeamPromotions, drainTeamRevocations, drainRulePromotionEvents, getRecurrenceCountForPromptHash, embedMissingObservations } from '../memory-db.ts';
+import { getMemoryDb, endSession, addSummary, createSession, addConversationTurn, addToolCallDetail, getLastProcessedLine, setLastProcessedLine, getRecurrenceCountForPromptHash, embedMissingObservations } from '../memory-db.ts';
+// Layer 2: learned rules are delivered under a lease/ack contract — a promoted
+// rule is deleted ONLY when the server confirms it. See rule-delivery.ts.
+import { leaseLearning, ackLearning, nackLearning, type LearningLease } from '../rule-delivery.ts';
 import { generateCurrentMd } from '../session-state-generator.ts';
 import { archiveAndRegenerate } from '../session-archiver.ts';
 import { parseTranscriptFrom, estimateTokens } from '../transcript-parser.ts';
@@ -158,17 +161,47 @@ async function main(): Promise<void> {
 
       // 7. Cloud sync (if enabled)
       // Order: drain pending queue first, then sync current session
+      // Held outside the try so the catch can release it — a lease stranded by an
+      // exception would otherwise sit until its TTL expires.
+      let openLease: LearningLease | null = null;
       try {
         // 7a. Drain pending sync queue
         await drainSyncQueue(db);
 
-        // 7b. Sync current session data (drains team-shared promotion/revocation
-        // outbound stores into the payload — PB-006).
-        const syncPayload = buildSyncPayload(db, session_id, observations, summary);
+        // 7b. Sync current session data.
+        //
+        // LEARNED RULES ARE LEASED, NOT DRAINED (Layer 2). The old code DELETED
+        // the team-promotion / revocation / funnel rows the instant it read them
+        // into the payload; a failed upload then lost them forever (17 of 18 real
+        // rules died this way — see rule-delivery.ts). Now they are leased, and a
+        // row is deleted ONLY when the server confirms receipt (ack). Any failure
+        // keeps every row and counts an attempt (nack), and a rule that keeps
+        // failing raises a LOUD stall alarm rather than a silent zero.
+        // Only LEASE when the rules will actually be put on the wire. A seat with
+        // cloud sync off (every Free/Pro local-only seat) must not lease at all —
+        // there is nothing to deliver them to, and an unleased row is untouchable.
+        const cloudCfg = getConfig().cloud;
+        const willTransmit =
+          !!cloudCfg?.enabled && !!cloudCfg?.apiKey && !!cloudCfg?.endpoint &&
+          cloudCfg?.sync?.memory !== false;
+        const lease = willTransmit ? leaseLearning(db) : null;
+        openLease = lease;
+        const syncPayload = buildSyncPayload(db, session_id, observations, summary, lease);
         const result = await syncToCloud(db, syncPayload);
-        if (!result.success && result.error) {
-          // Payload already enqueued by syncToCloud on failure
+        if (lease) {
+          // ACK ONLY ON A REAL RECEIPT (`transmitted`), never on `success` alone.
+          // `syncToCloud` returns success:true when cloud sync is DISABLED — nothing
+          // was sent. Acking on that would delete every learned rule on a local-only
+          // seat: the exact silent-loss bug this whole module exists to abolish,
+          // reintroduced inside its own fix. Caught by an adversarial re-read, then
+          // pinned by a test (rule-delivery-never-loses-a-rule: "cloud disabled").
+          if (result.transmitted === true) {
+            ackLearning(db, lease);
+          } else {
+            nackLearning(db, lease, result.error ?? 'not transmitted (sync disabled or unreachable)');
+          }
         }
+        openLease = null;
 
         // 7c. Team-shared promotion PULL (PB-006). Best-effort, bounded by the
         // same request budget — materializes the org's promotions as reviewable
@@ -180,8 +213,14 @@ async function main(): Promise<void> {
         } catch (_pullErr) {
           // Non-blocking: pull failure never blocks session end
         }
-      } catch (_syncErr) {
-        // Non-blocking: sync failure never blocks session end
+      } catch (syncErr) {
+        // Non-blocking: a sync failure never blocks session end — but it may not
+        // pass SILENTLY either. If a lease was open when this threw, release it so
+        // the rules retry on the next session instead of waiting out the lease TTL.
+        // Nothing is deleted on this path.
+        const msg = syncErr instanceof Error ? syncErr.message : String(syncErr);
+        if (openLease) nackLearning(db, openLease, msg);
+        recordHookFailure('session-end:cloud-sync', syncErr);
       }
     } finally {
       db.close();
@@ -198,32 +237,29 @@ async function main(): Promise<void> {
 /**
  * Build a sync payload from the current session data.
  *
- * PB-006: takes `db` so it can drain the team-shared promotion / revocation
- * outbound stores (written by the applier's publish branch + `/massu-rule revoke`)
- * into `rule_promotions[]` / `rule_revocations[]`. Draining here is safe: on sync
- * failure the whole payload is re-enqueued to `pending_sync` (offline resilience).
+ * Layer 2: the learned rules come from a LEASE (`rule-delivery.ts`), never from a
+ * destructive drain. The caller acks the lease when the server confirms receipt
+ * and nacks it otherwise; either way nothing is deleted here.
+ *
+ * The old `willTransmit` guard existed to stop the DELETE firing when the rows
+ * would be filtered off the wire. Under lease/ack a delete cannot happen without
+ * a server confirmation, so the guard is no longer load-bearing for safety — but
+ * it is kept as a TRANSMIT filter: when cloud sync is off, the rules stay queued
+ * (unleased rows are simply omitted from the payload) rather than being shipped
+ * into a request that would drop them.
  */
 function buildSyncPayload(
   db: import('better-sqlite3').Database,
   sessionId: string,
   observations: Array<Record<string, unknown>>,
-  summary: SessionSummary
+  summary: SessionSummary,
+  lease: LearningLease | null
 ): SyncPayload {
-  // Only DRAIN (delete) the outbound team-shared stores when the rows will
-  // actually be transmitted — i.e. cloud sync is enabled, a key is configured,
-  // and the memory channel is on. Otherwise the drain would DELETE rows that
-  // syncToCloud then filters off the wire (returning success:true with no
-  // re-enqueue) → silent permanent loss. Leave them queued for a session where
-  // cloud sync is configured. (Architecture review LOW, 2026-05-31.)
-  const cfg = getConfig().cloud;
-  const willTransmit = !!cfg?.enabled && !!cfg?.apiKey && cfg?.sync?.memory !== false;
-  const promotions = willTransmit ? drainTeamPromotions(db) : [];
-  const revocations = willTransmit ? drainTeamRevocations(db) : [];
-  // P1-002: drain the promotion-funnel events for the analytics dashboard. Same
-  // willTransmit guard so the drain (a destructive DELETE) only fires when the
-  // rows will actually go over the wire (else they'd be lost — they're filtered
-  // off-wire when the memory channel is off).
-  const funnelEvents = willTransmit ? drainRulePromotionEvents(db) : [];
+  // A null lease means "we are not transmitting this session" — the learned rules
+  // stay queued and untouched. The payload simply carries no rule sections.
+  const promotions = lease?.promotions ?? [];
+  const revocations = lease?.revocations ?? [];
+  const funnelEvents = lease?.events ?? [];
   return {
     sessions: [{
       local_session_id: sessionId,

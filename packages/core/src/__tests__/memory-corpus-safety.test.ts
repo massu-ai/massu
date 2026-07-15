@@ -134,7 +134,11 @@ describe('memory corpus safety (A-17, A-21)', () => {
     for (const [name, hash] of before) {
       expect(after.get(name), `${name} MUST be byte-identical after a full cycle`).toBe(hash);
     }
-  });
+    // BASE-3b (audit 2026-07-14): explicit generous timeout. This is a disk-IO
+    // full-cycle test (~0.9s idle) — the default 5000ms flaked under full-suite
+    // parallel load. A timeout is a claim about the world (CR-68); size it for a
+    // loaded CI box, not an idle laptop.
+  }, 30_000);
 
   it('TEN cycles change zero bytes and reach a FIXED POINT in the store', () => {
     const before = fingerprint(memDir);
@@ -165,7 +169,7 @@ describe('memory corpus safety (A-17, A-21)', () => {
       ) as { n: number }).n,
       'the projection must reach a fixed point',
     ).toBe(obsAfterFirst);
-  });
+  }, 60_000); // BASE-3b: TEN full disk cycles — generous timeout for loaded CI (CR-68).
 
   it('every memory is mirrored byte-identically, including the adversarial ones', () => {
     fullCycle(db, memDir);
@@ -177,7 +181,7 @@ describe('memory corpus safety (A-17, A-21)', () => {
       expect(row, `${name} must be mirrored`).toBeTruthy();
       expect(row!.raw, `${name} must round-trip byte-identically`).toBe(onDisk);
     }
-  });
+  }, 30_000); // BASE-3b: disk-IO mirror check — generous timeout for loaded CI (CR-68).
 
   it('MEMORY.md is never ingested as a memory', () => {
     fullCycle(db, memDir);

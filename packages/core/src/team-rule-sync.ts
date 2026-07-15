@@ -76,6 +76,12 @@ export interface PullTeamPromotionsResult {
   dropped_unverified: number;
   dropped_nonshareable: number;
   revoked_handled: number;
+  /**
+   * Set when the pull FAILED (HTTP non-OK / network / timeout) — DISTINCT from a
+   * legitimately-empty pull. BND-3 (audit 2026-07-14): a sync failure must never
+   * be byte-identical to "nothing to sync". Undefined = the request completed.
+   */
+  sync_error?: string;
 }
 
 /**
@@ -142,10 +148,11 @@ export async function pullTeamPromotions(
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!res.ok) return { ...ZERO };
+    if (!res.ok) return failSync(db, `http_${res.status}`);
     envelope = (await res.json()) as SignedPromotionEnvelope;
-  } catch {
-    return { ...ZERO };
+  } catch (err) {
+    const reason = err instanceof Error && err.name === 'TimeoutError' ? 'timeout' : 'network';
+    return failSync(db, reason);
   }
 
   // (4) Verify the Ed25519 envelope — NO transition mode. Drop the WHOLE
@@ -423,4 +430,19 @@ function emitDropTelemetry(
     `[massu] team-shared promotion pull: dropped envelope (${eventType}). ` +
       `A signed/org-matched response is required — see massu.ai for details.\n`,
   );
+}
+
+/**
+ * BND-3 (audit 2026-07-14): a failed pull (HTTP non-OK / network / timeout) is a
+ * FAILURE, not an empty result. Record telemetry + a loud stderr line + carry a
+ * distinct `sync_error` so callers and outcome-watchers can tell "the cloud was
+ * unreachable" from "there was nothing to sync" (previously byte-identical).
+ */
+function failSync(db: Database.Database, reason: string): PullTeamPromotionsResult {
+  recordTelemetry(db, 'team_promotion_sync_failed', { reason });
+  process.stderr.write(
+    `[massu] team-shared promotion pull FAILED (${reason}). This is NOT "nothing to sync" — ` +
+      `the cloud was unreachable or rejected the request; promotions were NOT refreshed this run.\n`,
+  );
+  return { ...ZERO, sync_error: reason };
 }

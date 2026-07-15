@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import { tmpdir } from 'os';
 import { resetConfig } from '../config.ts';
 import {
   getDocsToolDefinitions,
@@ -16,7 +17,13 @@ import {
 // cancels back into the root so the help directory lives INSIDE the root and
 // survives the ensureWithinRoot() path-traversal guard. This lets the full
 // audit/coverage logic execute against a real on-disk help site.
-const TEST_DIR = resolve(__dirname, '../test-docs-tools-cov-tmp');
+// BASE-3a (audit 2026-07-14): the scratch dir MUST live in the OS temp dir, NOT
+// under packages/core/src/. A src/-rooted scratch dir (a) polluted the real-v8
+// coverage gate and (b) was recursed into by tree-walking guards (e.g.
+// memory-file-slug-drift-guard) which then crashed ENOENT when this test's
+// afterEach removed it mid-walk. The path-cancellation trick below only needs
+// PROJ_DIR's basename to be `proj` — its parent location is irrelevant.
+const TEST_DIR = resolve(tmpdir(), `massu-docs-tools-cov-${process.pid}`);
 const PROJ_DIR = resolve(TEST_DIR, 'proj');
 const HELP_DIR = resolve(PROJ_DIR, 'inner-help');
 

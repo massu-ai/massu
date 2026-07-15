@@ -110,18 +110,62 @@ const RULES = [
 const REQUIREMENT_MODALITY =
   /\b(?:must|shall|should|will|would|to be built|is to be|planned|proposed|acceptance)\b/i;
 
-/** Lines that are not claims about the codebase: headers, quotes, code, ledger rows. */
-function isSkippable(line, inFence) {
+/**
+ * Lines that are not claims about the codebase: headers, code fences, comments, specs.
+ *
+ * ⚠ THE HOLE THIS USED TO HAVE (found 2026-07-14, by an adversarial audit that RAN THE
+ * DETECTOR instead of reading it):
+ *
+ *     if (t.startsWith('|')) return true;   // table row
+ *     if (t.startsWith('>')) return true;   // blockquote
+ *
+ * **The gate could not see a claim written in a markdown table or a blockquote.** Same
+ * sentence, both ways:
+ *
+ *     as prose      -> 1 claim detected
+ *     as table cell -> 0 claims detected
+ *
+ * So ANY plan could pass Check 41 by putting its claims in a table — and one did: a
+ * 482-line plan whose entire load-bearing content (a closures table, a dead-function
+ * table, a tier table) lived in tables was certified GREEN while asserting things that
+ * were false. **The anti-blind-gate gate was itself a blind gate**, and it was passed by
+ * writing the claims where it could not look.
+ *
+ * The ledger's OWN rows must still be skipped — they are the evidence, not claims — but
+ * that is a question of WHERE the row is (inside the `## CLAIM LEDGER` section), not of
+ * whether it starts with a pipe. `inLedger` carries that.
+ */
+function isSkippable(line, inFence, inLedger) {
   if (inFence) return true;
   const t = line.trim();
   if (!t) return true;
   if (t.startsWith('#')) return true; // heading
-  if (t.startsWith('>')) return true; // blockquote (incident narration)
-  if (t.startsWith('|')) return true; // table row (incl. the ledger itself)
   if (t.startsWith('//') || t.startsWith('--')) return true;
+  // The ledger's own rows are EVIDENCE, not claims. Skip the section, not the syntax.
+  if (inLedger) return true;
+  if (/^\|[\s|:-]*\|?$/.test(t)) return true; // a table's ---|---|--- separator row
   // A requirement/spec, not an assertion about the world as it is today.
   if (REQUIREMENT_MODALITY.test(t)) return true;
   return false;
+}
+
+/**
+ * Strip markdown containers so the claim TEXT inside them is scannable.
+ * A claim does not stop being a claim because it is in a cell or a quote.
+ */
+function unwrap(line) {
+  let t = line.trim();
+  // Blockquote: peel any number of leading '>' markers.
+  while (t.startsWith('>')) t = t.slice(1).trim();
+  // Table row: the cells are the prose. Join them so a claim spanning a cell is seen.
+  if (t.startsWith('|')) {
+    t = t
+      .split('|')
+      .slice(1, -1) // drop the empty edges created by the leading/trailing pipes
+      .join(' ')
+      .trim();
+  }
+  return t;
 }
 
 /**
@@ -133,6 +177,7 @@ export function detectClaims(text) {
   const out = [];
   const lines = text.split('\n');
   let inFence = false;
+  let inLedger = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -140,11 +185,21 @@ export function detectClaims(text) {
       inFence = !inFence;
       continue;
     }
-    if (isSkippable(line, inFence)) continue;
+    // Track the CLAIM LEDGER section: its rows are evidence, and a new heading ends it.
+    if (/^##+[ \t]*CLAIM LEDGER[ \t]*\r?$/i.test(line)) {
+      inLedger = true;
+      continue;
+    }
+    if (inLedger && /^##+[ \t]+\S/.test(line)) inLedger = false;
+
+    if (isSkippable(line, inFence, inLedger)) continue;
+
+    const scannable = unwrap(line);
+    if (!scannable) continue;
 
     for (const rule of RULES) {
-      if (rule.re.test(line)) {
-        out.push({ line: i + 1, text: line.trim(), ruleId: rule.id, why: rule.why });
+      if (rule.re.test(scannable)) {
+        out.push({ line: i + 1, text: scannable, ruleId: rule.id, why: rule.why });
         break; // one finding per line
       }
     }

@@ -44,7 +44,8 @@ const OUT_PATH = resolve(REPO_ROOT, 'packages/core/src/security/license-pubkey.g
  *   18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475
  */
 const KNOWN_PUBKEY_FINGERPRINTS = new Set([
-  '18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475',
+  '18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475', // 2026-05-18 (original); kept during the SEC-1 rotation grace window.
+  '18c0456789a70eeee28012719f04725f43f59e693f735227ff73f0475f2290e3', // 2026-07-14 (SEC-1 rotation) — new signing key.
 ]);
 
 function parsePemToRawBytes(pem) {
@@ -83,13 +84,18 @@ function generate(rawBytes) {
  *
  * P-H019 (plan-stage-c-high-batch / 1.10.5).
  *
- * To rotate: regenerate the keypair via Node crypto.generateKeyPairSync,
- * update packages/core/security/license-pubkey.pem with the new public key,
- * append the new RAW-bytes sha256 to KNOWN_PUBKEY_FINGERPRINTS in
- * scripts/bundle-license-pubkey.mjs (DO NOT delete the old entry during
- * the rotation grace window), then run \`node scripts/bundle-license-pubkey.mjs\`.
- * Operator then updates the Supabase Edge Function env var
- * \`LICENSE_RESPONSE_SIGNING_PRIVATE_KEY_B64\` with the new private key.
+ * To rotate (full runbook: docs/runbooks/license-response-signing-key-rotation.md):
+ * regenerate the keypair, append the new RAW-bytes sha256 to
+ * KNOWN_PUBKEY_FINGERPRINTS above (DO NOT delete the old entry during the grace
+ * window), AND update PUBKEY_FINGERPRINT_HEX in
+ * website/supabase/functions/validate-key/index.ts to the SAME new fingerprint
+ * (it is stamped onto every response; a stale stamp is rejected by the client at
+ * ed25519-envelope-verifier.ts:111). The order is load-bearing: the operator
+ * installs the new secret AND deploys the fingerprint-updated function FIRST
+ * (production signs with the new key), and only THEN is the new public key
+ * vendored + this bundle regenerated + the client published. Bundling the new
+ * client pubkey before production signs with it would make strict-mode clients
+ * reject every response.
  */
 export const LICENSE_PUBKEY_ED25519: Uint8Array = new Uint8Array([${numbers}]);
 

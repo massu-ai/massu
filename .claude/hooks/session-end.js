@@ -971,6 +971,253 @@ var init_db_backup = __esm({
   }
 });
 
+// src/rule-delivery.ts
+import { randomUUID } from "node:crypto";
+function tableExists(db, table) {
+  const row = db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=?").get(table);
+  return row !== void 0;
+}
+function claimPage(db, table, pk, orderBy, limit, token, nowMs) {
+  if (!tableExists(db, table)) return;
+  const cutoff = nowMs - LEASE_TTL_MS;
+  const ids = db.prepare(
+    `SELECT ${pk} AS k FROM ${table}
+        WHERE lease_token IS NULL OR leased_at_ms IS NULL OR leased_at_ms < ?
+        ORDER BY ${orderBy} ASC LIMIT ?`
+  ).all(cutoff, limit);
+  if (ids.length === 0) return;
+  const placeholders = ids.map(() => "?").join(",");
+  db.prepare(
+    `UPDATE ${table} SET lease_token = ?, leased_at_ms = ? WHERE ${pk} IN (${placeholders})`
+  ).run(token, nowMs, ...ids.map((r) => r.k));
+}
+function columns(db, table) {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+  return new Set(rows.map((r) => r.name));
+}
+function migrateRuleDelivery(db) {
+  const ADDITIONS = [
+    { name: "attempts", decl: "INTEGER NOT NULL DEFAULT 0" },
+    { name: "lease_token", decl: "TEXT" },
+    { name: "leased_at_ms", decl: "INTEGER" },
+    { name: "last_error", decl: "TEXT" }
+  ];
+  for (const table of ALL_OUTBOUND_TABLES) {
+    if (!tableExists(db, table)) continue;
+    const cols = columns(db, table);
+    for (const add of ADDITIONS) {
+      if (cols.has(add.name)) continue;
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${add.name} ${add.decl}`);
+    }
+  }
+}
+function leaseLearning(db, nowMs = Date.now()) {
+  migrateRuleDelivery(db);
+  const token = randomUUID();
+  claimPage(db, "team_promotion_outbound", "prompt_hash", "created_at", PROMOTION_LEASE_LIMIT, token, nowMs);
+  claimPage(db, "team_revocation_outbound", "prompt_hash", "created_at", PROMOTION_LEASE_LIMIT, token, nowMs);
+  claimPage(db, TELEMETRY_OUTBOUND_TABLE, "id", "id", TELEMETRY_LEASE_LIMIT, token, nowMs);
+  const promotions = tableExists(db, "team_promotion_outbound") ? db.prepare(
+    `SELECT prompt_hash, destination, draft_text, score, signals_json,
+                    content_hash, hardened, review_attestation_json
+             FROM team_promotion_outbound WHERE lease_token = ?
+             ORDER BY created_at ASC LIMIT ?`
+  ).all(token, PROMOTION_LEASE_LIMIT).map((r) => ({
+    prompt_hash: r.prompt_hash,
+    destination: r.destination,
+    draft_text: r.draft_text,
+    ...r.score !== null ? { score: r.score } : {},
+    signals: safeParseArray(r.signals_json),
+    content_hash: r.content_hash,
+    ...r.hardened ? { hardened: true } : {},
+    ...r.review_attestation_json != null ? { review_attestation: safeParseUnknown(r.review_attestation_json) } : {}
+  })) : [];
+  const revocations = tableExists(db, "team_revocation_outbound") ? db.prepare(
+    `SELECT prompt_hash FROM team_revocation_outbound
+             WHERE lease_token = ? ORDER BY created_at ASC LIMIT ?`
+  ).all(token, PROMOTION_LEASE_LIMIT).map((r) => r.prompt_hash) : [];
+  const events = tableExists(db, TELEMETRY_OUTBOUND_TABLE) ? db.prepare(
+    `SELECT prompt_hash, event_type, metadata_json, created_at
+             FROM ${TELEMETRY_OUTBOUND_TABLE} WHERE lease_token = ?
+             ORDER BY id ASC LIMIT ?`
+  ).all(token, TELEMETRY_LEASE_LIMIT).map((r) => ({
+    prompt_hash: r.prompt_hash,
+    event_type: r.event_type,
+    created_at: r.created_at,
+    metadata: safeParseUnknown(r.metadata_json) ?? {}
+  })) : [];
+  return { token, promotions, revocations, events };
+}
+function ackLearning(db, lease) {
+  const delivered = lease.promotions.length + lease.revocations.length + lease.events.length;
+  for (const table of ALL_OUTBOUND_TABLES) {
+    if (!tableExists(db, table)) continue;
+    db.prepare(`DELETE FROM ${table} WHERE lease_token = ?`).run(lease.token);
+  }
+  if (delivered > 0) {
+    recordAnalytics(db, EVENT_DELIVERY_CONFIRMED, {
+      promotions: lease.promotions.length,
+      revocations: lease.revocations.length,
+      events: lease.events.length
+    });
+  }
+}
+function nackLearning(db, lease, error) {
+  for (const table of ALL_OUTBOUND_TABLES) {
+    if (!tableExists(db, table)) continue;
+    db.prepare(
+      `UPDATE ${table}
+         SET lease_token = NULL,
+             leased_at_ms = NULL,
+             attempts = attempts + 1,
+             last_error = ?
+       WHERE lease_token = ?`
+    ).run(error.slice(0, 500), lease.token);
+  }
+  const snap = undeliveredSnapshot(db);
+  if (snap.stalled) alarmStalled(db, snap, error);
+  return snap;
+}
+function undeliveredSnapshot(db) {
+  const count = (t) => {
+    if (!tableExists(db, t)) return 0;
+    const r = db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get();
+    return r.n;
+  };
+  const promotions = count("team_promotion_outbound");
+  const revocations = count("team_revocation_outbound");
+  const events = count(TELEMETRY_OUTBOUND_TABLE);
+  let maxAttempts = 0;
+  let oldest = null;
+  for (const t of RULE_OUTBOUND_TABLES) {
+    if (!tableExists(db, t)) continue;
+    if (!columns(db, t).has("attempts")) continue;
+    const r = db.prepare(`SELECT MAX(attempts) AS a, MIN(created_at) AS c FROM ${t}`).get();
+    if (r.a !== null && r.a > maxAttempts) maxAttempts = r.a;
+    if (r.c !== null && (oldest === null || r.c < oldest)) oldest = r.c;
+  }
+  return {
+    promotions,
+    revocations,
+    events,
+    max_rule_attempts: maxAttempts,
+    oldest_rule_created_at: oldest,
+    stalled: promotions + revocations > 0 && maxAttempts >= STALL_ATTEMPTS
+  };
+}
+function alarmStalled(db, snap, error) {
+  const rules = snap.promotions + snap.revocations;
+  process.stderr.write(
+    `[massu] WARNING: ${rules} learned rule(s) have NOT reached your team after ${snap.max_rule_attempts} delivery attempts. They are SAFE (nothing was deleted) and will retry. Last error: ${error}. Run \`massu rule delivery-status\` for detail.
+`
+  );
+  recordAnalytics(db, EVENT_DELIVERY_STALLED, {
+    undelivered_promotions: snap.promotions,
+    undelivered_revocations: snap.revocations,
+    undelivered_events: snap.events,
+    max_attempts: snap.max_rule_attempts,
+    oldest_created_at: snap.oldest_rule_created_at,
+    last_error: error.slice(0, 300)
+  });
+}
+function capTelemetry(db, cap = TELEMETRY_OUTBOX_CAP) {
+  if (!tableExists(db, TELEMETRY_OUTBOUND_TABLE)) return 0;
+  const before = db.prepare(`SELECT COUNT(*) AS n FROM ${TELEMETRY_OUTBOUND_TABLE}`).get();
+  if (before.n <= cap) return 0;
+  const info = db.prepare(
+    `DELETE FROM ${TELEMETRY_OUTBOUND_TABLE}
+        WHERE id NOT IN (SELECT id FROM ${TELEMETRY_OUTBOUND_TABLE} ORDER BY id DESC LIMIT ?)`
+  ).run(cap);
+  const dropped = info.changes;
+  if (dropped > 0) {
+    process.stderr.write(
+      `[massu] NOTE: dropped ${dropped} oldest promotion-funnel telemetry row(s) at the ${cap}-row cap. No learned rules were affected (rules are never dropped).
+`
+    );
+    recordAnalytics(db, EVENT_TELEMETRY_CAPPED, { dropped, cap });
+  }
+  return dropped;
+}
+function stripLearningFromPayload(payload) {
+  const clone = { ...payload };
+  delete clone.rule_promotions;
+  delete clone.rule_revocations;
+  delete clone.rule_promotion_events;
+  return clone;
+}
+function safeParseArray(raw) {
+  const v = safeParseUnknown(raw);
+  return Array.isArray(v) ? v : [];
+}
+function safeParseUnknown(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+function recordAnalytics(db, eventType, data) {
+  try {
+    db.prepare(
+      `INSERT INTO analytics_events (event_type, event_data, created_at)
+       VALUES (?, ?, datetime('now'))`
+    ).run(eventType, JSON.stringify(data));
+  } catch (err) {
+    process.stderr.write(
+      `[massu] WARNING: could not record '${eventType}' telemetry: ${err instanceof Error ? err.message : String(err)}
+`
+    );
+  }
+}
+var RULE_OUTBOUND_TABLES, TELEMETRY_OUTBOUND_TABLE, ALL_OUTBOUND_TABLES, TELEMETRY_OUTBOX_CAP, LEASE_TTL_MS, PROMOTION_LEASE_LIMIT, TELEMETRY_LEASE_LIMIT, STALL_ATTEMPTS, EVENT_DELIVERY_STALLED, EVENT_DELIVERY_CONFIRMED, EVENT_TELEMETRY_CAPPED;
+var init_rule_delivery = __esm({
+  "src/rule-delivery.ts"() {
+    "use strict";
+    RULE_OUTBOUND_TABLES = [
+      "team_promotion_outbound",
+      "team_revocation_outbound"
+    ];
+    TELEMETRY_OUTBOUND_TABLE = "rule_promotion_events_outbound";
+    ALL_OUTBOUND_TABLES = [
+      ...RULE_OUTBOUND_TABLES,
+      TELEMETRY_OUTBOUND_TABLE
+    ];
+    TELEMETRY_OUTBOX_CAP = 2e4;
+    LEASE_TTL_MS = 15 * 60 * 1e3;
+    PROMOTION_LEASE_LIMIT = 1e3;
+    TELEMETRY_LEASE_LIMIT = 5e3;
+    STALL_ATTEMPTS = 5;
+    EVENT_DELIVERY_STALLED = "rule_delivery_stalled";
+    EVENT_DELIVERY_CONFIRMED = "rule_delivery_confirmed";
+    EVENT_TELEMETRY_CAPPED = "rule_telemetry_capped";
+  }
+});
+
+// src/rule-candidate-store.ts
+function ensureRuleCandidatesTable(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rule_candidates (
+      prompt_hash  TEXT PRIMARY KEY,
+      status       TEXT NOT NULL DEFAULT 'proposed'
+                     CHECK (status IN ('proposed','shown','promoted','dismissed')),
+      origin       TEXT NOT NULL DEFAULT 'local'
+                     CHECK (origin IN ('local','team','pack')),
+      score        REAL,
+      destination  TEXT,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_rule_candidates_status ON rule_candidates(status);
+    CREATE INDEX IF NOT EXISTS idx_rule_candidates_created ON rule_candidates(created_at);
+  `);
+}
+var init_rule_candidate_store = __esm({
+  "src/rule-candidate-store.ts"() {
+    "use strict";
+  }
+});
+
 // src/hooks/lib/hook-failure-signal.ts
 import { appendFileSync, mkdirSync as mkdirSync3, existsSync as existsSync4 } from "fs";
 import { join as join2, dirname as dirname3 } from "path";
@@ -1539,9 +1786,6 @@ __export(memory_db_exports, {
   createSession: () => createSession,
   deduplicateFailedAttempt: () => deduplicateFailedAttempt,
   dequeuePendingSync: () => dequeuePendingSync,
-  drainRulePromotionEvents: () => drainRulePromotionEvents,
-  drainTeamPromotions: () => drainTeamPromotions,
-  drainTeamRevocations: () => drainTeamRevocations,
   embedMissingObservations: () => embedMissingObservations,
   endSession: () => endSession,
   enqueueRulePromotionEvent: () => enqueueRulePromotionEvent,
@@ -2448,6 +2692,8 @@ function initMemorySchema(db) {
   `);
   migrateObservationEmbeddingChunks(db);
   migrateMemoryFilesFor4B(db);
+  ensureRuleCandidatesTable(db);
+  migrateRuleDelivery(db);
 }
 function enqueueSyncPayload(db, payload) {
   db.prepare("INSERT INTO pending_sync (payload) VALUES (?)").run(payload);
@@ -2522,37 +2768,11 @@ function enqueueTeamPromotion(db, promo) {
     promo.review_attestation !== void 0 ? JSON.stringify(promo.review_attestation) : null
   );
 }
-function drainTeamPromotions(db) {
-  const rows = db.prepare(`
-    SELECT prompt_hash, destination, draft_text, score, signals_json, content_hash, hardened, review_attestation_json
-    FROM team_promotion_outbound ORDER BY created_at ASC LIMIT 1000
-  `).all();
-  if (rows.length === 0) return [];
-  db.prepare("DELETE FROM team_promotion_outbound").run();
-  return rows.map((r) => ({
-    prompt_hash: r.prompt_hash,
-    destination: r.destination,
-    draft_text: r.draft_text,
-    score: r.score ?? void 0,
-    signals: safeJsonArray(r.signals_json),
-    content_hash: r.content_hash,
-    hardened: r.hardened === 1,
-    review_attestation: r.review_attestation_json ? safeJsonParse(r.review_attestation_json) : void 0
-  }));
-}
 function enqueueTeamRevocation(db, promptHash) {
   db.prepare(`
     INSERT OR REPLACE INTO team_revocation_outbound (prompt_hash, created_at)
     VALUES (?, datetime('now'))
   `).run(promptHash);
-}
-function drainTeamRevocations(db) {
-  const rows = db.prepare(
-    `SELECT prompt_hash FROM team_revocation_outbound ORDER BY created_at ASC LIMIT 1000`
-  ).all();
-  if (rows.length === 0) return [];
-  db.prepare("DELETE FROM team_revocation_outbound").run();
-  return rows.map((r) => r.prompt_hash);
 }
 function getRecurrenceCountForPromptHash(db, promptHash) {
   try {
@@ -2581,29 +2801,13 @@ function enqueueRulePromotionEvent(db, ev) {
       JSON.stringify(ev.metadata ?? {}),
       ev.created_at
     );
-    db.prepare(`
-      DELETE FROM rule_promotion_events_outbound
-      WHERE id NOT IN (
-        SELECT id FROM rule_promotion_events_outbound ORDER BY id DESC LIMIT ?
-      )
-    `).run(FUNNEL_EVENT_OUTBOX_CAP);
-  } catch {
+    capTelemetry(db, FUNNEL_EVENT_OUTBOX_CAP);
+  } catch (err) {
+    process.stderr.write(
+      `[massu] WARNING: failed to record promotion-funnel event (${ev.event_type} / ${ev.prompt_hash}): ${err instanceof Error ? err.message : String(err)}
+`
+    );
   }
-}
-function drainRulePromotionEvents(db) {
-  const rows = db.prepare(`
-    SELECT id, prompt_hash, event_type, metadata_json, created_at
-    FROM rule_promotion_events_outbound ORDER BY id ASC LIMIT ?
-  `).all(FUNNEL_EVENT_DRAIN_LIMIT);
-  if (rows.length === 0) return [];
-  const maxId = rows[rows.length - 1].id;
-  db.prepare("DELETE FROM rule_promotion_events_outbound WHERE id <= ?").run(maxId);
-  return rows.map((r) => ({
-    prompt_hash: r.prompt_hash,
-    event_type: r.event_type,
-    created_at: r.created_at,
-    metadata: safeJsonParse(r.metadata_json) ?? {}
-  }));
 }
 function recordTelemetry(db, eventType, data) {
   try {
@@ -2614,28 +2818,55 @@ function recordTelemetry(db, eventType, data) {
   } catch {
   }
 }
-function safeJsonArray(json) {
-  try {
-    const v = JSON.parse(json);
-    return Array.isArray(v) ? v : [];
-  } catch {
-    return [];
+function rescueLearningFromStalePayloads(db, stale) {
+  let rescued = 0;
+  for (const item of stale) {
+    let payload;
+    try {
+      payload = JSON.parse(item.payload);
+    } catch {
+      continue;
+    }
+    try {
+      const promotions = Array.isArray(payload.rule_promotions) ? payload.rule_promotions : [];
+      for (const p of promotions) {
+        enqueueTeamPromotion(db, p);
+        rescued++;
+      }
+      const revocations = Array.isArray(payload.rule_revocations) ? payload.rule_revocations : [];
+      for (const r of revocations) {
+        if (typeof r?.prompt_hash === "string") {
+          enqueueTeamRevocation(db, r.prompt_hash);
+          rescued++;
+        }
+      }
+      const events = Array.isArray(payload.rule_promotion_events) ? payload.rule_promotion_events : [];
+      for (const e of events) {
+        enqueueRulePromotionEvent(db, e);
+      }
+    } catch (err) {
+      process.stderr.write(
+        `[massu] WARNING: failed to rescue learned rules from give-up payload ${item.id}: ${err instanceof Error ? err.message : String(err)}
+`
+      );
+    }
   }
-}
-function safeJsonParse(json) {
-  try {
-    return JSON.parse(json);
-  } catch {
-    return void 0;
-  }
+  return rescued;
 }
 function dequeuePendingSync(db, limit = 10) {
   const stale = db.prepare(
-    "SELECT id, retry_count, last_error FROM pending_sync WHERE retry_count >= 10 LIMIT 10000"
+    "SELECT id, retry_count, last_error, payload FROM pending_sync WHERE retry_count >= 10 LIMIT 10000"
   ).all();
   if (stale.length > 0) {
+    const rescued = rescueLearningFromStalePayloads(db, stale);
     const ids = stale.map((s) => s.id);
     db.prepare(`DELETE FROM pending_sync WHERE id IN (${ids.map(() => "?").join(",")})`).run(...ids);
+    if (rescued > 0) {
+      process.stderr.write(
+        `[massu] RESCUED ${rescued} learned rule(s) from ${stale.length} give-up payload(s) \u2014 they were re-queued for delivery, NOT discarded.
+`
+      );
+    }
     const lastErrors = [...new Set(stale.map((s) => s.last_error).filter(Boolean))];
     process.stderr.write(
       `[massu] WARNING: ${stale.length} cloud-sync queue item(s) discarded after 10+ retries. Likely cause: invalid API key or unreachable endpoint. Recent errors: ${lastErrors.slice(0, 3).join("; ") || "(none recorded)"}
@@ -3327,19 +3558,20 @@ function scoreFailureClasses(db, matchText, filePath, promptContext, weights) {
   }
   return bestMatch;
 }
-var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_DRAIN_LIMIT, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
+var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
 var init_memory_db = __esm({
   "src/memory-db.ts"() {
     "use strict";
     init_config();
     init_memory_vector();
     init_db_backup();
+    init_rule_delivery();
+    init_rule_candidate_store();
     init_hook_failure_signal();
     init_memory_embed_sweep();
     MEMORY_SCHEMA_VERSION = 1;
     TOOL_COST_EVENTS_RETENTION_DAYS = 90;
     MAX_DRAFT_TEXT_LEN = 16384;
-    FUNNEL_EVENT_DRAIN_LIMIT = 5e3;
     FUNNEL_EVENT_OUTBOX_CAP = 2e4;
     _temporalColCache = /* @__PURE__ */ new WeakMap();
     CONSOLIDATION_LESSON_EVIDENCE = "consolidation:session-summary";
@@ -3351,6 +3583,7 @@ var init_memory_db = __esm({
 
 // src/hooks/session-end.ts
 init_memory_db();
+init_rule_delivery();
 
 // src/session-archiver.ts
 import { existsSync as existsSync7, readFileSync as readFileSync4, writeFileSync as writeFileSync2, mkdirSync as mkdirSync5, renameSync } from "fs";
@@ -3631,6 +3864,7 @@ function estimateTokens(text) {
 // src/cloud-sync.ts
 init_config();
 init_memory_db();
+init_rule_delivery();
 
 // src/observation-extractor.ts
 init_memory_db();
@@ -3669,7 +3903,9 @@ function classifyVisibility(title, detail) {
 // src/cloud-sync.ts
 var MAX_RETRIES = 3;
 var RETRY_DELAYS = [1e3, 2e3, 4e3];
-var DEFAULT_CLOUD_REQUEST_TIMEOUT_MS = 2e3;
+var DEFAULT_CLOUD_REQUEST_TIMEOUT_MS = 8e3;
+var SYNC_DEADLINE_MS = 2e4;
+var MIN_ATTEMPT_BUDGET_MS = 1e3;
 async function syncToCloud(db, payload) {
   const config = getConfig();
   const cloud = config.cloud;
@@ -3752,8 +3988,15 @@ async function syncToCloud(db, payload) {
     }
   }
   let lastError = "";
-  const requestTimeoutMs = cloud.requestTimeoutMs ?? DEFAULT_CLOUD_REQUEST_TIMEOUT_MS;
+  const configuredTimeoutMs = cloud.requestTimeoutMs ?? DEFAULT_CLOUD_REQUEST_TIMEOUT_MS;
+  const deadlineAt = Date.now() + SYNC_DEADLINE_MS;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const remainingMs = deadlineAt - Date.now();
+    if (remainingMs < MIN_ATTEMPT_BUDGET_MS) {
+      lastError = lastError || `sync deadline exceeded (${SYNC_DEADLINE_MS}ms)`;
+      break;
+    }
+    const requestTimeoutMs = Math.min(configuredTimeoutMs, remainingMs);
     try {
       const response = await fetch(`${endpoint}/sync`, {
         method: "POST",
@@ -3781,6 +4024,10 @@ async function syncToCloud(db, payload) {
       const result = await response.json();
       return {
         success: true,
+        // THE ONLY place this is ever set. The server received the payload and
+        // answered 2xx. This — and nothing else — is a receipt, and a receipt is
+        // the sole authority to delete a learned rule.
+        transmitted: true,
         synced: {
           sessions: result.synced?.sessions ?? 0,
           observations: result.synced?.observations ?? 0,
@@ -3800,8 +4047,12 @@ async function syncToCloud(db, payload) {
     }
   }
   try {
-    enqueueSyncPayload(db, JSON.stringify(payload));
-  } catch (_e) {
+    enqueueSyncPayload(db, JSON.stringify(stripLearningFromPayload(payload)));
+  } catch (err) {
+    process.stderr.write(
+      `[massu] WARNING: could not queue sync payload for retry: ${err instanceof Error ? err.message : String(err)}
+`
+    );
   }
   return {
     success: false,
@@ -3905,10 +4156,11 @@ function verifyEd25519SignedEnvelope(key, payload) {
 }
 
 // src/security/license-pubkey.generated.ts
-var LICENSE_PUBKEY_ED25519 = new Uint8Array([39, 136, 108, 146, 85, 233, 119, 252, 223, 226, 123, 155, 234, 168, 200, 150, 36, 249, 174, 6, 130, 146, 125, 196, 136, 224, 202, 150, 53, 228, 114, 15]);
-var LICENSE_PUBKEY_FINGERPRINT_HEX = "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475";
+var LICENSE_PUBKEY_ED25519 = new Uint8Array([254, 188, 221, 150, 111, 252, 154, 100, 253, 247, 113, 192, 144, 224, 127, 160, 202, 111, 75, 40, 35, 169, 108, 89, 252, 250, 255, 233, 250, 120, 47, 160]);
+var LICENSE_PUBKEY_FINGERPRINT_HEX = "18c0456789a70eeee28012719f04725f43f59e693f735227ff73f0475f2290e3";
 var KNOWN_LICENSE_PUBKEY_FINGERPRINTS = /* @__PURE__ */ new Set([
-  "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475"
+  "18a63d64fdec9e5a368fc45feaa49bed6ced815967e582bc7b8af534f22a9475",
+  "18c0456789a70eeee28012719f04725f43f59e693f735227ff73f0475f2290e3"
 ]);
 
 // src/security/license-response-verifier.ts
@@ -4085,6 +4337,9 @@ init_memory_db();
 // src/rule-candidate-funnel.ts
 init_memory_db();
 
+// src/rule-candidate-applier.ts
+init_rule_candidate_store();
+
 // src/rule-candidate-hardened.ts
 var TEAM_HARDENED_SHAREABLE_DESTINATIONS = [
   "pattern-scanner",
@@ -4156,10 +4411,11 @@ async function pullTeamPromotions(db, opts = {}) {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(timeoutMs)
     });
-    if (!res.ok) return { ...ZERO };
+    if (!res.ok) return failSync(db, `http_${res.status}`);
     envelope = await res.json();
-  } catch {
-    return { ...ZERO };
+  } catch (err) {
+    const reason = err instanceof Error && err.name === "TimeoutError" ? "timeout" : "network";
+    return failSync(db, reason);
   }
   const verdict = verifyPromotionEnvelope(envelope);
   if (verdict.kind !== "valid") {
@@ -4344,6 +4600,14 @@ function emitDropTelemetry(db, eventType, data) {
     `[massu] team-shared promotion pull: dropped envelope (${eventType}). A signed/org-matched response is required \u2014 see massu.ai for details.
 `
   );
+}
+function failSync(db, reason) {
+  recordTelemetry(db, "team_promotion_sync_failed", { reason });
+  process.stderr.write(
+    `[massu] team-shared promotion pull FAILED (${reason}). This is NOT "nothing to sync" \u2014 the cloud was unreachable or rejected the request; promotions were NOT refreshed this run.
+`
+  );
+  return { ...ZERO, sync_error: reason };
 }
 
 // src/hooks/session-end.ts
@@ -5690,17 +5954,31 @@ async function main() {
       }
       endSession(db, session_id, "completed");
       archiveAndRegenerate(db, session_id);
+      let openLease = null;
       try {
         await drainSyncQueue(db);
-        const syncPayload = buildSyncPayload(db, session_id, observations, summary);
+        const cloudCfg = getConfig().cloud;
+        const willTransmit = !!cloudCfg?.enabled && !!cloudCfg?.apiKey && !!cloudCfg?.endpoint && cloudCfg?.sync?.memory !== false;
+        const lease = willTransmit ? leaseLearning(db) : null;
+        openLease = lease;
+        const syncPayload = buildSyncPayload(db, session_id, observations, summary, lease);
         const result = await syncToCloud(db, syncPayload);
-        if (!result.success && result.error) {
+        if (lease) {
+          if (result.transmitted === true) {
+            ackLearning(db, lease);
+          } else {
+            nackLearning(db, lease, result.error ?? "not transmitted (sync disabled or unreachable)");
+          }
         }
+        openLease = null;
         try {
           await pullTeamPromotions(db);
         } catch (_pullErr) {
         }
-      } catch (_syncErr) {
+      } catch (syncErr) {
+        const msg = syncErr instanceof Error ? syncErr.message : String(syncErr);
+        if (openLease) nackLearning(db, openLease, msg);
+        recordHookFailure("session-end:cloud-sync", syncErr);
       }
     } finally {
       db.close();
@@ -5710,12 +5988,10 @@ async function main() {
   }
   process.exit(0);
 }
-function buildSyncPayload(db, sessionId, observations, summary) {
-  const cfg = getConfig().cloud;
-  const willTransmit = !!cfg?.enabled && !!cfg?.apiKey && cfg?.sync?.memory !== false;
-  const promotions = willTransmit ? drainTeamPromotions(db) : [];
-  const revocations = willTransmit ? drainTeamRevocations(db) : [];
-  const funnelEvents = willTransmit ? drainRulePromotionEvents(db) : [];
+function buildSyncPayload(db, sessionId, observations, summary, lease) {
+  const promotions = lease?.promotions ?? [];
+  const revocations = lease?.revocations ?? [];
+  const funnelEvents = lease?.events ?? [];
   return {
     sessions: [{
       local_session_id: sessionId,

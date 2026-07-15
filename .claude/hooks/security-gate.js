@@ -950,6 +950,106 @@ var init_db_backup = __esm({
   }
 });
 
+// src/rule-delivery.ts
+function tableExists(db, table) {
+  const row = db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=?").get(table);
+  return row !== void 0;
+}
+function columns(db, table) {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+  return new Set(rows.map((r) => r.name));
+}
+function migrateRuleDelivery(db) {
+  const ADDITIONS = [
+    { name: "attempts", decl: "INTEGER NOT NULL DEFAULT 0" },
+    { name: "lease_token", decl: "TEXT" },
+    { name: "leased_at_ms", decl: "INTEGER" },
+    { name: "last_error", decl: "TEXT" }
+  ];
+  for (const table of ALL_OUTBOUND_TABLES) {
+    if (!tableExists(db, table)) continue;
+    const cols = columns(db, table);
+    for (const add of ADDITIONS) {
+      if (cols.has(add.name)) continue;
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${add.name} ${add.decl}`);
+    }
+  }
+}
+function capTelemetry(db, cap = TELEMETRY_OUTBOX_CAP) {
+  if (!tableExists(db, TELEMETRY_OUTBOUND_TABLE)) return 0;
+  const before = db.prepare(`SELECT COUNT(*) AS n FROM ${TELEMETRY_OUTBOUND_TABLE}`).get();
+  if (before.n <= cap) return 0;
+  const info = db.prepare(
+    `DELETE FROM ${TELEMETRY_OUTBOUND_TABLE}
+        WHERE id NOT IN (SELECT id FROM ${TELEMETRY_OUTBOUND_TABLE} ORDER BY id DESC LIMIT ?)`
+  ).run(cap);
+  const dropped = info.changes;
+  if (dropped > 0) {
+    process.stderr.write(
+      `[massu] NOTE: dropped ${dropped} oldest promotion-funnel telemetry row(s) at the ${cap}-row cap. No learned rules were affected (rules are never dropped).
+`
+    );
+    recordAnalytics(db, EVENT_TELEMETRY_CAPPED, { dropped, cap });
+  }
+  return dropped;
+}
+function recordAnalytics(db, eventType, data) {
+  try {
+    db.prepare(
+      `INSERT INTO analytics_events (event_type, event_data, created_at)
+       VALUES (?, ?, datetime('now'))`
+    ).run(eventType, JSON.stringify(data));
+  } catch (err) {
+    process.stderr.write(
+      `[massu] WARNING: could not record '${eventType}' telemetry: ${err instanceof Error ? err.message : String(err)}
+`
+    );
+  }
+}
+var RULE_OUTBOUND_TABLES, TELEMETRY_OUTBOUND_TABLE, ALL_OUTBOUND_TABLES, TELEMETRY_OUTBOX_CAP, LEASE_TTL_MS, EVENT_TELEMETRY_CAPPED;
+var init_rule_delivery = __esm({
+  "src/rule-delivery.ts"() {
+    "use strict";
+    RULE_OUTBOUND_TABLES = [
+      "team_promotion_outbound",
+      "team_revocation_outbound"
+    ];
+    TELEMETRY_OUTBOUND_TABLE = "rule_promotion_events_outbound";
+    ALL_OUTBOUND_TABLES = [
+      ...RULE_OUTBOUND_TABLES,
+      TELEMETRY_OUTBOUND_TABLE
+    ];
+    TELEMETRY_OUTBOX_CAP = 2e4;
+    LEASE_TTL_MS = 15 * 60 * 1e3;
+    EVENT_TELEMETRY_CAPPED = "rule_telemetry_capped";
+  }
+});
+
+// src/rule-candidate-store.ts
+function ensureRuleCandidatesTable(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rule_candidates (
+      prompt_hash  TEXT PRIMARY KEY,
+      status       TEXT NOT NULL DEFAULT 'proposed'
+                     CHECK (status IN ('proposed','shown','promoted','dismissed')),
+      origin       TEXT NOT NULL DEFAULT 'local'
+                     CHECK (origin IN ('local','team','pack')),
+      score        REAL,
+      destination  TEXT,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_rule_candidates_status ON rule_candidates(status);
+    CREATE INDEX IF NOT EXISTS idx_rule_candidates_created ON rule_candidates(created_at);
+  `);
+}
+var init_rule_candidate_store = __esm({
+  "src/rule-candidate-store.ts"() {
+    "use strict";
+  }
+});
+
 // src/memory-embedder-tokenizer.ts
 import { readFileSync as readFileSync3 } from "fs";
 function loadVocab(vocabPath) {
@@ -1432,9 +1532,6 @@ __export(memory_db_exports, {
   createSession: () => createSession,
   deduplicateFailedAttempt: () => deduplicateFailedAttempt,
   dequeuePendingSync: () => dequeuePendingSync,
-  drainRulePromotionEvents: () => drainRulePromotionEvents,
-  drainTeamPromotions: () => drainTeamPromotions,
-  drainTeamRevocations: () => drainTeamRevocations,
   embedMissingObservations: () => embedMissingObservations,
   endSession: () => endSession,
   enqueueRulePromotionEvent: () => enqueueRulePromotionEvent,
@@ -2341,6 +2438,8 @@ function initMemorySchema(db) {
   `);
   migrateObservationEmbeddingChunks(db);
   migrateMemoryFilesFor4B(db);
+  ensureRuleCandidatesTable(db);
+  migrateRuleDelivery(db);
 }
 function enqueueSyncPayload(db, payload) {
   db.prepare("INSERT INTO pending_sync (payload) VALUES (?)").run(payload);
@@ -2415,37 +2514,11 @@ function enqueueTeamPromotion(db, promo) {
     promo.review_attestation !== void 0 ? JSON.stringify(promo.review_attestation) : null
   );
 }
-function drainTeamPromotions(db) {
-  const rows = db.prepare(`
-    SELECT prompt_hash, destination, draft_text, score, signals_json, content_hash, hardened, review_attestation_json
-    FROM team_promotion_outbound ORDER BY created_at ASC LIMIT 1000
-  `).all();
-  if (rows.length === 0) return [];
-  db.prepare("DELETE FROM team_promotion_outbound").run();
-  return rows.map((r) => ({
-    prompt_hash: r.prompt_hash,
-    destination: r.destination,
-    draft_text: r.draft_text,
-    score: r.score ?? void 0,
-    signals: safeJsonArray(r.signals_json),
-    content_hash: r.content_hash,
-    hardened: r.hardened === 1,
-    review_attestation: r.review_attestation_json ? safeJsonParse(r.review_attestation_json) : void 0
-  }));
-}
 function enqueueTeamRevocation(db, promptHash) {
   db.prepare(`
     INSERT OR REPLACE INTO team_revocation_outbound (prompt_hash, created_at)
     VALUES (?, datetime('now'))
   `).run(promptHash);
-}
-function drainTeamRevocations(db) {
-  const rows = db.prepare(
-    `SELECT prompt_hash FROM team_revocation_outbound ORDER BY created_at ASC LIMIT 1000`
-  ).all();
-  if (rows.length === 0) return [];
-  db.prepare("DELETE FROM team_revocation_outbound").run();
-  return rows.map((r) => r.prompt_hash);
 }
 function getRecurrenceCountForPromptHash(db, promptHash) {
   try {
@@ -2474,29 +2547,13 @@ function enqueueRulePromotionEvent(db, ev) {
       JSON.stringify(ev.metadata ?? {}),
       ev.created_at
     );
-    db.prepare(`
-      DELETE FROM rule_promotion_events_outbound
-      WHERE id NOT IN (
-        SELECT id FROM rule_promotion_events_outbound ORDER BY id DESC LIMIT ?
-      )
-    `).run(FUNNEL_EVENT_OUTBOX_CAP);
-  } catch {
+    capTelemetry(db, FUNNEL_EVENT_OUTBOX_CAP);
+  } catch (err) {
+    process.stderr.write(
+      `[massu] WARNING: failed to record promotion-funnel event (${ev.event_type} / ${ev.prompt_hash}): ${err instanceof Error ? err.message : String(err)}
+`
+    );
   }
-}
-function drainRulePromotionEvents(db) {
-  const rows = db.prepare(`
-    SELECT id, prompt_hash, event_type, metadata_json, created_at
-    FROM rule_promotion_events_outbound ORDER BY id ASC LIMIT ?
-  `).all(FUNNEL_EVENT_DRAIN_LIMIT);
-  if (rows.length === 0) return [];
-  const maxId = rows[rows.length - 1].id;
-  db.prepare("DELETE FROM rule_promotion_events_outbound WHERE id <= ?").run(maxId);
-  return rows.map((r) => ({
-    prompt_hash: r.prompt_hash,
-    event_type: r.event_type,
-    created_at: r.created_at,
-    metadata: safeJsonParse(r.metadata_json) ?? {}
-  }));
 }
 function recordTelemetry(db, eventType, data) {
   try {
@@ -2507,28 +2564,55 @@ function recordTelemetry(db, eventType, data) {
   } catch {
   }
 }
-function safeJsonArray(json) {
-  try {
-    const v = JSON.parse(json);
-    return Array.isArray(v) ? v : [];
-  } catch {
-    return [];
+function rescueLearningFromStalePayloads(db, stale) {
+  let rescued = 0;
+  for (const item of stale) {
+    let payload;
+    try {
+      payload = JSON.parse(item.payload);
+    } catch {
+      continue;
+    }
+    try {
+      const promotions = Array.isArray(payload.rule_promotions) ? payload.rule_promotions : [];
+      for (const p of promotions) {
+        enqueueTeamPromotion(db, p);
+        rescued++;
+      }
+      const revocations = Array.isArray(payload.rule_revocations) ? payload.rule_revocations : [];
+      for (const r of revocations) {
+        if (typeof r?.prompt_hash === "string") {
+          enqueueTeamRevocation(db, r.prompt_hash);
+          rescued++;
+        }
+      }
+      const events = Array.isArray(payload.rule_promotion_events) ? payload.rule_promotion_events : [];
+      for (const e of events) {
+        enqueueRulePromotionEvent(db, e);
+      }
+    } catch (err) {
+      process.stderr.write(
+        `[massu] WARNING: failed to rescue learned rules from give-up payload ${item.id}: ${err instanceof Error ? err.message : String(err)}
+`
+      );
+    }
   }
-}
-function safeJsonParse(json) {
-  try {
-    return JSON.parse(json);
-  } catch {
-    return void 0;
-  }
+  return rescued;
 }
 function dequeuePendingSync(db, limit = 10) {
   const stale = db.prepare(
-    "SELECT id, retry_count, last_error FROM pending_sync WHERE retry_count >= 10 LIMIT 10000"
+    "SELECT id, retry_count, last_error, payload FROM pending_sync WHERE retry_count >= 10 LIMIT 10000"
   ).all();
   if (stale.length > 0) {
+    const rescued = rescueLearningFromStalePayloads(db, stale);
     const ids = stale.map((s) => s.id);
     db.prepare(`DELETE FROM pending_sync WHERE id IN (${ids.map(() => "?").join(",")})`).run(...ids);
+    if (rescued > 0) {
+      process.stderr.write(
+        `[massu] RESCUED ${rescued} learned rule(s) from ${stale.length} give-up payload(s) \u2014 they were re-queued for delivery, NOT discarded.
+`
+      );
+    }
     const lastErrors = [...new Set(stale.map((s) => s.last_error).filter(Boolean))];
     process.stderr.write(
       `[massu] WARNING: ${stale.length} cloud-sync queue item(s) discarded after 10+ retries. Likely cause: invalid API key or unreachable endpoint. Recent errors: ${lastErrors.slice(0, 3).join("; ") || "(none recorded)"}
@@ -3220,19 +3304,20 @@ function scoreFailureClasses(db, matchText, filePath, promptContext, weights) {
   }
   return bestMatch;
 }
-var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_DRAIN_LIMIT, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
+var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
 var init_memory_db = __esm({
   "src/memory-db.ts"() {
     "use strict";
     init_config();
     init_memory_vector();
     init_db_backup();
+    init_rule_delivery();
+    init_rule_candidate_store();
     init_hook_failure_signal();
     init_memory_embed_sweep();
     MEMORY_SCHEMA_VERSION = 1;
     TOOL_COST_EVENTS_RETENTION_DAYS = 90;
     MAX_DRAFT_TEXT_LEN = 16384;
-    FUNNEL_EVENT_DRAIN_LIMIT = 5e3;
     FUNNEL_EVENT_OUTBOX_CAP = 2e4;
     _temporalColCache = /* @__PURE__ */ new WeakMap();
     CONSOLIDATION_LESSON_EVIDENCE = "consolidation:session-summary";

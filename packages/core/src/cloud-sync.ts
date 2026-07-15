@@ -10,6 +10,7 @@ import {
   incrementRetryCount,
 } from './memory-db.ts';
 import type { RulePromotionEventType } from './memory-db.ts';
+import { stripLearningFromPayload } from './rule-delivery.ts';
 import { classifyVisibility } from './observation-extractor.ts';
 
 // ============================================================
@@ -92,6 +93,18 @@ export interface SyncPayload {
 
 export interface SyncResult {
   success: boolean;
+  /**
+   * TRUE only when the payload was actually PUT ON THE WIRE and the server answered
+   * 2xx. Distinct from `success`, which is ALSO true when cloud sync is simply
+   * DISABLED (nothing attempted, nothing wrong).
+   *
+   * That conflation is not academic. A learned rule may be deleted only on a
+   * confirmed server receipt, and `success: true` from a disabled cloud is not a
+   * receipt — it means "we never sent it". Acking on `success` alone deletes every
+   * learned rule on a local-only seat at session end. `transmitted` is the only
+   * flag an ack may trust.
+   */
+  transmitted?: boolean;
   synced: {
     sessions: number;
     observations: number;
@@ -104,11 +117,41 @@ export interface SyncResult {
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [1000, 2000, 4000]; // exponential backoff
 
-// P-H003 (plan-stage-c-high-batch): bound each HTTP request so offline
-// customers don't burn the entire Stop-hook 15s budget on a single
-// unreachable endpoint. Default 2_000ms is well under hook timeout while
-// still tolerating typical latency. Override via config.cloud.requestTimeoutMs.
-const DEFAULT_CLOUD_REQUEST_TIMEOUT_MS = 2_000;
+/**
+ * Per-request timeout, and the OVERALL DEADLINE for a whole sync attempt.
+ *
+ * THE BUG THIS REPLACES (measured 2026-07-14, against the live api.massu.ai):
+ * the old default was 2_000ms, with a comment asserting it was "well under hook
+ * timeout while still tolerating typical latency". Both halves were false, and
+ * nobody had ever probed the endpoint to check:
+ *
+ *     empty payload (auth only) .................  777ms mean
+ *     1 session + 50 observations ............... 2018ms mean   <-- OVER the 2s limit
+ *
+ * Server-side bcrypt `compareSync` alone (cost 12, on every request) eats ~40% of a
+ * 2s budget before any work happens. So a perfectly ordinary session payload timed
+ * out EVERY TIME, was queued, retried, timed out again, and after 10 retries was
+ * DISCARDED. That is not a hypothetical: a single workspace logged three
+ * `cloud_sync_giveup` events in one day, all with "aborted due to timeout".
+ * Cloud sync had, in practice, never succeeded for a real session.
+ *
+ * The numbers below are sized from that MEASUREMENT, not from a guess:
+ *   - request timeout 8s ≈ 4× the measured 50-observation payload, leaving room for
+ *     larger payloads and a slow network.
+ *   - an overall 20s DEADLINE, inside the 30s Stop-hook budget declared in
+ *     .claude/settings.json. The deadline is what makes this safe: no combination of
+ *     retries and backoff can overrun the hook, because every attempt is clamped to
+ *     the time actually remaining. Bounding only the per-request timeout (the old
+ *     design) leaves total time = retries × timeout + backoff, which is unbounded in
+ *     practice as soon as anyone tunes a knob.
+ *
+ * To re-derive these: run scripts/measure-sync-latency.sh and read the mean. Do not
+ * copy a number out of this comment into a plan — re-run it.
+ */
+const DEFAULT_CLOUD_REQUEST_TIMEOUT_MS = 8_000;
+const SYNC_DEADLINE_MS = 20_000;
+/** Below this much remaining budget, a further attempt cannot plausibly finish. */
+const MIN_ATTEMPT_BUDGET_MS = 1_000;
 
 /**
  * Sync data to the cloud endpoint.
@@ -225,11 +268,25 @@ export async function syncToCloud(
     }
   }
 
-  // Attempt sync with retry
+  // Attempt sync with retry, under an OVERALL DEADLINE.
+  //
+  // The deadline — not the per-request timeout — is what guarantees we cannot
+  // overrun the Stop hook. Each attempt gets the SMALLER of the configured request
+  // timeout and the time actually left, so retries + backoff can never sum past the
+  // budget no matter how the knobs are tuned.
   let lastError = '';
-  const requestTimeoutMs = (cloud as { requestTimeoutMs?: number }).requestTimeoutMs
+  const configuredTimeoutMs = (cloud as { requestTimeoutMs?: number }).requestTimeoutMs
     ?? DEFAULT_CLOUD_REQUEST_TIMEOUT_MS;
+  const deadlineAt = Date.now() + SYNC_DEADLINE_MS;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const remainingMs = deadlineAt - Date.now();
+    if (remainingMs < MIN_ATTEMPT_BUDGET_MS) {
+      // Out of budget. Stop cleanly and queue for later — never silently, and never
+      // by blowing through the hook timeout (which would kill the process mid-write).
+      lastError = lastError || `sync deadline exceeded (${SYNC_DEADLINE_MS}ms)`;
+      break;
+    }
+    const requestTimeoutMs = Math.min(configuredTimeoutMs, remainingMs);
     try {
       // CR-59: `cloud.endpoint` is the API BASE (e.g. https://api.massu.ai/v1);
       // every consumer appends its own path. Session-data sync targets the
@@ -265,6 +322,10 @@ export async function syncToCloud(
       const result = await response.json() as { synced?: { sessions?: number; observations?: number; analytics?: number } };
       return {
         success: true,
+        // THE ONLY place this is ever set. The server received the payload and
+        // answered 2xx. This — and nothing else — is a receipt, and a receipt is
+        // the sole authority to delete a learned rule.
+        transmitted: true,
         synced: {
           sessions: result.synced?.sessions ?? 0,
           observations: result.synced?.observations ?? 0,
@@ -287,11 +348,23 @@ export async function syncToCloud(
     }
   }
 
-  // All retries exhausted — enqueue for later
+  // All retries exhausted — enqueue for later.
+  //
+  // LEARNED RULES MUST NOT TRAVEL IN pending_sync: that queue DISCARDS its
+  // contents after 10 failed retries, which is exactly how 17 of 18 real rules
+  // were destroyed. Rules live in the outbound stores under the lease/ack
+  // contract instead, so they are stripped from anything handed to this queue.
   try {
-    enqueueSyncPayload(db, JSON.stringify(payload));
-  } catch (_e) {
-    // Best effort — don't crash if queue fails
+    enqueueSyncPayload(db, JSON.stringify(stripLearningFromPayload(payload)));
+  } catch (err) {
+    // S-9: non-throwing, but NEVER SILENT. A failure to queue is a failure to
+    // deliver, and an empty catch here is the exact idiom that made "broken" and
+    // "nothing to do" indistinguishable. The learned rules are unaffected — they
+    // were stripped out above and live under the lease/ack contract.
+    process.stderr.write(
+      `[massu] WARNING: could not queue sync payload for retry: ` +
+        `${err instanceof Error ? err.message : String(err)}\n`,
+    );
   }
 
   return {

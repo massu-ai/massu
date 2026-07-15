@@ -1,46 +1,52 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
-// plan-v0.2-interactive-rule-approval P-B-003: pure renderer for the
-// `/massu-rule show <id>` six-section preview. No I/O, no DB access —
-// caller materializes a RuleCandidate object from the sidecar JSON +
-// classifier output and hands it in.
+// Pure renderer for the `massu rule show <id>` candidate preview. No I/O, no DB
+// access — the caller materializes a RuleCandidate from the sidecar payload
+// (readCandidate) + the DB row (getCandidate) and hands it in.
+//
+// DF-1 (codebase audit 2026-07-14): this renderer had ZERO production callers
+// and its interface carried fields (proposed_rule, enforcement_example,
+// conflicts) that NO code path in the pipeline ever produces — an abandoned
+// v0.2 data model. Rendering those would be placeholder data (CR-39). It is
+// reshaped here to render ONLY what the candidate pipeline actually records,
+// and wired into `massu rule show <id>` so it is a real, used surface.
 
-import type { SignalHit } from './rule-candidate-detector.ts';
-
-export interface ProposedRuleDraft {
-  rule_id: string;
-  scope: string;
-  enforcement_mechanism: string;
-  example_violation: string;
-  example_fix: string;
+/** A signal as recorded in the sidecar. Looser than the detector's SignalHit
+ *  (whose `name` is a fixed union) because the persisted candidate stores an
+ *  arbitrary signal-name string — the renderer only reads name/applied/evidence. */
+export interface PreviewSignal {
+  name: string;
+  applied: number;
+  evidence?: string;
+  baseWeight?: number;
 }
 
-export interface ConflictHit {
-  source: string;
-  line: number;
-  preview: string;
-}
-
+/** Everything a `massu rule show` preview can truthfully display. Every field
+ *  has a real producer: the sidecar payload (readCandidate) and/or the DB row
+ *  (getCandidate). No field here is fabricated. */
 export interface RuleCandidate {
   prompt_hash: string;
   prompt: string;
   score: number;
-  signals: SignalHit[];
+  signals: PreviewSignal[];
   prior_turn_files: string[];
   prior_turn_diff_snippet?: string;
-  destination: 'pattern-scanner' | 'claude-md-cr' | 'corrections-md' | 'custom-destination';
-  destination_reason: string;
-  destination_extra?: string;
-  proposed_rule: ProposedRuleDraft;
-  enforcement_example: string;
-  conflicts: ConflictHit[];
   timestamp: string;
+  /** DB row: 'local' | 'team' | 'pack'. */
+  origin?: string;
+  /** DB row: 'proposed' | 'approved' | 'dismissed' | ... */
+  status?: string;
+  /** Authoritative destination — set for team/pack candidates, or after a local
+   *  candidate is classified. Null/undefined while a local candidate is unrouted. */
+  destination?: string | null;
+  /** team/pack candidates carry the authoritative draft body the publisher authored. */
+  draft_text?: string;
 }
 
 const THRESHOLD = 60;
 
-function renderSignalLine(s: SignalHit): string {
+function renderSignalLine(s: PreviewSignal): string {
   const sign = s.applied >= 0 ? '+' : '';
   const evidence = s.evidence ? `: ${s.evidence}` : '';
   return `- ${s.name} (${sign}${s.applied})${evidence}`;
@@ -85,41 +91,28 @@ export function renderCandidatePreview(candidate: RuleCandidate): string {
   }
   lines.push('');
 
-  // Section 3: proposed rule
-  lines.push('### 3. Proposed rule');
-  lines.push(`- rule_id: ${candidate.proposed_rule.rule_id}`);
-  lines.push(`- scope: ${candidate.proposed_rule.scope}`);
-  lines.push(`- enforcement_mechanism: ${candidate.proposed_rule.enforcement_mechanism}`);
-  lines.push('- example_violation:');
-  lines.push(fenced('', candidate.proposed_rule.example_violation));
-  lines.push('- example_fix:');
-  lines.push(fenced('', candidate.proposed_rule.example_fix));
-  lines.push('');
-
-  // Section 4: destination + reason
-  lines.push('### 4. Destination + reason');
-  lines.push(`**Destination**: ${candidate.destination}`);
-  lines.push(`**Reason**: ${candidate.destination_reason}`);
-  if (candidate.destination_extra) {
-    lines.push(`Extra: ${candidate.destination_extra}`);
+  // Section 3: origin, status, destination
+  lines.push('### 3. Origin & status');
+  lines.push(`- origin: ${candidate.origin ?? 'local'}`);
+  lines.push(`- status: ${candidate.status ?? 'proposed'}`);
+  lines.push(`- destination: ${candidate.destination ?? '(not yet chosen — decided at approve time)'}`);
+  if (candidate.draft_text) {
+    lines.push('- authoritative draft (team/pack):');
+    lines.push(fenced('', candidate.draft_text));
   }
   lines.push('');
 
-  // Section 5: enforcement example
-  lines.push('### 5. Example enforcement');
-  lines.push(fenced('bash', candidate.enforcement_example));
-  lines.push('');
-
-  // Section 6: conflict check
-  lines.push('### 6. Conflict check');
-  if (candidate.conflicts.length === 0) {
-    lines.push('No conflicting rules found.');
-  } else {
-    lines.push('Conflicts detected — operator must resolve before approving:');
-    for (const c of candidate.conflicts) {
-      lines.push(`- ${c.source}:${c.line} — ${c.preview}`);
-    }
-  }
+  // Section 4: next steps — the honest guidance a human needs to act.
+  lines.push('### 4. Next steps');
+  lines.push('Review the exact text that would be applied, then approve or dismiss:');
+  lines.push(
+    fenced(
+      'bash',
+      `massu rule review ${candidate.prompt_hash} --destination <dest> --draft '<text>'\n` +
+        `massu rule approve ${candidate.prompt_hash} --destination <dest> --draft '<text>'\n` +
+        `massu rule dismiss ${candidate.prompt_hash} --reason '<why>'`,
+    ),
+  );
   lines.push('');
 
   return lines.join('\n');

@@ -14,6 +14,34 @@ SRC_DIR="$REPO_ROOT/packages/core/src"
 VIOLATIONS=0
 QUICK_MODE="${1:-}"
 
+# SF-2 (audit 2026-07-14) — THE BLIND-GATE GUARD. Nearly every check greps a file
+# list rooted at a scan directory. If that directory is missing/renamed, `find`
+# and `grep` return NOTHING, every check's loop runs zero times, and the scanner
+# reports "all clean" while having looked at nothing — "could not look" and
+# "looked, found nothing" collapse to the same PASS. Assert the scan roots are
+# present AND non-empty BEFORE any check runs, so a moved source tree FAILS LOUD
+# (M1 prove-it-looked / M2 fail-closed) instead of silently passing.
+assert_scan_root_nonempty() {
+  local dir="$1"
+  if [[ ! -d "$dir" ]]; then
+    echo "FATAL: pattern-scanner scan root '$dir' does not exist — cannot see the code it must check. Refusing to report clean (SF-2)." >&2
+    exit 3
+  fi
+  local count
+  count=$(find "$dir" -type f -name "*.ts" 2>/dev/null | head -n 1 | wc -l | tr -d ' ')
+  if [[ "$count" -eq 0 ]]; then
+    echo "FATAL: pattern-scanner scan root '$dir' contains zero *.ts files — a blind scan would report clean. Refusing (SF-2)." >&2
+    exit 3
+  fi
+}
+assert_scan_root_nonempty "$SRC_DIR"
+# website/src is a scan target for several checks; assert it too when the website
+# package is present (a website-less checkout, e.g. the public repo, legitimately
+# has no website/ — but a renamed website/src while website/ exists must FAIL).
+if [[ -d "$REPO_ROOT/website" ]]; then
+  assert_scan_root_nonempty "$REPO_ROOT/website/src"
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'

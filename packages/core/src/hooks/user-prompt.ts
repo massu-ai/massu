@@ -16,6 +16,8 @@ import { scoreCorrectionPrompt } from '../rule-candidate-detector.ts';
 import { categorizePrompt, hashPrompt } from '../prompt-analyzer.ts';
 import { getCachedTierReadOnly } from '../license.ts';
 import { entitledForAutoLearning, autoLearningUpgradeMessage, entitledForTeamSharedPromotion } from '../auto-learning-entitlement.ts';
+// D-11: candidates are rows, not loose files. The sidecar is now a projection.
+import { upsertCandidate } from '../rule-candidate-store.ts';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
@@ -150,7 +152,12 @@ async function main(): Promise<void> {
             const candidatePath = join(candidateDir, `${promptHash}.json`);
             // Sha-keyed file naming → idempotent on retry (plan §5 idempotency).
             if (!existsSync(candidatePath)) {
-              writeFileSync(candidatePath, JSON.stringify({
+              // D-11 (Layer 2): the candidate is RECORDED IN THE DB, not merely
+              // dropped on disk as a loose file. `upsertCandidate` writes the row
+              // (source of truth) and the sidecar (compatibility projection for the
+              // file-reading /massu-rule protocol) — so the funnel is queryable and
+              // "we have candidates but have never promoted one" is DETECTABLE.
+              upsertCandidate(db, hookInput.cwd, {
                 prompt,
                 prompt_hash: promptHash,
                 score: scoreResult.score,
@@ -158,7 +165,7 @@ async function main(): Promise<void> {
                 prior_turn_files: priorTurn.files,
                 timestamp: new Date().toISOString(),
                 session_id,
-              }, null, 2));
+              }, { origin: 'local', score: scoreResult.score });
               // P1-002 (plan-2026-06-01-auto-learning-analytics-dashboard): a
               // candidate was just PROPOSED. Capture the funnel event for the
               // org-scoped analytics dashboard — but ONLY at Team+ (org-scoped

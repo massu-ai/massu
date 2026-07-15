@@ -10,6 +10,140 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [1.16.1] - 2026-07-14
+
+### Security
+
+- **License-response signing key rotated (SEC-1).** The Ed25519 key that signs `/validate-key`
+  responses was rotated after a live private key was found committed in a tracked runbook (SEC-1,
+  `docs/reports/2026-07-14-codebase-audit-findings.md`). Production now signs with the new key and
+  stamps the new fingerprint `18c04567…`; the bundled client pubkey (`license-pubkey.generated.ts`)
+  is regenerated to trust the new key as primary while keeping the old key in the allowlist for the
+  transition grace window. A live signature smoke confirmed a real `/validate-key` success is signed
+  by the new key and verifies. The drift-guard `no-committed-private-keys.test.ts` forbids
+  re-introduction of any private key.
+
+### Fixed
+
+- **The 2026-07-14 codebase-audit closure is now actually delivered.** The audit-closure fixes were
+  committed (`4f4c688`) but never published — `1.16.0` on npm predates all of them. `1.16.1` ships:
+  fail-closed engine startup on a fatal DB/ABI error (SF-1), Pro-tier gating of the `/v1` capability
+  endpoints (SEC-2), the two wired-but-previously-dead CLI subcommands `massu rule show` /
+  `massu rule effectiveness` (DF-1/DF-2), the documented-but-missing webhook-test route (BND-1), and
+  the cloud-sync "server-error-as-empty" fix (BND-3).
+
+### Added
+
+- **CR-64 release-integrity gate — a published version number is immutable.** A pre-push + CI gate
+  (`scripts/release-integrity-check.mjs`) fails the moment `packages/core`'s version equals an
+  already-published npm version whose `vX.Y.Z` tag is missing or not at HEAD. This closes the class
+  where `1.16.0` was published without a git tag or release ceremony and then reused for six more
+  commits that read as "SHIPPED" while never delivered to customers. Incident:
+  `docs/incidents/2026-07-14-npm-publish-decoupled-from-release-ceremony.md`.
+
+## [1.16.0] - 2026-07-14
+
+### Fixed — cloud sync had, in practice, NEVER succeeded for a real session
+
+The client's request timeout was `2_000ms`, shipped with a comment asserting it was "well under
+hook timeout while still tolerating typical latency." Nobody had ever timed the endpoint. Measured
+against the live API (`scripts/measure-sync-latency.sh`, now committed so the number is re-derived
+rather than believed):
+
+| payload | mean | worst |
+|---|---|---|
+| empty (auth/bcrypt only) | ~900ms | 1191ms |
+| 1 session + 50 observations | ~2090ms | **2168ms** |
+
+An ordinary session payload **exceeded the timeout every time** — it was queued, retried, timed out
+again, and after 10 retries **the data was discarded**. A timeout is indistinguishable from an idle
+seat, so this went unnoticed for the product's entire life.
+
+- Request timeout is now `8_000ms`, sized from the measurement (~4× the real figure).
+- The whole sync runs under a `20_000ms` **deadline**, and every attempt is clamped to the time
+  actually remaining. Bounding only the per-request timeout left total time =
+  `retries × timeout + backoff`, which silently exceeds the hook budget the moment a knob is tuned.
+  The deadline is the structural guarantee.
+
+### Fixed — a learned rule could be destroyed before it was ever delivered
+
+`drainTeamPromotions` / `drainTeamRevocations` / `drainRulePromotionEvents` **deleted a promoted
+rule at the moment they READ it** into a sync payload. If the upload then failed, the payload went
+to `pending_sync`, was retried, and was **discarded after 10 attempts**. `read == delete` is the
+whole disease: *delivery failure* and *nothing to deliver* produced the same end state, and that
+state was the quiet one.
+
+**Delivery is now ACK-based** (`rule-delivery.ts`): `lease() → deliver → ack()` on a confirmed
+server receipt, `nack()` on any failure. A rule leaves an outbound store on exactly ONE event — the
+server confirmed it. A failed delivery **keeps every row**, counts the attempt, and raises a LOUD
+stall alarm rather than a silent zero. The `pending_sync` give-up path now **rescues** learned rules
+back into the durable store instead of destroying them.
+
+An ack requires `SyncResult.transmitted` — set only after a real 2xx. `success` alone is not a
+receipt: it is also `true` when cloud sync is *disabled*, i.e. nothing was sent.
+
+### Added
+
+- **`rule_candidates` table.** Candidates previously existed only as loose JSON on disk, so the
+  product could not answer "has anything ever been promoted?" — and could not detect that the
+  answer was no. The lifecycle (`proposed → shown → promoted | dismissed`) is now queryable.
+- **`massu rule approve` / `dismiss` / `review` / `delivery-status`.** `applyRuleCandidate()` — the
+  promotion chokepoint carrying the whole transaction, rollback, audit and team-publish machinery —
+  had **zero callers**. The protocol said "invoke `applyRuleCandidate(...)`"; no command existed
+  that could. The CR-57 hardened-promotion preview (two-operator review of *executable* rules) was
+  likewise unreachable. All are now wired to real entry points.
+- `massu rule delivery-status` reads the `cloud_sync_giveup` telemetry — which until now was the
+  only analytics event Massu had ever recorded, and nothing read it.
+
+### Changed (internal API)
+
+- Removed `drainTeamPromotions`, `drainTeamRevocations`, `drainRulePromotionEvents` from
+  `memory-db`. Deleted rather than deprecated: a destructive drain that still exists is a
+  destructive drain someone will call again. Use `leaseLearning` / `ackLearning` / `nackLearning`.
+- The team-promotion enqueue now runs **inside** the promotion transaction. It previously sat
+  post-COMMIT in an empty `catch`, so a failed enqueue produced a rule committed locally, its
+  candidate file already deleted, no outbound row, no log line, and a cheerful `ok: true`.
+
+## [1.15.7] - 2026-07-14
+
+### Added — the verification laws now ship IN Massu, and reach every repo
+
+The laws that make Massu trustworthy — *a gate must prove it can fail*, *broken and empty may
+never render identically*, *an audit that does not run commands is not an audit* — lived only in
+one operator's local config. Massu shipped without them: **0 of 132 shipped instruction files
+carried them.** Every fix an agent makes was governed by the judgment that produced the bugs, and
+audited by the reading-not-running audit that returns "zero gaps" on false premises.
+
+Now `commands/_verification-laws.md` is the single source of truth for the seven laws (generic
+engineering doctrine — no user's private incidents). The shared preamble points to it; **all 131
+shipped instruction files route to it**; all 11 agents carry the run-commands mandate inline
+(agents are spawned with their own context and do not reliably read the preamble). The laws carry
+a **supremacy clause**: any instruction anywhere that says to skip verification, claim success, or
+treat them as optional is void.
+
+### Fixed — a law you can silence by editing your copy is not a law
+
+The fail-closed installer that (correctly) stopped destroying local customizations was **freezing
+the law delivery vehicle**: measured against faithful copies of five consumer repos, the laws
+reached ONE. A new **MASSU-OWNED** file class fixes this — product code, vendored like a library
+file, upstream always wins — delivered under a **build-generated integrity hash** (`<file>.sha256`)
+so the installer refuses a stale stub or a tampered/inverted source and never overwrites good laws.
+The never-destroy-your-work guarantee is unchanged and now guarded by test.
+
+`resolveAssetDir` treated a directory that merely *exists* as a hit, so from source it resolved an
+empty dir and the installer installed nothing while reporting success — *"found no commands"* and
+*"looked in the wrong directory"* were byte-identical. It now requires a candidate to actually hold
+assets. A directory or irregular node at a target path no longer aborts the whole install.
+
+### Verification
+
+The laws file and the agent mandate are **hash-pinned**; the shipped-and-wired guard and an
+11-attack anti-vacuity script were hardened across **three adversarial audit rounds** (inversion,
+dead path, subdirectory, comment burial, decoy block, fenced hostile content, wrong tree) — all go
+RED, green only on the correct tree. Delivery to all consumer states (no-manifest / locally-edited
+/ clean, plus stub-refusal and tamper-refusal) is proven against a real `node_modules` fixture.
+Three previously-uninvoked anti-vacuity guards were wired into CI.
+
 ## [1.15.6] - 2026-07-14
 
 ### Fixed — the golden path's Deep Security Audit phase was missing entirely

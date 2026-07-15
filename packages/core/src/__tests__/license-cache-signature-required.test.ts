@@ -158,12 +158,24 @@ describe('P-M-023 license_cache signature gate', () => {
     expect(info.tier).toBe('free')
   })
 
-  it('transition mode (default) tolerates unsigned rows without throwing', async () => {
-    delete process.env.MASSU_REQUIRE_SIGNED_LICENSE
+  it('transition mode (explicit opt-out) tolerates unsigned rows without throwing', async () => {
+    // SEC-3 (2026-07-15): strict is now the DEFAULT, so transition mode must be
+    // opted into EXPLICITLY with MASSU_REQUIRE_SIGNED_LICENSE='false' (the
+    // emergency valve). Deleting the env now yields strict, not transition.
+    process.env.MASSU_REQUIRE_SIGNED_LICENSE = 'false'
     insertRow(testDb, 'apikey-5', 'pro', '2099-01-01', '')
     const info = await validateLicense('apikey-5')
     // Transition: tier comes through from the column with a one-shot warn.
     // Strict mode would have returned 'free' here.
     expect(info.tier).toBe('pro')
+  })
+
+  it('SEC-3: strict is the DEFAULT — an unset env drops an unsigned row to free', async () => {
+    // Proves the SEC-3 cutover actually enforces without any env set: the very
+    // scenario that was 'pro' under the old transition default is now 'free'.
+    delete process.env.MASSU_REQUIRE_SIGNED_LICENSE
+    insertRow(testDb, 'apikey-6', 'pro', '2099-01-01', '')
+    const info = await validateLicense('apikey-6')
+    expect(info.tier).toBe('free')
   })
 })

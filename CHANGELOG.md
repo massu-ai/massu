@@ -12,6 +12,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.16.2] - 2026-07-15
 
+### Security
+
+- **License-response signature verification is now STRICT by default (SEC-3 cutover).** The client
+  previously ACCEPTED unsigned or wrong-key `/validate-key` responses with a one-shot warning
+  (transition mode) unless the operator set `MASSU_REQUIRE_SIGNED_LICENSE=true`. As of `1.16.2`,
+  strict mode is the DEFAULT: an unsigned or invalid-signature response is rejected and the client
+  falls through to the grace-period cache or the free tier, closing the MITM / malicious-endpoint
+  tier-forgery window for good. This is safe because `1.16.1` shipped the rotated key as the bundled
+  PRIMARY pubkey and production signs every successful response with it (verified by a live
+  `valid:true` signature smoke). The only way back to warn-and-accept is an explicit
+  `MASSU_REQUIRE_SIGNED_LICENSE=false` — an emergency valve for a production signing outage.
+
 ### Fixed
 
 - **Public-sync boundary correction (repo tooling; no npm-package change).** Completing the `1.16.1`

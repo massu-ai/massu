@@ -3635,7 +3635,7 @@ function verifyLicenseResponse(payload) {
   );
 }
 function isLicenseSignatureRequired() {
-  return process.env.MASSU_REQUIRE_SIGNED_LICENSE === "true";
+  return process.env.MASSU_REQUIRE_SIGNED_LICENSE !== "false";
 }
 
 // src/license.ts

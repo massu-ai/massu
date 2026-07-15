@@ -70,15 +70,19 @@ describe('license-response-signature (P-H019)', () => {
     expect(result.kind).toBe('unknown_pubkey');
   });
 
-  it('isLicenseSignatureRequired() reads MASSU_REQUIRE_SIGNED_LICENSE env', () => {
+  it('isLicenseSignatureRequired() reads MASSU_REQUIRE_SIGNED_LICENSE env (SEC-3: strict is the default)', () => {
     const orig = process.env.MASSU_REQUIRE_SIGNED_LICENSE;
     try {
       process.env.MASSU_REQUIRE_SIGNED_LICENSE = 'true';
       expect(isLicenseSignatureRequired()).toBe(true);
+      // SEC-3 (2026-07-15): strict is now the DEFAULT. ONLY an explicit 'false'
+      // opts out (the emergency valve); every other value means required.
       process.env.MASSU_REQUIRE_SIGNED_LICENSE = 'false';
       expect(isLicenseSignatureRequired()).toBe(false);
       delete process.env.MASSU_REQUIRE_SIGNED_LICENSE;
-      expect(isLicenseSignatureRequired()).toBe(false); // default off (transition mode)
+      expect(isLicenseSignatureRequired()).toBe(true); // default ON (strict) post-SEC-3
+      process.env.MASSU_REQUIRE_SIGNED_LICENSE = 'anything-else';
+      expect(isLicenseSignatureRequired()).toBe(true); // only 'false' opts out
     } finally {
       if (orig === undefined) {
         delete process.env.MASSU_REQUIRE_SIGNED_LICENSE;

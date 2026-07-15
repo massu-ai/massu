@@ -10,37 +10,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
-## [1.16.1] - 2026-07-14
-
-### Security
-
-- **License-response signing key rotated (SEC-1).** The Ed25519 key that signs `/validate-key`
-  responses was rotated after a live private key was found committed in a tracked runbook (SEC-1,
-  `docs/reports/2026-07-14-codebase-audit-findings.md`). Production now signs with the new key and
-  stamps the new fingerprint `18c04567…`; the bundled client pubkey (`license-pubkey.generated.ts`)
-  is regenerated to trust the new key as primary while keeping the old key in the allowlist for the
-  transition grace window. A live signature smoke confirmed a real `/validate-key` success is signed
-  by the new key and verifies. The drift-guard `no-committed-private-keys.test.ts` forbids
-  re-introduction of any private key.
-
-### Fixed
-
-- **The 2026-07-14 codebase-audit closure is now actually delivered.** The audit-closure fixes were
-  committed (`4f4c688`) but never published — `1.16.0` on npm predates all of them. `1.16.1` ships:
-  fail-closed engine startup on a fatal DB/ABI error (SF-1), Pro-tier gating of the `/v1` capability
-  endpoints (SEC-2), the two wired-but-previously-dead CLI subcommands `massu rule show` /
-  `massu rule effectiveness` (DF-1/DF-2), the documented-but-missing webhook-test route (BND-1), and
-  the cloud-sync "server-error-as-empty" fix (BND-3).
-
-### Added
-
-- **CR-64 release-integrity gate — a published version number is immutable.** A pre-push + CI gate
-  (`scripts/release-integrity-check.mjs`) fails the moment `packages/core`'s version equals an
-  already-published npm version whose `vX.Y.Z` tag is missing or not at HEAD. This closes the class
-  where `1.16.0` was published without a git tag or release ceremony and then reused for six more
-  commits that read as "SHIPPED" while never delivered to customers. Incident:
-  `docs/incidents/2026-07-14-npm-publish-decoupled-from-release-ceremony.md`.
-
 ## [1.16.0] - 2026-07-14
 
 ### Fixed — cloud sync had, in practice, NEVER succeeded for a real session

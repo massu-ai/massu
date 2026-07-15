@@ -87,15 +87,22 @@ function daysAgo(n: number): string {
   return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
 }
 
+// SEC-3 (2026-07-15): strict signature mode is now the DEFAULT. The unsigned-row
+// tests below exercise the transition READ path, so pin them to the explicit
+// opt-out; a dedicated test asserts the strict default drops an unsigned row.
+const _origSecRequire = process.env.MASSU_REQUIRE_SIGNED_LICENSE;
 beforeEach(() => {
   mockCloudConfig = undefined;
   stubMemoryDbCalls = 0;
   testDb = createTestDb();
+  process.env.MASSU_REQUIRE_SIGNED_LICENSE = 'false';
 });
 
 afterEach(() => {
   if (testDb && testDb.open) testDb.close();
   vi.restoreAllMocks();
+  if (_origSecRequire === undefined) delete process.env.MASSU_REQUIRE_SIGNED_LICENSE;
+  else process.env.MASSU_REQUIRE_SIGNED_LICENSE = _origSecRequire;
 });
 
 describe('getCachedTierReadOnly() — cache-only, no-network, fail-closed', () => {
@@ -110,6 +117,16 @@ describe('getCachedTierReadOnly() — cache-only, no-network, fail-closed', () =
     mockCloudConfig = { apiKey };
     insertCache(testDb, apiKey, 'pro', hoursAgo(0.5));
     expect(getCachedTierReadOnly(testDb)).toBe('pro');
+  });
+
+  it('SEC-3: strict default drops a fresh UNSIGNED row to free', () => {
+    // The read-only path enforces the strict default too: without the explicit
+    // opt-out, the same unsigned row that returns 'pro' above returns 'free'.
+    delete process.env.MASSU_REQUIRE_SIGNED_LICENSE;
+    const apiKey = 'ms_live_readonly_key';
+    mockCloudConfig = { apiKey };
+    insertCache(testDb, apiKey, 'pro', hoursAgo(0.5));
+    expect(getCachedTierReadOnly(testDb)).toBe('free');
   });
 
   it('returns free when the cache row is older than the 7-day grace window', () => {

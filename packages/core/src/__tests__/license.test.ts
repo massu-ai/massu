@@ -142,14 +142,24 @@ function daysFromNow(n: number): string {
 // Setup / Teardown
 // ============================================================
 
+// SEC-3 (2026-07-15): strict signature mode is now the DEFAULT. The fixtures in
+// this file are UNSIGNED (they exercise cache/grace/tier-gating LOGIC, orthogonal
+// to the signature policy), so under the strict default they would all drop to
+// 'free'. Pin these logic tests to the transition escape hatch explicitly; the
+// strict-mode enforcement itself is covered by license-cache-signature-required
+// and license-response-signature (which set strict and assert rejection).
+const _origSecRequire = process.env.MASSU_REQUIRE_SIGNED_LICENSE;
 beforeEach(() => {
   _resetCachedTier();
   mockCloudConfig = undefined;
   testDb = createTestDb();
+  process.env.MASSU_REQUIRE_SIGNED_LICENSE = 'false';
 });
 
 afterEach(() => {
   if (testDb && testDb.open) testDb.close();
+  if (_origSecRequire === undefined) delete process.env.MASSU_REQUIRE_SIGNED_LICENSE;
+  else process.env.MASSU_REQUIRE_SIGNED_LICENSE = _origSecRequire;
 });
 
 // ============================================================

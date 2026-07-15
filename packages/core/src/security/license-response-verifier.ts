@@ -17,16 +17,18 @@
  * key in `license-pubkey.generated.ts`. Invalid / missing signature →
  * reject under strict mode, warn-and-accept under transition mode.
  *
- * **Transition mode** (default): when `MASSU_REQUIRE_SIGNED_LICENSE` env
- * var is NOT `'true'`, unsigned/invalid-sig responses are accepted but
- * a one-shot stderr warning is emitted. Lets existing customers keep
- * working while operators provision the signing key.
+ * **Strict mode** (default, SEC-3 cutover 2026-07-15): unsigned/invalid-sig
+ * responses are REJECTED (caller drops to grace-period cached or 'free' tier).
+ * This is the default because the signing key is provisioned in production, the
+ * new key is bundled PRIMARY in `license-pubkey.generated.ts` (shipped in 1.16.1),
+ * and the live `valid:true` signature smoke passed. Production signs every
+ * successful response, so an upgraded client verifies it and keeps working.
  *
- * **Strict mode** (post-cutover): when `MASSU_REQUIRE_SIGNED_LICENSE=true`,
- * unsigned/invalid-sig responses are REJECTED (caller drops to grace-period
- * cached or 'free' tier). Operator flips this after Supabase Edge Function
- * env var `LICENSE_RESPONSE_SIGNING_PRIVATE_KEY_B64` is provisioned and
- * cutover smoke test passes.
+ * **Transition mode** (escape hatch): when `MASSU_REQUIRE_SIGNED_LICENSE='false'`
+ * is set explicitly, unsigned/invalid-sig responses are accepted with a one-shot
+ * stderr warning. This exists ONLY as an emergency valve if production signing
+ * ever breaks (e.g. the Edge Function loses `LICENSE_RESPONSE_SIGNING_PRIVATE_KEY_B64`);
+ * it is NOT the default and must be set deliberately.
  */
 
 import {
@@ -68,10 +70,15 @@ export function verifyLicenseResponse(payload: SignedLicenseResponse): Verificat
 }
 
 /**
- * P-H019 strict-mode gate. Operator sets `MASSU_REQUIRE_SIGNED_LICENSE=true`
- * AFTER the validate-key Edge Function is provisioned with
- * `LICENSE_RESPONSE_SIGNING_PRIVATE_KEY_B64` and cutover smoke test passes.
+ * P-H019 strict-mode gate — SEC-3 cutover (2026-07-15): strict is now the DEFAULT.
+ * Signed responses are REQUIRED unless the operator explicitly opts OUT by setting
+ * `MASSU_REQUIRE_SIGNED_LICENSE='false'` (the emergency valve for a production
+ * signing outage). The cutover is safe because Steps 4–5 shipped the new-key-primary
+ * client bundle in 1.16.1 and the live `valid:true` signature smoke passed; production
+ * signs every successful response, so an upgraded client verifies it and keeps working.
+ * Only an EXPLICIT `'false'` returns to warn-and-accept; any other value (unset,
+ * 'true', anything) means required.
  */
 export function isLicenseSignatureRequired(): boolean {
-  return process.env.MASSU_REQUIRE_SIGNED_LICENSE === 'true';
+  return process.env.MASSU_REQUIRE_SIGNED_LICENSE !== 'false';
 }

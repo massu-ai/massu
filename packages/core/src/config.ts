@@ -215,9 +215,22 @@ export type AutoLearningConfig = z.infer<typeof AutoLearningConfigSchema>;
 
 // --- Cloud Config ---
 const CloudConfigSchema = z.object({
-  enabled: z.boolean().default(false),
+  // OPTIONAL, not `.default(false)`. A zod default is indistinguishable from an
+  // explicit value once parsed, so `.default(false)` meant that merely declaring a
+  // `cloud:` block (to set any OTHER key) silently produced `enabled: false`, which
+  // then overrode the `enabled: true` auto-enable below via object spread — turning
+  // cloud sync OFF as a side effect of tuning it. `undefined` now means "not stated",
+  // and the auto-enable preserves it. (plan-2026-07-20-cloud-sync-timeout)
+  enabled: z.boolean().optional(),
   apiKey: z.string().optional(),
   endpoint: z.string().optional(),
+  // Per-request POST budget for the `/sync` ingest. cloud-sync.ts reads this
+  // (`(cloud as { requestTimeoutMs?: number }).requestTimeoutMs`) but it was ABSENT
+  // from this schema, and zod strips unknown keys — so the knob was unreachable from
+  // massu.config.yaml and the default could never be tuned. Measured 2026-07-20: a
+  // 423-observation payload takes ~9.2s against the live ingest. Capped at
+  // SYNC_DEADLINE_MS (20s) since the overall deadline clamps each attempt anyway.
+  requestTimeoutMs: z.number().int().positive().max(20_000).optional(),
   sync: z.object({
     memory: z.boolean().default(true),
     analytics: z.boolean().default(true),
@@ -777,12 +790,15 @@ export function getConfig(): Config {
   if (resolvedKey.apiKey) {
     // A key is present (from any source) — expose a fully-formed cloud block so
     // validateLicense() and syncToCloud() can reach the branded default
-    // endpoint even when the workspace set no `cloud.endpoint`. `enabled: true`
-    // MUST be preserved so cloud-sync (which gates on `cloud.enabled`) runs.
+    // endpoint even when the workspace set no `cloud.endpoint`.
     _config.cloud = {
-      enabled: true,
       sync: { memory: true, analytics: true, audit: true },
       ..._config.cloud,
+      // Spread FIRST, then decide `enabled`, so a workspace that declares a `cloud:`
+      // block only to tune `requestTimeoutMs` does not disable its own sync. An
+      // EXPLICIT `enabled: false` is still honoured; `undefined` (not stated) means
+      // "a key resolved, so turn it on". (plan-2026-07-20-cloud-sync-timeout)
+      enabled: _config.cloud?.enabled ?? true,
       apiKey: resolvedKey.apiKey,
       endpoint: resolvedEndpoint,
     };

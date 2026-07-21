@@ -26,6 +26,7 @@ import { getCurrentTier, getLicenseInfo, type ToolTier, type LicenseValidationOu
 import { apiKeySourceLabel, type ApiKeySource } from '../credentials.ts';
 import { readSettingsAtPath } from '../lib/settings-local.ts';
 import { getExpectedHookFiles } from '../lib/hook-registry.ts';
+import { probeMemoryDbUsable, NATIVE_DB_REMEDY } from '../lib/sqlite-loader.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -157,13 +158,25 @@ function checkHookFiles(projectRoot: string): CheckResult {
   return { name: 'Hook Files', status: 'pass', detail: `${EXPECTED_HOOKS.length}/${EXPECTED_HOOKS.length} compiled hooks present` };
 }
 
-async function checkNativeModules(): Promise<CheckResult> {
-  try {
-    await import('better-sqlite3');
-    return { name: 'Native Modules', status: 'pass', detail: 'better-sqlite3 loads correctly' };
-  } catch (err) {
-    return { name: 'Native Modules', status: 'fail', detail: `better-sqlite3 failed: ${err instanceof Error ? err.message : String(err)}. Try: npm rebuild better-sqlite3` };
+export async function checkNativeModules(): Promise<CheckResult> {
+  // TRUTHFUL DOCTOR (bug #2, incident 2026-07-12): the old check merely imported the
+  // better-sqlite3 module dynamically, which loads only the JS wrapper — the native
+  // dlopen is LAZY (fires inside the Database constructor), so it reported "loads
+  // correctly" while a real DB touch died. The shared probe actually CONSTRUCTS a
+  // DB and runs `SELECT 1`, the same probe `server.ts` startup uses, so a green
+  // doctor can never again coexist with a dead `consolidate`. Report-only
+  // (selfHeal:false) — a health check tells the truth, it does not rebuild.
+  const memoryDbPath = getResolvedPaths().memoryDbPath;
+  const verdict = probeMemoryDbUsable({ dbPath: memoryDbPath, selfHeal: false });
+  if (verdict.ok) {
+    return { name: 'Native Modules', status: 'pass', detail: 'better-sqlite3 constructs a DB and SELECT 1 succeeds' };
   }
+  const because = verdict.detail ? ` (${verdict.detail})` : '';
+  return {
+    name: 'Native Modules',
+    status: 'fail',
+    detail: `better-sqlite3 unusable — ${verdict.reason}${because}. ${verdict.remedy ?? NATIVE_DB_REMEDY}`,
+  };
 }
 
 function checkNodeVersion(): CheckResult {

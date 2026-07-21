@@ -269,15 +269,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/auto-review-on-stop.sh\"",
-            "timeout": 120
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/surface-review-findings.sh\""
           }
         ]

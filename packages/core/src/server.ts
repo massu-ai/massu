@@ -19,6 +19,8 @@ import { resolveConsolidationConfig } from './consolidation-config.ts';
 import { getCurrentTier } from './license.ts';
 import { createDispatcher } from './server-dispatch.ts';
 import { assertMemoryEngineHealthy, FatalStartupError } from './startup-health.ts';
+import { openDatabase, probeMemoryDbUsable, NATIVE_DB_REMEDY } from './lib/sqlite-loader.ts';
+import { getResolvedPaths } from './config.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_VERSION = (() => {
@@ -91,7 +93,24 @@ function pruneMemoryOnStartup(): void {
 // This runs BEFORE the non-fatal prune below so an open failure can never be
 // misclassified as a transient maintenance hiccup.
 try {
-  assertMemoryEngineHealthy(getMemoryDb);
+  // P6-016 (plan-massu-resilience-layer1): startup heals-or-fails-LOUD.
+  // `probeMemoryDbUsable` is the SAME shared probe `massu doctor` runs (so startup
+  // and doctor can never diverge — the lying-doctor class). selfHeal:true rebuilds
+  // the native binding for the running Node ONCE via the SSOT loader; a terminal
+  // failure stops the server rather than masquerade as "connected but broken".
+  const memoryDbPath = getResolvedPaths().memoryDbPath;
+  const verdict = probeMemoryDbUsable({ dbPath: memoryDbPath, selfHeal: true });
+  if (!verdict.ok) {
+    throw new FatalStartupError(
+      `the memory database engine is unusable (reason: ${verdict.reason}). ` +
+        `${verdict.detail ? verdict.detail.trim() + ' ' : ''}${NATIVE_DB_REMEDY}`,
+    );
+  }
+  // The probe opened the real memory DB READ-ONLY. This assert opens it READ-WRITE — the
+  // mode getMemoryDb() actually needs — and makes a RW-open failure FATAL here, before the
+  // NON-fatal pruneMemoryOnStartup() below (which calls getMemoryDb() and swallows its
+  // errors). So the assert uniquely guarantees a RW failure fails loud, not silently.
+  assertMemoryEngineHealthy(() => openDatabase(memoryDbPath));
 } catch (error) {
   if (error instanceof FatalStartupError) {
     process.stderr.write(`massu: FATAL — ${error.message}\n`);

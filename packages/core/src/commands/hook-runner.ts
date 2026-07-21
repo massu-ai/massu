@@ -118,7 +118,10 @@ export async function runHookRunner(args: string[]): Promise<{ exitCode: number 
   return new Promise((resolvePromise) => {
     const child = spawn(process.execPath, [hookFile], {
       stdio: ['inherit', 'inherit', 'inherit'],
-      env: process.env,
+      // MASSU_HOOK_RUNTIME marks the hook process so the SSOT SQLite loader NEVER
+      // self-heals here (5s budget / CR-12, CR-65 P0-003) — even for indirect opens
+      // via getMemoryDb(). The next server/CLI touch performs the rebuild.
+      env: { ...process.env, MASSU_HOOK_RUNTIME: '1' },
     });
     child.on('exit', (code, signal) => {
       if (signal) {

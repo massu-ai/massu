@@ -4,6 +4,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { resolve } from 'path';
+import { tmpdir } from 'os';
 import { unlinkSync, existsSync, readFileSync } from 'fs';
 import { initKnowledgeSchema } from '../knowledge-db.ts';
 import {
@@ -29,7 +30,8 @@ vi.setConfig({ testTimeout: 60_000 });
 
 // P1-006: Knowledge Indexer Unit Tests
 
-const TEST_DB_PATH = resolve(__dirname, '../test-knowledge.db');
+// DB scratch under the OS temp dir, NEVER under packages/core/src (feedback_dashboard_key_ux_and_src_scratch_race).
+const TEST_DB_PATH = resolve(tmpdir(), `massu-test-knowledge-${process.pid}.db`);
 
 function createTestDb(): Database.Database {
   if (existsSync(TEST_DB_PATH)) unlinkSync(TEST_DB_PATH);

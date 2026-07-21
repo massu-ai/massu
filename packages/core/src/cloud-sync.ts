@@ -135,9 +135,24 @@ const RETRY_DELAYS = [1000, 2000, 4000]; // exponential backoff
  * `cloud_sync_giveup` events in one day, all with "aborted due to timeout".
  * Cloud sync had, in practice, never succeeded for a real session.
  *
- * The numbers below are sized from that MEASUREMENT, not from a guess:
- *   - request timeout 8s ≈ 4× the measured 50-observation payload, leaving room for
- *     larger payloads and a slow network.
+ * THE SECOND MEASUREMENT (2026-07-20, plan-2026-07-20-cloud-sync-timeout):
+ * the 8s default sized for a 50-observation payload was in turn too small for a LARGE
+ * accumulated session. massu-internal queued 1003 payloads, each carrying a single
+ * 423-observation session, and every one timed out:
+ *
+ *     423-observation payload (148 KB) .......... 9220ms   <-- OVER the 8s limit
+ *
+ * On a TimeoutError the loop does NOT retry (an AbortError breaks out), so each drain
+ * failed, re-queued, and the queue GREW every session-end until the retry>=10 shredder
+ * discarded payloads — 83 `cloud_sync_giveup` events, real data lost. Two config-layer
+ * bugs (see config.ts CloudConfigSchema) meant the `cloud.requestTimeoutMs` knob that
+ * should have raised this could not be set. Both are fixed; the default is raised too so
+ * the fix is universal (a normal large session should sync on the first attempt).
+ *
+ * The numbers below are sized from those MEASUREMENTS, not from a guess:
+ *   - request timeout 15s covers the measured 9.2s 423-observation payload with margin,
+ *     and stays inside the 20s deadline. Tunable per-workspace via
+ *     `cloud.requestTimeoutMs` (capped at SYNC_DEADLINE_MS).
  *   - an overall 20s DEADLINE, inside the 30s Stop-hook budget declared in
  *     .claude/settings.json. The deadline is what makes this safe: no combination of
  *     retries and backoff can overrun the hook, because every attempt is clamped to
@@ -148,7 +163,7 @@ const RETRY_DELAYS = [1000, 2000, 4000]; // exponential backoff
  * To re-derive these: run scripts/measure-sync-latency.sh and read the mean. Do not
  * copy a number out of this comment into a plan — re-run it.
  */
-const DEFAULT_CLOUD_REQUEST_TIMEOUT_MS = 8_000;
+const DEFAULT_CLOUD_REQUEST_TIMEOUT_MS = 15_000;
 const SYNC_DEADLINE_MS = 20_000;
 /** Below this much remaining budget, a further attempt cannot plausibly finish. */
 const MIN_ATTEMPT_BUDGET_MS = 1_000;

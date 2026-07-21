@@ -17,6 +17,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { parse as parseYaml } from 'yaml';
 import type Database from 'better-sqlite3';
+import { openDatabase } from '../lib/sqlite-loader.ts';
 import { runAdvisors } from '../capability-advisor.ts';
 import { localModelAdvisor } from '../advisors/local-model-advisor.ts';
 import { resolveConsolidationConfig } from '../consolidation-config.ts';
@@ -308,8 +309,7 @@ async function buildContext(db: Database.Database, sessionId: string, source: st
   try {
     const knowledgeDbPath = getResolvedPaths().knowledgeDbPath;
     if (existsSync(knowledgeDbPath)) {
-      const Database = (await import('better-sqlite3')).default;
-      const kdb = new Database(knowledgeDbPath, { readonly: true });
+      const kdb = openDatabase(knowledgeDbPath, { readonly: true, selfHeal: false });
       try {
         const stats = kdb.prepare(
           'SELECT COUNT(*) as doc_count, MAX(indexed_at) as last_indexed FROM knowledge_documents'

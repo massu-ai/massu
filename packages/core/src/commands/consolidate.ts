@@ -18,6 +18,7 @@
 import { getMemoryDb } from '../memory-db.ts';
 import { runConsolidation } from '../memory-consolidate.ts';
 import { resolveConsolidationConfig } from '../consolidation-config.ts';
+import { MemoryEngineUnusableError } from '../lib/sqlite-loader.ts';
 
 export interface SubcommandResult {
   exitCode: number;
@@ -36,7 +37,28 @@ export async function runConsolidateCommand(args: string[] = []): Promise<Subcom
   }
 
   const cfg = resolveConsolidationConfig();
-  const db = getMemoryDb();
+
+  // CLI NON-ZERO CONTRACT (bug #1, incident 2026-07-12): a native-ABI failure must
+  // surface a CLEAR message + remedy and exit NON-ZERO — never a silent exit 0, never
+  // a raw dlopen string. `getMemoryDb()` self-heals via the SSOT loader; if it cannot,
+  // it throws a structured `MemoryEngineUnusableError` which we render and exit 1 on.
+  let db: ReturnType<typeof getMemoryDb>;
+  try {
+    db = getMemoryDb();
+  } catch (err) {
+    if (err instanceof MemoryEngineUnusableError) {
+      if (json) {
+        process.stdout.write(
+          JSON.stringify({ error: 'memory-engine-unusable', reason: err.reason, remedy: err.remedy }) + '\n',
+        );
+      } else {
+        process.stderr.write(`massu consolidate: the memory engine is unavailable — ${err.remedy}\n`);
+      }
+      return { exitCode: 1 };
+    }
+    throw err;
+  }
+
   try {
     const result = await runConsolidation(db, {
       config: cfg,

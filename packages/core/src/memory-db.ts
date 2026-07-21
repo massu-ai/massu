@@ -13,7 +13,8 @@
 // marker requires shipping the sub-module split — there is no alternative
 // escape path.
 
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { openDatabase } from './lib/sqlite-loader.ts';
 import { resolve, dirname, basename } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { getConfig, getResolvedPaths, getProjectRoot } from './config.ts';
@@ -112,7 +113,7 @@ export function getMemoryDb(): Database.Database {
   // when the risk exists.
   const preExisting = existsSync(dbPath);
 
-  const db = new Database(dbPath);
+  const db = openDatabase(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 

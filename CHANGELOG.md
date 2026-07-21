@@ -10,6 +10,74 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [1.16.3] - 2026-07-15
+
+### Fixed
+
+- **Cloud sync no longer silently discards large sessions, and the `cloud.requestTimeoutMs`
+  knob actually works** (`plan-2026-07-20-cloud-sync-timeout`, incident 2026-07-20). A
+  session with many observations produces a large `/sync` payload; a 423-observation
+  payload measured ~9.2 s against the live ingest, over the 8 s per-request timeout — and
+  the client does not retry a timeout, so every drain failed, re-queued, and grew the queue
+  until the retry-limit shredder permanently discarded payloads (83 `cloud_sync_giveup`
+  events, real session/observation copies lost). The documented `cloud.requestTimeoutMs`
+  remedy was itself unusable: the key was absent from `CloudConfigSchema` (zod strips
+  unknown keys, so it never reached the reader), and `cloud.enabled` used a zod
+  `.default(false)` that overrode the key-triggered auto-enable via object spread — so
+  merely declaring a `cloud:` block to tune the timeout silently turned sync **off**. The
+  default per-request timeout is raised 8 s → 15 s (inside the 20 s deadline),
+  `requestTimeoutMs` is now a real schema key (capped at the deadline), and `enabled` is
+  decided after the spread so an explicit `false` is still honoured. Drift-guard:
+  `cloud-config-knobs.test.ts` (mutation-verified).
+- **Native SQLite engine now self-heals on a Node ABI mismatch, and `massu doctor` can no
+  longer lie about it** (`plan-massu-resilience-layer1`, incident 2026-07-12, CR-65).
+  `better-sqlite3` is a native module compiled for one Node ABI; installing under one Node
+  major and running under another made its binary `dlopen`-fail lazily inside the `Database`
+  constructor. Two defects fell out: (1) DB-touching commands died — on one build
+  `consolidate --dry-run --json` printed the raw `NODE_MODULE_VERSION` error and **exited 0**
+  (silently-dead memory); (2) `massu doctor` reported "better-sqlite3 loads correctly" because
+  it only imported the JS wrapper (the native load is lazy). Now every load routes through a
+  single SSOT loader that, on an ABI failure, **rebuilds the engine for the Node you are
+  actually running** (via `prebuild-install` → `node-gyp`, driven by `process.execPath`,
+  cross-process-locked), retries once, and otherwise fails LOUD with a structured error and a
+  one-command remedy — never swallowed, never exit 0. `massu doctor` now actually constructs a
+  DB and runs `SELECT 1` (sharing one probe with server startup), and a new **`massu heal`**
+  command (`massu heal --check` is non-mutating) rebuilds on demand. Hooks route through the
+  loader but never rebuild (5 s budget). Heal events are recorded to
+  `~/.massu/native-heal-events.jsonl`.
+- **Config templates can no longer silently ship `verification.<lang>` commands that disagree
+  with the detection source-of-truth** (`plan-swift-ios-config-template-drift`, incident
+  2026-07-18, CR-66). `massu init` wrote a scaffolded config's per-language test/build/lint
+  command block from two independent places — the code map (`vr-command-map.ts:getVRCommands`)
+  and each language template's hand-copied YAML — with nothing binding them, so they drifted
+  (`go-chi` shipped a `gofmt` syntax step the map lacked and dropped `go build ./...`;
+  `rails`/`spring` added commands the map had no case for). `vr-command-map.ts` is now the single
+  authoring site: a filesystem-derived drift-guard asserts every template's block equals the map
+  (dir-normalized, null-stripped), every intentional divergence is recorded in one self-pruning
+  allowlist that must actually diverge, and a pattern-scanner check mirrors it — so a template
+  block that disagrees with the map, or a new template that drifts, fails the build. No shipped
+  `massu init` output changed (the agreeing templates are locked, not rewritten).
+
+### Infrastructure
+
+- Internal-only bookkeeping (no shipped `@massu/core` runtime change): SEC-1 license-signing key
+  rotation recorded as FULLY CLOSED — the leaked key was purged from git history (`git filter-repo
+  --replace-text`, force-pushed main + all tags, remote verified clean), the local private key
+  shredded, and only a future adoption-gated fingerprint-allowlist shrink remains. `.mcp.json` pin
+  bumped to `@massu/core@1.16.2`, and the memory-system roadmap adds WS0 (retro-on-discovery) as
+  STEP 0.
+- Test-suite flake eliminated (test-only; no shipped code): 13 tests wrote scratch files under
+  `packages/core/src`, which intermittently raced the source-tree walkers under the coverage run
+  (ENOENT crash). All scratch moved to the OS temp dir, and a mutation-tested drift-guard now makes
+  writing scratch under `src` impossible to reintroduce.
+- G-6 anti-vacuity registry (internal gate work; no shipped `@massu/core` runtime change),
+  `plan-2026-07-15-wave-1-g6-anti-vacuity-registry`: the meta-gate that proves every OTHER gate can
+  actually fail. Wave 1a covered the 108 shell fail-points; Wave 1b extends it to the full
+  structurally-discovered guard universe — an AST discoverer over every vitest/shell/eslint
+  enforcement guard, a completeness gate + validated `exempt` allowlist, and a per-kind real-tree
+  can-fail oracle. All 472 guard candidates are ruled (proven can-fail or cited-exempt); the P7b
+  harness mutation-tests the machinery itself; enforced in CI.
+
 ## [1.16.2] - 2026-07-15
 
 ### Security

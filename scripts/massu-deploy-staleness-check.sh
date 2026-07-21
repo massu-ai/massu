@@ -61,7 +61,11 @@ if ! $VERCEL_CMD whoami >/dev/null 2>&1; then
 fi
 
 # Check org membership via `vercel teams list` (output includes org slugs).
-if ! $VERCEL_CMD teams list 2>&1 | grep -q "$VERCEL_ORG"; then
+# here-string capture, not `… | grep -q` (broken-pipe-race-free under pipefail; incident 2026-07-16):
+# a long teams list would SIGPIPE vercel when grep short-circuits, and pipefail would mis-report
+# "not authenticated" even when the org IS present.
+vercel_teams_list="$($VERCEL_CMD teams list 2>&1)"
+if ! grep -q "$VERCEL_ORG" <<<"$vercel_teams_list"; then
   echo "SKIP: Vercel CLI not authenticated to '$VERCEL_ORG' — run 'vercel switch $VERCEL_ORG'"
   exit 0
 fi

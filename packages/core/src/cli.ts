@@ -42,6 +42,14 @@ async function main(): Promise<void> {
       await runLogin(args.slice(1));
       break;
     }
+    case 'heal': {
+      // P5-001 (plan-massu-resilience-layer1): rebuild the native better-sqlite3
+      // binding for the running Node. `--check` is non-mutating (exit 1 on mismatch).
+      const { runHeal } = await import('./commands/heal.ts');
+      const result = await runHeal(args.slice(1));
+      process.exit(result.exitCode);
+      return;
+    }
     case 'logout': {
       const { runLogout } = await import('./commands/login.ts');
       await runLogout();

@@ -10,7 +10,8 @@
 // Must complete in <500ms.
 // ============================================================
 
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { openDatabase } from '../lib/sqlite-loader.ts';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
 import { getFeatureImpact } from '../sentinel-db.ts';
@@ -43,7 +44,7 @@ function getDataDb(): Database.Database | null {
   const dbPath = getResolvedPaths().dataDbPath;
   if (!existsSync(dbPath)) return null;
   try {
-    const db = new Database(dbPath, { readonly: true });
+    const db = openDatabase(dbPath, { readonly: true, selfHeal: false });
     db.pragma('journal_mode = WAL');
     return db;
   } catch {

@@ -258,7 +258,9 @@ while IFS= read -r path; do
   # staged mode, fall back gracefully if the staged path lacks a working-
   # tree counterpart (e.g. mid-rebase).
   if [ -e "$path" ]; then
-    if ! file "$path" 2>/dev/null | grep -qE 'text|empty'; then
+    # here-string capture, not `file … | grep -q` (broken-pipe-race-free under pipefail; incident 2026-07-16).
+    file_type_desc="$(file "$path" 2>/dev/null)"
+    if ! grep -qE 'text|empty' <<<"$file_type_desc"; then
       continue
     fi
   fi

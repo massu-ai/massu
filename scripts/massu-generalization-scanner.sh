@@ -4,7 +4,7 @@
 #
 # Checks ALL shipped files for generalization violations:
 #   1. "limn" references in shipped directories
-#   2. Hardcoded /Users/ paths in source/commands/hooks
+#   2. Hardcoded /Users/ paths in source/commands/ AND all of scripts/ (syncs public)
 #   3. Hardcoded Supabase project IDs in source
 #   4. Hardcoded API endpoints outside config in source
 #
@@ -46,7 +46,12 @@ echo ""
 # -------------------------------------------------------
 
 # Helper: build grep exclusion flags for common dirs
-COMMON_EXCLUDES="--exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git"
+# The anti-vacuity fixture catalogs (scripts/lib/gate-registry.json + symbol-grep-ratchet.json)
+# are internal-only (NOT sync-published) and, like the private-boundary files below, NECESSARILY
+# CONTAIN the very violating patterns they catalog (a registry of 'limn'/secret/path fixtures).
+# Scanning them for those patterns is a guaranteed false positive — the meta-gate's own fixture
+# data must be excluded from the product scanners, exactly as test dirs and node_modules are.
+COMMON_EXCLUDES="--exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git --exclude=gate-registry.json --exclude=symbol-grep-ratchet.json"
 
 # -------------------------------------------------------
 # The private-content boundary's OWN files. They live under scripts/lib/ but are NOT shipped —
@@ -109,11 +114,24 @@ fi
 
 # -------------------------------------------------------
 # Check 2: No hardcoded /Users/ paths in source
+#
+# SCOPE (incident 2026-07-20, CR-62): the scan set MUST cover every directory
+# that `sync-public.sh` publishes. Before this fix the loop scanned only
+# `packages/core/src .claude/commands scripts/hooks` — but ALL of `scripts/`
+# syncs public (PUBLIC_MANIFEST line 15), so `scripts/blast-radius.sh` carried
+# an operator home path (`/Users/<operator>`) through this gate clean. `scripts`
+# is scanned recursively here, which subsumes the old `scripts/hooks` entry.
+# The sync-EXCLUDED private-boundary files under scripts/lib/ are excluded below
+# (they NECESSARILY contain the paths they exist to detect) via
+# $PRIVATE_BOUNDARY_FILES, exactly as Check 1 does. `scripts/lib/home-path-guard.sh`
+# is likewise excluded: it is the layer-2 sync guard for this very rule, so its
+# detection regex is literally `/Users/…` — the same self-exclusion this scanner
+# already applies to itself.
 # -------------------------------------------------------
 echo "Check 2: No hardcoded /Users/ paths in source"
 
 USERS_DIRS=""
-for dir in packages/core/src .claude/commands scripts/hooks; do
+for dir in packages/core/src .claude/commands scripts; do
   [ -d "$REPO_ROOT/$dir" ] && USERS_DIRS="$USERS_DIRS $REPO_ROOT/$dir"
 done
 
@@ -132,6 +150,8 @@ if [ -n "$USERS_DIRS" ]; then
     | grep -v '// .*Convert.*cwd\|// .*format:' \
     | grep -v 'massu-generalization-scanner' \
     | grep -v 'massu-push-light' \
+    | grep -v 'scripts/lib/home-path-guard\.sh' \
+    | grep -vE "$PRIVATE_BOUNDARY_FILES" \
     | wc -l | tr -d ' ')
   if [ "$USERS_COUNT" -gt 0 ]; then
     fail "Found $USERS_COUNT hardcoded /Users/ paths in source"
@@ -149,6 +169,8 @@ if [ -n "$USERS_DIRS" ]; then
       | grep -v '// .*Convert.*cwd\|// .*format:' \
       | grep -v 'massu-generalization-scanner' \
       | grep -v 'massu-push-light' \
+      | grep -v 'scripts/lib/home-path-guard\.sh' \
+      | grep -vE "$PRIVATE_BOUNDARY_FILES" \
       | head -10
   else
     pass "No hardcoded /Users/ paths found"

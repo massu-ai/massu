@@ -12,7 +12,7 @@
 // and the 68-test license suite. Removing this marker requires shipping
 // the sub-module split — there is no alternative escape path.
 
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import { formatCorrectionEntry } from './lib/corrections-md.ts';
 import type { ToolDefinition, ToolResult } from './tools.ts';
 import { indexIfStale } from './knowledge-indexer.ts';

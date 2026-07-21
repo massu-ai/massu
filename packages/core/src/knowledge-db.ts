@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { openDatabase } from './lib/sqlite-loader.ts';
 import { dirname } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { getConfig, getResolvedPaths } from './config.ts';
@@ -24,7 +25,7 @@ export function getKnowledgeDb(): Database.Database {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  const db = new Database(dbPath);
+  const db = openDatabase(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   initKnowledgeSchema(db);

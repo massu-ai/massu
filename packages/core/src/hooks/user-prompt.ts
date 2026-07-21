@@ -11,6 +11,7 @@ import { getMemoryDb, createSession, addUserPrompt, linkSessionToTask, autoDetec
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, openSync, fstatSync, readSync, closeSync } from 'fs';
 import { join } from 'path';
 import type Database from 'better-sqlite3';
+import { openDatabase } from '../lib/sqlite-loader.ts';
 import { getResolvedPaths } from '../config.ts';
 import { scoreCorrectionPrompt } from '../rule-candidate-detector.ts';
 import { categorizePrompt, hashPrompt } from '../prompt-analyzer.ts';
@@ -73,12 +74,10 @@ async function main(): Promise<void> {
         if (fileRefs.length > 0) {
           const knowledgeDbPath = getResolvedPaths().knowledgeDbPath;
           if (knowledgeDbPath && existsSync(knowledgeDbPath)) {
-            // PR-01 (Phase 1.5 pattern review): renamed local from `Database`
-            // to `BetterSqlite3Ctor` to avoid shadowing the imported
-            // `import type Database from 'better-sqlite3'` at top-of-file
-            // (used by the readSignalBlacklist parameter type below).
-            const BetterSqlite3Ctor = (await import('better-sqlite3')).default;
-            const kdb = new BetterSqlite3Ctor(knowledgeDbPath, { readonly: true });
+            // Hooks route through the SSOT loader but do NOT self-heal (5s budget /
+            // CR-12, P0-003): selfHeal:false surfaces the loud failure signal and lets
+            // the next server/CLI touch rebuild.
+            const kdb = openDatabase(knowledgeDbPath, { readonly: true, selfHeal: false });
             try {
               const placeholders = fileRefs.map(() => '?').join(',');
               const matches = kdb.prepare(

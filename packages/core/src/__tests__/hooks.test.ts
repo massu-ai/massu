@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { resolve } from 'path';
+import { tmpdir } from 'os';
 import { unlinkSync, existsSync, writeFileSync, readFileSync, mkdirSync } from 'fs';
 import {
   createSession,
@@ -21,7 +22,8 @@ import { archiveAndRegenerate } from '../session-archiver.ts';
 // P7-004: Hook Handler Tests
 // Tests the core logic that hooks use (not the stdin/stdout plumbing)
 
-const TEST_DB_PATH = resolve(__dirname, '../test-hooks.db');
+// DB scratch under the OS temp dir, NEVER under packages/core/src (feedback_dashboard_key_ux_and_src_scratch_race).
+const TEST_DB_PATH = resolve(tmpdir(), `massu-test-hooks-${process.pid}.db`);
 
 function createTestDb(): Database.Database {
   if (existsSync(TEST_DB_PATH)) unlinkSync(TEST_DB_PATH);

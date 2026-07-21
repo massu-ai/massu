@@ -366,7 +366,7 @@ describe('DRIFT GUARD: the destructive drain may never come back', () => {
     // Capture the original timestamps so the restore leaves ZERO trace — including
     // mtime. Planting in the REAL tree (CR-72) is correct, but an atomic rename bumps
     // the source file's mtime even when content is restored byte-identical, which then
-    // trips the [13/21] Workspace Build Freshness gate (src newer than dist). A mutation
+    // trips the [13/22] Workspace Build Freshness gate (src newer than dist). A mutation
     // test that leaves a side-effect is an incomplete restore. Surfaced 2026-07-14.
     const originalStat = statSync(victim);
     expect(findRuleDeleters()).toEqual([]); // clean before

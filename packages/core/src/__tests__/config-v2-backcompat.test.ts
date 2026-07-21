@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import { tmpdir } from 'os';
 import { getConfig, resetConfig } from '../config.ts';
 
 /**
@@ -19,7 +20,9 @@ import { getConfig, resetConfig } from '../config.ts';
  *    by running vitest on that file (no modification required here).
  */
 
-const TEST_DIR = resolve(__dirname, '../test-config-v2-backcompat-tmp');
+// Scratch under the OS temp dir, NEVER under packages/core/src (races the drift-guard
+// walker + coverage scan → intermittent ENOENT; feedback_dashboard_key_ux_and_src_scratch_race).
+const TEST_DIR = resolve(tmpdir(), `massu-test-config-v2-backcompat-tmp-${process.pid}`);
 const CONFIG_PATH = resolve(TEST_DIR, 'massu.config.yaml');
 
 function writeConfig(yaml: string) {

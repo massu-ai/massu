@@ -39,7 +39,8 @@
  * copy, WAL included. It is the only correct way to snapshot a live SQLite database.
  */
 
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { openDatabase } from './lib/sqlite-loader.ts';
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, copyFileSync, rmSync } from 'fs';
 import { resolve, join, basename, dirname } from 'path';
 import { homedir } from 'os';
@@ -121,7 +122,7 @@ export function hasFreshDbBackup(
 function integrityOk(dbPath: string): boolean {
   let db: Database.Database | null = null;
   try {
-    db = new Database(dbPath, { readonly: true });
+    db = openDatabase(dbPath, { readonly: true });
     const rows = db.pragma('integrity_check') as Array<{ integrity_check: string }>;
     return rows.length === 1 && rows[0].integrity_check === 'ok';
   } catch {
@@ -161,7 +162,7 @@ export function backupDb(
 
   let src: Database.Database | null = null;
   try {
-    src = new Database(dbPath, { readonly: true });
+    src = openDatabase(dbPath, { readonly: true });
     // VACUUM INTO — SQLite's own consistent-snapshot primitive. Includes the WAL.
     // A `cp` here would silently drop un-checkpointed writes.
     src.exec(`VACUUM INTO '${dest.replace(/'/g, "''")}'`);

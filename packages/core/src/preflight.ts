@@ -34,7 +34,8 @@
  * THE RULE: a dependency is not "present". It is USABLE, or it is not there.
  */
 
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { openDatabase } from './lib/sqlite-loader.ts';
 import { existsSync } from 'fs';
 import { getResolvedPaths } from './config.ts';
 /**
@@ -122,7 +123,7 @@ export function assertCodegraphUsable(dbPath?: string): void {
 
   let db: Database.Database | null = null;
   try {
-    db = new Database(path, { readonly: true });
+    db = openDatabase(path, { readonly: true });
     const row = db.prepare('SELECT COUNT(*) AS c FROM files').get() as { c: number } | undefined;
     const files = row?.c ?? 0;
     if (files === 0) {
@@ -166,7 +167,7 @@ export function checkCodegraph(dbPath?: string): {
   }
   let db: Database.Database | null = null;
   try {
-    db = new Database(path, { readonly: true });
+    db = openDatabase(path, { readonly: true });
     const row = db.prepare('SELECT COUNT(*) AS c FROM files').get() as { c: number };
     return { ok: true, files: row.c };
   } finally {

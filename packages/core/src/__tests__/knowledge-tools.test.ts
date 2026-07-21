@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import Database from 'better-sqlite3';
 import { resolve, dirname } from 'path';
+import { tmpdir } from 'os';
 import { unlinkSync, existsSync, mkdirSync, rmSync } from 'fs';
 import { getResolvedPaths } from '../config.ts';
 import { initKnowledgeSchema } from '../knowledge-db.ts';
@@ -12,7 +13,8 @@ import { handleKnowledgeToolCall, getKnowledgeToolDefinitions } from '../knowled
 
 // P1-007: Knowledge Tools Unit Tests
 
-const TEST_DB_PATH = resolve(__dirname, '../test-knowledge-tools.db');
+// DB scratch under the OS temp dir, NEVER under packages/core/src (feedback_dashboard_key_ux_and_src_scratch_race).
+const TEST_DB_PATH = resolve(tmpdir(), `massu-test-knowledge-tools-${process.pid}.db`);
 
 let db: Database.Database;
 

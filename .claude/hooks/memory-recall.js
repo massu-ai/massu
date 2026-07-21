@@ -26,16 +26,6 @@ var __copyProps = (to, from, except, desc) => {
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// src/lib/memory-path.ts
-function encodeMemoryDirName(projectRoot) {
-  return projectRoot.replace(/\//g, "-");
-}
-var init_memory_path = __esm({
-  "src/lib/memory-path.ts"() {
-    "use strict";
-  }
-});
-
 // src/credentials.ts
 import { homedir } from "os";
 import { resolve } from "path";
@@ -101,6 +91,345 @@ var init_credentials = __esm({
     MASSU_ENV_API_KEY = "MASSU_API_KEY";
     MASSU_ENV_CLOUD_ENDPOINT = "MASSU_CLOUD_ENDPOINT";
     DEFAULT_CLOUD_ENDPOINT = "https://api.massu.ai/v1";
+  }
+});
+
+// src/lib/fileLock.ts
+import { mkdirSync as mkdirSync2, readFileSync as readFileSync2, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "fs";
+import { dirname } from "path";
+import * as lockfile from "proper-lockfile";
+function readLockHolderPid(lockPath) {
+  try {
+    const raw = readFileSync2(`${lockPath}.pid`, "utf-8").trim();
+    const pid = Number.parseInt(raw, 10);
+    if (!Number.isFinite(pid) || pid <= 0) return null;
+    return pid;
+  } catch {
+    return null;
+  }
+}
+function busyWaitSync(ms) {
+  if (typeof SharedArrayBuffer === "undefined" || typeof Atomics === "undefined") {
+    throw new Error(
+      `withFileLockSync requires SharedArrayBuffer + Atomics for its retry-loop wait. This Node runtime does not provide them \u2014 refusing to fall back to a CPU spinloop. If you hit this in a sandboxed serverless env, the fix is to perform the lock-protected operation in a host runtime that supports Atomics.`
+    );
+  }
+  const sab = new SharedArrayBuffer(4);
+  const view = new Int32Array(sab);
+  Atomics.wait(view, 0, 0, ms);
+}
+function withFileLockSync(lockPath, fn, opts = {}) {
+  mkdirSync2(dirname(lockPath), { recursive: true });
+  const staleMs = opts.staleMs ?? 3e4;
+  const blockMs = opts.retries === 0 ? 0 : opts.blockMs ?? 3e4;
+  const pollIntervalMs = opts.pollIntervalMs ?? 100;
+  const now = opts.now ?? Date.now;
+  const sleep = opts.sleep ?? busyWaitSync;
+  const makeBusyError = opts.errorFactory ?? ((path, pid, retrySeconds, code) => new FileLockBusyError(path, pid, retrySeconds, code));
+  let release = null;
+  const deadline = now() + blockMs;
+  for (; ; ) {
+    try {
+      release = lockfile.lockSync(lockPath, {
+        stale: staleMs,
+        retries: 0,
+        realpath: false
+      });
+      try {
+        writeFileSync2(`${lockPath}.pid`, String(process.pid), "utf-8");
+      } catch {
+      }
+      break;
+    } catch (err) {
+      const e = err;
+      const code = e.code;
+      if (code !== "ELOCKED" && code !== "EBUSY") {
+        throw err;
+      }
+      if (now() >= deadline) {
+        const holderPid = readLockHolderPid(lockPath);
+        const remainingMs = Math.max(0, deadline - now());
+        const retryAfterSeconds = blockMs === 0 ? Math.round(staleMs / 1e3) : Math.round(remainingMs / 1e3);
+        throw makeBusyError(lockPath, holderPid, retryAfterSeconds, code);
+      }
+      sleep(pollIntervalMs);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      if (release) release();
+    } catch {
+    }
+    try {
+      rmSync2(`${lockPath}.pid`, { force: true });
+    } catch {
+    }
+  }
+}
+var FileLockBusyError;
+var init_fileLock = __esm({
+  "src/lib/fileLock.ts"() {
+    "use strict";
+    FileLockBusyError = class extends Error {
+      constructor(lockPath, holderPid, retryAfterSeconds, causeCode) {
+        const pidPart = holderPid != null ? `(PID=${holderPid})` : "(PID=unknown)";
+        super(`File lock at ${lockPath} held by another process ${pidPart} \u2014 try again in ${retryAfterSeconds}s`);
+        this.lockPath = lockPath;
+        this.holderPid = holderPid;
+        this.retryAfterSeconds = retryAfterSeconds;
+        this.causeCode = causeCode;
+        this.name = "FileLockBusyError";
+      }
+      lockPath;
+      holderPid;
+      retryAfterSeconds;
+      causeCode;
+    };
+  }
+});
+
+// src/lib/sqlite-loader.ts
+import { createRequire } from "module";
+import { spawnSync } from "child_process";
+import { accessSync, appendFileSync, chmodSync as chmodSync2, constants as fsConstants, existsSync as existsSync2, mkdirSync as mkdirSync3 } from "fs";
+import { dirname as dirname2, join } from "path";
+function isNativeAbiError(err) {
+  const code = err?.code;
+  if (code === "ERR_DLOPEN_FAILED") return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /NODE_MODULE_VERSION/.test(msg) || /was compiled against a different Node\.js version/.test(msg) || /ERR_DLOPEN_FAILED/.test(msg) || /\.node\b/.test(msg) && /dlopen|invalid ELF|mach-o|image not found|no such file|not a valid Win32/i.test(msg);
+}
+function loadBetterSqlite3(opts = {}) {
+  if (_testCtor) return _testCtor;
+  if (opts.fresh) bustNativeCache();
+  return req("better-sqlite3");
+}
+function bustNativeCache() {
+  try {
+    const cache = req.cache;
+    if (!cache) return;
+    for (const key of Object.keys(cache)) {
+      if (/better[-_]sqlite3|better_sqlite3\.node|[\\/]bindings[\\/]/.test(key)) {
+        delete cache[key];
+      }
+    }
+  } catch {
+  }
+}
+function openDatabase(dbPath, opts = {}) {
+  const { selfHeal: selfHealOpt = true, ...ctorOpts } = opts;
+  const selfHeal = selfHealOpt && process.env.MASSU_HOOK_RUNTIME !== "1";
+  const Ctor = loadBetterSqlite3();
+  try {
+    return new Ctor(dbPath, ctorOpts);
+  } catch (err) {
+    if (!isNativeAbiError(err)) {
+      throw err;
+    }
+    if (!selfHeal) {
+      recordHealEvent({ phase: "skipped", reason: "self-heal-disabled", abiTo: process.versions.modules });
+      throw new MemoryEngineUnusableError("abi-mismatch", detailOf(err));
+    }
+    const result = (_testHeal ?? attemptNativeHeal)(err);
+    if (!result.healed && !result.contended) {
+      throw new MemoryEngineUnusableError(result.reason ?? "heal-failed", result.detail ?? detailOf(err));
+    }
+    try {
+      const FreshCtor = loadBetterSqlite3({ fresh: true });
+      return new FreshCtor(dbPath, ctorOpts);
+    } catch (retryErr) {
+      throw new MemoryEngineUnusableError("heal-failed", detailOf(retryErr));
+    }
+  }
+}
+function attemptNativeHeal(err) {
+  const start = Date.now();
+  const abiTo = process.versions.modules;
+  const abiFrom = parseAbiFrom(err);
+  let pkgDir;
+  try {
+    pkgDir = dirname2(req.resolve("better-sqlite3/package.json"));
+  } catch {
+    recordHealEvent({ phase: "skipped", reason: "not-resolvable", abiFrom, abiTo });
+    return { healed: false, reason: "missing", abiFrom, abiTo, detail: "better-sqlite3 not resolvable" };
+  }
+  if (!isWritable(pkgDir)) {
+    recordHealEvent({ phase: "skipped", reason: "dir-not-writable", abiFrom, abiTo });
+    return { healed: false, reason: "heal-failed", abiFrom, abiTo, detail: `install dir not writable: ${pkgDir}` };
+  }
+  recordHealEvent({ phase: "attempt", reason: "abi-mismatch", abiFrom, abiTo });
+  try {
+    return withFileLockSync(
+      join(credentialsDir(), "native-heal.lock"),
+      () => runRebuild(pkgDir, abiFrom, abiTo, start),
+      { blockMs: 6e4, staleMs: 3e5 }
+    );
+  } catch (lockErr) {
+    const detail = lockErr instanceof Error ? lockErr.message : String(lockErr);
+    recordHealEvent({ phase: "failed", reason: "heal-failed", abiFrom, abiTo, detail: `lock: ${detail}` });
+    return { healed: false, contended: true, reason: "heal-failed", abiFrom, abiTo, detail: `heal lock contended: ${detail}` };
+  }
+}
+function runRebuild(pkgDir, abiFrom, abiTo, start) {
+  try {
+    const FreshCtor = loadBetterSqlite3({ fresh: true });
+    new FreshCtor(":memory:").close();
+    const res2 = {
+      healed: true,
+      abiFrom,
+      abiTo,
+      durationMs: Date.now() - start,
+      detail: "already healed by a concurrent process"
+    };
+    recordHealEvent({ phase: "success", reason: "already-healed", abiFrom, abiTo, durationMs: res2.durationMs });
+    return res2;
+  } catch (probeErr) {
+    if (!isNativeAbiError(probeErr)) {
+      return { healed: false, reason: "heal-failed", abiFrom, abiTo, durationMs: Date.now() - start, detail: detailOf(probeErr) };
+    }
+  }
+  const prebuildBin = resolveLocalBin(pkgDir, "prebuild-install");
+  if (prebuildBin) {
+    const r = spawnSync(process.execPath, [prebuildBin], {
+      cwd: pkgDir,
+      encoding: "utf-8",
+      timeout: 12e4
+    });
+    if (r.status === 0) {
+      const res2 = { healed: true, method: "prebuild-install", abiFrom, abiTo, durationMs: Date.now() - start };
+      recordHealEvent({ phase: "success", reason: "abi-mismatch", ...res2 });
+      return res2;
+    }
+  }
+  const gypBin = resolveNodeGypBin();
+  if (gypBin && hasCompiler()) {
+    const r = spawnSync(process.execPath, [gypBin, "rebuild", "--release"], {
+      cwd: pkgDir,
+      encoding: "utf-8",
+      timeout: 3e5
+    });
+    if (r.status === 0) {
+      const res2 = { healed: true, method: "node-gyp", abiFrom, abiTo, durationMs: Date.now() - start };
+      recordHealEvent({ phase: "success", reason: "abi-mismatch", ...res2 });
+      return res2;
+    }
+  }
+  const res = {
+    healed: false,
+    reason: "heal-failed",
+    abiFrom,
+    abiTo,
+    durationMs: Date.now() - start,
+    detail: prebuildBin ? "prebuild-install failed; node-gyp fallback unavailable or failed" : "no prebuild-install bin resolvable"
+  };
+  recordHealEvent({ phase: "failed", reason: "heal-failed", abiFrom, abiTo, durationMs: res.durationMs });
+  return res;
+}
+function recordHealEvent(event) {
+  try {
+    const rec = {
+      ts: (/* @__PURE__ */ new Date()).toISOString(),
+      node: process.versions.node,
+      platform: process.platform,
+      arch: process.arch,
+      ...event
+    };
+    const dir = credentialsDir();
+    mkdirSync3(dir, { recursive: true });
+    const file = join(dir, "native-heal-events.jsonl");
+    appendFileSync(file, JSON.stringify(rec) + "\n", "utf-8");
+    try {
+      chmodSync2(file, 384);
+    } catch {
+    }
+  } catch {
+  }
+}
+function parseAbiFrom(err) {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  const m = /NODE_MODULE_VERSION (\d+)/.exec(msg);
+  if (m && /^\d+$/.test(m[1])) return m[1];
+  return void 0;
+}
+function detailOf(err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.slice(0, 300);
+}
+function isWritable(dir) {
+  try {
+    accessSync(dir, fsConstants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function resolveLocalBin(pkgDir, name) {
+  const candidates = [
+    join(pkgDir, "node_modules", ".bin", name),
+    // nested install
+    join(pkgDir, "..", ".bin", name),
+    // hoisted (node_modules/.bin)
+    join(pkgDir, "..", "..", "node_modules", ".bin", name)
+    // workspace hoist
+  ];
+  for (const c of candidates) {
+    if (existsSync2(c)) return c;
+  }
+  return void 0;
+}
+function resolveNodeGypBin() {
+  try {
+    return req.resolve("node-gyp/bin/node-gyp.js");
+  } catch {
+    return void 0;
+  }
+}
+function hasCompiler() {
+  for (const cc of ["cc", "clang", "gcc"]) {
+    try {
+      const r = spawnSync(cc, ["--version"], { encoding: "utf-8", timeout: 5e3 });
+      if (r.status === 0) return true;
+    } catch {
+    }
+  }
+  return false;
+}
+var req, NATIVE_DB_REMEDY, MemoryEngineUnusableError, _testCtor, _testHeal;
+var init_sqlite_loader = __esm({
+  "src/lib/sqlite-loader.ts"() {
+    "use strict";
+    init_credentials();
+    init_fileLock();
+    req = createRequire(import.meta.url);
+    NATIVE_DB_REMEDY = "Run 'massu heal' to rebuild the database engine for your Node version, then restart your MCP client / Claude Code.";
+    MemoryEngineUnusableError = class extends Error {
+      reason;
+      remedy;
+      detail;
+      constructor(reason, detail) {
+        super(
+          `Massu memory engine is unusable (${reason}). ${NATIVE_DB_REMEDY}` + (detail ? ` [${detail}]` : "")
+        );
+        this.name = "MemoryEngineUnusableError";
+        this.reason = reason;
+        this.remedy = NATIVE_DB_REMEDY;
+        this.detail = detail;
+      }
+    };
+    _testCtor = null;
+    _testHeal = null;
+  }
+});
+
+// src/lib/memory-path.ts
+function encodeMemoryDirName(projectRoot) {
+  return projectRoot.replace(/\//g, "-");
+}
+var init_memory_path = __esm({
+  "src/lib/memory-path.ts"() {
+    "use strict";
   }
 });
 
@@ -243,8 +572,8 @@ var init_config_memory_schema = __esm({
 });
 
 // src/config.ts
-import { resolve as resolve2, dirname } from "path";
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "fs";
+import { resolve as resolve2, dirname as dirname3 } from "path";
+import { existsSync as existsSync3, readFileSync as readFileSync3 } from "fs";
 import { homedir as homedir2 } from "os";
 import { parse as parseYaml } from "yaml";
 import { z as z2 } from "zod";
@@ -252,22 +581,22 @@ function findProjectRoot() {
   const cwd = process.cwd();
   let dir = cwd;
   while (true) {
-    if (existsSync2(resolve2(dir, "massu.config.yaml"))) {
+    if (existsSync3(resolve2(dir, "massu.config.yaml"))) {
       return dir;
     }
-    const parent = dirname(dir);
+    const parent = dirname3(dir);
     if (parent === dir) break;
     dir = parent;
   }
   dir = cwd;
   while (true) {
-    if (existsSync2(resolve2(dir, "package.json"))) {
+    if (existsSync3(resolve2(dir, "package.json"))) {
       return dir;
     }
-    if (existsSync2(resolve2(dir, ".git"))) {
+    if (existsSync3(resolve2(dir, ".git"))) {
       return dir;
     }
-    const parent = dirname(dir);
+    const parent = dirname3(dir);
     if (parent === dir) break;
     dir = parent;
   }
@@ -284,8 +613,8 @@ function getConfig() {
   const root = getProjectRoot();
   const configPath = resolve2(root, "massu.config.yaml");
   let rawYaml = {};
-  if (existsSync2(configPath)) {
-    const content = readFileSync2(configPath, "utf-8");
+  if (existsSync3(configPath)) {
+    const content = readFileSync3(configPath, "utf-8");
     rawYaml = parseYaml(content) ?? {};
   }
   const result = RawConfigSchema.safeParse(rawYaml);
@@ -366,9 +695,13 @@ Hint: run \`massu config refresh\` to regenerate a valid config or fix the liste
   const resolvedEndpoint = resolveEndpoint({ configEndpoint: _config.cloud?.endpoint });
   if (resolvedKey.apiKey) {
     _config.cloud = {
-      enabled: true,
       sync: { memory: true, analytics: true, audit: true },
       ..._config.cloud,
+      // Spread FIRST, then decide `enabled`, so a workspace that declares a `cloud:`
+      // block only to tune `requestTimeoutMs` does not disable its own sync. An
+      // EXPLICIT `enabled: false` is still honoured; `undefined` (not stated) means
+      // "a key resolved, so turn it on". (plan-2026-07-20-cloud-sync-timeout)
+      enabled: _config.cloud?.enabled ?? true,
       apiKey: resolvedKey.apiKey,
       endpoint: resolvedEndpoint
     };
@@ -588,9 +921,22 @@ var init_config = __esm({
       })).default([])
     }).optional();
     CloudConfigSchema = z2.object({
-      enabled: z2.boolean().default(false),
+      // OPTIONAL, not `.default(false)`. A zod default is indistinguishable from an
+      // explicit value once parsed, so `.default(false)` meant that merely declaring a
+      // `cloud:` block (to set any OTHER key) silently produced `enabled: false`, which
+      // then overrode the `enabled: true` auto-enable below via object spread — turning
+      // cloud sync OFF as a side effect of tuning it. `undefined` now means "not stated",
+      // and the auto-enable preserves it. (plan-2026-07-20-cloud-sync-timeout)
+      enabled: z2.boolean().optional(),
       apiKey: z2.string().optional(),
       endpoint: z2.string().optional(),
+      // Per-request POST budget for the `/sync` ingest. cloud-sync.ts reads this
+      // (`(cloud as { requestTimeoutMs?: number }).requestTimeoutMs`) but it was ABSENT
+      // from this schema, and zod strips unknown keys — so the knob was unreachable from
+      // massu.config.yaml and the default could never be tuned. Measured 2026-07-20: a
+      // 423-observation payload takes ~9.2s against the live ingest. Capped at
+      // SYNC_DEADLINE_MS (20s) since the overall deadline clamps each attempt anyway.
+      requestTimeoutMs: z2.number().int().positive().max(2e4).optional(),
       sync: z2.object({
         memory: z2.boolean().default(true),
         analytics: z2.boolean().default(true),
@@ -848,27 +1194,26 @@ var init_memory_vector = __esm({
 });
 
 // src/db-backup.ts
-import Database from "better-sqlite3";
-import { existsSync as existsSync3, mkdirSync as mkdirSync2, readdirSync, statSync, unlinkSync, copyFileSync, rmSync as rmSync2 } from "fs";
-import { resolve as resolve3, join, basename, dirname as dirname2 } from "path";
+import { existsSync as existsSync4, mkdirSync as mkdirSync4, readdirSync, statSync, unlinkSync, copyFileSync, rmSync as rmSync3 } from "fs";
+import { resolve as resolve3, join as join2, basename, dirname as dirname4 } from "path";
 import { homedir as homedir3 } from "os";
 function dbBackupsRoot(home = homedir3()) {
   return resolve3(home, ".massu", "db-backups");
 }
 function projectBackupDir(projectRoot, home = homedir3()) {
   const slug = basename(projectRoot).replace(/[^A-Za-z0-9._-]/g, "_") || "project";
-  return join(dbBackupsRoot(home), slug);
+  return join2(dbBackupsRoot(home), slug);
 }
 function backupStamp(nowMs) {
   return new Date(nowMs).toISOString().replace(/[:.]/g, "-");
 }
 function listDbBackups(projectRoot, home = homedir3()) {
   const dir = projectBackupDir(projectRoot, home);
-  if (!existsSync3(dir)) return [];
+  if (!existsSync4(dir)) return [];
   const out = [];
   for (const f of readdirSync(dir)) {
     if (!f.endsWith(".db")) continue;
-    const p = join(dir, f);
+    const p = join2(dir, f);
     const st = statSync(p);
     const db = f.replace(/-\d{4}-\d{2}-\d{2}T.*$/, "");
     out.push({ db, path: p, bytes: st.size, mtimeMs: st.mtimeMs });
@@ -881,13 +1226,13 @@ function hasFreshDbBackup(projectRoot, dbPath, nowMs = Date.now(), home = homedi
   if (backups.length === 0) return false;
   const newest = backups[0];
   if (nowMs - newest.mtimeMs > FRESH_WINDOW_MS) return false;
-  if (existsSync3(dbPath) && statSync(dbPath).mtimeMs > newest.mtimeMs) return false;
+  if (existsSync4(dbPath) && statSync(dbPath).mtimeMs > newest.mtimeMs) return false;
   return true;
 }
 function integrityOk(dbPath) {
   let db = null;
   try {
-    db = new Database(dbPath, { readonly: true });
+    db = openDatabase(dbPath, { readonly: true });
     const rows = db.pragma("integrity_check");
     return rows.length === 1 && rows[0].integrity_check === "ok";
   } catch {
@@ -900,16 +1245,16 @@ function integrityOk(dbPath) {
   }
 }
 function backupDb(projectRoot, dbPath, nowMs = Date.now(), home = homedir3()) {
-  if (!existsSync3(dbPath)) {
+  if (!existsSync4(dbPath)) {
     throw new DbBackupError(`cannot back up a database that does not exist: ${dbPath}`);
   }
   const dir = projectBackupDir(projectRoot, home);
-  mkdirSync2(dir, { recursive: true });
+  mkdirSync4(dir, { recursive: true });
   const name = basename(dbPath, ".db");
-  const dest = join(dir, `${name}-${backupStamp(nowMs)}.db`);
+  const dest = join2(dir, `${name}-${backupStamp(nowMs)}.db`);
   let src = null;
   try {
-    src = new Database(dbPath, { readonly: true });
+    src = openDatabase(dbPath, { readonly: true });
     src.exec(`VACUUM INTO '${dest.replace(/'/g, "''")}'`);
   } catch (err) {
     throw new DbBackupError(
@@ -948,7 +1293,7 @@ function pruneDbBackups(projectRoot, dbName, keep = DEFAULT_RETENTION, home = ho
 }
 function backupBeforeSchemaChange(projectRoot, dbPath, onError, nowMs = Date.now(), home = homedir3()) {
   try {
-    if (!existsSync3(dbPath)) return null;
+    if (!existsSync4(dbPath)) return null;
     if (hasFreshDbBackup(projectRoot, dbPath, nowMs, home)) return null;
     return backupDb(projectRoot, dbPath, nowMs, home);
   } catch (err) {
@@ -960,6 +1305,7 @@ var DEFAULT_RETENTION, FRESH_WINDOW_MS, DbBackupError;
 var init_db_backup = __esm({
   "src/db-backup.ts"() {
     "use strict";
+    init_sqlite_loader();
     DEFAULT_RETENTION = 5;
     FRESH_WINDOW_MS = 24 * 60 * 60 * 1e3;
     DbBackupError = class extends Error {
@@ -1072,21 +1418,21 @@ var init_rule_candidate_store = __esm({
 });
 
 // src/hooks/lib/hook-failure-signal.ts
-import { appendFileSync, mkdirSync as mkdirSync3, existsSync as existsSync4 } from "fs";
-import { join as join2, dirname as dirname3 } from "path";
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync5, existsSync as existsSync5 } from "fs";
+import { join as join3, dirname as dirname5 } from "path";
 function resolveFailureLogPath() {
   const explicit = process.env.MASSU_HOOK_FAILURE_LOG;
   if (explicit) return explicit;
   let dir = process.cwd();
   for (let i = 0; i < 12; i++) {
-    if (existsSync4(join2(dir, ".massu")) || existsSync4(join2(dir, "massu.config.yaml"))) {
-      return join2(dir, ".massu", "hook-failures.jsonl");
+    if (existsSync5(join3(dir, ".massu")) || existsSync5(join3(dir, "massu.config.yaml"))) {
+      return join3(dir, ".massu", "hook-failures.jsonl");
     }
-    const parent = dirname3(dir);
+    const parent = dirname5(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return join2(process.cwd(), ".massu", "hook-failures.jsonl");
+  return join3(process.cwd(), ".massu", "hook-failures.jsonl");
 }
 function recordHookFailure(hook, error, context) {
   const record = {
@@ -1099,8 +1445,8 @@ function recordHookFailure(hook, error, context) {
   let wroteSomething = false;
   try {
     const path = resolveFailureLogPath();
-    mkdirSync3(dirname3(path), { recursive: true });
-    appendFileSync(path, JSON.stringify(record) + "\n", "utf-8");
+    mkdirSync5(dirname5(path), { recursive: true });
+    appendFileSync2(path, JSON.stringify(record) + "\n", "utf-8");
     wroteSomething = true;
   } catch {
   }
@@ -1143,9 +1489,9 @@ var init_hook_failure_signal = __esm({
 });
 
 // src/memory-embedder-tokenizer.ts
-import { readFileSync as readFileSync3 } from "fs";
+import { readFileSync as readFileSync4 } from "fs";
 function loadVocab(vocabPath) {
-  const lines = readFileSync3(vocabPath, "utf-8").split("\n");
+  const lines = readFileSync4(vocabPath, "utf-8").split("\n");
   const vocab = /* @__PURE__ */ new Map();
   for (let i = 0; i < lines.length; i++) {
     const tok = lines[i].replace(/\r$/, "");
@@ -1265,9 +1611,9 @@ var init_memory_embedder_tokenizer = __esm({
 
 // src/memory-embedder.ts
 import { fileURLToPath } from "url";
-import { dirname as dirname4, join as join3 } from "path";
-import { existsSync as existsSync5 } from "fs";
-import { createRequire } from "module";
+import { dirname as dirname6, join as join4 } from "path";
+import { existsSync as existsSync6 } from "fs";
+import { createRequire as createRequire2 } from "module";
 function getActiveEmbedModel() {
   return _activeModel;
 }
@@ -1288,21 +1634,21 @@ function embeddingsDisabled() {
 }
 function resolveModelDir() {
   try {
-    let dir = dirname4(fileURLToPath(import.meta.url));
+    let dir = dirname6(fileURLToPath(import.meta.url));
     let root = null;
     for (let i = 0; i < 8; i++) {
-      if (existsSync5(join3(dir, "package.json"))) {
+      if (existsSync6(join4(dir, "package.json"))) {
         root = dir;
         break;
       }
-      const parent = dirname4(dir);
+      const parent = dirname6(dir);
       if (parent === dir) break;
       dir = parent;
     }
     if (!root) return null;
     for (const rel of ["dist/embedder", "assets/embedder"]) {
-      const candidate = join3(root, rel);
-      if (existsSync5(join3(candidate, "model_quantized.onnx"))) return candidate;
+      const candidate = join4(root, rel);
+      if (existsSync6(join4(candidate, "model_quantized.onnx"))) return candidate;
     }
     return null;
   } catch {
@@ -1311,9 +1657,9 @@ function resolveModelDir() {
 }
 function resolveWasmDir() {
   try {
-    const req = createRequire(import.meta.url);
-    const main2 = req.resolve(ORT_PKG);
-    return dirname4(main2);
+    const req2 = createRequire2(import.meta.url);
+    const main2 = req2.resolve(ORT_PKG);
+    return dirname6(main2);
   } catch {
     return null;
   }
@@ -1333,8 +1679,8 @@ async function getSession() {
       ort.env.wasm.proxy = false;
       ort.env.wasm.wasmPaths = wasmDir.endsWith("/") ? wasmDir : wasmDir + "/";
       _ortTensor = ort.Tensor;
-      const modelPath = join3(modelDir, "model_quantized.onnx");
-      const vocabPath = join3(modelDir, "vocab.txt");
+      const modelPath = join4(modelDir, "model_quantized.onnx");
+      const vocabPath = join4(modelDir, "vocab.txt");
       _vocab = loadVocab(vocabPath);
       const session = await ort.InferenceSession.create(modelPath, {
         executionProviders: ["wasm"],
@@ -1686,9 +2032,8 @@ __export(memory_db_exports, {
   upsertObservationEmbedding: () => upsertObservationEmbedding,
   usageWarmupElapsed: () => usageWarmupElapsed
 });
-import Database2 from "better-sqlite3";
-import { dirname as dirname5, basename as basename2 } from "path";
-import { existsSync as existsSync6, mkdirSync as mkdirSync4 } from "fs";
+import { dirname as dirname7, basename as basename2 } from "path";
+import { existsSync as existsSync7, mkdirSync as mkdirSync6 } from "fs";
 function sanitizeFts5Query(raw) {
   const trimmed = raw.trim();
   if (!trimmed) return '""';
@@ -1704,12 +2049,12 @@ function sanitizeFts5QueryOr(raw) {
 }
 function getMemoryDb() {
   const dbPath = getResolvedPaths().memoryDbPath;
-  const dir = dirname5(dbPath);
-  if (!existsSync6(dir)) {
-    mkdirSync4(dir, { recursive: true });
+  const dir = dirname7(dbPath);
+  if (!existsSync7(dir)) {
+    mkdirSync6(dir, { recursive: true });
   }
-  const preExisting = existsSync6(dbPath);
-  const db = new Database2(dbPath);
+  const preExisting = existsSync7(dbPath);
+  const db = openDatabase(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   const onDisk = db.pragma("user_version", { simple: true });
@@ -3415,6 +3760,7 @@ var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, 
 var init_memory_db = __esm({
   "src/memory-db.ts"() {
     "use strict";
+    init_sqlite_loader();
     init_config();
     init_memory_vector();
     init_db_backup();
@@ -3838,8 +4184,9 @@ function writeHookMessage(message) {
 }
 
 // src/hooks/memory-recall.ts
+init_sqlite_loader();
 init_hook_failure_signal();
-import { existsSync as existsSync7 } from "fs";
+import { existsSync as existsSync8 } from "fs";
 var DEFAULTS = {
   enabled: true,
   maxTokens: 1200,
@@ -3909,10 +4256,9 @@ async function computeRecall(prompt, cfg, sessionId) {
     );
     memDb = getMemoryDb();
     const knowledgeDbPath = getResolvedPaths().knowledgeDbPath;
-    if (cfg.sources.includes("knowledge_chunk") && existsSync7(knowledgeDbPath)) {
+    if (cfg.sources.includes("knowledge_chunk") && existsSync8(knowledgeDbPath)) {
       try {
-        const DatabaseCtor = (await import("better-sqlite3")).default;
-        knowledgeDb = new DatabaseCtor(knowledgeDbPath, { readonly: true });
+        knowledgeDb = openDatabase(knowledgeDbPath, { readonly: true, selfHeal: false });
       } catch {
         knowledgeDb = null;
       }

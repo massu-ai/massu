@@ -435,7 +435,11 @@ for plan_file in "${PLAN_FILES[@]}"; do
   # For each SHA, check if its `git show --stat` mentions any website/ file.
   touches_website=0
   for sha in $shas; do
-    if git -C "$REPO_ROOT" show --stat "$sha" 2>/dev/null | grep -qE "^\s+website/"; then
+    # here-string capture, not `git show --stat … | grep -q` (broken-pipe-race-free under pipefail;
+    # incident 2026-07-16): a large commit's --stat would SIGPIPE git when grep short-circuits, and
+    # pipefail would then mis-classify a website-touching commit as NOT touching website/.
+    sha_show_stat="$(git -C "$REPO_ROOT" show --stat "$sha" 2>/dev/null)"
+    if grep -qE "^\s+website/" <<<"$sha_show_stat"; then
       touches_website=1
       break
     fi

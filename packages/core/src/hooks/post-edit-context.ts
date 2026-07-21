@@ -10,7 +10,7 @@
 // Must complete in <500ms.
 // ============================================================
 
-import Database from 'better-sqlite3';
+import { openDatabase } from '../lib/sqlite-loader.ts';
 import { matchRules } from '../rules.ts';
 import { isInMiddlewareTree } from '../middleware-tree.ts';
 import { getResolvedPaths, getProjectRoot } from '../config.ts';
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
 
     // 2. Check middleware tree membership
     try {
-      const dataDb = new Database(getResolvedPaths().dataDbPath, { readonly: true });
+      const dataDb = openDatabase(getResolvedPaths().dataDbPath, { readonly: true, selfHeal: false });
       try {
         if (isInMiddlewareTree(dataDb, rel)) {
           warnings.push('[CRITICAL] This file is in the middleware import tree. No Node.js deps allowed.');

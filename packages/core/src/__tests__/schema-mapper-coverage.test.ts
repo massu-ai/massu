@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import { tmpdir } from 'os';
 import { resetConfig } from '../config.ts';
 import {
   parsePrismaSchema,
@@ -11,7 +12,11 @@ import {
   detectMismatches,
 } from '../schema-mapper.ts';
 
-const TEST_DIR = resolve(__dirname, '../test-schema-mapper-tmp');
+// Scratch MUST live under the OS temp dir, NEVER under packages/core/src — a scratch dir
+// under src/ races the drift-guard walker (memory-dir-single-resolver) and the coverage
+// scan, which readdir src/ while this test creates/deletes files → intermittent ENOENT.
+// (feedback_dashboard_key_ux_and_src_scratch_race; recurrence of the 2026-07-14 SUITE-FLAKE class.)
+const TEST_DIR = resolve(tmpdir(), `massu-schema-mapper-tmp-${process.pid}`);
 
 function write(path: string, content: string) {
   const dir = resolve(path, '..');

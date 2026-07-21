@@ -55,6 +55,7 @@ const WORKFLOW_FILE_EXCLUSIONS = new Set<string>([
 const CI_ONLY_SCRIPTS = new Set<string>([
   'ci-fresh-install.sh',   // matrix per-fixture variant — covered locally by [0/15] clean-state sim
   'ci-config-drift.sh',    // workspace-shadow avoidance scratch-dir setup is CI-environment-specific
+  'ci-anti-vacuity.sh',    // full anti-vacuity DEFEAT sweep ~14min (CR-68) — too slow for pre-push; pre-push mirrors --completeness-only at step [22/22] (G-6 Wave 1 P6)
 ]);
 
 const MAX_INLINE_SHELL_LINES = 5;

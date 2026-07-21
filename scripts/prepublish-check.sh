@@ -129,7 +129,11 @@ fi
 
 # Check 6 (P-E-006): Tier-coverage + TOOL_DB_NEEDS completeness tests PASS
 echo "Check 6: tier-coverage + tool-db-needs-completeness tests"
-if (cd "$REPO_ROOT/packages/core" && npx vitest run tier-coverage tool-db-needs-completeness 2>&1 | tail -5 | grep -q "passed"); then
+# here-string capture, not `… | tail -5 | grep -q` (broken-pipe-race-free under pipefail; incident
+# 2026-07-16): `grep -q "passed"` short-circuiting would SIGPIPE `tail`, and pipefail would then
+# report the tests as FAILING even when they passed. (`… | tail` is safe — tail consumes all stdin.)
+vitest_tail_out="$(cd "$REPO_ROOT/packages/core" && npx vitest run tier-coverage tool-db-needs-completeness 2>&1 | tail -5)"
+if grep -q "passed" <<<"$vitest_tail_out"; then
   pass "tier-coverage + tool-db-needs-completeness tests PASS"
 else
   fail "tier-coverage or tool-db-needs-completeness tests FAIL (publish would ship a stale TOOL_DB_NEEDS manifest)"

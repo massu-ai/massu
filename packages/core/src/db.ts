@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { openDatabase } from './lib/sqlite-loader.ts';
 import { dirname, join } from 'path';
 import { existsSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { assertCodegraphUsable } from './preflight.ts';
@@ -48,7 +49,7 @@ export function getCodeGraphDb(): Database.Database {
   // A dependency is not "present". It is USABLE, or it is not there.
   assertCodegraphUsable(dbPath);
 
-  const db = new Database(dbPath, { readonly: true });
+  const db = openDatabase(dbPath, { readonly: true });
   db.pragma('journal_mode = WAL');
   return db;
 }
@@ -63,7 +64,7 @@ export function getDataDb(): Database.Database {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  const db = new Database(dbPath);
+  const db = openDatabase(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   initDataSchema(db);

@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import Database from 'better-sqlite3';
 import { resolve } from 'path';
+import { tmpdir } from 'os';
 import { unlinkSync, existsSync } from 'fs';
 import { initKnowledgeSchema } from '../knowledge-db.ts';
 import { indexAllKnowledge, isKnowledgeStale, indexIfStale } from '../knowledge-indexer.ts';
@@ -19,7 +20,8 @@ vi.setConfig({ testTimeout: 60_000 });
 
 // P1-005: Knowledge Integration / E2E Tests
 
-const TEST_DB_PATH = resolve(__dirname, '../test-knowledge-e2e.db');
+// DB scratch under the OS temp dir, NEVER under packages/core/src (feedback_dashboard_key_ux_and_src_scratch_race).
+const TEST_DB_PATH = resolve(tmpdir(), `massu-test-knowledge-e2e-${process.pid}.db`);
 
 let db: Database.Database;
 
@@ -69,7 +71,7 @@ describe('Full Pipeline: Index -> Query -> Verify', () => {
 describe('Staleness Detection', () => {
   it('detects stale state on empty DB and indexes', () => {
     // Create a fresh DB for this test
-    const freshPath = resolve(__dirname, '../test-knowledge-stale.db');
+    const freshPath = resolve(tmpdir(), `massu-test-knowledge-stale-${process.pid}.db`);
     try { if (existsSync(freshPath)) unlinkSync(freshPath); } catch { /* ignore */ }
     const freshDb = new Database(freshPath);
     freshDb.pragma('journal_mode = WAL');

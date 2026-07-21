@@ -74,6 +74,14 @@ const WORKFLOW_NOT_REQUIRED_AS_CONTEXT = new Set([
   // 'Native Module Gate' aggregator IS the required gating context
   // (main-branch.json); this allowlists the matrix.
   'Native Module (Node ${{ matrix.node }})',
+  // G-6 anti-vacuity meta-gate (ci.yml job "Anti-Vacuity"). A deterministic full
+  // DEFEAT sweep (~14min, CR-68) that goes RED on ANY decoration — fail-closed at the
+  // job level. It is intentionally NOT a hard required merge-context: a ~14min gate as
+  // a required status check on direct-push-to-main would rot operationally (the same
+  // structural rationale the matrix/reality jobs above cite). Enforcement is the job
+  // going RED on a planted defect PLUS the CR-48 Guardian readiness watcher, which
+  // fires if the sweep stops succeeding in-window or the runner gets un-wired.
+  'Anti-Vacuity',
 ])
 
 /**

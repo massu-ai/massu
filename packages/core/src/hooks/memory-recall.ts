@@ -22,6 +22,7 @@ import { embed, getActiveEmbedModel } from '../memory-embedder.ts';
 import { writeHookMessage } from './lib/write-hook-message.ts';
 import { existsSync } from 'fs';
 import type Database from 'better-sqlite3';
+import { openDatabase } from '../lib/sqlite-loader.ts';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
@@ -141,8 +142,7 @@ async function computeRecall(
     const knowledgeDbPath = getResolvedPaths().knowledgeDbPath;
     if (cfg.sources.includes('knowledge_chunk') && existsSync(knowledgeDbPath)) {
       try {
-        const DatabaseCtor = (await import('better-sqlite3')).default;
-        knowledgeDb = new DatabaseCtor(knowledgeDbPath, { readonly: true });
+        knowledgeDb = openDatabase(knowledgeDbPath, { readonly: true, selfHeal: false });
       } catch {
         knowledgeDb = null;
       }

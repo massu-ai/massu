@@ -10,6 +10,14 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# CWD-independence (incident 2026-07-20): several checks (26, 27, 43, …) use
+# repo-root-RELATIVE paths (e.g. `scripts/pre-push-light.sh`, `packages/core/templates`).
+# When invoked from a non-root CWD — e.g. npm runs `prepublishOnly` from
+# `packages/core/` — those relative paths resolve against the wrong dir, so Check 26
+# and Check 43 FAIL-CLOSED (blocked the 1.16.3 publish) and Check 27 silently SKIPS
+# (false green). Pin the working dir to REPO_ROOT so EVERY check — relative or
+# $REPO_ROOT-absolute — resolves correctly regardless of invocation cwd.
+cd "$REPO_ROOT" || { echo "FATAL: cannot cd to REPO_ROOT $REPO_ROOT" >&2; exit 2; }
 SRC_DIR="$REPO_ROOT/packages/core/src"
 VIOLATIONS=0
 QUICK_MODE="${1:-}"
@@ -59,6 +67,23 @@ fi
 pass() { echo -e "  ${GREEN}PASS${NC}: $1"; }
 fail() { echo -e "  ${RED}FAIL${NC}: $1"; VIOLATIONS=$((VIOLATIONS + 1)); }
 warn() { echo -e "  ${YELLOW}WARN${NC}: $1"; }
+
+# ast_present <file> <symbol> [kind] [min-count]
+#   Exit 0 iff <symbol> occurs as REAL CODE in <file> (per <kind>), NOT merely as text in a
+#   comment or a string literal. The comment-and-string-immune replacement for the T-3
+#   symbol-greps (plan P3 / F5): `grep -q "X" file` is satisfied by a COMMENT — the CR-54 gate
+#   was DELETED and the identifier survived in a comment, and Check 30 reported "wiring intact."
+#   TS/JS → TypeScript-compiler AST; SQL/shell → comment+string-strip then whole-word token.
+#   FAIL-CLOSED: a missing/unreadable file or unknown extension exits 2 (an ERROR, never "absent").
+AST_SYMBOL_PRESENT="$REPO_ROOT/scripts/lib/ast-symbol-present.mjs"
+ast_present() { # <file> <symbol> [kind=reference] [min-count]
+  local f="$1" s="$2" k="${3:-reference}" mc="${4:-}"
+  if [ -n "$mc" ]; then
+    node "$AST_SYMBOL_PRESENT" --file "$f" --symbol "$s" --kind "$k" --min-count "$mc"
+  else
+    node "$AST_SYMBOL_PRESENT" --file "$f" --symbol "$s" --kind "$k"
+  fi
+}
 
 # ----------------------------------------------------------
 # scan_with_directive — context-aware violation matcher
@@ -307,23 +332,53 @@ fi
 # -------------------------------------------------------
 # Check 9: Knowledge system file patterns
 # Verifies getCodeGraphDb() is used (not direct sqlite opens) in knowledge-related files
+#
+# T-1 FIX (plan-2026-07-15-wave-1-g6-anti-vacuity-registry P1): the old predicate grepped
+# 'new Database\|sqlite3\(' as a BRE. The `\(` is an UNBALANCED group in a BRE — real grep
+# errors "parentheses not balanced" and exits 2; `2>/dev/null` swallowed it; the count was 0;
+# the check reported PASS and had NEVER run. Replaced with an ERE that matches the literal
+# open `new Database(`, and the `2>/dev/null` is REMOVED so a future regex error is LOUD (CR-69).
+#
+# ACCESSOR ALLOWLIST (F4 / R2-2/R2-3) — excluded by EXACT basename. Because the ERE now really
+# matches, the accessor modules AND the six legitimate non-accessor openers match too; without
+# an allowlist the check would go RED on the pristine tree. Each exclusion is RULED, never a
+# blanket to make the tree pass (that would be the exact CR-11 laundering this check prevents):
+#   • db.ts / memory-db.ts / knowledge-db.ts — the accessor modules THEMSELVES (they ARE the
+#     canonical openers; the old over-broad `db\.ts` regex silently also matched knowledge-db.ts,
+#     R2-2, so it was never ruled — exact-basename fixes that).
+#   • preflight.ts / validate-features-runner.ts / db-backup.ts — read-only integrity/validation
+#     probes that open a caller-PROVIDED, possibly-MISSING DB path with `{ readonly: true }`; the
+#     accessors open FIXED resolved paths and auto-create, which is wrong for probing. None write.
+#   • hooks/post-edit-context.ts / hooks/pre-delete-check.ts / hooks/session-start.ts — hooks are
+#     esbuild-bundled STANDALONE with `--external:better-sqlite3` and must not import the heavy
+#     accessor module graph (CLAUDE.md: "Never import heavy dependencies in hooks"). Read-only.
+#   • lib/sqlite-loader.ts — the SSOT native-load chokepoint (CR-65, plan-massu-resilience-
+#     layer1). Every accessor/probe/hook now routes its construction through openDatabase()
+#     HERE; this is the ONE place allowed to construct better-sqlite3 directly, so the ABI
+#     failure is detected, self-healed, and typed-error'd once. Enforced by Check 42 + the
+#     sqlite-loader-drift-guard test (which assert nothing ELSE value-loads better-sqlite3).
+# A NEW file opening a DB directly is NOT in this list → it is counted and the check goes RED,
+# forcing a fresh per-opener ruling. (10 openers today: 3 accessors + 6 probes/hooks + the loader.)
 # -------------------------------------------------------
 echo "Check 9: Knowledge system uses getCodeGraphDb()"
+CHECK9_ACCESSOR_ALLOWLIST='(^|/)(db|memory-db|knowledge-db|preflight|validate-features-runner|db-backup|post-edit-context|pre-delete-check|session-start|sqlite-loader)\.ts$'
 KNOWLEDGE_FILES=$(find "$SRC_DIR" -name "*.ts" \
   -not -path "*/__tests__/*" \
   -not -path "*/node_modules/*" \
   -not -name "*.test.ts" \
-  -not -name "db.ts" \
   2>/dev/null)
 DIRECT_SQLITE_COUNT=0
+DIRECT_SQLITE_FILES=""
 if [ -n "$KNOWLEDGE_FILES" ]; then
-  DIRECT_SQLITE_COUNT=$(echo "$KNOWLEDGE_FILES" | xargs grep -l 'new Database\|sqlite3\(' 2>/dev/null \
-    | grep -v 'db\.ts\|memory-db\.ts' \
-    | wc -l | tr -d ' ')
+  # NOTE: no 2>/dev/null on the classifying grep (CR-69) — a regex error must be LOUD, not
+  # swallowed into a silent count of 0. `grep -l` exiting 1 on no-match is normal, not an error.
+  DIRECT_SQLITE_FILES=$(echo "$KNOWLEDGE_FILES" | xargs grep -lE 'new Database\(' \
+    | grep -vE "$CHECK9_ACCESSOR_ALLOWLIST" || true)
+  DIRECT_SQLITE_COUNT=$(printf '%s' "$DIRECT_SQLITE_FILES" | grep -c . || true)
 fi
 if [ "$DIRECT_SQLITE_COUNT" -gt 0 ]; then
   fail "Found $DIRECT_SQLITE_COUNT files opening SQLite directly (use getCodeGraphDb()/getDataDb()/getMemoryDb())"
-  echo "$KNOWLEDGE_FILES" | xargs grep -l 'new Database\|sqlite3\(' 2>/dev/null | grep -v 'db\.ts\|memory-db\.ts' | head -5
+  printf '%s\n' "$DIRECT_SQLITE_FILES" | head -5
 else
   pass "Knowledge system uses DB accessor functions only"
 fi
@@ -347,7 +402,9 @@ while IFS= read -r f; do
     *.test.ts) continue ;;
   esac
   # Detect actual getMemoryDb() CALLS (not comment-line references).
-  if grep -nE '^[[:space:]]*[^[:space:]/*]+.*getMemoryDb\(\)' "$f" 2>/dev/null | grep -qv '^[[:space:]]*//' ; then
+  # here-string, not a `grep … | grep -q` pipeline (broken-pipe-race-free; incident 2026-07-16).
+  mem_calls="$(grep -nE '^[[:space:]]*[^[:space:]/*]+.*getMemoryDb\(\)' "$f" 2>/dev/null)"
+  if [ -n "$mem_calls" ] && grep -qv '^[[:space:]]*//' <<<"$mem_calls" ; then
     # Look for ANY `.close()` or `?.close()` call in the same file
     # (try/finally, helper, optional-chain — all valid close patterns).
     if ! grep -qE '\b[A-Za-z_][A-Za-z0-9_]*\??\.close\(\)' "$f" 2>/dev/null; then
@@ -536,10 +593,10 @@ else
       esac
     done <<< "$HIDDEN_PREFIXES"
     [ "$skip" -eq 1 ] && continue
-    # Skip auth/checkout literal allowlist.
-    if echo "$norm" | grep -qE "$AUTH_CHECKOUT_PATTERN"; then continue; fi
+    # Skip auth/checkout literal allowlist. (here-string, not `echo | grep -q` — broken-pipe-race-free)
+    if grep -qE "$AUTH_CHECKOUT_PATTERN" <<<"$norm"; then continue; fi
     # Skip dynamic routes ([slug] / [...catchall] / [id]).
-    if echo "$norm" | grep -qE '\['; then continue; fi
+    if grep -qE '\[' <<<"$norm"; then continue; fi
     # Skip WEBSITE_NAV_EXEMPT entries.
     skip=0
     while IFS= read -r exempt; do
@@ -547,8 +604,8 @@ else
       [ "$norm" = "$exempt" ] && { skip=1; break; }
     done <<< "$EXEMPT_PATHS"
     [ "$skip" -eq 1 ] && continue
-    # Must appear in NAV_HREFS.
-    if ! echo "$NAV_HREFS" | grep -qxF "$norm"; then
+    # Must appear in NAV_HREFS. (here-string, not `echo | grep -q` — broken-pipe-race-free)
+    if ! grep -qxF "$norm" <<<"$NAV_HREFS"; then
       ORPHAN_COUNT=$((ORPHAN_COUNT + 1))
       ORPHANS="$ORPHANS $norm"
     fi
@@ -831,24 +888,49 @@ CHECK26_VIOLATIONS=0
 # 26a: scripts/ci-*.sh policy. CI_ONLY_SCRIPTS_BASH MUST mirror
 # packages/core/src/__tests__/ci-prepush-parity.test.ts:CI_ONLY_SCRIPTS — the
 # drift-guard test asserts byte-equivalence of the two arrays.
-CI_ONLY_SCRIPTS_BASH="ci-fresh-install.sh ci-config-drift.sh"
-for ci_script in scripts/ci-*.sh; do
-  [ -e "$ci_script" ] || continue
-  script_base=$(basename "$ci_script")
-  if grep -q "$script_base" scripts/pre-push-light.sh; then
-    continue  # referenced — OK
-  fi
-  if head -3 "$ci_script" | grep -qE '^#[[:space:]]*CI-ONLY:'; then
-    if echo " $CI_ONLY_SCRIPTS_BASH " | grep -q " $script_base "; then
-      continue  # explicit opt-out + on allowlist — OK
-    fi
-    fail "Check 26: $ci_script has '# CI-ONLY:' comment but is NOT in CI_ONLY_SCRIPTS allowlist (add to scripts/massu-pattern-scanner.sh CI_ONLY_SCRIPTS_BASH AND packages/core/src/__tests__/ci-prepush-parity.test.ts:CI_ONLY_SCRIPTS — must mirror)"
-    CHECK26_VIOLATIONS=$((CHECK26_VIOLATIONS + 1))
-    continue
-  fi
-  fail "Check 26: $ci_script not referenced in pre-push-light.sh and no '# CI-ONLY:' opt-out comment"
+CI_ONLY_SCRIPTS_BASH="ci-fresh-install.sh ci-config-drift.sh ci-anti-vacuity.sh"
+
+# Strip shell COMMENTS from pre-push-light.sh ONCE, into a variable (P3 hardening: a
+# commented-out reference `# TODO: run ci-foo.sh` must not satisfy the parity check; only a
+# `#` at line-start or after whitespace is a comment, so `${#x}` / `$#` survive).
+#
+# ⛔ CRITICAL — this MUST NOT be a `sed … | grep -q` pipeline (incident 2026-07-16,
+# docs/incidents/2026-07-16-check26-sed-grep-q-broken-pipe-false-fail.md). `grep -q`
+# short-circuits on the FIRST match; when the matched reference is early in the 566-line
+# file, sed still has ~150 lines left to write, gets SIGPIPE, and exits non-zero — and
+# `set -o pipefail` (top of file) then makes the whole pipeline non-zero, so a reference
+# that IS present reads as ABSENT (false FAIL). It is a timing race (~13% on the CI Linux
+# runner, ~0% on macOS pipe buffering) — which is exactly why it was invisible locally.
+# Capturing sed's output first and matching with a here-string removes the pipe entirely.
+PREPUSH_NONCOMMENT="$(sed -E 's/(^|[[:space:]])#.*/\1/' scripts/pre-push-light.sh)"
+# FAIL CLOSED (blind-gate M2): an unreadable/empty pre-push-light.sh must be a LOUD error,
+# never a silent "nothing is referenced → flag every ci-*.sh" and never a silent pass.
+if [ ! -s scripts/pre-push-light.sh ] || [ -z "$PREPUSH_NONCOMMENT" ]; then
+  fail "Check 26: scripts/pre-push-light.sh is missing, empty, or produced no non-comment text — cannot verify CI parity (fail-closed)"
   CHECK26_VIOLATIONS=$((CHECK26_VIOLATIONS + 1))
-done
+else
+  for ci_script in scripts/ci-*.sh; do
+    [ -e "$ci_script" ] || continue
+    script_base=$(basename "$ci_script")
+    # `-F` fixed-string: the basename contains `.` which would otherwise be a regex any-char.
+    # here-string (NO pipeline) — immune to the sed|grep-q broken-pipe race documented above.
+    if grep -qF "$script_base" <<<"$PREPUSH_NONCOMMENT"; then
+      continue  # referenced in real (non-comment) code — OK
+    fi
+    # `head -3` captured to a variable then matched via here-string (same broken-pipe-free idiom).
+    ci_script_head3="$(head -3 "$ci_script")"
+    if grep -qE '^#[[:space:]]*CI-ONLY:' <<<"$ci_script_head3"; then
+      if grep -q " $script_base " <<<" $CI_ONLY_SCRIPTS_BASH "; then
+        continue  # explicit opt-out + on allowlist — OK
+      fi
+      fail "Check 26: $ci_script has '# CI-ONLY:' comment but is NOT in CI_ONLY_SCRIPTS allowlist (add to scripts/massu-pattern-scanner.sh CI_ONLY_SCRIPTS_BASH AND packages/core/src/__tests__/ci-prepush-parity.test.ts:CI_ONLY_SCRIPTS — must mirror)"
+      CHECK26_VIOLATIONS=$((CHECK26_VIOLATIONS + 1))
+      continue
+    fi
+    fail "Check 26: $ci_script not referenced in pre-push-light.sh and no '# CI-ONLY:' opt-out comment"
+    CHECK26_VIOLATIONS=$((CHECK26_VIOLATIONS + 1))
+  done
+fi
 
 # 26b: workflow YAML inline-shell-block scan. Exclusion list MUST mirror
 # WORKFLOW_FILE_EXCLUSIONS in ci-prepush-parity.test.ts.
@@ -1032,7 +1114,8 @@ while IFS= read -r f; do
   [ -z "$loc" ] && continue
   if [ "$loc" -gt "$CHECK21_CAP" ]; then
     # Allow if the file head carries an explicit allowlist marker.
-    if head -n 30 "$f" 2>/dev/null | grep -qE '@scanner-allow:large-file'; then
+    head30_check21="$(head -n 30 "$f" 2>/dev/null)"
+    if grep -qE '@scanner-allow:large-file' <<<"$head30_check21"; then
       continue
     fi
     echo "$f:$loc lines" >> /tmp/massu-check21-violations.log
@@ -1066,7 +1149,7 @@ if [ -f "$CHECK29_SCANNER" ]; then
   while IFS=: read -r lineno _; do
     [ -z "$lineno" ] && continue
     NEXT_LINES=$(sed -n "$((lineno + 1)),$((lineno + 4))p" "$CHECK29_SCANNER")
-    if ! echo "$NEXT_LINES" | grep -qE "^# Check [0-9]+:"; then
+    if ! grep -qE "^# Check [0-9]+:" <<<"$NEXT_LINES"; then
       CHECK29_VIOLATIONS=$((CHECK29_VIOLATIONS + 1))
       echo "  marker at line $lineno not followed by '# Check N:' within 4 lines"
     fi
@@ -1113,7 +1196,7 @@ fi
 
 # Invariant 1: the promotion chokepoint references the SoT AND is async.
 if [ -f "$CHECK30_APPLIER" ]; then
-  if ! grep -q "assertAutoLearningEntitled" "$CHECK30_APPLIER"; then
+  if ! ast_present "$CHECK30_APPLIER" assertAutoLearningEntitled call; then
     fail "Check 30: rule-candidate-applier.ts does not reference assertAutoLearningEntitled (gate removed?)"
     CHECK30_VIOLATIONS=$((CHECK30_VIOLATIONS + 1))
   fi
@@ -1128,17 +1211,17 @@ fi
 
 # Invariant 2: the emission hook references the cache-only reader + predicate.
 if [ -f "$CHECK30_HOOK" ]; then
-  if ! grep -q "getCachedTierReadOnly" "$CHECK30_HOOK"; then
+  if ! ast_present "$CHECK30_HOOK" getCachedTierReadOnly; then
     fail "Check 30: hooks/user-prompt.ts does not reference getCachedTierReadOnly (emission gate removed?)"
     CHECK30_VIOLATIONS=$((CHECK30_VIOLATIONS + 1))
   fi
-  if ! grep -q "entitledForAutoLearning" "$CHECK30_HOOK"; then
+  if ! ast_present "$CHECK30_HOOK" entitledForAutoLearning; then
     fail "Check 30: hooks/user-prompt.ts does not reference entitledForAutoLearning (emission gate removed?)"
     CHECK30_VIOLATIONS=$((CHECK30_VIOLATIONS + 1))
   fi
   # Single-SoT (CR-46 #3): the sub-Pro upgrade nudge MUST derive from
   # autoLearningUpgradeMessage(), never a re-hardcoded string in the hook.
-  if ! grep -q "autoLearningUpgradeMessage" "$CHECK30_HOOK"; then
+  if ! ast_present "$CHECK30_HOOK" autoLearningUpgradeMessage; then
     fail "Check 30: hooks/user-prompt.ts does not use autoLearningUpgradeMessage (upgrade text must come from the SoT, not be hardcoded)"
     CHECK30_VIOLATIONS=$((CHECK30_VIOLATIONS + 1))
   fi
@@ -1218,12 +1301,12 @@ else
 fi
 
 if [ -f "$APPLIER32" ]; then
-  if ! grep -q "TEAM_SHAREABLE_DESTINATIONS" "$APPLIER32"; then
+  if ! ast_present "$APPLIER32" TEAM_SHAREABLE_DESTINATIONS; then
     fail "Check 32: rule-candidate-applier.ts is missing the TEAM_SHAREABLE_DESTINATIONS SoT"
     CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
   fi
   for sym in entitledForTeamSharedPromotion signature_verified isTeamShareableDestination; do
-    if ! grep -q "$sym" "$APPLIER32"; then
+    if ! ast_present "$APPLIER32" "$sym"; then
       fail "Check 32: rule-candidate-applier.ts no longer references '$sym' (team gate regressed?)"
       CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
     fi
@@ -1235,7 +1318,7 @@ fi
 
 if [ -f "$SYNC32" ]; then
   for forbidden in applyRuleCandidate writeDestination appendMemoryIndexLine writeCorrectionsMd writePatternScanner writeClaudeMdCr writeCustomDestination; do
-    if grep -q "$forbidden" "$SYNC32"; then
+    if ast_present "$SYNC32" "$forbidden"; then
       fail "Check 32: team-rule-sync.ts references '$forbidden' — pull path must NEVER apply (approval-before-apply violated)"
       CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
     fi
@@ -1255,12 +1338,12 @@ MIG045="$REPO_ROOT/website/supabase/migrations/045_hardened_promotion.sql"
 
 if [ -f "$HARDENED32" ]; then
   # Hardened SoT + apply-gate validator live in rule-candidate-hardened.ts.
-  if ! grep -q "TEAM_HARDENED_SHAREABLE_DESTINATIONS" "$HARDENED32"; then
+  if ! ast_present "$HARDENED32" TEAM_HARDENED_SHAREABLE_DESTINATIONS; then
     fail "Check 32: rule-candidate-hardened.ts is missing TEAM_HARDENED_SHAREABLE_DESTINATIONS (hardened SoT)"
     CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
   fi
   for hsym in review_attestation second_operator_id dry_run_ack validateHardenedApplyGate; do
-    if ! grep -q "$hsym" "$HARDENED32"; then
+    if ! ast_present "$HARDENED32" "$hsym"; then
       fail "Check 32: rule-candidate-hardened.ts no longer references '$hsym' (hardened apply gate regressed?)"
       CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
     fi
@@ -1273,7 +1356,7 @@ fi
 # The applier must actually USE the hardened gate (import + call).
 if [ -f "$APPLIER32" ]; then
   for usym in isHardenedShareableDestination validateHardenedApplyGate; do
-    if ! grep -q "$usym" "$APPLIER32"; then
+    if ! ast_present "$APPLIER32" "$usym"; then
       fail "Check 32: rule-candidate-applier.ts no longer uses '$usym' (hardened apply gate not wired?)"
       CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
     fi
@@ -1293,7 +1376,7 @@ else
 fi
 
 if [ -f "$SYNC_FN32" ]; then
-  if ! grep -q "TEAM_HARDENED_DESTINATIONS" "$SYNC_FN32"; then
+  if ! ast_present "$SYNC_FN32" TEAM_HARDENED_DESTINATIONS; then
     fail "Check 32: sync/index.ts is missing the server TEAM_HARDENED_DESTINATIONS const (hardened ingest gate)"
     CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
   fi
@@ -1301,7 +1384,7 @@ fi
 
 if [ -f "$MIG045" ]; then
   # The widened CHECK must condition the executable destinations on hardened + attestation.
-  if ! grep -q "promoted_rules_destination_hardened_check" "$MIG045"; then
+  if ! ast_present "$MIG045" promoted_rules_destination_hardened_check; then
     fail "Check 32: migration 045 is missing the widened destination CHECK (promoted_rules_destination_hardened_check)"
     CHECK32_VIOLATIONS=$((CHECK32_VIOLATIONS + 1))
   fi
@@ -1338,7 +1421,7 @@ fi
 
 for wrapper in "$PROMO33" "$LIC33"; do
   if [ -f "$wrapper" ]; then
-    if ! grep -q "verifyEd25519SignedEnvelope" "$wrapper"; then
+    if ! ast_present "$wrapper" verifyEd25519SignedEnvelope; then
       fail "Check 33: $(basename "$wrapper") no longer delegates to verifyEd25519SignedEnvelope (consolidation regressed?)"
       CHECK33_VIOLATIONS=$((CHECK33_VIOLATIONS + 1))
     fi
@@ -1382,7 +1465,7 @@ if [ -d "$FN_DIR" ]; then
       slug="$(basename "$(dirname "$idx")")"
       # Extract the [functions.<slug>] block and confirm verify_jwt = false within it.
       block="$(awk -v s="[functions.$slug]" '$0==s{f=1;next} /^\[/{f=0} f' "$CFG_TOML")"
-      if ! printf '%s' "$block" | grep -qE "verify_jwt[[:space:]]*=[[:space:]]*false"; then
+      if ! grep -qE "verify_jwt[[:space:]]*=[[:space:]]*false" <<<"$block"; then
         fail "Check 34: function '$slug' uses verifyApiKeyHash but config.toml lacks [functions.$slug] verify_jwt = false (would 401 on deploy — incident 2026-06-01)"
         CHECK34_VIOLATIONS=$((CHECK34_VIOLATIONS + 1))
       fi
@@ -1509,7 +1592,8 @@ if [ -f "$HARDENED37" ]; then
     CHECK37_VIOLATIONS=$((CHECK37_VIOLATIONS + 1))
   fi
   # validateHardenedApplyGate must delegate to the generalized gate.
-  if ! awk '/export function validateHardenedApplyGate/{f=1} f&&/validateGovernanceGate\(/{print; exit}' "$HARDENED37" | grep -q "validateGovernanceGate"; then
+  gov_gate_delegation="$(awk '/export function validateHardenedApplyGate/{f=1} f&&/validateGovernanceGate\(/{print; exit}' "$HARDENED37")"
+  if ! grep -q "validateGovernanceGate" <<<"$gov_gate_delegation"; then
     fail "Check 37: validateHardenedApplyGate no longer delegates to validateGovernanceGate (N=2 generalization regressed?)"
     CHECK37_VIOLATIONS=$((CHECK37_VIOLATIONS + 1))
   fi
@@ -1519,7 +1603,7 @@ else
 fi
 
 if [ -f "$ENTITLE37" ]; then
-  if ! grep -q "ENTERPRISE_GOVERNANCE_MIN_TIER" "$ENTITLE37"; then
+  if ! ast_present "$ENTITLE37" ENTERPRISE_GOVERNANCE_MIN_TIER; then
     fail "Check 37: auto-learning-entitlement.ts lacks ENTERPRISE_GOVERNANCE_MIN_TIER (governance entitlement SoT)"
     CHECK37_VIOLATIONS=$((CHECK37_VIOLATIONS + 1))
   fi
@@ -1530,15 +1614,15 @@ fi
 
 # Server migration: present only in the private repo (website/ is sync-excluded).
 if [ -f "$MIGRATION37" ]; then
-  if ! grep -q "role_rank" "$MIGRATION37"; then
+  if ! ast_present "$MIGRATION37" role_rank; then
     fail "Check 37: migration 049 does not use role_rank() — a bare lexicographic role >= is a privilege-escalation bug"
     CHECK37_VIOLATIONS=$((CHECK37_VIOLATIONS + 1))
   fi
-  if ! grep -q "approval_state" "$MIGRATION37"; then
+  if ! ast_present "$MIGRATION37" approval_state; then
     fail "Check 37: migration 049 lacks the approval_state two-phase lifecycle column"
     CHECK37_VIOLATIONS=$((CHECK37_VIOLATIONS + 1))
   fi
-  if ! grep -q "rejected_hardened_required" "$MIGRATION37"; then
+  if ! ast_present "$MIGRATION37" rejected_hardened_required; then
     fail "Check 37: migration 049 does not consume require_hardened_review (dead governance knob)"
     CHECK37_VIOLATIONS=$((CHECK37_VIOLATIONS + 1))
   fi
@@ -1664,7 +1748,7 @@ fi
 if ! grep -q "AND o.title NOT LIKE ?" "$CORE_SRC/memory-consolidate.ts" 2>/dev/null; then
   c40fail "Check 40: stageReweight DEMOTE + stageDedupe must exempt file-backed rows (CR-61a) — demotion feeds the expiry floor, and dedupe would supersede the operator's near-paraphrase Laws"
 fi
-if [ "$(grep -c "MEMORY_FILE_TITLE_LIKE" "$CORE_SRC/memory-consolidate.ts" 2>/dev/null || echo 0)" -lt 2 ]; then
+if ! ast_present "$CORE_SRC/memory-consolidate.ts" MEMORY_FILE_TITLE_LIKE reference 2; then
   c40fail "Check 40: memory-consolidate.ts must bind MEMORY_FILE_TITLE_LIKE in BOTH the demote and the dedupe predicates (CR-61a)"
 fi
 
@@ -1687,7 +1771,7 @@ fi
 if grep -q "fm\.type as string" "$CORE_SRC/memory-file-ingest.ts" 2>/dev/null; then
   c40fail "Check 40: memory-file-ingest.ts must not read a bare top-level fm.type (CR-61f) — the corpus nests type under metadata:"
 fi
-if ! grep -q "readMemoryKey" "$CORE_SRC/memory-file-ingest.ts" 2>/dev/null; then
+if ! ast_present "$CORE_SRC/memory-file-ingest.ts" readMemoryKey; then
   c40fail "Check 40: memory-file-ingest.ts must read type/confidence via readMemoryKey (CR-61f)"
 fi
 
@@ -1736,7 +1820,7 @@ fi
 #     git repo the memory dir IS can compute one in ten seconds. This exact defect has
 #     already been reintroduced ONCE during this workstream, wearing a longer string.
 if [ -f "$CORE_SRC/memory-authorship.ts" ]; then
-  if ! grep -q "createHmac" "$CORE_SRC/memory-authorship.ts" 2>/dev/null; then
+  if ! ast_present "$CORE_SRC/memory-authorship.ts" createHmac; then
     c40fail "Check 40: memory-authorship.ts must mint an HMAC (CR-61g / OD-1) — a credential anyone can compute is not a credential"
   fi
   if grep -qE "createHash[[:space:]]*\(" "$CORE_SRC/memory-authorship.ts" 2>/dev/null; then
@@ -1745,7 +1829,17 @@ if [ -f "$CORE_SRC/memory-authorship.ts" ]; then
   if ! grep -q "randomBytes(32)" "$CORE_SRC/memory-authorship.ts" 2>/dev/null; then
     c40fail "Check 40: the render key must be GENERATED locally via randomBytes(32) (CR-61g / OD-1) — never shipped, bundled, defaulted, or committed"
   fi
-  if grep -qE "process\.env\.[A-Za-z_]*RENDER_KEY" "$CORE_SRC" -r --include='*.ts' 2>/dev/null | grep -qv '__tests__/'; then
+  # T-2 FIX (plan-2026-07-15-wave-1-g6-anti-vacuity-registry P2): the old predicate was
+  #   grep -qE PATTERN … | grep -qv '__tests__/'
+  # `-q` is QUIET — the left grep prints nothing, so the right grep read EMPTY stdin and under
+  # real /usr/bin/grep (BSD) `grep -qv` on empty stdin exits 1: the `if` could NEVER fire. The
+  # render-key forgery guard (CR-61g) was dead. FIX: CAPTURE the matching file paths with `-rl`
+  # (list, not quiet), exclude test files by PATH, and assert the list is NON-EMPTY with an
+  # explicit terminal `[ -n ]`. No `2>/dev/null` swallowing (CR-69). `grep -rlE` + `grep -v` are
+  # portable across /usr/bin/grep (BSD, local pre-push) AND GNU grep (CI) — proven both in §4.
+  RENDER_ENV_MATCHES=$(grep -rlE "process\.env\.[A-Za-z_]*RENDER_KEY" "$CORE_SRC" --include='*.ts' \
+    | grep -v '__tests__/' || true)
+  if [ -n "$RENDER_ENV_MATCHES" ]; then
     c40fail "Check 40: a render key is read from the environment (CR-61g / OD-1) — whoever sets that env var can forge every stamp"
   fi
 fi
@@ -1785,6 +1879,84 @@ if command -v node >/dev/null 2>&1 && [ -f scripts/massu-claim-ledger.mjs ]; the
 fi
 if [ "$CHECK41_VIOLATIONS" -eq 0 ]; then
   pass "Check 41: Claim Ledger (CR-63)"
+fi
+
+# -------------------------------------------------------
+# Check 42: SSOT SQLite loader — no direct better-sqlite3 value-load (CR-65)
+# -------------------------------------------------------
+# better-sqlite3 is a NATIVE module: an ABI mismatch dlopen-FAILS lazily INSIDE the
+# Database constructor (incident 2026-07-12). Every value/dynamic load MUST route
+# through the single lib/sqlite-loader.ts chokepoint so the failure is detected,
+# self-healed, and typed-error'd in ONE place — never swallowed, never exit 0.
+# `import type Database from 'better-sqlite3'` is erased at compile time → EXEMPT.
+# Mirrors the sqlite-loader-drift-guard.test.ts negative scan (three-layer, CR-65).
+echo "Check 42: SSOT SQLite loader (CR-65)"
+CHECK42_VIOLATIONS=0
+CHECK42_HITS=$(grep -rnE "^import Database from 'better-sqlite3'|await import\('better-sqlite3'\)" packages/core/src --include='*.ts' 2>/dev/null \
+  | grep -v '__tests__' \
+  | grep -v 'lib/sqlite-loader.ts' || true)
+if [ -n "$CHECK42_HITS" ]; then
+  echo "$CHECK42_HITS"
+  fail "Check 42: better-sqlite3 value/dynamic load outside lib/sqlite-loader.ts (CR-65). Route it through openDatabase()/loadBetterSqlite3(). 'import type' is exempt."
+  CHECK42_VIOLATIONS=$((CHECK42_VIOLATIONS + 1))
+fi
+if [ "$CHECK42_VIOLATIONS" -eq 0 ]; then
+  pass "Check 42: SSOT SQLite loader (CR-65)"
+fi
+
+# -------------------------------------------------------
+# Check 43: Template verification block binds to vr-command-map SoT (CR-66)
+# -------------------------------------------------------
+# A config-template's `verification.<lang>` block is authored in TWO places today —
+# the code SoT (vr-command-map.ts:getVRCommands) and hand-copied YAML in each
+# templates/<id>/massu.config.yaml — with nothing binding them, so they drift
+# silently (incident 2026-07-18: go-chi/rails/spring already diverged; swift-ios
+# happened to agree). vr-command-map.ts is the SINGLE authority. This is the
+# grep-mirror of template-verification-vr-map-drift.test.ts (layer 1): every
+# template ships a verification: block, and the filed exemplar swift-ios's four
+# swift commands match the map's `case 'swift'` literals.
+echo "Check 43: Template verification block binds to vr-command-map SoT (CR-66)"
+CHECK43_VIOLATIONS=0
+TEMPLATES_ROOT="packages/core/templates"
+# Layer-1 drift-guard MUST exist — else deleting it silently unenforces the whole
+# invariant while every gate stays green (the three-layer claim would be hollow).
+CHECK43_DRIFT_TEST="packages/core/src/__tests__/template-verification-vr-map-drift.test.ts"
+if [ ! -f "$CHECK43_DRIFT_TEST" ]; then
+  fail "Check 43: layer-1 drift-guard $CHECK43_DRIFT_TEST is MISSING — the CR-66 invariant is unenforced"
+  CHECK43_VIOLATIONS=$((CHECK43_VIOLATIONS + 1))
+fi
+if [ -d "$TEMPLATES_ROOT" ]; then
+  for cfg in "$TEMPLATES_ROOT"/*/massu.config.yaml; do
+    [ -e "$cfg" ] || continue
+    if ! grep -qE "^verification:" "$cfg"; then
+      fail "Check 43: $cfg has no 'verification:' block (CR-66)"
+      CHECK43_VIOLATIONS=$((CHECK43_VIOLATIONS + 1))
+    fi
+  done
+  # swift-ios exemplar: its four swift commands must match the map literals.
+  SWIFT_CFG="$TEMPLATES_ROOT/swift-ios/massu.config.yaml"
+  VRMAP="packages/core/src/detect/vr-command-map.ts"
+  for cmd in "swift test" "swift build" "xcodebuild build" "swiftlint"; do
+    if ! grep -qF "$cmd" "$SWIFT_CFG"; then
+      fail "Check 43: swift-ios template missing swift command '$cmd' (CR-66)"
+      CHECK43_VIOLATIONS=$((CHECK43_VIOLATIONS + 1))
+    fi
+    if ! grep -qF "$cmd" "$VRMAP"; then
+      fail "Check 43: vr-command-map.ts missing swift literal '$cmd' — SoT drift (CR-66)"
+      CHECK43_VIOLATIONS=$((CHECK43_VIOLATIONS + 1))
+    fi
+  done
+  # swift-ios must NOT be in the intentional-divergence allowlist.
+  if grep -qE "['\"]swift-ios['\"][[:space:]]*:" "$VRMAP"; then
+    fail "Check 43: swift-ios appears in TEMPLATE_VERIFICATION_MAP_EXEMPT — it is LOCKED, not exempt (CR-66)"
+    CHECK43_VIOLATIONS=$((CHECK43_VIOLATIONS + 1))
+  fi
+else
+  fail "Check 43: $TEMPLATES_ROOT not found (CR-66)"
+  CHECK43_VIOLATIONS=$((CHECK43_VIOLATIONS + 1))
+fi
+if [ "$CHECK43_VIOLATIONS" -eq 0 ]; then
+  pass "Check 43: Template verification block binds to vr-command-map SoT (CR-66)"
 fi
 
 # -------------------------------------------------------

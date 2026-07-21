@@ -8,7 +8,8 @@
 // Directly imports sentinel-db.ts (no MCP protocol needed)
 // ============================================================
 
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { openDatabase } from './lib/sqlite-loader.ts';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
 import { getProjectRoot, getResolvedPaths } from './config.ts';
@@ -39,7 +40,7 @@ function main(): void {
 
   let db: Database.Database;
   try {
-    db = new Database(dbPath, { readonly: true });
+    db = openDatabase(dbPath, { readonly: true });
     db.pragma('journal_mode = WAL');
   } catch (error) {
     // P-M-037: structured warning replaces silent skip.

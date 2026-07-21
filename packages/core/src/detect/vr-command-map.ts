@@ -145,6 +145,34 @@ function defaultsFor(
 }
 
 /**
+ * Templates whose shipped `verification.<lang>` block INTENTIONALLY diverges
+ * from `getVRCommands()` (this file is the single source of truth for a
+ * template's verification command block — CR-66).
+ *
+ * A template appears here ONLY if its block genuinely differs from the
+ * dir-normalized, null-stripped map output, OR its language has no `case` in
+ * `defaultsFor` (the all-null default). The drift-guard
+ * (`template-verification-vr-map-drift.test.ts`) asserts every entry actually
+ * diverges — a stale exemption FAILS. Any LOCKED template (one whose block
+ * agrees with the map, e.g. the swift/iOS block) MUST NOT appear here.
+ *
+ * Membership was fixed by the live filesystem diff (plan P1-000): after
+ * stripping any leading `cd <dir> && ` prefix, `multi-runtime` and all the
+ * single-language `python-*`/`ts-*`/`rust-actix`/swift templates MATCH the map
+ * and are LOCKED (absent here).
+ */
+export const TEMPLATE_VERIFICATION_MAP_EXEMPT: Readonly<Record<string, string>> = {
+  'go-chi':
+    "go: template ships idiomatic `syntax: gofmt -l .` (map: null) and omits `build: go build ./...`",
+  rails:
+    "ruby: template adds `type: bundle exec sorbet tc` and Bundler-wraps `bundle exec ruby -c`/`rubocop` (map: `ruby -c`, no type)",
+  spring:
+    "java: template uses the `./mvnw` wrapper and adds `syntax`/`lint` the map lacks; omits `build: mvn package`",
+  aspnet: 'csharp: no `case` in vr-command-map.ts defaultsFor (all-null default)',
+  phoenix: 'elixir: no `case` in vr-command-map.ts defaultsFor (all-null default)',
+};
+
+/**
  * Produce the VR command set for a language.
  *
  * User-provided entries (if any) override built-ins key-by-key.

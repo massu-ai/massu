@@ -6,9 +6,11 @@ import Database from 'better-sqlite3';
 import { isDataStale, updateBuildTimestamp } from '../db.ts';
 import { unlinkSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import { tmpdir } from 'os';
 
-const TEST_DATA_DB_PATH = resolve(__dirname, '../test-data-db.db');
-const TEST_CODEGRAPH_DB_PATH = resolve(__dirname, '../test-codegraph-db.db');
+// DB scratch under the OS temp dir, NEVER under packages/core/src (feedback_dashboard_key_ux_and_src_scratch_race).
+const TEST_DATA_DB_PATH = resolve(tmpdir(), `massu-test-data-db-${process.pid}.db`);
+const TEST_CODEGRAPH_DB_PATH = resolve(tmpdir(), `massu-test-codegraph-db-${process.pid}.db`);
 
 function createTestDataDb(): Database.Database {
   if (existsSync(TEST_DATA_DB_PATH)) {

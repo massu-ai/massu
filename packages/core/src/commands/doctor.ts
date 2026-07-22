@@ -7,11 +7,11 @@
  * Verifies all components of a Massu AI installation are working:
  * 1. massu.config.yaml exists and parses correctly
  * 2. .mcp.json has massu entry
- * 3. .claude/settings.local.json has hooks config
+ * 3. .claude/settings.json OR settings.local.json has hooks config (Claude Code reads both)
  * 4. All compiled hook files exist (count sourced from lib/hook-registry.ts SoT)
  * 5. Knowledge DB exists (.massu/memory.db)
  * 6. Memory directory exists (~/.claude/projects/.../memory/)
- * 7. Shell hooks wired in settings.local.json
+ * 7. Shell hooks wired in settings.json or settings.local.json
  * 8. better-sqlite3 native module loads
  * 9. Node.js version >= 18
  * 10. Git repository detected
@@ -27,6 +27,8 @@ import { apiKeySourceLabel, type ApiKeySource } from '../credentials.ts';
 import { readSettingsAtPath } from '../lib/settings-local.ts';
 import { getExpectedHookFiles } from '../lib/hook-registry.ts';
 import { probeMemoryDbUsable, resolveDbEngine, NATIVE_DB_REMEDY } from '../db-driver.ts';
+import { checkNodeVersion as checkNodeFloor, MIN_NODE_MAJOR, MIN_NODE_MINOR } from '../preflight.ts';
+import { resolveHookFile } from './hook-runner.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -94,38 +96,53 @@ function checkMcpServer(projectRoot: string): CheckResult {
   }
 }
 
-function checkHooksConfig(projectRoot: string): CheckResult {
-  const settingsPath = getResolvedPaths().settingsLocalPath;
-  if (!existsSync(settingsPath)) {
-    return { name: 'Hooks Config', status: 'fail', detail: '.claude/settings.local.json not found. Run: npx massu init' };
+// Hooks may live in the COMMITTED `.claude/settings.json` (project, version-controlled)
+// OR the local `.claude/settings.local.json` — Claude Code reads/merges BOTH. doctor must
+// recognize either, else a repo that commits its hooks in settings.json (the norm for a
+// governance config) falsely reads as "no hooks configured". Returns the existing sources
+// with their parsed `hooks` object (throws propagate to the caller's try/catch).
+function readHookSources(): Array<{ label: string; hooks: Record<string, unknown> | undefined }> {
+  const { settingsPath, settingsLocalPath } = getResolvedPaths();
+  const out: Array<{ label: string; hooks: Record<string, unknown> | undefined }> = [];
+  for (const [label, p] of [['settings.json', settingsPath], ['settings.local.json', settingsLocalPath]] as const) {
+    if (!existsSync(p)) continue;
+    const content = readSettingsAtPath(p);
+    out.push({ label, hooks: content.hooks as Record<string, unknown> | undefined });
+  }
+  return out;
+}
+
+export function checkHooksConfig(_projectRoot: string): CheckResult {
+  const sources = readHookSources();
+  if (sources.length === 0) {
+    return { name: 'Hooks Config', status: 'fail', detail: '.claude/settings.json or settings.local.json not found. Run: npx massu init' };
   }
 
   try {
-    const content = readSettingsAtPath(settingsPath);
-    if (!content.hooks) {
-      return { name: 'Hooks Config', status: 'fail', detail: 'No hooks configured. Run: npx massu install-hooks' };
-    }
-
-    // Count configured hooks
+    // Count configured hooks across BOTH settings files (union — Claude Code merges them).
     let hookCount = 0;
-    for (const groups of Object.values(content.hooks)) {
-      if (Array.isArray(groups)) {
-        for (const group of groups) {
-          const g = group as { hooks?: unknown[] };
-          if (Array.isArray(g.hooks)) {
-            hookCount += g.hooks.length;
+    const from: string[] = [];
+    for (const { label, hooks } of sources) {
+      if (!hooks) continue;
+      let n = 0;
+      for (const groups of Object.values(hooks)) {
+        if (Array.isArray(groups)) {
+          for (const group of groups) {
+            const g = group as { hooks?: unknown[] };
+            if (Array.isArray(g.hooks)) n += g.hooks.length;
           }
         }
       }
+      if (n > 0) { hookCount += n; from.push(label); }
     }
 
     if (hookCount === 0) {
-      return { name: 'Hooks Config', status: 'fail', detail: 'Hooks section exists but no hooks configured' };
+      return { name: 'Hooks Config', status: 'fail', detail: 'No hooks configured. Run: npx massu install-hooks' };
     }
 
-    return { name: 'Hooks Config', status: 'pass', detail: `${hookCount} hooks configured` };
+    return { name: 'Hooks Config', status: 'pass', detail: `${hookCount} hooks configured (${from.join(' + ')})` };
   } catch (err) {
-    return { name: 'Hooks Config', status: 'fail', detail: `settings.local.json parse error: ${err instanceof Error ? err.message : String(err)}` };
+    return { name: 'Hooks Config', status: 'fail', detail: `settings parse error: ${err instanceof Error ? err.message : String(err)}` };
   }
 }
 
@@ -156,6 +173,95 @@ function checkHookFiles(projectRoot: string): CheckResult {
   }
 
   return { name: 'Hook Files', status: 'pass', detail: `${EXPECTED_HOOKS.length}/${EXPECTED_HOOKS.length} compiled hooks present` };
+}
+
+/**
+ * L4 (CR-70) — TRUTHFUL HOOK HEALTH. `checkHooksConfig` / `checkHookFiles` only prove hooks
+ * are CONFIGURED and their files EXIST; neither proves a hook can EXECUTE (gap G-3, incident
+ * 2026-07-22-native-abi-hooks-bare-node-launch — a hook that crashes at load with
+ * ERR_DLOPEN_FAILED read as green). This runs a real canary hook end-to-end under the current
+ * Node and reports RED on any RUNTIME failure — extending CR-65's truthful-doctor from
+ * DB-construct (probeMemoryDbUsable) to hook execution.
+ *
+ * R-4 (no side effects on real memory): the canary runs in a throwaway temp cwd with the real
+ * massu.config.yaml copied in (so config resolves and any writes derive under the temp root),
+ * MASSU_HOOK_RUNTIME=1 (so the SSOT loader never self-heals here), and a benign SessionStart
+ * event on stdin.
+ *
+ * Testable seam: `opts.hookFile` / `opts.node` let the drift-guard force a broken (non-zero)
+ * or healthy (exit 0) canary without depending on the real hooks.
+ */
+export async function checkHookExecution(
+  projectRoot: string,
+  opts: { hookFile?: string; node?: string; timeoutMs?: number; event?: string } = {},
+): Promise<CheckResult> {
+  const { spawnSync } = await import('child_process');
+  const { mkdtempSync, copyFileSync, rmSync } = await import('fs');
+  const { tmpdir } = await import('os');
+
+  const node = opts.node ?? process.execPath;
+  const timeoutMs = opts.timeoutMs ?? 10000;
+  const event =
+    opts.event ?? JSON.stringify({ hook_event_name: 'SessionStart', source: 'massu-doctor-canary' });
+
+  let hookFile: string;
+  try {
+    hookFile = opts.hookFile ?? resolveHookFile('session-start');
+  } catch (err) {
+    return {
+      name: 'Hook Runtime',
+      status: 'fail',
+      detail: `Canary hook file unresolved: ${err instanceof Error ? err.message : String(err)}. Re-run: npx -y @massu/core init`,
+    };
+  }
+
+  const tmpCwd = mkdtempSync(resolve(tmpdir(), 'massu-hook-canary-'));
+  try {
+    const realConfig = resolve(projectRoot, 'massu.config.yaml');
+    if (existsSync(realConfig)) {
+      try {
+        copyFileSync(realConfig, resolve(tmpCwd, 'massu.config.yaml'));
+      } catch {
+        // SWALLOW-OK: config copy is best-effort isolation; a resilient hook exits 0 without it.
+      }
+    }
+
+    const res = spawnSync(node, [hookFile], {
+      input: event,
+      cwd: tmpCwd,
+      timeout: timeoutMs,
+      encoding: 'utf-8',
+      env: { ...process.env, MASSU_HOOK_RUNTIME: '1' },
+    });
+
+    if (res.error) {
+      const killed = (res.error as NodeJS.ErrnoException).code === 'ETIMEDOUT' ? ' (timed out)' : '';
+      return {
+        name: 'Hook Runtime',
+        status: 'fail',
+        detail: `Canary hook did not run under Node ${process.version}${killed}: ${res.error.message}. Hooks would crash at runtime — upgrade Node to >= ${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0.`,
+      };
+    }
+    if (res.status !== 0) {
+      const tail = (res.stderr || '').trim().split('\n').slice(-2).join(' ');
+      return {
+        name: 'Hook Runtime',
+        status: 'fail',
+        detail: `Canary hook exited ${res.status ?? 'null'} under Node ${process.version} — a configured hook FAILS at runtime.${tail ? ` ${tail}` : ''}`,
+      };
+    }
+    return {
+      name: 'Hook Runtime',
+      status: 'pass',
+      detail: `Canary hook executes (exit 0) under Node ${process.version}`,
+    };
+  } finally {
+    try {
+      rmSync(tmpCwd, { recursive: true, force: true });
+    } catch {
+      // SWALLOW-OK: temp-dir cleanup; the OS reclaims tmpdir regardless.
+    }
+  }
 }
 
 export async function checkNativeModules(): Promise<CheckResult> {
@@ -190,15 +296,16 @@ export async function checkNativeModules(): Promise<CheckResult> {
 
 function checkNodeVersion(): CheckResult {
   // Layer 2 floor (CR-69): node:sqlite is flag-free + FTS5-capable only from v22.13.0.
+  // The floor is a SINGLE SoT in preflight.ts (MIN_NODE_MAJOR/MINOR + checkNodeVersion);
+  // reuse it here — a second hardcoded copy is exactly the CR-59 one-SoT drift class.
   const version = process.versions.node;
-  const [major, minor] = version.split('.').map((n) => parseInt(n, 10));
-  const meets = major > 22 || (major === 22 && minor >= 13);
+  const floor = `${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0`;
 
-  if (meets) {
-    return { name: 'Node.js', status: 'pass', detail: `v${version} (>= 22.13.0 required for node:sqlite)` };
+  if (checkNodeFloor().ok) {
+    return { name: 'Node.js', status: 'pass', detail: `v${version} (>= ${floor} required for node:sqlite)` };
   }
 
-  return { name: 'Node.js', status: 'fail', detail: `v${version} — Node.js >= 22.13.0 is required (node:sqlite engine)` };
+  return { name: 'Node.js', status: 'fail', detail: `v${version} — Node.js >= ${floor} is required (node:sqlite engine)` };
 }
 
 async function checkGitRepo(projectRoot: string): Promise<CheckResult> {
@@ -247,22 +354,26 @@ function checkMemoryDir(_projectRoot: string): CheckResult {
   return { name: 'Memory Directory', status: 'pass', detail: `Memory directory exists` };
 }
 
-function checkShellHooksWired(_projectRoot: string): CheckResult {
-  // Verify that .claude/settings.local.json has hooks configured (shell hooks are wired)
-  const settingsPath = getResolvedPaths().settingsLocalPath;
-  if (!existsSync(settingsPath)) {
+export function checkShellHooksWired(_projectRoot: string): CheckResult {
+  // Lifecycle hooks (SessionStart / PreToolUse) may be wired in the committed settings.json
+  // OR settings.local.json — Claude Code reads both. Recognize either (see readHookSources).
+  const sources = readHookSources();
+  if (sources.length === 0) {
     return {
       name: 'Shell Hooks',
       status: 'fail',
-      detail: 'settings.local.json not found. Run: npx massu install-hooks',
+      detail: 'settings.json / settings.local.json not found. Run: npx massu install-hooks',
     };
   }
 
   try {
-    const content = readSettingsAtPath(settingsPath);
-    const hooks = (content.hooks ?? {}) as Record<string, unknown>;
-    const hasSessionStart = Array.isArray(hooks.SessionStart) && hooks.SessionStart.length > 0;
-    const hasPreToolUse = Array.isArray(hooks.PreToolUse) && hooks.PreToolUse.length > 0;
+    let hasSessionStart = false;
+    let hasPreToolUse = false;
+    for (const { hooks } of sources) {
+      const h = (hooks ?? {}) as Record<string, unknown>;
+      if (Array.isArray(h.SessionStart) && h.SessionStart.length > 0) hasSessionStart = true;
+      if (Array.isArray(h.PreToolUse) && h.PreToolUse.length > 0) hasPreToolUse = true;
+    }
     if (!hasSessionStart && !hasPreToolUse) {
       return {
         name: 'Shell Hooks',
@@ -270,12 +381,12 @@ function checkShellHooksWired(_projectRoot: string): CheckResult {
         detail: 'No lifecycle hooks wired. Run: npx massu install-hooks',
       };
     }
-    return { name: 'Shell Hooks', status: 'pass', detail: 'Lifecycle hooks wired in settings.local.json' };
+    return { name: 'Shell Hooks', status: 'pass', detail: 'Lifecycle hooks wired (settings.json / settings.local.json)' };
   } catch (err) {
     return {
       name: 'Shell Hooks',
       status: 'fail',
-      detail: `settings.local.json parse error: ${err instanceof Error ? err.message : String(err)}`,
+      detail: `settings parse error: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 }
@@ -485,6 +596,7 @@ export async function runDoctor(): Promise<void> {
     checkMcpServer(projectRoot),
     checkHooksConfig(projectRoot),
     checkHookFiles(projectRoot),
+    await checkHookExecution(projectRoot),
     checkKnowledgeDb(projectRoot),
     checkMemoryDir(projectRoot),
     checkShellHooksWired(projectRoot),

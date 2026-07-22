@@ -132,6 +132,7 @@ PRIOR_ENTRY_BODY="$(LC_ALL=C awk -v ver="$VERSION" '
 DOCUMENTED_DIVERGENCE="$(cat <<'EOF'
 plan-rulesets-as-code
 plan-2026-06-03-website-lib-test-coverage
+plan-2026-07-21-g6-wave-2-unpushed-pile-registration
 EOF
 )"
 

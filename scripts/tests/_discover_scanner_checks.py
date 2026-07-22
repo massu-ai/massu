@@ -167,6 +167,13 @@ def _match_signature(message: str) -> str:
     by any of Check 40's other 15 c40fail sites — the exact half-covered decoration F1 exists to
     end.
     """
+    # A scanner may escape `\$` so bash prints a LITERAL `${var}` in its FAIL line (the runtime
+    # line therefore contains `${var}`, not an interpolated value, and — crucially — NO backslash).
+    # Blanking interpolations on the RAW message would match `\${var}` starting at `$`, stranding the
+    # preceding backslash inside the literal run (`…@massu/core@\`), a substring the runtime line
+    # never contains → the DEFEAT match could never fire. Normalize `\$`->`$` FIRST so the literal
+    # runs carry no stray backslash. `_fail_point_id` hashes the RAW message, so ids are unaffected.
+    message = message.replace("\\$", "$")
     skeleton = _INTERP_RE.sub("\x00", message)
     runs = [r.strip() for r in skeleton.split("\x00")]
     runs = [r for r in runs if len(r) >= 8]

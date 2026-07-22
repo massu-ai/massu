@@ -13,6 +13,14 @@ export default defineConfig({
     // own process, isolating cwd. Cost: slightly slower startup; benefit:
     // deterministic test runs.
     pool: 'forks',
+    // Timeout calibration for this suite under the `forks` pool on slower/loaded machines
+    // (notably macOS-26, where native `better-sqlite3` construction is slow). The vitest
+    // defaults (5s test / 10s hook) intermittently time out the heaviest native-DB setups and
+    // subprocess-spawning tests under full 16-process parallelism — purely CPU contention, never
+    // a deadlock (each passes comfortably in isolation). Raise both so a starved-but-progressing
+    // test is not failed for the machine being busy; a genuine hang still trips these ceilings.
+    testTimeout: 20000,
+    hookTimeout: 30000,
     coverage: {
       // Real v8 instrumented line coverage (plan-2026-06-03-website-lib-test-coverage).
       // Only collected when invoked with `--coverage` (massu-test-coverage.sh /

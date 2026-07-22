@@ -445,6 +445,7 @@ function getResolvedPaths() {
     sessionStatePath: resolve2(root, config.conventions?.sessionStatePath ?? `${claudeDirName}/session-state/CURRENT.md`),
     sessionArchivePath: resolve2(root, config.conventions?.sessionArchivePath ?? `${claudeDirName}/session-state/archive`),
     mcpJsonPath: resolve2(root, ".mcp.json"),
+    settingsPath: resolve2(root, claudeDirName, "settings.json"),
     settingsLocalPath: resolve2(root, claudeDirName, "settings.local.json")
   };
 }

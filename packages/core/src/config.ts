@@ -859,6 +859,7 @@ export function getResolvedPaths() {
     sessionStatePath: resolve(root, config.conventions?.sessionStatePath ?? `${claudeDirName}/session-state/CURRENT.md`),
     sessionArchivePath: resolve(root, config.conventions?.sessionArchivePath ?? `${claudeDirName}/session-state/archive`),
     mcpJsonPath: resolve(root, '.mcp.json'),
+    settingsPath: resolve(root, claudeDirName, 'settings.json'),
     settingsLocalPath: resolve(root, claudeDirName, 'settings.local.json'),
   };
 }

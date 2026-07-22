@@ -18,6 +18,7 @@
 import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { bootstrapNodeOrExit } from './lib/node-bootstrap.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -26,6 +27,15 @@ const args = process.argv.slice(2);
 const subcommand = args[0];
 
 async function main(): Promise<void> {
+  // CHOKEPOINT (Layer 2, CR-70 / plan-2026-07-22-zero-onus-hook-node-bootstrap): the FIRST
+  // statement in main(), ABOVE the dispatch switch. Because it sits above the switch it
+  // covers BOTH the `hook-runner` path AND the no-subcommand MCP-server path of the one bin
+  // — a hook can never launch under a Node the server would reject. At/above the Node floor
+  // this is a single version compare (fast path); below floor it re-execs under a compatible
+  // Node discovered from a strict absolute-path allowlist, or fails LOUD with a copy-paste
+  // remedy. Never a silent hook crash (incident 2026-07-22-native-abi-hooks-bare-node-launch).
+  bootstrapNodeOrExit(process.argv.slice(2));
+
   switch (subcommand) {
     case 'init': {
       const { runInit } = await import('./commands/init.ts');

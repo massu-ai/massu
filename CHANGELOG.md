@@ -10,6 +10,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.1.0] - 2026-07-22
+
+### Added
+
+- **Zero-onus hook Node bootstrap — `@massu/core` now makes ITSELF run under a compatible
+  Node instead of crashing.** `2.0.0` removed the native `better-sqlite3` ABI for Node
+  `>= 22.13` by defaulting to `node:sqlite`, but three residual gaps remained: a sub-floor
+  Node still broke a bare hook, the installer permitted the hook and MCP-server launchers to
+  diverge, and `doctor` verified hooks were *configured* but never that they *execute*. This
+  release closes all three (CR-70):
+  - **Self-bootstrapping launcher.** A single chokepoint at the top of the CLI
+    (`bootstrapNodeOrExit`, above the subcommand dispatch, so it covers both the `hook-runner`
+    and MCP-server paths) checks the running Node against the floor. At or above the floor it
+    is a no-op single version compare; below the floor it discovers a compatible Node from a
+    **strict absolute-path allowlist** (nvm / fnm / volta install dirs + Homebrew kegs —
+    never bare `PATH`/`which`) and re-execs under it with full stdin/stdout/exit-code
+    fidelity. If no compatible Node exists it fails **loud** with a copy-paste install remedy
+    — never a silent hook crash. Opt out with `MASSU_NO_NODE_BOOTSTRAP=1` (still fails loud
+    below the floor).
+  - **Installer launch symmetry.** The `.mcp.json` server command and the hook commands are
+    locked to one launch mechanism (`npx -y @massu/core@<version>`, the hook only appending
+    `hook-runner <name>`), so the wrapped-server / bare-hooks asymmetry that masked the
+    original incident cannot be reintroduced.
+  - **Truthful hook health.** `massu doctor` now runs a real canary hook end-to-end under the
+    current Node and reports **RED** on any runtime failure (`ERR_DLOPEN_FAILED`, non-zero
+    exit, timeout) — extending the truthful-doctor probe from database construction to hook
+    execution.
+
+  Zero customer action required: upgrading `@massu/core` is the entire fix. Enforced by five
+  drift-guards + pattern-scanner Checks 47/48/49 (CR-70). Plan:
+  `plan-2026-07-22-zero-onus-hook-node-bootstrap`. Incident:
+  `docs/incidents/2026-07-22-native-abi-hooks-bare-node-launch.md`.
+
+## [2.0.1] - 2026-07-22
+
+### Fixed
+
+- **`massu doctor` now recognizes hooks committed in `.claude/settings.json`, not only
+  `.claude/settings.local.json`.** Claude Code reads and merges both files, but doctor's
+  "Hooks Config" and "Shell Hooks" checks inspected only `settings.local.json` — so a project
+  that version-controls its hooks in the committed `settings.json` (the norm for a shared/
+  governance config) reported "No hooks configured" and an overall **UNHEALTHY** verdict even
+  though every hook was wired and firing. Both checks now count the union of hooks across
+  `settings.json` + `settings.local.json`. Guarded by `doctor-hooks-config.test.ts`.
+
 ## [2.0.0] - 2026-07-21
 
 **Breaking release.** The local database engine now defaults to Node's built-in

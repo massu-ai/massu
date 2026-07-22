@@ -203,7 +203,9 @@ fi
 # Check 3: No process.exit() in library code
 # Excludes: server.ts (entrypoint), hooks/ (standalone scripts),
 #           *-runner.ts (standalone CLI scripts), cli.ts (CLI entry),
-#           commands/ (CLI commands that need exit codes)
+#           commands/ (CLI commands that need exit codes),
+#           lib/node-bootstrap.ts (CR-70 launcher chokepoint — `bootstrapNodeOrExit`
+#             re-execs or exits by contract; same process-controlling class as cli.ts).
 # -------------------------------------------------------
 echo "Check 3: No process.exit() in library code"
 PROCESS_EXIT_COUNT=$(grep -rn 'process\.exit' "$SRC_DIR" --include="*.ts" \
@@ -215,13 +217,14 @@ PROCESS_EXIT_COUNT=$(grep -rn 'process\.exit' "$SRC_DIR" --include="*.ts" \
   | grep -v '\-runner\.ts' \
   | grep -v 'backfill-' \
   | grep -v 'cli\.ts' \
+  | grep -v 'lib/node-bootstrap\.ts' \
   | grep -v 'commands/' \
   | wc -l | tr -d ' ')
 if [ "$PROCESS_EXIT_COUNT" -gt 0 ]; then
   fail "Found $PROCESS_EXIT_COUNT process.exit() calls in library code"
   grep -rn 'process\.exit' "$SRC_DIR" --include="*.ts" \
     | grep -v 'server\.ts' | grep -v '__tests__' | grep -v 'hooks/' | grep -v '\-runner\.ts' | grep -v 'backfill-' \
-    | grep -v 'cli\.ts' | grep -v 'commands/' \
+    | grep -v 'cli\.ts' | grep -v 'lib/node-bootstrap\.ts' | grep -v 'commands/' \
     | head -5
 else
   pass "No process.exit() in library code"
@@ -2083,6 +2086,98 @@ if [ -n "$CHECK46_OPEN_HITS" ]; then
 fi
 if [ "$CHECK46_VIOLATIONS" -eq 0 ]; then
   pass "Check 46: DB-driver adapter — node:sqlite sole-loader (Layer 2)"
+fi
+
+# -------------------------------------------------------
+# Check 47: Node-bootstrap chokepoint + exec-safety (Layer 2, CR-70)
+# -------------------------------------------------------
+# CR-70 Layer 2: @massu/core self-bootstraps a compatible Node at the SINGLE cli.ts
+# chokepoint ABOVE the dispatch switch (covering both the hook-runner and MCP-server paths of
+# the one bin), so a hook can never launch under a Node the server would reject (incident
+# 2026-07-22-native-abi-hooks-bare-node-launch). L2-7: discovery is confined to a strict
+# absolute-path allowlist — it MUST NOT read PATH / `which` and re-exec MUST use an argv array
+# (no shell). Grep-mirror of node-bootstrap-drift-guard + node-bootstrap-exec-safety tests.
+echo "Check 47: Node-bootstrap chokepoint + exec-safety (CR-70)"
+CHECK47_OK=1
+NB_FILE="$SRC_DIR/lib/node-bootstrap.ts"
+CLI_FILE="$SRC_DIR/cli.ts"
+if [ ! -f "$NB_FILE" ]; then
+  fail "Check 47: lib/node-bootstrap.ts is MISSING — the self-bootstrap launcher SoT (CR-70)"
+  CHECK47_OK=0
+fi
+BOOT_LINE=$(grep -n "bootstrapNodeOrExit(" "$CLI_FILE" 2>/dev/null | grep -v "import" | head -1 | cut -d: -f1)
+SWITCH_LINE=$(grep -n "switch (subcommand)" "$CLI_FILE" 2>/dev/null | head -1 | cut -d: -f1)
+if [ -z "$BOOT_LINE" ]; then
+  fail "Check 47: bootstrapNodeOrExit() is not invoked in cli.ts — the launcher never self-bootstraps (CR-70)"
+  CHECK47_OK=0
+elif [ -z "$SWITCH_LINE" ]; then
+  fail "Check 47: 'switch (subcommand)' not found in cli.ts — cannot verify chokepoint ordering (CR-70)"
+  CHECK47_OK=0
+elif [ "$BOOT_LINE" -ge "$SWITCH_LINE" ]; then
+  fail "Check 47: bootstrapNodeOrExit() (line $BOOT_LINE) must PRECEDE the dispatch switch (line $SWITCH_LINE) so it covers both hook-runner and MCP-server paths (CR-70)"
+  CHECK47_OK=0
+fi
+if [ -f "$NB_FILE" ]; then
+  # Strip block + line comments so the module's own prose ("never PATH / which") never trips this.
+  NB_CODE=$(perl -0pe 's{/\*.*?\*/}{}gs; s{//[^\n]*}{}g' "$NB_FILE" 2>/dev/null)
+  if printf '%s' "$NB_CODE" | grep -qE "process\.env\.PATH|env\.PATH\b|\bwhich\b|shell[[:space:]]*:[[:space:]]*true"; then
+    fail "Check 47: node-bootstrap.ts reads PATH/which or uses shell:true — discovery MUST use the strict absolute-path allowlist + argv-array exec (CR-70 L2-7)"
+    CHECK47_OK=0
+  fi
+fi
+if [ "$CHECK47_OK" -eq 1 ]; then
+  pass "Check 47: Node-bootstrap chokepoint + exec-safety (CR-70)"
+fi
+
+# -------------------------------------------------------
+# Check 48: Installer launch symmetry — no divergent mechanism (Layer 3, CR-70)
+# -------------------------------------------------------
+# CR-70 Layer 3: the two init.ts emitters — registerMcpServer (.mcp.json server command) and
+# hookCmd/buildHooksConfig (hook commands) — MUST share ONE launch mechanism (both
+# `npx -y @massu/core@<version>`, the hook only appending `hook-runner <name>`). A hand-wrapped
+# `node@<ver> npx …` on either side is the wrapped-server/bare-hooks asymmetry the incident rode
+# in on — forbidden. Grep-mirror of installer-launch-symmetry-drift-guard test.
+echo "Check 48: Installer launch symmetry (CR-70)"
+CHECK48_OK=1
+INIT_FILE="$SRC_DIR/commands/init.ts"
+if ! grep -qF "command: 'npx'" "$INIT_FILE" 2>/dev/null; then
+  fail "Check 48: registerMcpServer no longer emits command:'npx' — the .mcp.json server launcher drifted (CR-70)"
+  CHECK48_OK=0
+fi
+if ! grep -qF 'npx -y @massu/core@${version} hook-runner' "$INIT_FILE" 2>/dev/null; then
+  fail "Check 48: hookCmd no longer emits 'npx -y @massu/core@\${version} hook-runner' — the hook launcher drifted (CR-70)"
+  CHECK48_OK=0
+fi
+NODEWRAP=$(grep -nE "node@[0-9]+" "$INIT_FILE" 2>/dev/null || true)
+if [ -n "$NODEWRAP" ]; then
+  echo "$NODEWRAP"
+  fail "Check 48: init.ts contains a 'node@<ver>' launcher wrapper — the wrapped-server/bare-hooks asymmetry (incident 2026-07-22) MUST NOT be reintroduced (CR-70)"
+  CHECK48_OK=0
+fi
+if [ "$CHECK48_OK" -eq 1 ]; then
+  pass "Check 48: Installer launch symmetry (CR-70)"
+fi
+
+# -------------------------------------------------------
+# Check 49: Doctor canary hook-execution present + registered (Layer 4, CR-70)
+# -------------------------------------------------------
+# CR-70 Layer 4: doctor must prove hooks EXECUTE, not merely that they are configured (gap G-3
+# — a hook that crashes at load with ERR_DLOPEN_FAILED read green). checkHookExecution runs a
+# real canary end-to-end and MUST be wired into runDoctor's checks array. Grep-mirror of
+# doctor-hook-execution-drift-guard test.
+echo "Check 49: Doctor canary hook-execution (CR-70)"
+CHECK49_OK=1
+DOCTOR_FILE="$SRC_DIR/commands/doctor.ts"
+if ! grep -qE "export async function checkHookExecution" "$DOCTOR_FILE" 2>/dev/null; then
+  fail "Check 49: checkHookExecution is not defined in doctor.ts — runtime hook health (L4) missing (CR-70)"
+  CHECK49_OK=0
+fi
+if ! grep -qE "await checkHookExecution\(" "$DOCTOR_FILE" 2>/dev/null; then
+  fail "Check 49: checkHookExecution is not invoked in runDoctor's checks array — the canary never runs (CR-70)"
+  CHECK49_OK=0
+fi
+if [ "$CHECK49_OK" -eq 1 ]; then
+  pass "Check 49: Doctor canary hook-execution (CR-70)"
 fi
 
 # -------------------------------------------------------

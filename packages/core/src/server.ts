@@ -19,7 +19,7 @@ import { resolveConsolidationConfig } from './consolidation-config.ts';
 import { getCurrentTier } from './license.ts';
 import { createDispatcher } from './server-dispatch.ts';
 import { assertMemoryEngineHealthy, FatalStartupError } from './startup-health.ts';
-import { openDatabase, probeMemoryDbUsable, NATIVE_DB_REMEDY } from './lib/sqlite-loader.ts';
+import { openDatabase, probeMemoryDbUsable, NATIVE_DB_REMEDY } from './db-driver.ts';
 import { getResolvedPaths } from './config.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

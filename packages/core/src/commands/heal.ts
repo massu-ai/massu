@@ -17,7 +17,8 @@
 // never a shell string (CR-63 / S5).
 // ============================================================
 
-import { attemptNativeHeal, probeMemoryDbUsable } from '../lib/sqlite-loader.ts';
+import { attemptNativeHeal } from '../lib/sqlite-loader.ts';
+import { probeMemoryDbUsable, resolveDbEngine } from '../db-driver.ts';
 
 export interface SubcommandResult {
   exitCode: number;
@@ -26,6 +27,25 @@ export interface SubcommandResult {
 export async function runHeal(argv: string[] = []): Promise<SubcommandResult> {
   const check = argv.includes('--check');
   const runningAbi = process.versions.modules;
+
+  // LAYER 2 (CR-69): the default engine is Node's built-in `node:sqlite` — native-free,
+  // NO `.node` binary to rebuild, so `massu heal` has nothing to do. Only the opt-in
+  // `better-sqlite3` fallback has an ABI binary that can drift and be rebuilt.
+  if (resolveDbEngine() !== 'better-sqlite3') {
+    const verdict = probeMemoryDbUsable({ selfHeal: false });
+    if (verdict.ok) {
+      process.stdout.write(
+        `massu heal${check ? ' --check' : ''}: active engine is node:sqlite (native-free, Node built-in) — ` +
+          `no native binary to rebuild. Healthy for ${process.version}.\n`,
+      );
+      return { exitCode: 0 };
+    }
+    process.stderr.write(
+      `massu heal${check ? ' --check' : ''}: node:sqlite engine unusable — ${verdict.reason}` +
+        `${verdict.detail ? `: ${verdict.detail}` : ''}. ${verdict.remedy ?? ''}\n`,
+    );
+    return { exitCode: 1 };
+  }
   // Non-mutating: the SHARED probe constructs `:memory:` + runs `SELECT 1` through the
   // sole `openDatabase` chokepoint (selfHeal:false — a check never rebuilds). Its `detail`
   // carries the raw dlopen message, from which we recover the installed binary's ABI.

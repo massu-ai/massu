@@ -31,7 +31,9 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
+import { homedir } from 'os';
 import { join, dirname } from 'path';
+import { computePromotionApplyMac } from './security/promotion-apply-mac.ts';
 import type Database from 'better-sqlite3';
 import { getConfig, getProjectRoot } from './config.ts';
 import { getCachedTierReadOnly, getCachedOrgId, type ToolTier } from './license.ts';
@@ -100,6 +102,8 @@ export interface PullOptions {
   endpoint?: string;
   apiKey?: string;
   timeoutMs?: number;
+  /** Home for the install-bound apply MAC (S-6); default `homedir()`. Tests inject a temp home. */
+  home?: string;
 }
 
 const ZERO: PullTeamPromotionsResult = {
@@ -237,7 +241,7 @@ export async function pullTeamPromotions(
     }
 
     // Materialize as a provenance-tagged candidate + a shared_observations row.
-    materializeCandidate(db, projectRoot, candidatePath, p, signedOrgId);
+    materializeCandidate(db, projectRoot, candidatePath, p, signedOrgId, opts.home ?? homedir());
     result.materialized += 1;
   }
 
@@ -337,8 +341,17 @@ function materializeCandidate(
   candidatePath: string,
   p: WirePromotion,
   orgId: string,
+  home: string,
 ): void {
   const promptText = p.draft_text.replace(/\n+/g, ' ').slice(0, 200) || `team rule ${p.prompt_hash}`;
+  // S-6 (D2): stamp the install-bound apply MAC now — AFTER the server envelope was
+  // verified (pullTeamPromotions step 4). The apply gate re-computes it; the stored
+  // `signature_verified` boolean is no longer authority. Null (no per-install key) ⇒
+  // omit the stamp ⇒ the apply gate REFUSES (fail-closed).
+  const applyMac = computePromotionApplyMac(
+    { origin: 'team', org_id: orgId, prompt_hash: p.prompt_hash, destination: p.destination, draft_text: p.draft_text },
+    home,
+  );
   const sidecar = {
     // Standard RuleCandidatePayload fields (so `/massu-rule approve` → readCandidate
     // → validateCandidatePayload passes), synthesized from the promotion.
@@ -361,6 +374,7 @@ function materializeCandidate(
       promoted_by: p.promoted_by,
       promoted_at: p.promoted_at,
       signature_verified: true,
+      ...(applyMac ? { apply_mac: applyMac } : {}),
       ...(p.hardened === true ? { hardened: true } : {}),
     },
     // Extra fields the `/massu-rule approve` flow reads to drive the apply (the

@@ -431,10 +431,17 @@ function clauseA(repoRoot, tracked) {
   const unresolved = [];
   for (const n of names) {
     const base = n.split('/').pop();
-    // resolve to a tracked *.test.ts whose basename is <base>.test.ts
-    const hit = [...tracked].find((f) => f.endsWith(`/${base}.test.ts`) || f === `${base}.test.ts`);
-    if (hit) resolved.add(hit);
-    else unresolved.push(n);
+    // (1) An exact <base>.test.ts is the specific single-file guard — prefer it.
+    const exact = [...tracked].find((f) => f.endsWith(`/${base}.test.ts`) || f === `${base}.test.ts`);
+    if (exact) { resolved.add(exact); continue; }
+    // (2) Otherwise the token is a `npm test -- <base>` / `npx vitest run <base>` FILTER,
+    // which vitest resolves by matching every *.test.ts whose PATH contains <base> (substring,
+    // not exact basename). Resolve to that whole set so a legitimate multi-file drift-guard
+    // suite (e.g. `shared-memory` → the 12 shared-memory-*.test.ts) is not mis-read as a DROP.
+    const filterHits = [...tracked].filter((f) => f.endsWith('.test.ts') && f.includes(base));
+    if (filterHits.length) { for (const h of filterHits) resolved.add(h); continue; }
+    // (3) A token that matches ZERO tracked test files is still an unresolved DROP — fail-closed (M2).
+    unresolved.push(n);
   }
   // A CR-named guard that does not resolve to a file is a DROP — fail-closed (M2).
   if (unresolved.length) {

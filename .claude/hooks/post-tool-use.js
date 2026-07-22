@@ -429,6 +429,136 @@ var init_sqlite_loader = __esm({
   }
 });
 
+// src/db-driver.ts
+import { createRequire as createRequire2 } from "module";
+import { closeSync, existsSync as existsSync3, mkdtempSync, openSync, readFileSync as readFileSync3, rmSync as rmSync3, fsyncSync } from "fs";
+import { tmpdir } from "os";
+import { join as join2 } from "path";
+function resolveDbEngine() {
+  return process.env[DB_ENGINE_ENV] === "better-sqlite3" ? "better-sqlite3" : DEFAULT_DB_ENGINE;
+}
+function nodeSqliteCtor() {
+  if (!_nodeCtor) _nodeCtor = req2("node:sqlite").DatabaseSync;
+  return _nodeCtor;
+}
+function plainRow(row) {
+  if (row == null || typeof row !== "object") return row;
+  return { ...row };
+}
+function openNodeSqlite(dbPath, opts) {
+  const Ctor = nodeSqliteCtor();
+  const raw = new Ctor(dbPath, {
+    open: true,
+    readOnly: !!opts.readonly,
+    // FAITHFULNESS: better-sqlite3's ACTUAL default is foreign_keys=ON (empirically
+    // verified — SQLite's own default is OFF, but bs3 enables it). massu was written +
+    // tested against that default, so the adapter must match it, or a store that relies
+    // on FK-ON-by-default (without an explicit pragma) would silently lose enforcement.
+    // Explicit `foreign_keys=OFF/ON` pragmas (e.g. memory-db bulk ops) still override.
+    enableForeignKeyConstraints: true,
+    allowExtension: false
+  });
+  let savepointSeq = 0;
+  const wrapStmt = (sql) => {
+    const st = raw.prepare(sql);
+    return {
+      run: (...p) => {
+        const r = st.run(...p);
+        return {
+          changes: typeof r.changes === "bigint" ? Number(r.changes) : r.changes,
+          lastInsertRowid: r.lastInsertRowid
+        };
+      },
+      get: (...p) => plainRow(st.get(...p)),
+      all: (...p) => st.all(...p).map(plainRow)
+    };
+  };
+  const pragma = (source, options) => {
+    const s = String(source).trim();
+    if (s.includes("=")) {
+      raw.exec(`PRAGMA ${s}`);
+      return void 0;
+    }
+    const rows = raw.prepare(`PRAGMA ${s}`).all().map(plainRow);
+    if (options?.simple) {
+      const first = rows[0];
+      return first ? Object.values(first)[0] : void 0;
+    }
+    return rows;
+  };
+  const transaction = (fn) => {
+    const run = (...args) => {
+      const nested = raw.isTransaction;
+      const name = `msp_${savepointSeq++}`;
+      if (nested) raw.exec(`SAVEPOINT ${name}`);
+      else raw.exec("BEGIN");
+      try {
+        const out = fn(...args);
+        if (nested) raw.exec(`RELEASE ${name}`);
+        else raw.exec("COMMIT");
+        return out;
+      } catch (e) {
+        if (nested) {
+          raw.exec(`ROLLBACK TO ${name}`);
+          raw.exec(`RELEASE ${name}`);
+        } else {
+          raw.exec("ROLLBACK");
+        }
+        throw e;
+      }
+    };
+    return run;
+  };
+  const serialize = () => {
+    if (raw.isTransaction) {
+      throw new Error(
+        "db-driver: .serialize() (node:sqlite engine) cannot run inside an open transaction \u2014 VACUUM is forbidden in a transaction. Serialize before BEGIN, or use MASSU_DB_ENGINE=better-sqlite3 for mid-transaction snapshots."
+      );
+    }
+    const dir = mkdtempSync(join2(tmpdir(), "massu-serialize-"));
+    const out = join2(dir, "snapshot.db");
+    try {
+      raw.exec(`VACUUM INTO '${out.replace(/'/g, "''")}'`);
+      const fd = openSync(out, "r");
+      try {
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+      return readFileSync3(out);
+    } finally {
+      rmSync3(dir, { recursive: true, force: true });
+    }
+  };
+  const handle = {
+    prepare: (sql) => wrapStmt(sql),
+    exec: (sql) => raw.exec(sql),
+    pragma,
+    transaction,
+    serialize,
+    close: () => raw.close()
+  };
+  return handle;
+}
+function openBetterSqlite3(dbPath, opts) {
+  return openDatabase(dbPath, opts);
+}
+function openDatabase2(dbPath, opts = {}) {
+  return resolveDbEngine() === "better-sqlite3" ? openBetterSqlite3(dbPath, opts) : openNodeSqlite(dbPath, opts);
+}
+var req2, DEFAULT_DB_ENGINE, DB_ENGINE_ENV, _nodeCtor;
+var init_db_driver = __esm({
+  "src/db-driver.ts"() {
+    "use strict";
+    init_sqlite_loader();
+    init_sqlite_loader();
+    req2 = createRequire2(import.meta.url);
+    DEFAULT_DB_ENGINE = "node-sqlite";
+    DB_ENGINE_ENV = "MASSU_DB_ENGINE";
+    _nodeCtor = null;
+  }
+});
+
 // src/lib/memory-path.ts
 function encodeMemoryDirName(projectRoot) {
   return projectRoot.replace(/\//g, "-");
@@ -572,6 +702,32 @@ var init_config_memory_schema = __esm({
         // turn of EVERY session, so an unbounded index is a permanent context tax — and the
         // per-session cap bounds only the RATE, never the total.
         indexMaxLines: z.number().int().min(1).default(50)
+      }).default({}),
+      // --- Cross-repo memory surfacing (plan-living-memory-slice-5-cross-repo-surfacing) ---
+      // A decision made in one of your repos can surface in another — opt-in per
+      // decision AND opt-in per repo, signed, verified, and materialized ONLY on
+      // explicit human acceptance. Local transport is FREE and zero-network.
+      //
+      // ⛔ BOTH switches default OFF, and OFF means NOTHING EXISTS — no registry, no
+      // keys, no inbox, no behavioural difference. Two INDEPENDENT opt-ins:
+      //   • enabled   — may this repo EXPORT its shareable decisions? (opt-in #1)
+      //   • subscribe — which repo LABELS may this repo IMPORT from? (opt-in #2)
+      // `subscribe: []` means import NOTHING. There is deliberately NO `subscribe: all`
+      // — a repo you never named is a repo Massu never reads from.
+      share: z.object({
+        enabled: z.boolean().default(false),
+        subscribe: z.array(z.string()).default([]),
+        // C-04 — recall surfacing of cross-repo memories. `enabled` defaults true but is
+        // CONDITIONAL on `subscribe` being non-empty (empty by default), so the effective
+        // default is DORMANT: with `subscribe: []` the recall hook output is byte-identical
+        // to today's. `maxCrossRepoItems` caps how many accepted cross-repo items may appear
+        // per recall block (default 1); `minScore` is an OPTIONAL strictly-higher floor for
+        // cross-repo items (they are, by construction, less relevant than local ones).
+        recall: z.object({
+          enabled: z.boolean().default(true),
+          maxCrossRepoItems: z.number().int().min(0).default(1),
+          minScore: z.number().optional()
+        }).default({})
       }).default({})
     }).optional();
   }
@@ -579,7 +735,7 @@ var init_config_memory_schema = __esm({
 
 // src/config.ts
 import { resolve as resolve2, dirname as dirname3 } from "path";
-import { existsSync as existsSync3, readFileSync as readFileSync3 } from "fs";
+import { existsSync as existsSync4, readFileSync as readFileSync4 } from "fs";
 import { homedir as homedir2 } from "os";
 import { parse as parseYaml } from "yaml";
 import { z as z2 } from "zod";
@@ -587,7 +743,7 @@ function findProjectRoot() {
   const cwd = process.cwd();
   let dir = cwd;
   while (true) {
-    if (existsSync3(resolve2(dir, "massu.config.yaml"))) {
+    if (existsSync4(resolve2(dir, "massu.config.yaml"))) {
       return dir;
     }
     const parent = dirname3(dir);
@@ -596,10 +752,10 @@ function findProjectRoot() {
   }
   dir = cwd;
   while (true) {
-    if (existsSync3(resolve2(dir, "package.json"))) {
+    if (existsSync4(resolve2(dir, "package.json"))) {
       return dir;
     }
-    if (existsSync3(resolve2(dir, ".git"))) {
+    if (existsSync4(resolve2(dir, ".git"))) {
       return dir;
     }
     const parent = dirname3(dir);
@@ -619,8 +775,8 @@ function getConfig() {
   const root = getProjectRoot();
   const configPath = resolve2(root, "massu.config.yaml");
   let rawYaml = {};
-  if (existsSync3(configPath)) {
-    const content = readFileSync3(configPath, "utf-8");
+  if (existsSync4(configPath)) {
+    const content = readFileSync4(configPath, "utf-8");
     rawYaml = parseYaml(content) ?? {};
   }
   const result = RawConfigSchema.safeParse(rawYaml);
@@ -825,7 +981,6 @@ var init_config = __esm({
         custom_patterns: z2.array(CustomPatternSchema).default([])
       }).optional(),
       adr: z2.object({
-        detection_phrases: z2.array(z2.string()).default(["chose", "decided", "switching to", "moving from", "going with"]),
         template: z2.string().default("default"),
         storage: z2.string().default("database"),
         output_dir: z2.string().default("docs/adr")
@@ -1179,26 +1334,26 @@ var init_memory_vector = __esm({
 });
 
 // src/db-backup.ts
-import { existsSync as existsSync4, mkdirSync as mkdirSync4, readdirSync, statSync, unlinkSync, copyFileSync, rmSync as rmSync3 } from "fs";
-import { resolve as resolve3, join as join2, basename, dirname as dirname4 } from "path";
+import { existsSync as existsSync5, mkdirSync as mkdirSync4, readdirSync, statSync, unlinkSync, copyFileSync, rmSync as rmSync4 } from "fs";
+import { resolve as resolve3, join as join3, basename, dirname as dirname4 } from "path";
 import { homedir as homedir3 } from "os";
 function dbBackupsRoot(home = homedir3()) {
   return resolve3(home, ".massu", "db-backups");
 }
 function projectBackupDir(projectRoot, home = homedir3()) {
   const slug = basename(projectRoot).replace(/[^A-Za-z0-9._-]/g, "_") || "project";
-  return join2(dbBackupsRoot(home), slug);
+  return join3(dbBackupsRoot(home), slug);
 }
 function backupStamp(nowMs) {
   return new Date(nowMs).toISOString().replace(/[:.]/g, "-");
 }
 function listDbBackups(projectRoot, home = homedir3()) {
   const dir = projectBackupDir(projectRoot, home);
-  if (!existsSync4(dir)) return [];
+  if (!existsSync5(dir)) return [];
   const out = [];
   for (const f of readdirSync(dir)) {
     if (!f.endsWith(".db")) continue;
-    const p = join2(dir, f);
+    const p = join3(dir, f);
     const st = statSync(p);
     const db = f.replace(/-\d{4}-\d{2}-\d{2}T.*$/, "");
     out.push({ db, path: p, bytes: st.size, mtimeMs: st.mtimeMs });
@@ -1211,13 +1366,13 @@ function hasFreshDbBackup(projectRoot, dbPath, nowMs = Date.now(), home = homedi
   if (backups.length === 0) return false;
   const newest = backups[0];
   if (nowMs - newest.mtimeMs > FRESH_WINDOW_MS) return false;
-  if (existsSync4(dbPath) && statSync(dbPath).mtimeMs > newest.mtimeMs) return false;
+  if (existsSync5(dbPath) && statSync(dbPath).mtimeMs > newest.mtimeMs) return false;
   return true;
 }
 function integrityOk(dbPath) {
   let db = null;
   try {
-    db = openDatabase(dbPath, { readonly: true });
+    db = openDatabase2(dbPath, { readonly: true });
     const rows = db.pragma("integrity_check");
     return rows.length === 1 && rows[0].integrity_check === "ok";
   } catch {
@@ -1230,16 +1385,16 @@ function integrityOk(dbPath) {
   }
 }
 function backupDb(projectRoot, dbPath, nowMs = Date.now(), home = homedir3()) {
-  if (!existsSync4(dbPath)) {
+  if (!existsSync5(dbPath)) {
     throw new DbBackupError(`cannot back up a database that does not exist: ${dbPath}`);
   }
   const dir = projectBackupDir(projectRoot, home);
   mkdirSync4(dir, { recursive: true });
   const name = basename(dbPath, ".db");
-  const dest = join2(dir, `${name}-${backupStamp(nowMs)}.db`);
+  const dest = join3(dir, `${name}-${backupStamp(nowMs)}.db`);
   let src = null;
   try {
-    src = openDatabase(dbPath, { readonly: true });
+    src = openDatabase2(dbPath, { readonly: true });
     src.exec(`VACUUM INTO '${dest.replace(/'/g, "''")}'`);
   } catch (err) {
     throw new DbBackupError(
@@ -1278,7 +1433,7 @@ function pruneDbBackups(projectRoot, dbName, keep = DEFAULT_RETENTION, home = ho
 }
 function backupBeforeSchemaChange(projectRoot, dbPath, onError, nowMs = Date.now(), home = homedir3()) {
   try {
-    if (!existsSync4(dbPath)) return null;
+    if (!existsSync5(dbPath)) return null;
     if (hasFreshDbBackup(projectRoot, dbPath, nowMs, home)) return null;
     return backupDb(projectRoot, dbPath, nowMs, home);
   } catch (err) {
@@ -1290,7 +1445,7 @@ var DEFAULT_RETENTION, FRESH_WINDOW_MS, DbBackupError;
 var init_db_backup = __esm({
   "src/db-backup.ts"() {
     "use strict";
-    init_sqlite_loader();
+    init_db_driver();
     DEFAULT_RETENTION = 5;
     FRESH_WINDOW_MS = 24 * 60 * 60 * 1e3;
     DbBackupError = class extends Error {
@@ -1403,21 +1558,21 @@ var init_rule_candidate_store = __esm({
 });
 
 // src/hooks/lib/hook-failure-signal.ts
-import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync5, existsSync as existsSync5 } from "fs";
-import { join as join3, dirname as dirname5 } from "path";
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync5, existsSync as existsSync6 } from "fs";
+import { join as join4, dirname as dirname5 } from "path";
 function resolveFailureLogPath() {
   const explicit = process.env.MASSU_HOOK_FAILURE_LOG;
   if (explicit) return explicit;
   let dir = process.cwd();
   for (let i = 0; i < 12; i++) {
-    if (existsSync5(join3(dir, ".massu")) || existsSync5(join3(dir, "massu.config.yaml"))) {
-      return join3(dir, ".massu", "hook-failures.jsonl");
+    if (existsSync6(join4(dir, ".massu")) || existsSync6(join4(dir, "massu.config.yaml"))) {
+      return join4(dir, ".massu", "hook-failures.jsonl");
     }
     const parent = dirname5(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return join3(process.cwd(), ".massu", "hook-failures.jsonl");
+  return join4(process.cwd(), ".massu", "hook-failures.jsonl");
 }
 function recordHookFailure(hook, error, context) {
   const record = {
@@ -1474,9 +1629,9 @@ var init_hook_failure_signal = __esm({
 });
 
 // src/memory-embedder-tokenizer.ts
-import { readFileSync as readFileSync4 } from "fs";
+import { readFileSync as readFileSync5 } from "fs";
 function loadVocab(vocabPath) {
-  const lines = readFileSync4(vocabPath, "utf-8").split("\n");
+  const lines = readFileSync5(vocabPath, "utf-8").split("\n");
   const vocab = /* @__PURE__ */ new Map();
   for (let i = 0; i < lines.length; i++) {
     const tok = lines[i].replace(/\r$/, "");
@@ -1596,9 +1751,9 @@ var init_memory_embedder_tokenizer = __esm({
 
 // src/memory-embedder.ts
 import { fileURLToPath } from "url";
-import { dirname as dirname6, join as join4 } from "path";
-import { existsSync as existsSync6 } from "fs";
-import { createRequire as createRequire2 } from "module";
+import { dirname as dirname6, join as join5 } from "path";
+import { existsSync as existsSync7 } from "fs";
+import { createRequire as createRequire3 } from "module";
 function getActiveEmbedModel() {
   return _activeModel;
 }
@@ -1622,7 +1777,7 @@ function resolveModelDir() {
     let dir = dirname6(fileURLToPath(import.meta.url));
     let root = null;
     for (let i = 0; i < 8; i++) {
-      if (existsSync6(join4(dir, "package.json"))) {
+      if (existsSync7(join5(dir, "package.json"))) {
         root = dir;
         break;
       }
@@ -1632,8 +1787,8 @@ function resolveModelDir() {
     }
     if (!root) return null;
     for (const rel of ["dist/embedder", "assets/embedder"]) {
-      const candidate = join4(root, rel);
-      if (existsSync6(join4(candidate, "model_quantized.onnx"))) return candidate;
+      const candidate = join5(root, rel);
+      if (existsSync7(join5(candidate, "model_quantized.onnx"))) return candidate;
     }
     return null;
   } catch {
@@ -1642,8 +1797,8 @@ function resolveModelDir() {
 }
 function resolveWasmDir() {
   try {
-    const req2 = createRequire2(import.meta.url);
-    const main2 = req2.resolve(ORT_PKG);
+    const req3 = createRequire3(import.meta.url);
+    const main2 = req3.resolve(ORT_PKG);
     return dirname6(main2);
   } catch {
     return null;
@@ -1664,8 +1819,8 @@ async function getSession() {
       ort.env.wasm.proxy = false;
       ort.env.wasm.wasmPaths = wasmDir.endsWith("/") ? wasmDir : wasmDir + "/";
       _ortTensor = ort.Tensor;
-      const modelPath = join4(modelDir, "model_quantized.onnx");
-      const vocabPath = join4(modelDir, "vocab.txt");
+      const modelPath = join5(modelDir, "model_quantized.onnx");
+      const vocabPath = join5(modelDir, "vocab.txt");
       _vocab = loadVocab(vocabPath);
       const session = await ort.InferenceSession.create(modelPath, {
         executionProviders: ["wasm"],
@@ -1986,6 +2141,7 @@ __export(memory_db_exports, {
   migrateAuditLogCheckExtension: () => migrateAuditLogCheckExtension,
   migrateMemoryFilesFor4B: () => migrateMemoryFilesFor4B,
   migrateObservationEmbeddingChunks: () => migrateObservationEmbeddingChunks,
+  migrateSharedMemoryFor5B: () => migrateSharedMemoryFor5B,
   pruneOldConversationTurns: () => pruneOldConversationTurns,
   pruneOldObservations: () => pruneOldObservations,
   pruneToolCostEvents: () => pruneToolCostEvents,
@@ -2003,7 +2159,7 @@ __export(memory_db_exports, {
   usageWarmupElapsed: () => usageWarmupElapsed
 });
 import { dirname as dirname7, basename as basename2 } from "path";
-import { existsSync as existsSync7, mkdirSync as mkdirSync6 } from "fs";
+import { existsSync as existsSync8, mkdirSync as mkdirSync6 } from "fs";
 function sanitizeFts5Query(raw) {
   const trimmed = raw.trim();
   if (!trimmed) return '""';
@@ -2020,11 +2176,11 @@ function sanitizeFts5QueryOr(raw) {
 function getMemoryDb() {
   const dbPath = getResolvedPaths().memoryDbPath;
   const dir = dirname7(dbPath);
-  if (!existsSync7(dir)) {
+  if (!existsSync8(dir)) {
     mkdirSync6(dir, { recursive: true });
   }
-  const preExisting = existsSync7(dbPath);
-  const db = openDatabase(dbPath);
+  const preExisting = existsSync8(dbPath);
+  const db = openDatabase2(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   const onDisk = db.pragma("user_version", { simple: true });
@@ -2100,6 +2256,39 @@ function migrateMemoryFilesFor4B(db) {
     db.exec(`ALTER TABLE ${add.table} ADD COLUMN ${add.name} ${add.decl}`);
   }
 }
+function migrateSharedMemoryFor5B(db) {
+  const cols = db.prepare(`PRAGMA table_info(observations)`).all();
+  if (cols.length > 0 && !cols.some((c) => c.name === "shareable")) {
+    db.exec(`ALTER TABLE observations ADD COLUMN shareable INTEGER NOT NULL DEFAULT 0`);
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shared_memory_pending (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      record_hash TEXT NOT NULL UNIQUE,        -- identity + idempotency key (hex sha256)
+      origin_repo_id TEXT NOT NULL,            -- the signed origin repo_id (v4 UUID)
+      origin_repo_label TEXT NOT NULL,         -- re-slugged on read; NEVER trusted from the wire
+      envelope_raw TEXT NOT NULL,              -- the VERBATIM signed bytes; B-05 re-verifies these
+      record_json TEXT NOT NULL,               -- the single record's canonical JSON
+      received_at_epoch INTEGER NOT NULL,      -- epoch SECONDS (Slice-2 convention)
+      accepted_at_epoch INTEGER,               -- set on accept (B-05); NULL while pending
+      refused_at_epoch INTEGER,                -- set on refuse (B-06)
+      expired_at_epoch INTEGER                 -- revocation \u21D2 EXPIRE, never DELETE (B-07 / S-3)
+    );
+    CREATE INDEX IF NOT EXISTS idx_smp_origin ON shared_memory_pending(origin_repo_id);
+    CREATE INDEX IF NOT EXISTS idx_smp_received ON shared_memory_pending(received_at_epoch DESC);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shared_memory_outbound (
+      record_hash TEXT PRIMARY KEY,          -- the exported record's canonical hash
+      observation_id INTEGER NOT NULL,       -- the source observations.id (for B-07 revocation)
+      origin_repo_id TEXT NOT NULL,          -- this repo's own repo_id at export time
+      seq INTEGER NOT NULL,                  -- the envelope seq this record first went out in
+      exported_at_epoch INTEGER NOT NULL,    -- epoch SECONDS
+      revoked_at_epoch INTEGER               -- set when the source row is superseded/expired (B-07)
+    );
+    CREATE INDEX IF NOT EXISTS idx_smo_obs ON shared_memory_outbound(observation_id);
+  `);
+}
 function migrateAuditLogCheckExtension(db) {
   const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_log'").get();
   if (!row) return;
@@ -2122,7 +2311,16 @@ function migrateAuditLogCheckExtension(db) {
     "memory_file_adopted_human",
     "memory_file_rendered",
     "memory_file_render_refused",
-    "memory_file_tombstoned"
+    "memory_file_tombstoned",
+    // B-10 (Slice 5) — the seven cross-repo shared-memory events. An existing DB whose
+    // CHECK lacks any of these triggers the table rebuild below.
+    "shared_memory_exported",
+    "shared_memory_export_refused",
+    "shared_memory_imported",
+    "shared_memory_dropped",
+    "shared_memory_accepted",
+    "shared_memory_refused",
+    "shared_memory_revoked"
   ];
   const checkClauseMatch = row.sql.match(/event_type\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*event_type\s+IN\s*\(([\s\S]*?)\)\s*\)/i);
   if (checkClauseMatch) {
@@ -2141,7 +2339,12 @@ function migrateAuditLogCheckExtension(db) {
           'code_change', 'rule_enforced', 'approval', 'review', 'commit', 'compaction',
           'rule_candidate_emitted', 'rule_promoted', 'rule_dismissed',
           'memory_file_ingested', 'memory_file_expired', 'memory_file_adopted_human',
-          'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned'
+          'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned',
+          -- B-10 (Slice 5) \u2014 cross-repo shared-memory events (must mirror the CREATE +
+          -- the expected[] list above, or the migration would loop rebuilding forever).
+          'shared_memory_exported', 'shared_memory_export_refused', 'shared_memory_imported',
+          'shared_memory_dropped', 'shared_memory_accepted', 'shared_memory_refused',
+          'shared_memory_revoked'
         )),
         actor TEXT NOT NULL DEFAULT 'ai' CHECK(actor IN ('ai', 'human', 'hook', 'agent')),
         model_id TEXT,
@@ -2218,6 +2421,12 @@ function initMemorySchema(db) {
       -- credential, or takes a snapshot. A Slice-5 synced memory arrives here with
       -- origin='team' and must never reach disk without CR-55's gates.
       origin TEXT NOT NULL DEFAULT 'local',
+      -- B-01 (Slice 5, cross-repo surfacing): the per-decision SHARE opt-in. Set to 1
+      -- ONLY by an explicit human act (massu memory share <id>); NEVER by a heuristic,
+      -- score, LLM, hook, or consolidation pass. Export (B-02) reads WHERE shareable=1
+      -- AND origin='local'. Defaults 0 so every pre-existing and machine-written row is
+      -- un-shareable until a human says otherwise (fail-closed).
+      shareable INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       created_at_epoch INTEGER NOT NULL,
       FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
@@ -2491,7 +2700,13 @@ function initMemorySchema(db) {
         'code_change', 'rule_enforced', 'approval', 'review', 'commit', 'compaction',
         'rule_candidate_emitted', 'rule_promoted', 'rule_dismissed',
         'memory_file_ingested', 'memory_file_expired', 'memory_file_adopted_human',
-        'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned'
+        'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned',
+        -- B-10 (Slice 5): cross-repo shared-memory observability. Without these seven,
+        -- nobody could ever answer "what has crossed between my repos?" (and an ingest
+        -- catch would swallow the CHECK violation, silently producing NOTHING).
+        'shared_memory_exported', 'shared_memory_export_refused', 'shared_memory_imported',
+        'shared_memory_dropped', 'shared_memory_accepted', 'shared_memory_refused',
+        'shared_memory_revoked'
       )),
       actor TEXT NOT NULL DEFAULT 'ai' CHECK(actor IN ('ai', 'human', 'hook', 'agent')),
       model_id TEXT,
@@ -2860,6 +3075,7 @@ function initMemorySchema(db) {
   `);
   migrateObservationEmbeddingChunks(db);
   migrateMemoryFilesFor4B(db);
+  migrateSharedMemoryFor5B(db);
   ensureRuleCandidatesTable(db);
   migrateRuleDelivery(db);
 }
@@ -3730,7 +3946,7 @@ var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, 
 var init_memory_db = __esm({
   "src/memory-db.ts"() {
     "use strict";
-    init_sqlite_loader();
+    init_db_driver();
     init_config();
     init_memory_vector();
     init_db_backup();
@@ -3760,68 +3976,6 @@ function estimateTokens(text) {
 
 // src/observation-extractor.ts
 init_memory_db();
-
-// src/adr-generator.ts
-init_config();
-var DEFAULT_DETECTION_PHRASES = ["chose", "decided", "switching to", "moving from", "going with"];
-function getDetectionPhrases() {
-  return getConfig().governance?.adr?.detection_phrases ?? DEFAULT_DETECTION_PHRASES;
-}
-function detectDecisionPatterns(text) {
-  const phrases = getDetectionPhrases();
-  const lower = text.toLowerCase();
-  return phrases.some((phrase) => lower.includes(phrase));
-}
-function extractAlternatives(description) {
-  const alternatives = [];
-  const overMatch = description.match(/(\w[\w\s-]+)\s+over\s+(\w[\w\s-]+)/i);
-  if (overMatch) {
-    alternatives.push(overMatch[1].trim());
-    alternatives.push(overMatch[2].trim());
-  }
-  const insteadMatch = description.match(/(\w[\w\s-]+)\s+instead\s+of\s+(\w[\w\s-]+)/i);
-  if (insteadMatch) {
-    alternatives.push(insteadMatch[1].trim());
-    alternatives.push(insteadMatch[2].trim());
-  }
-  const switchMatch = description.match(/switching\s+from\s+(\w[\w\s-]+)\s+to\s+(\w[\w\s-]+)/i);
-  if (switchMatch) {
-    alternatives.push(switchMatch[2].trim());
-    alternatives.push(switchMatch[1].trim());
-  }
-  return [...new Set(alternatives)];
-}
-function storeDecision(db, decision) {
-  const existing = new Set(
-    db.prepare(`PRAGMA table_info(architecture_decisions)`).all().map(
-      (c) => c.name
-    )
-  );
-  const cols = ["title", "context", "decision", "alternatives", "consequences", "session_id", "status"];
-  const vals = [
-    decision.title,
-    decision.context,
-    decision.decision,
-    JSON.stringify(decision.alternatives),
-    decision.consequences,
-    decision.sessionId ?? null,
-    decision.status ?? "accepted"
-  ];
-  if (existing.has("affected_files")) {
-    cols.push("affected_files");
-    vals.push(decision.affectedFiles ? JSON.stringify(decision.affectedFiles) : null);
-  }
-  const hasTemporal = existing.has("valid_from_epoch");
-  const extraSql = hasTemporal ? `, valid_from, ingested_at, valid_from_epoch, ingested_at_epoch` : "";
-  const extraVals = hasTemporal ? `, datetime('now'), datetime('now'), CAST(strftime('%s','now') AS INTEGER), CAST(strftime('%s','now') AS INTEGER)` : "";
-  const result = db.prepare(
-    `INSERT INTO architecture_decisions (${cols.join(", ")}${extraSql})
-       VALUES (${cols.map(() => "?").join(", ")}${extraVals})`
-  ).run(...vals);
-  return Number(result.lastInsertRowid);
-}
-
-// src/observation-extractor.ts
 init_config();
 import { homedir as homedir4 } from "os";
 
@@ -4124,23 +4278,6 @@ function classifyRealTimeToolCall(toolName, toolInput, toolResponse, seenReads2,
     isError: isError ?? normalized.isError
   };
   if (isNoisyToolCall(tc, seenReads2)) return null;
-  const responseText = normalized.text;
-  if (responseText && detectDecisionPatterns(responseText)) {
-    const firstLine = responseText.split("\n")[0].slice(0, 200);
-    const title = `Architecture decision: ${firstLine}`;
-    const detail = responseText.slice(0, 1e3);
-    return {
-      type: "decision",
-      title,
-      detail,
-      visibility: classifyVisibility(title, detail),
-      opts: {
-        importance: assignImportance("decision"),
-        originalTokens: estimateTokens(responseText),
-        ...extractLinkedReferences(responseText)
-      }
-    };
-  }
   return classifyToolCall(tc);
 }
 function detectPlanProgress(rawToolResponse) {
@@ -4257,8 +4394,8 @@ init_config();
 
 // src/import-resolver.ts
 init_config();
-import { readFileSync as readFileSync5, existsSync as existsSync8, statSync as statSync2 } from "fs";
-import { resolve as resolve6, dirname as dirname8, join as join5 } from "path";
+import { readFileSync as readFileSync6, existsSync as existsSync9, statSync as statSync2 } from "fs";
+import { resolve as resolve6, dirname as dirname8, join as join6 } from "path";
 
 // src/security-utils.ts
 import { resolve as resolve5, normalize } from "path";
@@ -4321,19 +4458,19 @@ function resolveImportPath(specifier, fromFile) {
   } else {
     basePath = resolve6(dirname8(fromFile), specifier);
   }
-  if (existsSync8(basePath) && !isDirectory(basePath)) {
+  if (existsSync9(basePath) && !isDirectory(basePath)) {
     return toRelative(basePath);
   }
   const resolvedPaths = getResolvedPaths();
   for (const ext of resolvedPaths.extensions) {
     const withExt = basePath + ext;
-    if (existsSync8(withExt)) {
+    if (existsSync9(withExt)) {
       return toRelative(withExt);
     }
   }
   for (const indexFile of resolvedPaths.indexFiles) {
-    const indexPath = join5(basePath, indexFile);
-    if (existsSync8(indexPath)) {
+    const indexPath = join6(basePath, indexFile);
+    if (existsSync9(indexPath)) {
       return toRelative(indexPath);
     }
   }
@@ -4355,7 +4492,7 @@ function toRelative(absPath) {
 }
 
 // src/validation-engine.ts
-import { existsSync as existsSync9, readFileSync as readFileSync6 } from "fs";
+import { existsSync as existsSync10, readFileSync as readFileSync7 } from "fs";
 function getValidationChecks() {
   return getConfig().governance?.validation?.checks ?? {
     rule_compliance: true,
@@ -4383,7 +4520,7 @@ function validateFile(filePath, projectRoot) {
     });
     return checks;
   }
-  if (!existsSync9(absPath)) {
+  if (!existsSync10(absPath)) {
     checks.push({
       name: "file_exists",
       severity: "error",
@@ -4392,7 +4529,7 @@ function validateFile(filePath, projectRoot) {
     });
     return checks;
   }
-  const source = readFileSync6(absPath, "utf-8");
+  const source = readFileSync7(absPath, "utf-8");
   const lines = source.split("\n");
   if (activeChecks.rule_compliance !== false) {
     for (const ruleSet of config.rules) {
@@ -4491,7 +4628,7 @@ function storeValidationResult(db, filePath, checks, sessionId, validationType =
 
 // src/security-scorer.ts
 init_config();
-import { existsSync as existsSync10, readFileSync as readFileSync7 } from "fs";
+import { existsSync as existsSync11, readFileSync as readFileSync8 } from "fs";
 var DEFAULT_SECURITY_PATTERNS = [
   {
     regex: /\bexec\s*\(\s*[`"'].*\$\{/,
@@ -4582,12 +4719,12 @@ function scoreFileSecurity(filePath, projectRoot) {
       }]
     };
   }
-  if (!existsSync10(absPath)) {
+  if (!existsSync11(absPath)) {
     return { riskScore: 0, findings: [] };
   }
   let source;
   try {
-    source = readFileSync7(absPath, "utf-8");
+    source = readFileSync8(absPath, "utf-8");
   } catch {
     return { riskScore: 0, findings: [] };
   }
@@ -4627,8 +4764,8 @@ function storeSecurityScore(db, sessionId, filePath, riskScore, findings) {
 
 // src/hooks/post-tool-use.ts
 init_config();
-import { readFileSync as readFileSync9, writeFileSync as writeFileSync3, existsSync as existsSync12, mkdirSync as mkdirSync7, statSync as statSync3 } from "fs";
-import { join as join6, basename as pathBasename2, dirname as pathDirname, resolve as pathResolve } from "path";
+import { readFileSync as readFileSync10, writeFileSync as writeFileSync3, existsSync as existsSync13, mkdirSync as mkdirSync7, statSync as statSync3 } from "fs";
+import { join as join7, basename as pathBasename2, dirname as pathDirname, resolve as pathResolve } from "path";
 
 // src/lib/recurrence-incrementer.ts
 var ANSI = /\x1b\[[0-9;]*m/g;
@@ -4692,7 +4829,7 @@ function incrementRecurrenceCountsForScannerFailures(db, sessionId, scannerStdou
 init_hook_failure_signal();
 
 // src/memory-file-ingest.ts
-import { readFileSync as readFileSync8, existsSync as existsSync11, readdirSync as readdirSync2 } from "fs";
+import { readFileSync as readFileSync9, existsSync as existsSync12, readdirSync as readdirSync2 } from "fs";
 init_memory_db();
 import { parse as parseYaml2 } from "yaml";
 import { basename as pathBasename } from "path";
@@ -4801,8 +4938,8 @@ function upsertMemoryFileMirror(db, f) {
   return "inserted";
 }
 function ingestMemoryFile(db, sessionId, filePath) {
-  if (!existsSync11(filePath)) return "skipped";
-  const content = readFileSync8(filePath, "utf-8");
+  if (!existsSync12(filePath)) return "skipped";
+  const content = readFileSync9(filePath, "utf-8");
   if (Buffer.byteLength(content, "utf-8") > MAX_MEMORY_FILE_BYTES) {
     process.stderr.write(
       `[massu] memory file exceeds ${MAX_MEMORY_FILE_BYTES} bytes, not ingested: ${filePath}
@@ -4918,27 +5055,6 @@ async function main() {
         deduplicateFailedAttempt(db, session_id, observation.title, observation.detail, observation.opts);
       } else {
         addObservation(db, session_id, observation.type, observation.title, observation.detail, observation.opts);
-      }
-      if (observation.type === "decision") {
-        try {
-          const decisionText = observation.detail ?? observation.title;
-          const alternatives = extractAlternatives(decisionText);
-          const existing = db.prepare(
-            `SELECT id FROM architecture_decisions WHERE session_id = ? AND title = ? LIMIT 1`
-          ).get(session_id, observation.title);
-          if (!existing) {
-            storeDecision(db, {
-              title: observation.title,
-              context: "",
-              decision: decisionText,
-              alternatives,
-              consequences: "",
-              sessionId: session_id,
-              affectedFiles: observation.opts?.filesInvolved
-            });
-          }
-        } catch {
-        }
       }
       if (tool_response) {
         const progress = detectPlanProgress(tool_response);
@@ -5076,10 +5192,10 @@ async function main() {
       } catch (err) {
         try {
           const projectRoot = process.cwd();
-          const dir = join6(projectRoot, ".massu", "rule-candidates");
-          if (!existsSync12(dir)) mkdirSync7(dir, { recursive: true });
-          const logPath = join6(dir, ".cr53-increment-failures.jsonl");
-          const pre = existsSync12(logPath) ? readFileSync9(logPath, "utf-8") : "";
+          const dir = join7(projectRoot, ".massu", "rule-candidates");
+          if (!existsSync13(dir)) mkdirSync7(dir, { recursive: true });
+          const logPath = join7(dir, ".cr53-increment-failures.jsonl");
+          const pre = existsSync13(logPath) ? readFileSync10(logPath, "utf-8") : "";
           const sep = pre && !pre.endsWith("\n") ? "\n" : "";
           writeFileSync3(logPath, pre + sep + JSON.stringify({
             session_id,
@@ -5184,13 +5300,13 @@ var _conventionDefaults = {
 function readConventions(cwd) {
   try {
     const projectRoot = cwd ?? process.cwd();
-    const configPath = join6(projectRoot, "massu.config.yaml");
-    if (!existsSync12(configPath)) return _conventionDefaults;
+    const configPath = join7(projectRoot, "massu.config.yaml");
+    if (!existsSync13(configPath)) return _conventionDefaults;
     const mtimeMs = statSync3(configPath).mtimeMs;
     if (_cachedConventions !== null && _cachedConventionsPath === configPath && _cachedConventionsMtimeMs === mtimeMs) {
       return _cachedConventions;
     }
-    const content = readFileSync9(configPath, "utf-8");
+    const content = readFileSync10(configPath, "utf-8");
     const parsed = parseYaml3(content);
     if (!parsed || typeof parsed !== "object") return _conventionDefaults;
     const conventions = parsed.conventions;
@@ -5222,11 +5338,11 @@ function isKnowledgeSourceFile(filePath) {
 function checkMemoryFileIntegrity(filePath) {
   const issues = [];
   try {
-    if (!existsSync12(filePath)) {
+    if (!existsSync13(filePath)) {
       issues.push("MEMORY.md file does not exist after write");
       return issues;
     }
-    const content = readFileSync9(filePath, "utf-8");
+    const content = readFileSync10(filePath, "utf-8");
     const lines = content.split("\n");
     const MAX_LINES = 200;
     if (lines.length > MAX_LINES) {

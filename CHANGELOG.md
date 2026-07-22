@@ -10,6 +10,96 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.0.0] - 2026-07-21
+
+**Breaking release.** The local database engine now defaults to Node's built-in
+`node:sqlite` instead of the native `better-sqlite3`, and the minimum Node version is
+raised to **22.13.0**. This ends the Node-ABI-mismatch failure class structurally — the
+default install has no compiled native module to `dlopen`, so a Node upgrade can never
+again silently break memory storage.
+
+### Changed
+
+- **BREAKING: minimum Node is now `>=22.13.0`** (drops 20 and 21). `node:sqlite` ships
+  flag-free with FTS5 only from 22.13; earlier 22.x (22.0–22.12) are not supported. A
+  preflight check fails loudly with the required version if you run an older Node.
+- **BREAKING: the default local DB engine is now `node:sqlite` (native-free)** (CR-69,
+  `plan-memory-system-to-100-percent` WS4 / Layer 2). Every database open routes through a
+  single adapter (`db-driver.ts`) that constructs Node's built-in SQLite — no native
+  compile, no ABI, no `prebuild-install`. `better-sqlite3` is retained as an **opt-in
+  fallback**: set `MASSU_DB_ENGINE=better-sqlite3` to route through the CR-65 self-healing
+  native loader instead. Storage format is unchanged and byte-compatible in both
+  directions — existing databases open as-is under either engine. Enforced by a dual-engine
+  parity test (derived from the live schema), a drift-guard, and pattern-scanner Check 46.
+  `massu doctor` now reports the active engine and proves it by constructing a DB and
+  running `SELECT 1`.
+
+### Migration
+
+- Most installs need no action — a fresh `npm install -g @massu/core@2.0.0` on Node
+  `>=22.13` switches to `node:sqlite` automatically and reads your existing database
+  unchanged. If you must stay on the native engine (e.g. an environment pinned below Node
+  22.13 that you cannot upgrade), set `MASSU_DB_ENGINE=better-sqlite3` — but the supported
+  path is to upgrade Node.
+
+### Infrastructure
+
+- **G-6 anti-vacuity registration for this release's guard pile** (no `@massu/core` runtime
+  change, `plan-2026-07-21-g6-wave-2-unpushed-pile-registration`). Registers a can-fail proof
+  for every enforcement guard shipped by WS3 / Slice 5 (CR-67) / CR-68 / WS4 (CR-69) — 14
+  pattern-scanner shell fail-points (Checks 44/45/46) + 32 vitest source-plant proofs — plus
+  re-pins 3 stale non-guard exempts and hardens 3 T-3 symbol-grep predicates (Check 44 d/e →
+  AST call-site checks). Makes pre-push `[22/22]` (the G-6 anti-vacuity meta-gate) green.
+
+## [1.17.0] - 2026-07-21
+
+The memory system is now feature-complete: cross-repo sharing and the opt-in file
+renderer land here, both fail-closed and default-off. This is the last release on the
+`better-sqlite3` engine and the last to support Node 20/21 — the next major (`2.0.0`)
+switches the local database to Node's built-in `node:sqlite` and raises the Node floor.
+
+### Added
+
+- **Cross-repo memory sharing — local-first, opt-in, fail-closed** (`plan-memory-system-to-100-percent`
+  Slice 5, CR-67). A durable memory can now travel from one repo to another, but **nothing crosses a
+  repo boundary without a human act on both sides, and nothing that crosses is ever treated as an
+  instruction.** Export is an explicit human `massu memory share` that produces a signed, secret-refusing
+  envelope (it refuses rather than redacts) written to `~/.massu/shared/`, outside every repo. The
+  receiving side never auto-applies: `massu memory accept` materializes the memory only after
+  **re-verifying the retained signed envelope bytes** (a stored "verified" boolean is never treated as
+  authority), and until then the item surfaces in recall as a zero-content pointer; once accepted it
+  surfaces as fenced, provenance-headed data. New CLI verbs: `massu memory review | accept | refuse |
+  share | trust` (accept/refuse are CLI-only — never a tool the model can invoke). Both opt-ins default
+  **OFF**, so a dormant install shares and mints nothing. Three-layer enforcement: code apply-gates +
+  `shared-memory-*` drift-guards + pattern-scanner Check 44.
+- **Opt-in memory file-renderer** (`plan-memory-system-to-100-percent` WS3, CR-61). Massu can render
+  selected durable memories into a managed region of your memory files. It is **off by default**
+  (`memory.files.renderEnabled: false`) and the human always wins: the file on disk is the standing
+  source of truth, Massu **never writes a file it cannot prove it authored** (authorship is a per-install
+  keyed HMAC, never a public body-hash) and **never un-deletes a file the human deleted** — an absent
+  memory directory is a no-op. Tombstones live in the memory corpus, not the database.
+
+### Fixed
+
+- **Memory ingestion no longer mints noise, and the writer only renders memory-worthy facts**
+  (`plan-memory-system-to-100-percent` WS3 prerequisites). A cluster of ingestion defects that would
+  have polluted the corpus the moment the renderer was enabled: Massu stopped mining tool-call
+  responses for spurious "decisions"; a hook double-fire that recorded every event twice was ended
+  (one settings layer now owns the hooks); `massu memory prune-noise` expires accumulated ingestion
+  noise (expire, never hard-delete); and the file-renderer now writes only memory-worthy fact types,
+  never raw session telemetry.
+
+### Infrastructure
+
+- **CR-68 — every session handoff must be turn-key** (internal governance; no shipped `@massu/core`
+  runtime change). A `RECAP`/`HANDOFF` must carry a Next-Session Runbook that spells out Vehicle,
+  Steps, Stop gates, and a verifiable Acceptance check per open item — never a bare "Operator TODO"
+  list. Enforced by a completeness script + drift-guard + pattern-scanner Check 45 (VR-HANDOFF).
+- **CR-62 — a bug the machine finds produces the same artifacts as one a human reports** (internal
+  governance). Any fix that closes a silent-failure or data-loss class now ships an incident doc, a
+  drift-guard, and a memory entry in the same push, enforced at pre-push (VR-INCIDENT-COVERAGE) —
+  closing the class where audit-discovered defects were fixed and forgotten with no durable trail.
+
 ## [1.16.3] - 2026-07-15
 
 ### Fixed

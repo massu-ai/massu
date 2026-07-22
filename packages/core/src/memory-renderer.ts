@@ -47,6 +47,7 @@ import { takeSnapshots, restoreSnapshots } from './rule-candidate-snapshot.ts';
 import { mintAuthorship, verifyAuthorship, extractRenderMac, RENDER_MAC_KEY } from './memory-authorship.ts';
 import { computeRenderPath, relPathOwnerLookup, RenderPathRefused } from './memory-render-path.ts';
 import { isTombstoned, readTombstones } from './memory-tombstones.ts';
+import { isLocalOrigin } from './memory-origin.ts';
 import { containsSecret } from './memory-llm.ts';
 import { hasFreshBackup, takeBackup, BackupError } from './memory-backup.ts';
 import {
@@ -200,8 +201,9 @@ function renderLocked(
     // exists only for a file ALREADY rendered. A memory synced from another repo
     // (Slice 5) arrives as an `observations` row with NO memory_files row, so a gate
     // reading the projection would check a row that does not exist and NEVER FIRE.
-    // Unknown / NULL origin ⇒ refuse (fail-closed).
-    if (c.origin !== 'local') {
+    // Unknown / NULL origin ⇒ refuse (fail-closed). The predicate is the ONE
+    // shared origin vocabulary (memory-origin.ts, A-01) — never a bare literal.
+    if (!isLocalOrigin(c.origin)) {
       refusals.push({ name: c.name, reason: 'non_local_origin', detail: c.origin || 'unknown' });
       audit('memory_file_render_refused', { name: c.name, reason: 'non_local_origin' });
       continue;

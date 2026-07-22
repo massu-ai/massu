@@ -48,8 +48,13 @@ const FORBIDDEN_IN = new Set<string>(['memory-supersede.ts']);
 // this regex would have made the slice's headline claim ("no code in Massu can
 // hard-delete a memory") FALSE by construction: a `DELETE FROM memory_files`
 // would pass this guard even with an empty allowlist.
+// `shared_memory_pending` (Slice 5, S-3) holds the ONLY copy of an imported-but-not-
+// yet-accepted cross-repo record — its verbatim signed envelope bytes. Revocation
+// EXPIRES it (`expired_at_epoch`, B-07); a `DELETE FROM shared_memory_pending` would
+// destroy the sole copy of a memory and pass this guard, again making the headline
+// claim false as specified. B-07 uses UPDATE, never DELETE.
 const DELETE_RE =
-  /DELETE\s+FROM\s+(observations|architecture_decisions|sessions|memory_files)\b/gis;
+  /DELETE\s+FROM\s+(observations|architecture_decisions|sessions|memory_files|shared_memory_pending)\b/gis;
 
 /**
  * Scan CODE, not prose.

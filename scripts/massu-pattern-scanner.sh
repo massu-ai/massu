@@ -1960,6 +1960,132 @@ if [ "$CHECK43_VIOLATIONS" -eq 0 ]; then
 fi
 
 # -------------------------------------------------------
+# Check 44: Cross-repo surfacing crossing invariants (CR-67 / VR-CROSS-REPO-SURFACING)
+# -------------------------------------------------------
+# Slice 5's LAW: nothing crosses a repo boundary without a human act on both sides,
+# and nothing crossed is ever an instruction. This is the LAYER-3 backstop to the
+# per-item vitest drift-guards (layer 2) and the code gates (layer 1) — it FAILS the
+# build if any of the crossing invariants regresses:
+#   (a) ONE origin vocabulary + fail-closed predicate (memory-origin.ts SoT).
+#   (b) accept/refuse are CLI-ONLY — NO MCP tool maps to them (tools.ts is clean).
+#   (c) the verify->pending->accept half imports no concrete transport / no global fetch.
+#   (d) accept RE-VERIFIES the retained envelope bytes (D2 closed for the cross-repo path).
+#   (e) export is fail-closed via the DETECTOR (containsSecret), never redactSecrets.
+#   (f) the pending recall arm reads NO candidate content (zero-byte injection defence).
+echo "Check 44: Cross-repo surfacing crossing invariants (CR-67)"
+CHECK44_SRC="$REPO_ROOT/packages/core/src"
+CHECK44_OK=1
+# (a) origin SoT + fail-closed
+if ! grep -q "export function isLocalOrigin" "$CHECK44_SRC/memory-origin.ts" 2>/dev/null; then
+  fail "Check 44: memory-origin.ts is missing the isLocalOrigin SoT predicate (CR-67a)"; CHECK44_OK=0
+fi
+# (b) no MCP accept/refuse tool — the model may read attacker text
+if grep -qE "acceptSharedMemory|refuseSharedMemory|runMemoryShareCli|memory-share-cli" "$CHECK44_SRC/tools.ts" 2>/dev/null; then
+  fail "Check 44: tools.ts references a cross-repo accept/refuse handler — accept MUST be CLI-only (CR-67b)"; CHECK44_OK=0
+fi
+# (c) the sync half is transport-agnostic (code AND comments)
+if grep -qE "\bLocalFsTransport\b|(^|[^.a-zA-Z0-9_])fetch\s*\(" "$CHECK44_SRC/shared-memory-sync.ts" 2>/dev/null; then
+  fail "Check 44: shared-memory-sync.ts names a concrete transport or a global fetch — the verify->accept half MUST be transport-agnostic (CR-67c)"; CHECK44_OK=0
+fi
+# (d) accept re-verifies the retained bytes — AST call/reference SITES, not comment-satisfiable
+#     bare-identifier greps (T-3: a `// verifyLocalShareEnvelope` comment must NOT satisfy this).
+if ! ast_present "$CHECK44_SRC/shared-memory-sync.ts" verifyLocalShareEnvelope call || \
+   ! ast_present "$CHECK44_SRC/shared-memory-sync.ts" envelope_raw reference; then
+  fail "Check 44: shared-memory-sync.ts accept path does not re-verify the retained envelope (D2 regressed?) (CR-67d)"; CHECK44_OK=0
+fi
+# (e) export uses the DETECTOR, never the redactor — AST CALL-site, not a bare-identifier grep (T-3).
+if ! ast_present "$CHECK44_SRC/shared-memory-export.ts" containsSecret call; then
+  fail "Check 44: shared-memory-export.ts does not use the containsSecret DETECTOR — export must REFUSE, never redact (CR-67e)"; CHECK44_OK=0
+fi
+if grep -qE "redactSecrets\s*\(" "$CHECK44_SRC/shared-memory-export.ts" 2>/dev/null; then
+  fail "Check 44: shared-memory-export.ts CALLS redactSecrets — a shared memory must never be silently rewritten (CR-67e)"; CHECK44_OK=0
+fi
+# (f) the pending recall arm reads no candidate content. Capture the pendingPointer
+#     body into a here-string (NEVER pipe a streaming grep into `grep -q` — broken-pipe
+#     false-verdict class, incident 2026-07-16).
+CHECK44_PP="$("$AWK" '/export function pendingPointer/{f=1} f{print} f&&/^}/{exit}' "$CHECK44_SRC/shared-memory-recall.ts" 2>/dev/null || true)"
+if grep -qE "record_json|envelope_raw|\.title|\.detail" <<< "$CHECK44_PP"; then
+  fail "Check 44: pendingPointer reads candidate content — the pending arm MUST emit zero candidate-derived bytes (CR-67f)"; CHECK44_OK=0
+fi
+# layer-2 drift-guards must exist
+for CHECK44_G in shared-memory-sync-drift-guard shared-memory-cli-drift-guard shared-memory-recall-drift-guard shared-memory-slice4b-seam-drift-guard; do
+  if [ ! -f "$CHECK44_SRC/__tests__/$CHECK44_G.test.ts" ]; then
+    fail "Check 44: layer-2 drift-guard $CHECK44_G.test.ts is MISSING — a CR-67 invariant is unenforced"; CHECK44_OK=0
+  fi
+done
+# no duplicate check numbers (this check must be the ONLY 44)
+CHECK44_DUP=$(grep -oE 'echo "Check [0-9]+' "${BASH_SOURCE[0]}" | grep -oE '[0-9]+' | sort | uniq -d | tr '\n' ' ')
+if [ -n "$CHECK44_DUP" ]; then
+  fail "Check 44: duplicate pattern-scanner check number(s): $CHECK44_DUP"; CHECK44_OK=0
+fi
+if [ "$CHECK44_OK" -eq 1 ]; then
+  pass "Check 44: Cross-repo surfacing crossing invariants intact (CR-67)"
+fi
+
+# -------------------------------------------------------
+# Check 45: Handoff completeness — every session handoff is turn-key (CR-68 / VR-HANDOFF)
+# -------------------------------------------------------
+# Operator directive 2026-07-21: never hand back an "Operator TODO" bullet list. Every
+# new/changed `.claude/session-state/{RECAP,HANDOFF}-*.md` must carry a complete
+# `## Next-Session Runbook` (per-item **Vehicle**/**Steps**/**Stop**/**Acceptance**).
+# Layer 3 backstop to the drift-guard vitest (layer 2) and the gate script (layer 1).
+echo "Check 45: Handoff completeness (CR-68)"
+CHECK45_OK=1
+CHECK45_GATE="$REPO_ROOT/scripts/massu-handoff-completeness.sh"
+if [ ! -f "$CHECK45_GATE" ]; then
+  fail "Check 45: scripts/massu-handoff-completeness.sh is MISSING — the handoff gate is unenforced (CR-68)"; CHECK45_OK=0
+else
+  # The gate must OPEN and CLOSE (its own mutation self-test) — a gate that cannot fail is decoration.
+  if ! bash "$CHECK45_GATE" --self-test >/dev/null 2>&1; then
+    fail "Check 45: the handoff gate self-test FAILED — it no longer opens/closes (CR-68)"; CHECK45_OK=0
+  fi
+  # Every handoff written/changed in this branch must be complete.
+  if ! bash "$CHECK45_GATE" --changed >/dev/null 2>&1; then
+    fail "Check 45: a new/changed handoff is INCOMPLETE. Run: bash scripts/massu-handoff-completeness.sh --changed (see .claude/templates/handoff-runbook.md) (CR-68)"; CHECK45_OK=0
+  fi
+fi
+if [ "$CHECK45_OK" -eq 1 ]; then
+  pass "Check 45: handoff docs are turn-key (CR-68)"
+fi
+
+# -------------------------------------------------------
+# Check 46: DB-driver adapter — node:sqlite is the sole-adapter engine (Layer 2, CR-69)
+# -------------------------------------------------------
+# Layer 2 makes Node's built-in node:sqlite the DEFAULT DB engine (native-free — no ABI
+# to break, incident 2026-07-12), behind the single swappable db-driver.ts adapter.
+# node:sqlite MUST be value-loaded ONLY in db-driver.ts, and openDatabase MUST be imported
+# from the adapter everywhere (the loader's openDatabase is the adapter's bs3-driver
+# delegate only). Grep-mirror of db-driver-drift-guard.test.ts (three-layer, CR-69).
+# `import type` is erased at compile time → EXEMPT.
+echo "Check 46: DB-driver adapter — node:sqlite sole-loader (Layer 2)"
+CHECK46_VIOLATIONS=0
+# (b) node:sqlite value/dynamic-loaded or DatabaseSync constructed outside the adapter.
+# IDIOM-AGNOSTIC: the `\(['\"]node:sqlite['\"]\)` call-form catches require(), import(),
+# AND the createRequire-alias `req('node:sqlite')` idiom the adapter itself uses (which a
+# 4-regex plain-string set missed — closed after the CR-69 pattern review). A user-facing
+# label like 'node:sqlite (native-free)' in doctor/heal has trailing text → not matched.
+CHECK46_NODE_HITS=$(grep -rnE "from ['\"]node:sqlite['\"]|\(['\"]node:sqlite['\"]\)|new DatabaseSync\(" packages/core/src --include='*.ts' 2>/dev/null \
+  | grep -v '__tests__' \
+  | grep -v 'db-driver.ts' || true)
+if [ -n "$CHECK46_NODE_HITS" ]; then
+  echo "$CHECK46_NODE_HITS"
+  fail "Check 46: node:sqlite value-load / DatabaseSync outside db-driver.ts (Layer 2, CR-69). Route DB opens through openDatabase() from db-driver.ts. 'import type' is exempt."
+  CHECK46_VIOLATIONS=$((CHECK46_VIOLATIONS + 1))
+fi
+# (c) openDatabase imported from the Layer-1 loader anywhere but the adapter.
+CHECK46_OPEN_HITS=$(grep -rnE "import[[:space:]]*\{[^}]*\bopenDatabase\b[^}]*\}[[:space:]]*from[[:space:]]*['\"][^'\"]*lib/sqlite-loader\.ts['\"]" packages/core/src --include='*.ts' 2>/dev/null \
+  | grep -v '__tests__' \
+  | grep -v 'db-driver.ts' || true)
+if [ -n "$CHECK46_OPEN_HITS" ]; then
+  echo "$CHECK46_OPEN_HITS"
+  fail "Check 46: openDatabase imported from lib/sqlite-loader.ts outside the adapter (Layer 2, CR-69). Import openDatabase from db-driver.ts."
+  CHECK46_VIOLATIONS=$((CHECK46_VIOLATIONS + 1))
+fi
+if [ "$CHECK46_VIOLATIONS" -eq 0 ]; then
+  pass "Check 46: DB-driver adapter — node:sqlite sole-loader (Layer 2)"
+fi
+
+# -------------------------------------------------------
 # Summary
 # -------------------------------------------------------
 echo ""

@@ -109,6 +109,53 @@ describe('Observation Extractor', () => {
       const result = classifyRealTimeToolCall('Glob', { pattern: '**/*.ts' }, 'files', seenReads);
       expect(result).toBeNull();
     });
+
+    // plan-memory-ingestion-decision-noise-fix D-A: a tool RESPONSE is echoed content
+    // (a file's bytes, a command's output), never the assistant's own decision. Mining
+    // it for "decisions" minted importance-5 junk ("Architecture decision: /**", "…: ---")
+    // from any output that merely contained a word like "chosen"/"decided". Decisions are
+    // captured ONLY from the assistant's reasoning path (extractDecisions, backfill), never
+    // here. These assert the noise class is structurally gone.
+    it('never mints a decision from a file READ whose content mentions "chosen"', () => {
+      const seenReads = new Set<string>();
+      const result = classifyRealTimeToolCall(
+        'Read',
+        { file_path: '/path/renderer.ts' },
+        '/**\n * The adapter was chosen over the alternative for latency reasons.\n */',
+        seenReads,
+      );
+      expect(result?.type).not.toBe('decision');
+    });
+
+    it('never mints a decision from BASH output that mentions "decided"', () => {
+      const seenReads = new Set<string>();
+      const result = classifyRealTimeToolCall(
+        'Bash',
+        { command: 'cat NOTES.md' },
+        'We decided to keep better-sqlite3.\nSwitching to node:sqlite is deferred.',
+        seenReads,
+      );
+      expect(result?.type).not.toBe('decision');
+    });
+
+    it('never mints a decision from a GREP result containing decision phrases', () => {
+      const seenReads = new Set<string>();
+      const result = classifyRealTimeToolCall(
+        'Grep',
+        { pattern: 'chose' },
+        'adr-generator.ts:18:const DEFAULT = ["chose", "decided", "going with"];',
+        seenReads,
+      );
+      expect(result?.type).not.toBe('decision');
+    });
+
+    it('a decision title is never a bare code-opener or markdown rule', () => {
+      const seenReads = new Set<string>();
+      for (const junk of ['/**', '---', '// Copyright (c) 2026 Massu. All rights reserved.']) {
+        const result = classifyRealTimeToolCall('Read', { file_path: '/x.ts' }, `${junk}\nchose this`, seenReads);
+        expect(result?.type, `junk-first-line "${junk}" must not become a decision`).not.toBe('decision');
+      }
+    });
   });
 
   describe('detectPlanProgress', () => {

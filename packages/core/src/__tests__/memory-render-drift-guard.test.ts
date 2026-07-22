@@ -274,6 +274,10 @@ describe('B-13 — the memory-write commands are CLI-ONLY. There is NO MCP tool.
       'memory_restore',
       'memory_adopt',
       'memory_unrender',
+      // D-C (plan-memory-ingestion-decision-noise-fix): prune-noise MUTATES the corpus
+      // (bulk EXPIRE) — same "never model-callable" rationale. It routes through the same
+      // CLI entry; a future MCP `memory_prune_noise` tool must trip this guard.
+      'memory_prune_noise',
     ]) {
       expect(
         tools.includes(name),

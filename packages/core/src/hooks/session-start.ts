@@ -17,9 +17,10 @@ import { readFileSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { parse as parseYaml } from 'yaml';
 import type Database from 'better-sqlite3';
-import { openDatabase } from '../lib/sqlite-loader.ts';
+import { openDatabase } from '../db-driver.ts';
 import { runAdvisors } from '../capability-advisor.ts';
 import { localModelAdvisor } from '../advisors/local-model-advisor.ts';
+import { crossRepoShareAdvisor } from '../advisors/cross-repo-share-advisor.ts';
 import { resolveConsolidationConfig } from '../consolidation-config.ts';
 // P-E-013 (plan-stage-e-low-info-sweep, wave1-hooks:F-HOOK-010): the
 // detection layer + fingerprint helpers compose to ~280KB of compiled
@@ -176,7 +177,7 @@ async function main(): Promise<void> {
       // not ten times. Fail-open + budgeted: never delays or breaks session start.
       try {
         const consolidationCfg = resolveConsolidationConfig();
-        const advisorBlock = await runAdvisors([localModelAdvisor], {
+        const advisorBlock = await runAdvisors([localModelAdvisor, crossRepoShareAdvisor], {
           enabled: consolidationCfg.enabled && consolidationCfg.suggestUpgrades,
           suggestIntervalDays: consolidationCfg.suggestIntervalDays,
         });

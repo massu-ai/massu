@@ -28,6 +28,7 @@ import {
 } from '../rule-candidate-applier.ts';
 import { encodeMemoryDirName } from '../lib/memory-path.ts';
 import { _setCachedTierForTest, _resetCachedTier, type ToolTier } from '../license.ts';
+import { computePromotionApplyMac } from '../security/promotion-apply-mac.ts';
 
 let tmpHome: string;
 let tmpProjectRoot: string;
@@ -69,6 +70,18 @@ function writeCandidate(payload: Partial<RuleCandidatePayload> = {}): string {
   // explicitly (matches the shareable-destination path the existing cases exercise).
   if (candidate.provenance !== undefined && candidate.destination === undefined) {
     candidate.destination = 'corrections-md';
+  }
+  // S-6 (D2): a real materialization stamps the install-bound apply MAC AFTER verifying
+  // the server envelope. Mirror that here (keyed by tmpHome) so a well-formed
+  // provenance-bearing sidecar carries a valid MAC — UNLESS the test pins one explicitly
+  // (e.g. the forged/absent-MAC D2 case sets apply_mac itself, incl. to a sentinel).
+  if (candidate.provenance !== undefined && candidate.provenance.apply_mac === undefined) {
+    const p = candidate.provenance;
+    const mac = computePromotionApplyMac(
+      { origin: p.origin, org_id: p.org_id, prompt_hash: candidate.prompt_hash, destination: candidate.destination ?? '', draft_text: candidate.draft_text ?? '' },
+      tmpHome,
+    );
+    if (mac) candidate.provenance = { ...p, apply_mac: mac };
   }
   const path = join(tmpProjectRoot, '.massu', 'rule-candidates', `${candidate.prompt_hash}.json`);
   writeFileSync(path, JSON.stringify(candidate, null, 2), 'utf-8');
@@ -222,6 +235,45 @@ describe('PB-010: team-origin apply gate', () => {
     // echo-loop guard: a team-ORIGIN candidate is not re-enqueued for publish.
     expect(res.team_shared).toBeFalsy();
     expect(outboundCount()).toBe(0);
+  });
+
+  it('S-6 (D2): signature_verified:true + a FORGED apply MAC is REFUSED — zero mutation', async () => {
+    setTier('team');
+    // The exact sidecar a hostile consumer repo could commit into its own tree:
+    // `signature_verified: true` is a claim it makes about itself, and it does NOT
+    // hold this install's ~/.massu key, so its apply_mac cannot be valid. Before S-6
+    // this applied (the boolean was authority); now the gate recomputes the
+    // install-bound MAC and refuses.
+    const id = writeCandidate({ provenance: teamProvenance({ apply_mac: 'f'.repeat(64) }) });
+    const res = await applyRuleCandidate(db, {
+      candidateId: id, destination: 'corrections-md', draftText: 'evil', projectRoot: tmpProjectRoot, home: tmpHome,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/apply-MAC/);
+    expect(correctionsMdExists()).toBe(false); // zero mutation — refused BEFORE takeSnapshots/BEGIN
+    expect(auditPromotedCount()).toBe(0);
+  });
+
+  it('S-6 (D2): a valid MAC minted with a DIFFERENT install key does not verify here', async () => {
+    setTier('team');
+    // A MAC that IS a real HMAC — but keyed by another machine's key — must still fail:
+    // the binding is to THIS install, not merely to "some install".
+    const otherHome = mkdtempSync(join(tmpdir(), 'massu-other-home-'));
+    try {
+      const foreignMac = computePromotionApplyMac(
+        { origin: 'team', org_id: 'org-1', prompt_hash: 'abc123def4567890', destination: 'corrections-md', draft_text: '' },
+        otherHome,
+      )!;
+      const id = writeCandidate({ provenance: teamProvenance({ apply_mac: foreignMac }) });
+      const res = await applyRuleCandidate(db, {
+        candidateId: id, destination: 'corrections-md', draftText: 'x', projectRoot: tmpProjectRoot, home: tmpHome,
+      });
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/apply-MAC/);
+      expect(correctionsMdExists()).toBe(false);
+    } finally {
+      rmSync(otherHome, { recursive: true, force: true });
+    }
   });
 });
 

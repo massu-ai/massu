@@ -10,7 +10,6 @@
 
 import { getMemoryDb, addObservation, createSession, deduplicateFailedAttempt, addSummary } from '../memory-db.ts';
 import { classifyRealTimeToolCall, detectPlanProgress } from '../observation-extractor.ts';
-import { extractAlternatives, storeDecision } from '../adr-generator.ts';
 import { logAuditEntry } from '../audit-trail.ts';
 import { trackModification, recordTestResult } from '../regression-detector.ts';
 import { validateFile, storeValidationResult } from '../validation-engine.ts';
@@ -107,42 +106,12 @@ async function main(): Promise<void> {
         addObservation(db, session_id, observation.type, observation.title, observation.detail, observation.opts);
       }
 
-      // P3-001 (plan-living-memory-slice-2-temporal-model): automatic STRUCTURED
-      // decision capture. Previously a detected decision was stored only as a
-      // flat observation sentence, and the structured architecture_decisions row
-      // (with alternatives) was written ONLY on demand via massu_adr_create — no
-      // hook wrote it (the §2.2 gap). Now a detected decision also persists its
-      // alternatives into architecture_decisions automatically. This is CHEAP
-      // (regex extraction only — no embedding), so it stays on the hot hook path;
-      // the embedding-based supersede/contradiction gate runs in the latency-
-      // tolerant session-end hook instead. Fully fail-open: any error leaves the
-      // observation write intact and never blocks the hook.
-      if (observation.type === 'decision') {
-        try {
-          const decisionText = observation.detail ?? observation.title;
-          const alternatives = extractAlternatives(decisionText);
-          // P3-002 dedup: skip if an identical-title decision already exists for
-          // this session (a repeated tool result must not create duplicate rows).
-          const existing = db
-            .prepare(
-              `SELECT id FROM architecture_decisions WHERE session_id = ? AND title = ? LIMIT 1`,
-            )
-            .get(session_id, observation.title) as { id: number } | undefined;
-          if (!existing) {
-            storeDecision(db, {
-              title: observation.title,
-              context: '',
-              decision: decisionText,
-              alternatives,
-              consequences: '',
-              sessionId: session_id,
-              affectedFiles: observation.opts?.filesInvolved,
-            });
-          }
-        } catch {
-          // fail-open — structured capture is best-effort
-        }
-      }
+      // plan-memory-ingestion-decision-noise-fix (D-A): the former P3-001 structured
+      // decision capture keyed on `observation.type === 'decision'` — but that type is no
+      // longer produced from tool responses (the substring-match noise source was removed
+      // from `classifyRealTimeToolCall`). Structured architecture_decisions are captured
+      // via the explicit `massu_adr_create` tool and the assistant-reasoning backfill path,
+      // never from echoed tool output. This block was dead once the source was removed.
 
       // Auto-detect plan progress
       if (tool_response) {

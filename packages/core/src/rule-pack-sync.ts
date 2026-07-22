@@ -34,6 +34,8 @@
  */
 
 import { existsSync, writeFileSync, mkdirSync } from 'fs';
+import { homedir } from 'os';
+import { computePromotionApplyMac } from './security/promotion-apply-mac.ts';
 import { join, dirname } from 'path';
 import type Database from 'better-sqlite3';
 import { getConfig, getProjectRoot } from './config.ts';
@@ -112,6 +114,8 @@ export interface PullPackOptions {
   timeoutMs?: number;
   /** Pass `?updates_only=1` to the endpoint when true. */
   updatesOnly?: boolean;
+  /** Home for the install-bound apply MAC (S-6); default `homedir()`. Tests inject a temp home. */
+  home?: string;
 }
 
 const ZERO: PullInstalledPackRulesResult = {
@@ -231,7 +235,7 @@ export async function pullInstalledPackRules(
 
       // (5c) Materialize a provenance-tagged candidate. An executable
       // destination → hardened-PENDING (operator must `review` before `approve`).
-      materializeCandidate(projectRoot, candidatePath, promptHash, rule, pack, signedOrgId, nowIso);
+      materializeCandidate(projectRoot, candidatePath, promptHash, rule, pack, signedOrgId, nowIso, opts.home ?? homedir());
       result.materialized += 1;
     }
   }
@@ -314,6 +318,7 @@ function materializeCandidate(
   pack: InstalledPack,
   orgId: string,
   nowIso: string,
+  home: string,
 ): void {
   const promptText =
     `${rule.title}: ${rule.description}`.replace(/\n+/g, ' ').slice(0, 200) ||
@@ -321,6 +326,12 @@ function materializeCandidate(
   const draftText = rule.pattern ?? rule.check ?? rule.description;
   // An executable destination must ride the hardened path (review-before-apply).
   const hardened = isExecutableDestination(rule.destination);
+  // S-6 (D2): the install-bound apply MAC — stamped after the pack envelope was
+  // verified; the apply gate re-computes it, so `signature_verified` is not authority.
+  const applyMac = computePromotionApplyMac(
+    { origin: 'pack', org_id: orgId, prompt_hash: promptHash, destination: rule.destination, draft_text: draftText },
+    home,
+  );
 
   const sidecar = {
     // Standard RuleCandidatePayload fields (so `/massu-rule approve` → readCandidate
@@ -344,6 +355,7 @@ function materializeCandidate(
       promoted_by: `pack:${pack.slug}`,
       promoted_at: nowIso,
       signature_verified: true,
+      ...(applyMac ? { apply_mac: applyMac } : {}),
       pack_slug: pack.slug,
       pack_version: pack.current_version,
       ...(hardened ? { hardened: true } : {}),

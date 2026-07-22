@@ -6,7 +6,6 @@ import Database from 'better-sqlite3';
 import {
   getAdrToolDefinitions,
   isAdrTool,
-  detectDecisionPatterns,
   extractAlternatives,
   storeDecision,
   handleAdrToolCall,
@@ -81,26 +80,6 @@ describe('adr-generator', () => {
       expect(isAdrTool('massu_security_score')).toBe(false);
       expect(isAdrTool('massu_unknown')).toBe(false);
       expect(isAdrTool('adr_list')).toBe(true); // base name without prefix
-    });
-  });
-
-  describe('detectDecisionPatterns', () => {
-    it('detects decision phrases in text', () => {
-      expect(detectDecisionPatterns('We chose Redis for caching')).toBe(true);
-      expect(detectDecisionPatterns('Decided to use TypeScript')).toBe(true);
-      expect(detectDecisionPatterns('switching to ESM modules')).toBe(true);
-      expect(detectDecisionPatterns('moving from CommonJS to ESM')).toBe(true);
-      expect(detectDecisionPatterns('going with Fastify')).toBe(true);
-    });
-
-    it('is case insensitive', () => {
-      expect(detectDecisionPatterns('DECIDED to refactor')).toBe(true);
-      expect(detectDecisionPatterns('Chose the new architecture')).toBe(true);
-    });
-
-    it('returns false when no decision pattern found', () => {
-      expect(detectDecisionPatterns('This is a regular sentence')).toBe(false);
-      expect(detectDecisionPatterns('No patterns here')).toBe(false);
     });
   });
 

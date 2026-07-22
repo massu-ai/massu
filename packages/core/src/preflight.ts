@@ -35,7 +35,7 @@
  */
 
 import type Database from 'better-sqlite3';
-import { openDatabase } from './lib/sqlite-loader.ts';
+import { openDatabase } from './db-driver.ts';
 import { existsSync } from 'fs';
 import { getResolvedPaths } from './config.ts';
 /**
@@ -180,34 +180,38 @@ export function checkCodegraph(dbPath?: string): {
 }
 
 /**
- * The MINIMUM Node version, from ONE source of truth: `@massu/core`'s own `engines`
- * field. Read at runtime rather than duplicated as a literal, so it cannot drift from
- * the package that declares it — a second copy is exactly how four sources came to
- * disagree about the supported range (C-2).
+ * The MINIMUM Node version. LAYER 2 (CR-69): the default DB engine is Node's built-in
+ * `node:sqlite`, which is flag-free + FTS5-capable only from v22.13.0 — so the floor is
+ * `>=22.13.0` (a MINOR-precision boundary: 22.0..22.12 have node:sqlite behind a flag).
+ * These literals are LOCKED to `@massu/core`'s `engines.node` by the
+ * `node-compat-drift-guard` test — a mutation here that disagrees with `engines` fails
+ * the guard, so the two cannot silently drift (that drift is how four sources once
+ * disagreed about the range, C-2).
  *
  * NOTE (C-2 partially REFUTED, 2026-07-13): the plan claimed CodeGraph "hard-refuses"
- * Node >= 25 and that the remedy therefore cannot run on this machine's default Node 26.
- * EXECUTED: `@colbymchenry/codegraph@1.4.1` ran on Node v26.0.0 and indexed 1,266 files
- * / 11,512 nodes / 35,213 edges. There is no upper ceiling to enforce. The finding was
- * a claim about the world that nobody had run. We record the refutation rather than
- * inheriting it.
+ * Node >= 25. EXECUTED: `@colbymchenry/codegraph@1.4.1` ran on Node v26.0.0 and indexed
+ * 1,266 files / 11,512 nodes / 35,213 edges. There is NO upper ceiling to enforce.
  */
-export const MIN_NODE_MAJOR = 20;
+export const MIN_NODE_MAJOR = 22;
+export const MIN_NODE_MINOR = 13;
 
 export function checkNodeVersion(version: string = process.version): {
   ok: boolean;
   major: number;
   message?: string;
 } {
-  const major = Number.parseInt(version.replace(/^v/, '').split('.')[0], 10);
+  const [major, minor] = version.replace(/^v/, '').split('.').map((n) => Number.parseInt(n, 10));
   if (!Number.isFinite(major)) {
     return { ok: false, major: 0, message: `could not parse Node version "${version}"` };
   }
-  if (major < MIN_NODE_MAJOR) {
+  const meets = major > MIN_NODE_MAJOR || (major === MIN_NODE_MAJOR && (minor ?? 0) >= MIN_NODE_MINOR);
+  if (!meets) {
     return {
       ok: false,
       major,
-      message: `Massu requires Node >= ${MIN_NODE_MAJOR}. You are on ${version}.`,
+      message:
+        `Massu requires Node >= ${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0 (its built-in node:sqlite engine). ` +
+        `You are on ${version}.`,
     };
   }
   return { ok: true, major };

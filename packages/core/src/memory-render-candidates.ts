@@ -11,6 +11,24 @@ import type { RenderCandidate } from './memory-renderer.ts';
 import { resolveMemoryFilesConfig } from './memory-files-config.ts';
 
 /**
+ * D-D (plan-memory-ingestion-decision-noise-fix): the observation types that are genuine
+ * durable MEMORIES worth their own file — lessons and knowledge. The rest of the
+ * `observations` table is session TELEMETRY: `file_change` (every edit), `vr_check` (every
+ * verification), `pattern_compliance` (every scanner run), `feature`/`bugfix`/`refactor`
+ * (every commit), `discovery` (low-value). Rendering telemetry would write
+ * `vr-type-pass.md` / `tests-fail.md` / `commit-*.md` into the operator's curated corpus —
+ * exactly what the WS3 dry-run caught. Importance alone is not a memory-worthiness signal
+ * (a passing type-check is importance 5 telemetry); the TYPE is. Single SoT — the query
+ * and its drift-guard read this one list.
+ */
+export const RENDERABLE_MEMORY_TYPES = [
+  'decision',
+  'failed_attempt',
+  'incident_near_miss',
+  'cr_violation',
+] as const;
+
+/**
  * Memories worth a durable file.
  *
  * `origin` is selected but NOT filtered here on purpose: the B-10 gate lives inside the
@@ -22,16 +40,18 @@ import { resolveMemoryFilesConfig } from './memory-files-config.ts';
 export function loadRenderCandidates(db: Database.Database): RenderCandidate[] {
   const cfg = resolveMemoryFilesConfig();
 
+  const typePlaceholders = RENDERABLE_MEMORY_TYPES.map(() => '?').join(', ');
   const rows = db
     .prepare(
       `SELECT id, title, detail, importance, COALESCE(origin, 'local') AS origin
          FROM observations
         WHERE importance >= ?
           AND COALESCE(expired_at_epoch, 0) = 0
+          AND type IN (${typePlaceholders})
         ORDER BY importance DESC, created_at_epoch DESC
         LIMIT 50`
     )
-    .all(cfg.renderMinImportance) as Array<{
+    .all(cfg.renderMinImportance, ...RENDERABLE_MEMORY_TYPES) as Array<{
     id: number;
     title: string;
     detail: string | null;

@@ -14,7 +14,7 @@
 // escape path.
 
 import type Database from 'better-sqlite3';
-import { openDatabase } from './lib/sqlite-loader.ts';
+import { openDatabase } from './db-driver.ts';
 import { resolve, dirname, basename } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { getConfig, getResolvedPaths, getProjectRoot } from './config.ts';
@@ -264,6 +264,72 @@ export function migrateMemoryFilesFor4B(db: Database.Database): void {
   }
 }
 
+/**
+ * Slice 5 (cross-repo surfacing) — the slice's additive schema. Idempotent; runs on
+ * every open (like `migrateMemoryFilesFor4B`), because `CREATE TABLE IF NOT EXISTS`
+ * never adds a column to a pre-existing table and a DB created before 5B has neither
+ * `observations.shareable` nor `shared_memory_pending`.
+ *
+ *   (a) `observations.shareable` — the per-decision SHARE opt-in (B-01). PRAGMA-guarded
+ *       ADD COLUMN for pre-existing DBs; fresh DBs get it from the CREATE in
+ *       `initMemorySchema`. Set to 1 ONLY by an explicit human act; NEVER by a trigger
+ *       (Slice-2: a self-UPDATE trigger corrupts FTS5 — stamping is INSERT/UPDATE-side).
+ *
+ *   (b) `shared_memory_pending` — the inbox landing table (B-04). A verified-but-not-yet-
+ *       accepted cross-repo record lives HERE and nowhere else: it is NOT in
+ *       `observations`, NOT in any FTS table, NOT in the embedding index, NOT on disk.
+ *       `envelope_raw` retains the VERBATIM signed bytes so accept (B-05) can RE-VERIFY
+ *       them — a stored `signature_verified` boolean would be the self-certifying-flag
+ *       bug class Slice 4 B-01 exists to kill, so no such column exists. Revocation
+ *       EXPIRES (`expired_at_epoch`), never DELETEs (S-3 extends the no-hard-delete
+ *       guard's `DELETE_RE` to this table).
+ */
+export function migrateSharedMemoryFor5B(db: Database.Database): void {
+  // (a) observations.shareable — the column-gated ALTER idiom (mirrors origin at :253+).
+  const cols = db.prepare(`PRAGMA table_info(observations)`).all() as Array<{ name: string }>;
+  if (cols.length > 0 && !cols.some((c) => c.name === 'shareable')) {
+    db.exec(`ALTER TABLE observations ADD COLUMN shareable INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  // (b) the pending inbox. CREATE IF NOT EXISTS ⇒ safe on fresh and migrated DBs alike.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shared_memory_pending (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      record_hash TEXT NOT NULL UNIQUE,        -- identity + idempotency key (hex sha256)
+      origin_repo_id TEXT NOT NULL,            -- the signed origin repo_id (v4 UUID)
+      origin_repo_label TEXT NOT NULL,         -- re-slugged on read; NEVER trusted from the wire
+      envelope_raw TEXT NOT NULL,              -- the VERBATIM signed bytes; B-05 re-verifies these
+      record_json TEXT NOT NULL,               -- the single record's canonical JSON
+      received_at_epoch INTEGER NOT NULL,      -- epoch SECONDS (Slice-2 convention)
+      accepted_at_epoch INTEGER,               -- set on accept (B-05); NULL while pending
+      refused_at_epoch INTEGER,                -- set on refuse (B-06)
+      expired_at_epoch INTEGER                 -- revocation ⇒ EXPIRE, never DELETE (B-07 / S-3)
+    );
+    CREATE INDEX IF NOT EXISTS idx_smp_origin ON shared_memory_pending(origin_repo_id);
+    CREATE INDEX IF NOT EXISTS idx_smp_received ON shared_memory_pending(received_at_epoch DESC);
+  `);
+
+  // (c) the outbound tracker (B-02/B-07). One row per exported record: it records
+  //     WHAT this repo has already shared (so re-export is idempotent by record_hash)
+  //     and, when the source observation is later superseded/expired, carries the
+  //     revocation timestamp the next export emits in `revokes_json` (B-07). This is
+  //     export BOOKKEEPING, not a memory copy — the memory is the `observations` row —
+  //     so it is deliberately NOT in the no-hard-delete guard; revocation still UPDATEs
+  //     (`revoked_at_epoch`), never DELETEs. The FK is intentionally absent: a record
+  //     may outlive its source row's session and must remain revocable.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shared_memory_outbound (
+      record_hash TEXT PRIMARY KEY,          -- the exported record's canonical hash
+      observation_id INTEGER NOT NULL,       -- the source observations.id (for B-07 revocation)
+      origin_repo_id TEXT NOT NULL,          -- this repo's own repo_id at export time
+      seq INTEGER NOT NULL,                  -- the envelope seq this record first went out in
+      exported_at_epoch INTEGER NOT NULL,    -- epoch SECONDS
+      revoked_at_epoch INTEGER               -- set when the source row is superseded/expired (B-07)
+    );
+    CREATE INDEX IF NOT EXISTS idx_smo_obs ON shared_memory_outbound(observation_id);
+  `);
+}
+
 export function migrateAuditLogCheckExtension(db: Database.Database): void {
   const row = db
     .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_log'")
@@ -283,6 +349,11 @@ export function migrateAuditLogCheckExtension(db: Database.Database): void {
     // legitimate render. This migration is what lets an EXISTING db accept them.
     'memory_file_ingested', 'memory_file_expired', 'memory_file_adopted_human',
     'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned',
+    // B-10 (Slice 5) — the seven cross-repo shared-memory events. An existing DB whose
+    // CHECK lacks any of these triggers the table rebuild below.
+    'shared_memory_exported', 'shared_memory_export_refused', 'shared_memory_imported',
+    'shared_memory_dropped', 'shared_memory_accepted', 'shared_memory_refused',
+    'shared_memory_revoked',
   ];
   const checkClauseMatch = row.sql.match(/event_type\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*event_type\s+IN\s*\(([\s\S]*?)\)\s*\)/i);
   if (checkClauseMatch) {
@@ -302,7 +373,12 @@ export function migrateAuditLogCheckExtension(db: Database.Database): void {
           'code_change', 'rule_enforced', 'approval', 'review', 'commit', 'compaction',
           'rule_candidate_emitted', 'rule_promoted', 'rule_dismissed',
           'memory_file_ingested', 'memory_file_expired', 'memory_file_adopted_human',
-          'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned'
+          'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned',
+          -- B-10 (Slice 5) — cross-repo shared-memory events (must mirror the CREATE +
+          -- the expected[] list above, or the migration would loop rebuilding forever).
+          'shared_memory_exported', 'shared_memory_export_refused', 'shared_memory_imported',
+          'shared_memory_dropped', 'shared_memory_accepted', 'shared_memory_refused',
+          'shared_memory_revoked'
         )),
         actor TEXT NOT NULL DEFAULT 'ai' CHECK(actor IN ('ai', 'human', 'hook', 'agent')),
         model_id TEXT,
@@ -380,6 +456,12 @@ export function initMemorySchema(db: Database.Database): void {
       -- credential, or takes a snapshot. A Slice-5 synced memory arrives here with
       -- origin='team' and must never reach disk without CR-55's gates.
       origin TEXT NOT NULL DEFAULT 'local',
+      -- B-01 (Slice 5, cross-repo surfacing): the per-decision SHARE opt-in. Set to 1
+      -- ONLY by an explicit human act (massu memory share <id>); NEVER by a heuristic,
+      -- score, LLM, hook, or consolidation pass. Export (B-02) reads WHERE shareable=1
+      -- AND origin='local'. Defaults 0 so every pre-existing and machine-written row is
+      -- un-shareable until a human says otherwise (fail-closed).
+      shareable INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       created_at_epoch INTEGER NOT NULL,
       FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
@@ -724,7 +806,13 @@ export function initMemorySchema(db: Database.Database): void {
         'code_change', 'rule_enforced', 'approval', 'review', 'commit', 'compaction',
         'rule_candidate_emitted', 'rule_promoted', 'rule_dismissed',
         'memory_file_ingested', 'memory_file_expired', 'memory_file_adopted_human',
-        'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned'
+        'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned',
+        -- B-10 (Slice 5): cross-repo shared-memory observability. Without these seven,
+        -- nobody could ever answer "what has crossed between my repos?" (and an ingest
+        -- catch would swallow the CHECK violation, silently producing NOTHING).
+        'shared_memory_exported', 'shared_memory_export_refused', 'shared_memory_imported',
+        'shared_memory_dropped', 'shared_memory_accepted', 'shared_memory_refused',
+        'shared_memory_revoked'
       )),
       actor TEXT NOT NULL DEFAULT 'ai' CHECK(actor IN ('ai', 'human', 'hook', 'agent')),
       model_id TEXT,
@@ -1284,6 +1372,11 @@ export function initMemorySchema(db: Database.Database): void {
   // `memory_files` and `observations` already, and CREATE TABLE IF NOT EXISTS
   // will never add a column to them. Idempotent; a no-op once applied.
   migrateMemoryFilesFor4B(db);
+
+  // B-01/B-04 (Slice 5) — the shareable opt-in column + the shared_memory_pending inbox.
+  // MUST run on every open for the same reason as 4B: CREATE TABLE IF NOT EXISTS never
+  // adds a column to a pre-existing `observations`. Idempotent; a no-op once applied.
+  migrateSharedMemoryFor5B(db);
 
   // D-11 (Layer 2): rule candidates are ROWS. Before this they existed only as
   // loose JSON on disk, so the product could not answer "has anything ever been

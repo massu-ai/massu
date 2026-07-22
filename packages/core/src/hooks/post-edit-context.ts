@@ -10,7 +10,7 @@
 // Must complete in <500ms.
 // ============================================================
 
-import { openDatabase } from '../lib/sqlite-loader.ts';
+import { openDatabase } from '../db-driver.ts';
 import { matchRules } from '../rules.ts';
 import { isInMiddlewareTree } from '../middleware-tree.ts';
 import { getResolvedPaths, getProjectRoot } from '../config.ts';

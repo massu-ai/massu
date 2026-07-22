@@ -142,6 +142,31 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/packages/core/dist/hooks/post-edit-context.js\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/packages/core/dist/hooks/fix-detector.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/packages/core/dist/hooks/classify-failure.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/packages/core/dist/hooks/incident-pipeline.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/packages/core/dist/hooks/rule-enforcement-pipeline.js\"",
+            "timeout": 5
           }
         ]
       },
@@ -254,6 +279,11 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/packages/core/dist/hooks/session-end.js\"",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/packages/core/dist/hooks/auto-learning-pipeline.js\"",
+            "timeout": 10
           }
         ]
       },

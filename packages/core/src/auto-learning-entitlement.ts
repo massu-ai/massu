@@ -127,6 +127,37 @@ export function enterpriseGovernanceUpgradeMessage(currentTier: ToolTier): strin
   );
 }
 
+// ============================================================================
+// Slice 5 (plan-living-memory-slice-5-cross-repo-surfacing, A-08): CROSS-REPO
+// memory surfacing entitlement. A decision made in one of the operator's repos
+// can surface in another on the SAME machine, via a signed local-filesystem
+// transport — ZERO network, ZERO LLM, ZERO license. Per the universality LAW
+// (`feedback_universal_product_never_one_off`) the local transport MUST work for
+// every download, so its floor is FREE. The OPTIONAL cloud/Team transport (Stage
+// 5D) reuses TEAM_SHARED_PROMOTION_MIN_TIER above — it does NOT get its own
+// constant. This constant lives in the SAME SoT module as the other three tier
+// floors — one ladder, one module, a fourth constant, no parallel scheme.
+// ============================================================================
+
+/**
+ * Minimum tier entitled to CROSS-REPO memory surfacing (the local, zero-network
+ * transport). SINGLE source of truth — the cross-repo gate reads THIS constant
+ * and no other. FREE by design (the universality LAW). A drift-guard test +
+ * pattern-scanner assert the chokepoint references this SoT.
+ */
+export const CROSS_REPO_SURFACING_MIN_TIER: ToolTier = 'free';
+
+/**
+ * Pure, synchronous predicate: is `tier` entitled to cross-repo surfacing?
+ * `true` iff `tier` is at or above {@link CROSS_REPO_SURFACING_MIN_TIER} — i.e.
+ * ALWAYS, since the floor is Free and Free is the lowest tier. The predicate
+ * exists (rather than a bare `true`) so the gate reads the SAME ladder as every
+ * other entitlement and a future floor change is a one-line edit here.
+ */
+export function entitledForCrossRepoSurfacing(tier: ToolTier): boolean {
+  return tierLevel(tier) >= tierLevel(CROSS_REPO_SURFACING_MIN_TIER);
+}
+
 /**
  * Result of an entitlement check. `message` is populated only when the
  * caller is NOT entitled (so the refusal can be surfaced verbatim).

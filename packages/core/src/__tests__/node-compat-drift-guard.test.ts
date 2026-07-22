@@ -1,83 +1,97 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import Database from 'better-sqlite3';
+import { DEFAULT_DB_ENGINE } from '../db-driver.ts';
 
 /* ------------------------------------------------------------------ */
-/*  Node-major compatibility drift-guard.                             */
+/*  DB-engine compatibility drift-guard (Layer 2, CR-69).             */
 /*                                                                    */
-/*  Incident 2026-07-05 (Node 26 native-module ABI mismatch):         */
-/*  @massu/core shipped a prebuilt better-sqlite3 binary compiled     */
-/*  for an older NODE_MODULE_VERSION (ABI) and capped                 */
-/*  `engines.node` at `<26.0.0`. When Node 26 (ABI 147) became the    */
-/*  machine default, the native module failed to load — the license   */
-/*  check + memory DB were non-functional in every consumer repo.     */
+/*  Origin — incident 2026-07-05 (Node 26 native-module ABI mismatch):*/
+/*  @massu/core shipped a prebuilt better-sqlite3 compiled for an      */
+/*  older ABI and capped `engines.node` at `<26.0.0`; when Node 26     */
+/*  (ABI 147) became the default the native module failed to load.     */
 /*                                                                    */
-/*  This test makes that class of regression structurally hard to     */
-/*  reintroduce:                                                      */
-/*    (a) the native module actually loads under whatever Node runs   */
-/*        the suite (in CI that is the 20/22/24/26/latest matrix);    */
-/*    (b) `engines.node` carries NO artificial upper bound (`<`);     */
-/*    (c) the CI structural guard (matrix + required gate) stays      */
-/*        wired — matrix includes an auto-tracking `latest` leg and   */
-/*        the ruleset requires the `Native Module Gate`.              */
+/*  Layer 2 removes the ROOT CAUSE: the DEFAULT engine is Node's       */
+/*  built-in `node:sqlite` (native-free, no ABI). better-sqlite3 is    */
+/*  retained ONLY as an opt-in fallback. This guard locks:            */
+/*    (a) node:sqlite (the default engine) loads + round-trips + FTS5  */
+/*        under whatever Node runs the suite;                          */
+/*    (a2) better-sqlite3 (the fallback) still loads + round-trips;    */
+/*    (b) `engines.node` == `>=22.13.0` EXACTLY (the node:sqlite floor),*/
+/*        with NO `<` upper bound, and DEFAULT_DB_ENGINE == node-sqlite;*/
+/*    (c) the CI Node-major matrix drops Node < 22, keeps an           */
+/*        auto-tracking `latest` leg, and the required Gate stays wired.*/
 /* ------------------------------------------------------------------ */
 
 const CORE_ROOT = resolve(__dirname, '..', '..');
 const REPO_ROOT = resolve(CORE_ROOT, '..', '..');
-
-// The CI-structure assertions (c) reference the INTERNAL repo's ci.yml matrix +
-// main-branch.json ruleset. The public mirror (github.com/massu-ai/massu) has a
-// separate core-only ci.public.yml + main-branch.public.json and no website/, so
-// (c) must not run there. Same IS_INTERNAL_REPO signal as
-// coverage-floor-monotonic.test.ts / ci-prepush-parity.test.ts. Parts (a)+(b)
-// (native-module load + engines-no-ceiling) are universal and run everywhere.
 const IS_INTERNAL_REPO = existsSync(resolve(REPO_ROOT, 'website', 'vitest.config.ts'));
 
-describe('Node-major native-module compatibility (incident 2026-07-05)', () => {
-  it('(a) better-sqlite3 loads + round-trips under the current Node ABI', () => {
-    // Fails immediately if the installed prebuilt binary does not match the
-    // running Node's NODE_MODULE_VERSION — the exact 2026-07-05 symptom.
-    const db = new Database(':memory:');
+describe('DB-engine compatibility (Layer 2 — node:sqlite default, incident 2026-07-05)', () => {
+  it('(a) node:sqlite (default engine) loads, round-trips + FTS5 MATCH under the current Node', () => {
+    // The default engine is native-free; this confirms the running Node ships SQLite
+    // with FTS5 and that a MATCH round-trips — the exact capability the migration needs.
+    const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as {
+      DatabaseSync: new (p: string) => {
+        exec(s: string): void;
+        prepare(s: string): { run(...a: unknown[]): unknown; get(...a: unknown[]): unknown; all(...a: unknown[]): unknown[] };
+        close(): void;
+      };
+    };
+    const db = new DatabaseSync(':memory:');
     try {
       db.exec('CREATE TABLE t (x INTEGER)');
       db.prepare('INSERT INTO t (x) VALUES (?)').run(42);
-      const row = db.prepare('SELECT x FROM t').get() as { x: number };
-      expect(row.x).toBe(42);
+      expect((db.prepare('SELECT x FROM t').get() as { x: number }).x).toBe(42);
+      db.exec("CREATE VIRTUAL TABLE f USING fts5(body)");
+      db.exec("INSERT INTO f (body) VALUES ('hello world')");
+      expect(db.prepare('SELECT body FROM f WHERE f MATCH ?').all('hello').length).toBe(1);
     } finally {
       db.close();
     }
   });
 
-  it('(b) engines.node declares NO artificial upper bound', () => {
-    const pkg = JSON.parse(
-      readFileSync(resolve(CORE_ROOT, 'package.json'), 'utf-8'),
-    ) as { engines?: { node?: string } };
-    const range = pkg.engines?.node ?? '';
-    expect(range, 'engines.node must be declared').not.toBe('');
-    // A `<` upper bound is what locked Node 26 out. Re-adding one (e.g.
-    // `<27.0.0`) would recreate the "new Node major is excluded" bug class,
-    // so it must be an intentional, reviewed change that updates this guard.
-    expect(
-      range.includes('<'),
-      `engines.node = "${range}" must not impose a "<" upper bound (that is the ` +
-        `bug class from the 2026-07-05 Node-26 incident). Widen the range and ` +
-        `rely on the Node-major CI matrix to catch real breakage.`,
-    ).toBe(false);
-    expect(range).toMatch(/>=\s*20/);
+  it('(a2) better-sqlite3 (opt-in fallback) still loads + round-trips under the current Node', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec('CREATE TABLE t (x INTEGER)');
+      db.prepare('INSERT INTO t (x) VALUES (?)').run(42);
+      expect((db.prepare('SELECT x FROM t').get() as { x: number }).x).toBe(42);
+    } finally {
+      db.close();
+    }
   });
 
-  it.skipIf(!IS_INTERNAL_REPO)('(c) the CI Node-major structural guard stays wired', () => {
+  it('(b) engines.node is locked to the node:sqlite floor (>=22.13.0), no ceiling; default engine is node:sqlite', () => {
+    const pkg = JSON.parse(readFileSync(resolve(CORE_ROOT, 'package.json'), 'utf-8')) as {
+      engines?: { node?: string };
+    };
+    const range = pkg.engines?.node ?? '';
+    // EXACT floor — node:sqlite is flag-free + FTS5-capable only from v22.13.0. A mutation
+    // that lowers this (re-admitting Node 20/21, where node:sqlite is absent/flagged) fails here.
+    expect(range).toBe('>=22.13.0');
+    // A `<` upper bound is what locked Node 26 out in 2026-07-05 — never reintroduce one.
+    expect(
+      range.includes('<'),
+      `engines.node = "${range}" must not impose a "<" upper bound (the 2026-07-05 bug class).`,
+    ).toBe(false);
+    // The engine-default invariant: the drift-guarded constant IS node:sqlite.
+    expect(DEFAULT_DB_ENGINE).toBe('node-sqlite');
+  });
+
+  it.skipIf(!IS_INTERNAL_REPO)('(c) the CI Node-major matrix drops < 22, keeps latest + the required Gate', () => {
     const ci = readFileSync(resolve(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf-8');
-    // The matrix job exists and auto-tracks the newest Node release so a
-    // FUTURE major that breaks the native module is caught without a manual
-    // matrix edit.
     expect(ci, 'ci.yml must define the native-module matrix job').toMatch(
       /name:\s*Native Module \(Node \$\{\{ matrix\.node \}\}\)/,
     );
-    expect(ci, "the native-module matrix must include an auto-tracking 'latest' leg").toMatch(
-      /matrix:\s*\n\s*node:\s*\[[^\]]*'latest'[^\]]*\]/,
-    );
+    // The matrix `node:` list must include an auto-tracking 'latest' leg and must NOT
+    // include any Node major below the 22.13 floor (20 / 21).
+    const nodeList = /\n\s*node:\s*(\[[^\]]*\])/.exec(ci)?.[1] ?? '';
+    expect(nodeList, 'matrix node: list must be present').not.toBe('');
+    expect(nodeList).toMatch(/'latest'/);
+    expect(nodeList).not.toMatch(/'2[01]'/); // no Node 20 or 21 legs
     expect(ci, 'ci.yml must define the static Native Module Gate required job').toMatch(
       /name:\s*Native Module Gate/,
     );
@@ -86,8 +100,7 @@ describe('Node-major native-module compatibility (incident 2026-07-05)', () => {
       readFileSync(resolve(REPO_ROOT, '.github', 'rulesets', 'main-branch.json'), 'utf-8'),
     ) as { rules: Array<{ type: string; parameters?: { required_status_checks?: Array<{ context: string }> } }> };
     const checks =
-      ruleset.rules.find((r) => r.type === 'required_status_checks')?.parameters
-        ?.required_status_checks ?? [];
+      ruleset.rules.find((r) => r.type === 'required_status_checks')?.parameters?.required_status_checks ?? [];
     expect(
       checks.map((c) => c.context),
       'main-branch.json must require the Native Module Gate status check',

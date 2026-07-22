@@ -13,7 +13,6 @@ import {
 } from './transcript-parser.ts';
 import type { AddObservationOpts } from './memory-db.ts';
 import { assignImportance } from './memory-db.ts';
-import { detectDecisionPatterns } from './adr-generator.ts';
 import { getProjectRoot, getConfig, getResolvedPaths } from './config.ts';
 import { homedir } from 'os';
 import { normalizeToolResponse, type RawToolResponse } from './hooks/lib/tool-response.ts';
@@ -399,29 +398,20 @@ export function classifyRealTimeToolCall(
 
   if (isNoisyToolCall(tc, seenReads)) return null;
 
-  // P2-003: Detect architecture decision patterns in tool responses.
-  // S-1: these `.split()` / `.slice()` calls were a SECOND crash site on the raw
-  // object — one the audit never flagged, because it stopped at the first TypeError.
-  // Both now read the normalized text. (This is the "who else touches it?" question:
-  // the first bug found is rarely the only instance of the bug.)
-  const responseText = normalized.text;
-  if (responseText && detectDecisionPatterns(responseText)) {
-    const firstLine = responseText.split('\n')[0].slice(0, 200);
-    const title = `Architecture decision: ${firstLine}`;
-    const detail = responseText.slice(0, 1000);
-    return {
-      type: 'decision',
-      title,
-      detail,
-      visibility: classifyVisibility(title, detail),
-      opts: {
-        importance: assignImportance('decision'),
-        originalTokens: estimateTokens(responseText),
-        ...extractLinkedReferences(responseText),
-      },
-    };
-  }
-
+  // plan-memory-ingestion-decision-noise-fix (D-A): a tool RESPONSE is echoed content —
+  // a file's bytes, a command's output — NOT the assistant's own decision. The former
+  // P2-003 block here mined every response for "decision phrases" (a substring match on
+  // words like `chose`/`decided`) and minted an importance-5 memory titled by the
+  // response's first line, producing thousands of "Architecture decision: /**" /
+  // "…: ---" / "…: // Copyright…" junk rows that then polluted the 4B render candidate
+  // set. Decisions are NO LONGER auto-captured from tool output.
+  //
+  // ⚠ Where genuine decisions come from now: the explicit `massu_adr_create` tool. The
+  // assistant-reasoning path (`extractDecisions`, word-boundary on assistant paragraphs)
+  // exists but is reachable ONLY via `extractObservationsFromEntries` in the manual
+  // `backfill-sessions.ts` — it is wired to NO live hook, so it does not run in a normal
+  // session. (CR-52 architecture review flagged this real-time capture gap; wiring
+  // `extractDecisions` into the session-end hook is a tracked follow-up decision.)
   return classifyToolCall(tc);
 }
 

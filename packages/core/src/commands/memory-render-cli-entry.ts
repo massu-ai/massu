@@ -88,6 +88,38 @@ export async function runMemoryRenderCli(sub: string, args: string[]): Promise<C
         return { exitCode: 0, output: lines.join('\n') };
       }
 
+      case 'prune-noise': {
+        // D-C: expire (never delete) the observation noise the two fixed ingestion bugs
+        // left behind. Dry-run by DEFAULT — a corpus mutation is never implied; the
+        // operator must pass --yes. CLI-only, like every memory-mutating command here.
+        const { countNoise, sampleNoise, pruneNoiseObservations } = await import('../memory-prune-noise.ts');
+        const apply = hasFlag(args, '--yes');
+        const counts = countNoise(db);
+        if (counts.total === 0) {
+          return { exitCode: 0, output: 'No ingestion noise found in the memory corpus.' };
+        }
+        const lines: string[] = [
+          `${counts.total} noise observation(s) identified:`,
+          `  tool-response-decision: ${counts.toolResponseDecision}`,
+          `  free-text-decision:     ${counts.freeTextDecision}`,
+          `  same-instant-duplicate: ${counts.sameInstantDuplicate}`,
+          '',
+          'Sample (first 10):',
+        ];
+        for (const r of sampleNoise(db, 10)) lines.push(`  [${r.reason}] id=${r.id} ${r.type}: ${r.title.slice(0, 60)}`);
+        if (apply) {
+          const result = pruneNoiseObservations(db, { dryRun: false });
+          lines.push('', `Expired ${result.expired} row(s) (CR-61: expired, NOT deleted; still asOf-queryable).`);
+        } else {
+          lines.push(
+            '',
+            `--dry-run (default): nothing changed. Re-run \`massu memory prune-noise --yes\` to EXPIRE ` +
+              `these ${counts.total} row(s) (never deletes; still asOf-queryable).`,
+          );
+        }
+        return { exitCode: 0, output: lines.join('\n') };
+      }
+
       case 'restore':
         return memoryRestore(memoryDir, {
           from: flagValue(args, '--from'),

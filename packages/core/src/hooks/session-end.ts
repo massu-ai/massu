@@ -17,6 +17,9 @@ import { archiveAndRegenerate } from '../session-archiver.ts';
 import { parseTranscriptFrom, estimateTokens } from '../transcript-parser.ts';
 import { syncToCloud, drainSyncQueue } from '../cloud-sync.ts';
 import { pullTeamPromotions } from '../team-rule-sync.ts';
+import { importSharedMemories } from '../shared-memory-sync.ts';
+import { exportSharedMemories } from '../shared-memory-export.ts';
+import { LocalFsTransport } from '../shared-memory-transport.ts';
 import { getConfig } from '../config.ts';
 import { calculateQualityScore, storeQualityScore, backfillQualityScores } from '../analytics.ts';
 import { extractTokenUsage, calculateCost, storeSessionCost } from '../cost-tracker.ts';
@@ -100,6 +103,15 @@ async function main(): Promise<void> {
       } catch (_promptErr) {
         // Best-effort: never block session end
       }
+
+      // NOTE (plan-memory-ingestion-decision-noise-fix D-E, REVERTED): a session-end
+      // extractDecisions capture was tried here and REFUTED by evidence — regex-extracting
+      // "decisions" from free-text assistant reasoning is too noisy for durable memory
+      // files: in massu-dev sessions the assistant DISCUSSES decisions constantly, so every
+      // paragraph containing "decision"/"chose"/"approach:" was captured as an importance-5
+      // "decision" titled with a raw sentence fragment (40 junk rows in one session). Same
+      // noise class as D-A, just sourced from assistant text. Genuine decisions are captured
+      // ONLY via the explicit `massu_adr_create` tool. See CR-52 arch finding + the incident.
 
       // 4.9. Embed-on-capture sweep (P2-002, plan-living-memory-slice-2a).
       // Embed this session's new observations so semantic recall works next
@@ -212,6 +224,22 @@ async function main(): Promise<void> {
           await pullTeamPromotions(db);
         } catch (_pullErr) {
           // Non-blocking: pull failure never blocks session end
+        }
+
+        // 7d. Cross-repo shared-memory EXPORT + IMPORT (Slice 5, B-02/B-08). Crypto +
+        // file I/O, so it runs HERE at session-END (never the recall hot path). Both
+        // are self-gating on the two independent opt-ins (export→memory.share.enabled,
+        // import→a non-empty subscribe list); a dormant install does nothing. session-
+        // end is the composition root that wires the concrete transport into the
+        // transport-agnostic halves. Export publishes THIS repo's human-marked shareable
+        // decisions (fail-closed); import verifies others' → PENDING only (a human still
+        // accepts each). One shared transport instance.
+        try {
+          const shareTransport = new LocalFsTransport();
+          await exportSharedMemories(db, shareTransport);
+          await importSharedMemories(db, shareTransport);
+        } catch (_shareErr) {
+          // Non-blocking: a cross-repo share failure never blocks session end
         }
       } catch (syncErr) {
         // Non-blocking: a sync failure never blocks session end — but it may not

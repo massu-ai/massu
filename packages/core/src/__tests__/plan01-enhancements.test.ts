@@ -25,7 +25,7 @@ import { logAuditEntry, queryAuditLog, getFileChain } from '../audit-trail.ts';
 // P2: Validation
 import { validateFile } from '../validation-engine.ts';
 // P2: ADR
-import { detectDecisionPatterns, extractAlternatives, storeDecision } from '../adr-generator.ts';
+import { extractAlternatives, storeDecision } from '../adr-generator.ts';
 // P3: Security
 import { scoreFileSecurity } from '../security-scorer.ts';
 // P3: Dependency
@@ -398,12 +398,6 @@ describe('PLAN-01: Memory Enhancements', () => {
   // P2-003: ADR Generation
   // =================================================================
   describe('P2-003: ADR Generation', () => {
-    it('detects decision patterns in text', () => {
-      expect(detectDecisionPatterns('We chose React over Vue for the frontend.')).toBe(true);
-      expect(detectDecisionPatterns('We decided to use TypeScript.')).toBe(true);
-      expect(detectDecisionPatterns('Just a normal commit message.')).toBe(false);
-    });
-
     it('extracts alternatives from decision text', () => {
       const alts = extractAlternatives('We chose React over Vue for the frontend.');
       expect(alts).toContain('Vue for the frontend');

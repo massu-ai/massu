@@ -11,7 +11,7 @@ import { getMemoryDb, createSession, addUserPrompt, linkSessionToTask, autoDetec
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, openSync, fstatSync, readSync, closeSync } from 'fs';
 import { join } from 'path';
 import type Database from 'better-sqlite3';
-import { openDatabase } from '../lib/sqlite-loader.ts';
+import { openDatabase } from '../db-driver.ts';
 import { getResolvedPaths } from '../config.ts';
 import { scoreCorrectionPrompt } from '../rule-candidate-detector.ts';
 import { categorizePrompt, hashPrompt } from '../prompt-analyzer.ts';

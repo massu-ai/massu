@@ -1,6 +1,6 @@
 {
   "name": "@massu/core",
-  "version": "1.16.4",
+  "version": "2.0.0",
   "type": "module",
   "description": "AI Engineering Governance MCP Server - Session memory, knowledge system, feature registry, code intelligence, rule enforcement, tiered tooling (12 free / 73 total), 56 workflow commands, 11 agents, 20+ patterns",
   "main": "./dist/cli.js",
@@ -83,7 +83,7 @@
     "feature-registry"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.13.0"
   },
   "repository": {
     "type": "git",

@@ -39,10 +39,18 @@ function throwAbi(): never {
   throw e;
 }
 
-afterEach(() => __setSqliteLoaderTestHooks({ ctor: null, heal: null }));
+afterEach(() => {
+  __setSqliteLoaderTestHooks({ ctor: null, heal: null });
+  delete process.env.MASSU_DB_ENGINE;
+});
 
-describe('checkNativeModules — truthful doctor', () => {
+// The ABI-mismatch class is SPECIFIC to the better-sqlite3 native fallback engine;
+// under the default native-free node:sqlite there is no `.node` binary to mismatch.
+// So the lying-doctor scenarios force `MASSU_DB_ENGINE=better-sqlite3` (Layer 2, CR-69)
+// — that is the only engine whose injected ctor is exercised by the probe.
+describe('checkNativeModules — truthful doctor (better-sqlite3 fallback engine)', () => {
   it('FAILs when import succeeds but construction throws an ABI error (the lying-doctor shape)', async () => {
+    process.env.MASSU_DB_ENGINE = 'better-sqlite3';
     __setSqliteLoaderTestHooks({ ctor: makeCtor(() => throwAbi()) as never });
     const result = await checkNativeModules();
     expect(result.status).toBe('fail');
@@ -51,9 +59,23 @@ describe('checkNativeModules — truthful doctor', () => {
   });
 
   it('PASSes when a real construct + SELECT 1 succeeds', async () => {
+    process.env.MASSU_DB_ENGINE = 'better-sqlite3';
     __setSqliteLoaderTestHooks({ ctor: makeCtor(() => {}) as never });
     const result = await checkNativeModules();
     expect(result.status).toBe('pass');
+    expect(result.detail).toMatch(/SELECT 1/);
+  });
+});
+
+// Under the DEFAULT engine (node:sqlite), doctor probes the Node built-in — the
+// injected better-sqlite3 ctor is IRRELEVANT (proving the default path never touches
+// the native module), and the report names the native-free engine truthfully.
+describe('checkNativeModules — truthful doctor (default node:sqlite engine)', () => {
+  it('PASSes on the native-free engine even with a broken bs3 ctor injected', async () => {
+    __setSqliteLoaderTestHooks({ ctor: makeCtor(() => throwAbi()) as never });
+    const result = await checkNativeModules();
+    expect(result.status).toBe('pass');
+    expect(result.detail).toMatch(/node:sqlite/);
     expect(result.detail).toMatch(/SELECT 1/);
   });
 });

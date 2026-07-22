@@ -14,25 +14,6 @@ function p(baseName: string): string {
   return `${getConfig().toolPrefix}_${baseName}`;
 }
 
-/** Default decision detection phrases. Configurable via governance.adr.detection_phrases */
-const DEFAULT_DETECTION_PHRASES = ['chose', 'decided', 'switching to', 'moving from', 'going with'];
-
-/**
- * Get decision detection phrases from config or defaults.
- */
-function getDetectionPhrases(): string[] {
-  return getConfig().governance?.adr?.detection_phrases ?? DEFAULT_DETECTION_PHRASES;
-}
-
-/**
- * Detect decision patterns in text.
- */
-export function detectDecisionPatterns(text: string): boolean {
-  const phrases = getDetectionPhrases();
-  const lower = text.toLowerCase();
-  return phrases.some(phrase => lower.includes(phrase));
-}
-
 /**
  * Extract alternatives from a decision description.
  */

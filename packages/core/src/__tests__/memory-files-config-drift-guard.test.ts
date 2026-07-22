@@ -61,18 +61,35 @@ describe('memory.files config (A-20 drift-guard)', () => {
     expect(DEFAULT_MEMORY_FILES_CONFIG.indexMaxLines).toBeLessThanOrEqual(200);
   });
 
-  it('resolve() FAILS CLOSED with respect to writing', () => {
-    // Any config error, any missing block, any surprise: renderEnabled stays false.
-    const cfg = resolveMemoryFilesConfig();
-    expect(cfg.renderEnabled).toBe(false);
+  it('resolve() FAILS CLOSED with respect to writing (missing block / config error → default false)', () => {
+    // THIS dogfood repo deliberately enables rendering (the WS3 flip, below), so this
+    // asserts the fail-closed SEMANTICS — not the live resolved value: the module default
+    // is false, and BOTH failure paths (no `memory.files` block, and any thrown config
+    // error) return that default. `voidResolve` keeps the import referenced.
+    void resolveMemoryFilesConfig;
+    expect(DEFAULT_MEMORY_FILES_CONFIG.renderEnabled).toBe(false);
+    const src = readFileSync(join(SRC, 'memory-files-config.ts'), 'utf-8');
+    expect(
+      /if \(!c\) return \{ \.\.\.DEFAULT_MEMORY_FILES_CONFIG \}/.test(src),
+      'a missing memory.files block must return the (false) default',
+    ).toBe(true);
+    expect(
+      /catch[\s\S]{0,120}return \{ \.\.\.DEFAULT_MEMORY_FILES_CONFIG \}/.test(src),
+      'any config error must fail closed to the (false) default',
+    ).toBe(true);
   });
 
-  it('massu.config.yaml does not turn rendering on', () => {
-    // The repo dogfoods massu. If OUR OWN config enabled it, the default would be a lie.
+  it('massu.config.yaml enables rendering DELIBERATELY (WS3 flip), while the SCHEMA default stays false', () => {
+    // 2026-07-21: the operator flipped renderEnabled ON in THIS dogfood repo AFTER the WS3
+    // `render --dry-run` confirmed a clean, curated candidate set (the ingestion-fix cluster
+    // shipped first: plan-memory-ingestion-decision-noise-fix). This is an EXPLICIT operator
+    // act, not auto-enablement — adopters are unaffected because the SHIPPED schema default
+    // stays false (enforced by the schema test above). If the operator turns it back off,
+    // update this test to match.
     const yaml = readFileSync(join(REPO, 'massu.config.yaml'), 'utf-8');
     expect(
-      /renderEnabled:\s*true/.test(yaml),
-      'massu.config.yaml must not enable the renderer',
-    ).toBe(false);
+      /^\s*renderEnabled:\s*true/m.test(yaml),
+      'the WS3 flip should set renderEnabled: true under memory.files in massu.config.yaml',
+    ).toBe(true);
   });
 });

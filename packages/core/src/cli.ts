@@ -117,9 +117,20 @@ async function main(): Promise<void> {
       // memory, and an MCP tool is MODEL-CALLABLE — the model being precisely the actor
       // this slice exists to constrain. A drift-guard asserts these names never appear in
       // tools.ts.
-      if (sub === 'render' || sub === 'restore' || sub === 'adopt' || sub === 'unrender') {
+      if (sub === 'render' || sub === 'restore' || sub === 'adopt' || sub === 'unrender' || sub === 'prune-noise') {
         const { runMemoryRenderCli } = await import('./commands/memory-render-cli-entry.ts');
         const result = await runMemoryRenderCli(sub, args.slice(2));
+        process.stdout.write(`${result.output}\n`);
+        process.exit(result.exitCode);
+        return;
+      }
+      // Slice 5 (B-06). CLI-ONLY, like the 4B commands above: accept/refuse admit a
+      // foreign trust domain's bytes into this repo's memory — an MCP tool would put
+      // that in the MODEL's reach (the actor this slice constrains). No MCP tool maps
+      // to these; a drift-guard asserts it.
+      if (sub === 'review' || sub === 'accept' || sub === 'refuse' || sub === 'share' || sub === 'trust' || sub === 'purge') {
+        const { runMemoryShareCli } = await import('./commands/memory-share-cli.ts');
+        const result = await runMemoryShareCli(sub, args.slice(2));
         process.stdout.write(`${result.output}\n`);
         process.exit(result.exitCode);
         return;
@@ -127,7 +138,8 @@ async function main(): Promise<void> {
       process.stderr.write(
         `Unknown memory subcommand: ${sub ?? '(none)'}\n` +
           `Usage: massu memory <embed-backfill | render --dry-run | restore [--from <stamp>] | ` +
-          `adopt [--dry-run] | unrender [--all | --file <rel>] [--dry-run]>\n`
+          `adopt [--dry-run] | unrender [--all | --file <rel>] [--dry-run] | ` +
+          `review | accept <hash> | refuse <hash> | share <id> | trust <repo> --fingerprint <hex> | purge --shared>\n`
       );
       process.exit(1);
       return;

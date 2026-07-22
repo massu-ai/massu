@@ -39,6 +39,19 @@ export interface HybridSearchResult {
   score: number;
   importance: number;
   ageDays: number;
+  /**
+   * Slice 5 C-02: the row's provenance origin ('local' | 'repo:<uuid>' | 'team' | 'pack').
+   * Populated by the recall hook (a bounded lookup) for observation results so the
+   * formatter can render a cross-repo item as fenced, provenance-headed DATA. Absent
+   * ⇒ treated as local (the pre-Slice-5 behavior — byte-identical).
+   */
+  origin?: string;
+  /**
+   * Slice 5 C-02: provenance the formatter puts in a cross-repo item's header — the
+   * re-slugged origin repo label and the acceptance date. Populated by the hook from
+   * the accepted observation's evidence. Present only for cross-repo rows.
+   */
+  crossRepo?: { label: string; acceptedEpoch: number };
 }
 
 export interface HybridSearchOpts {

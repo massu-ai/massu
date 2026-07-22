@@ -2,7 +2,7 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import type Database from 'better-sqlite3';
-import { openDatabase } from './lib/sqlite-loader.ts';
+import { openDatabase } from './db-driver.ts';
 import { dirname, join } from 'path';
 import { existsSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { assertCodegraphUsable } from './preflight.ts';

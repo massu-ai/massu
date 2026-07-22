@@ -10,6 +10,222 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.0.0] - 2026-07-21
+
+**Breaking release.** The local database engine now defaults to Node's built-in
+`node:sqlite` instead of the native `better-sqlite3`, and the minimum Node version is
+raised to **22.13.0**. This ends the Node-ABI-mismatch failure class structurally — the
+default install has no compiled native module to `dlopen`, so a Node upgrade can never
+again silently break memory storage.
+
+### Changed
+
+- **BREAKING: minimum Node is now `>=22.13.0`** (drops 20 and 21). `node:sqlite` ships
+  flag-free with FTS5 only from 22.13; earlier 22.x (22.0–22.12) are not supported. A
+  preflight check fails loudly with the required version if you run an older Node.
+- **BREAKING: the default local DB engine is now `node:sqlite` (native-free)** (CR-69,
+  `plan-memory-system-to-100-percent` WS4 / Layer 2). Every database open routes through a
+  single adapter (`db-driver.ts`) that constructs Node's built-in SQLite — no native
+  compile, no ABI, no `prebuild-install`. `better-sqlite3` is retained as an **opt-in
+  fallback**: set `MASSU_DB_ENGINE=better-sqlite3` to route through the CR-65 self-healing
+  native loader instead. Storage format is unchanged and byte-compatible in both
+  directions — existing databases open as-is under either engine. Enforced by a dual-engine
+  parity test (derived from the live schema), a drift-guard, and pattern-scanner Check 46.
+  `massu doctor` now reports the active engine and proves it by constructing a DB and
+  running `SELECT 1`.
+
+### Migration
+
+- Most installs need no action — a fresh `npm install -g @massu/core@2.0.0` on Node
+  `>=22.13` switches to `node:sqlite` automatically and reads your existing database
+  unchanged. If you must stay on the native engine (e.g. an environment pinned below Node
+  22.13 that you cannot upgrade), set `MASSU_DB_ENGINE=better-sqlite3` — but the supported
+  path is to upgrade Node.
+
+### Infrastructure
+
+- **G-6 anti-vacuity registration for this release's guard pile** (no `@massu/core` runtime
+  change, `plan-2026-07-21-g6-wave-2-unpushed-pile-registration`). Registers a can-fail proof
+  for every enforcement guard shipped by WS3 / Slice 5 (CR-67) / CR-68 / WS4 (CR-69) — 14
+  pattern-scanner shell fail-points (Checks 44/45/46) + 32 vitest source-plant proofs — plus
+  re-pins 3 stale non-guard exempts and hardens 3 T-3 symbol-grep predicates (Check 44 d/e →
+  AST call-site checks). Makes pre-push `[22/22]` (the G-6 anti-vacuity meta-gate) green.
+
+## [1.17.0] - 2026-07-21
+
+The memory system is now feature-complete: cross-repo sharing and the opt-in file
+renderer land here, both fail-closed and default-off. This is the last release on the
+`better-sqlite3` engine and the last to support Node 20/21 — the next major (`2.0.0`)
+switches the local database to Node's built-in `node:sqlite` and raises the Node floor.
+
+### Added
+
+- **Cross-repo memory sharing — local-first, opt-in, fail-closed** (`plan-memory-system-to-100-percent`
+  Slice 5, CR-67). A durable memory can now travel from one repo to another, but **nothing crosses a
+  repo boundary without a human act on both sides, and nothing that crosses is ever treated as an
+  instruction.** Export is an explicit human `massu memory share` that produces a signed, secret-refusing
+  envelope (it refuses rather than redacts) written to `~/.massu/shared/`, outside every repo. The
+  receiving side never auto-applies: `massu memory accept` materializes the memory only after
+  **re-verifying the retained signed envelope bytes** (a stored "verified" boolean is never treated as
+  authority), and until then the item surfaces in recall as a zero-content pointer; once accepted it
+  surfaces as fenced, provenance-headed data. New CLI verbs: `massu memory review | accept | refuse |
+  share | trust` (accept/refuse are CLI-only — never a tool the model can invoke). Both opt-ins default
+  **OFF**, so a dormant install shares and mints nothing. Three-layer enforcement: code apply-gates +
+  `shared-memory-*` drift-guards + pattern-scanner Check 44.
+- **Opt-in memory file-renderer** (`plan-memory-system-to-100-percent` WS3, CR-61). Massu can render
+  selected durable memories into a managed region of your memory files. It is **off by default**
+  (`memory.files.renderEnabled: false`) and the human always wins: the file on disk is the standing
+  source of truth, Massu **never writes a file it cannot prove it authored** (authorship is a per-install
+  keyed HMAC, never a public body-hash) and **never un-deletes a file the human deleted** — an absent
+  memory directory is a no-op. Tombstones live in the memory corpus, not the database.
+
+### Fixed
+
+- **Memory ingestion no longer mints noise, and the writer only renders memory-worthy facts**
+  (`plan-memory-system-to-100-percent` WS3 prerequisites). A cluster of ingestion defects that would
+  have polluted the corpus the moment the renderer was enabled: Massu stopped mining tool-call
+  responses for spurious "decisions"; a hook double-fire that recorded every event twice was ended
+  (one settings layer now owns the hooks); `massu memory prune-noise` expires accumulated ingestion
+  noise (expire, never hard-delete); and the file-renderer now writes only memory-worthy fact types,
+  never raw session telemetry.
+
+### Infrastructure
+
+- **CR-68 — every session handoff must be turn-key** (internal governance; no shipped `@massu/core`
+  runtime change). A `RECAP`/`HANDOFF` must carry a Next-Session Runbook that spells out Vehicle,
+  Steps, Stop gates, and a verifiable Acceptance check per open item — never a bare "Operator TODO"
+  list. Enforced by a completeness script + drift-guard + pattern-scanner Check 45 (VR-HANDOFF).
+- **CR-62 — a bug the machine finds produces the same artifacts as one a human reports** (internal
+  governance). Any fix that closes a silent-failure or data-loss class now ships an incident doc, a
+  drift-guard, and a memory entry in the same push, enforced at pre-push (VR-INCIDENT-COVERAGE) —
+  closing the class where audit-discovered defects were fixed and forgotten with no durable trail.
+
+## [1.16.3] - 2026-07-15
+
+### Fixed
+
+- **Cloud sync no longer silently discards large sessions, and the `cloud.requestTimeoutMs`
+  knob actually works** (`plan-2026-07-20-cloud-sync-timeout`, incident 2026-07-20). A
+  session with many observations produces a large `/sync` payload; a 423-observation
+  payload measured ~9.2 s against the live ingest, over the 8 s per-request timeout — and
+  the client does not retry a timeout, so every drain failed, re-queued, and grew the queue
+  until the retry-limit shredder permanently discarded payloads (83 `cloud_sync_giveup`
+  events, real session/observation copies lost). The documented `cloud.requestTimeoutMs`
+  remedy was itself unusable: the key was absent from `CloudConfigSchema` (zod strips
+  unknown keys, so it never reached the reader), and `cloud.enabled` used a zod
+  `.default(false)` that overrode the key-triggered auto-enable via object spread — so
+  merely declaring a `cloud:` block to tune the timeout silently turned sync **off**. The
+  default per-request timeout is raised 8 s → 15 s (inside the 20 s deadline),
+  `requestTimeoutMs` is now a real schema key (capped at the deadline), and `enabled` is
+  decided after the spread so an explicit `false` is still honoured. Drift-guard:
+  `cloud-config-knobs.test.ts` (mutation-verified).
+- **Native SQLite engine now self-heals on a Node ABI mismatch, and `massu doctor` can no
+  longer lie about it** (`plan-massu-resilience-layer1`, incident 2026-07-12, CR-65).
+  `better-sqlite3` is a native module compiled for one Node ABI; installing under one Node
+  major and running under another made its binary `dlopen`-fail lazily inside the `Database`
+  constructor. Two defects fell out: (1) DB-touching commands died — on one build
+  `consolidate --dry-run --json` printed the raw `NODE_MODULE_VERSION` error and **exited 0**
+  (silently-dead memory); (2) `massu doctor` reported "better-sqlite3 loads correctly" because
+  it only imported the JS wrapper (the native load is lazy). Now every load routes through a
+  single SSOT loader that, on an ABI failure, **rebuilds the engine for the Node you are
+  actually running** (via `prebuild-install` → `node-gyp`, driven by `process.execPath`,
+  cross-process-locked), retries once, and otherwise fails LOUD with a structured error and a
+  one-command remedy — never swallowed, never exit 0. `massu doctor` now actually constructs a
+  DB and runs `SELECT 1` (sharing one probe with server startup), and a new **`massu heal`**
+  command (`massu heal --check` is non-mutating) rebuilds on demand. Hooks route through the
+  loader but never rebuild (5 s budget). Heal events are recorded to
+  `~/.massu/native-heal-events.jsonl`.
+- **Config templates can no longer silently ship `verification.<lang>` commands that disagree
+  with the detection source-of-truth** (`plan-swift-ios-config-template-drift`, incident
+  2026-07-18, CR-66). `massu init` wrote a scaffolded config's per-language test/build/lint
+  command block from two independent places — the code map (`vr-command-map.ts:getVRCommands`)
+  and each language template's hand-copied YAML — with nothing binding them, so they drifted
+  (`go-chi` shipped a `gofmt` syntax step the map lacked and dropped `go build ./...`;
+  `rails`/`spring` added commands the map had no case for). `vr-command-map.ts` is now the single
+  authoring site: a filesystem-derived drift-guard asserts every template's block equals the map
+  (dir-normalized, null-stripped), every intentional divergence is recorded in one self-pruning
+  allowlist that must actually diverge, and a pattern-scanner check mirrors it — so a template
+  block that disagrees with the map, or a new template that drifts, fails the build. No shipped
+  `massu init` output changed (the agreeing templates are locked, not rewritten).
+
+### Infrastructure
+
+- Internal-only bookkeeping (no shipped `@massu/core` runtime change): SEC-1 license-signing key
+  rotation recorded as FULLY CLOSED — the leaked key was purged from git history (`git filter-repo
+  --replace-text`, force-pushed main + all tags, remote verified clean), the local private key
+  shredded, and only a future adoption-gated fingerprint-allowlist shrink remains. `.mcp.json` pin
+  bumped to `@massu/core@1.16.2`, and the memory-system roadmap adds WS0 (retro-on-discovery) as
+  STEP 0.
+- Test-suite flake eliminated (test-only; no shipped code): 13 tests wrote scratch files under
+  `packages/core/src`, which intermittently raced the source-tree walkers under the coverage run
+  (ENOENT crash). All scratch moved to the OS temp dir, and a mutation-tested drift-guard now makes
+  writing scratch under `src` impossible to reintroduce.
+- G-6 anti-vacuity registry (internal gate work; no shipped `@massu/core` runtime change),
+  `plan-2026-07-15-wave-1-g6-anti-vacuity-registry`: the meta-gate that proves every OTHER gate can
+  actually fail. Wave 1a covered the 108 shell fail-points; Wave 1b extends it to the full
+  structurally-discovered guard universe — an AST discoverer over every vitest/shell/eslint
+  enforcement guard, a completeness gate + validated `exempt` allowlist, and a per-kind real-tree
+  can-fail oracle. All 472 guard candidates are ruled (proven can-fail or cited-exempt); the P7b
+  harness mutation-tests the machinery itself; enforced in CI.
+
+## [1.16.2] - 2026-07-15
+
+### Security
+
+- **License-response signature verification is now STRICT by default (SEC-3 cutover).** The client
+  previously ACCEPTED unsigned or wrong-key `/validate-key` responses with a one-shot warning
+  (transition mode) unless the operator set `MASSU_REQUIRE_SIGNED_LICENSE=true`. As of `1.16.2`,
+  strict mode is the DEFAULT: an unsigned or invalid-signature response is rejected and the client
+  falls through to the grace-period cache or the free tier, closing the MITM / malicious-endpoint
+  tier-forgery window for good. This is safe because `1.16.1` shipped the rotated key as the bundled
+  PRIMARY pubkey and production signs every successful response with it (verified by a live
+  `valid:true` signature smoke). The only way back to warn-and-accept is an explicit
+  `MASSU_REQUIRE_SIGNED_LICENSE=false` — an emergency valve for a production signing outage.
+
+### Fixed
+
+- **Public-sync boundary correction (repo tooling; no npm-package change).** Completing the `1.16.1`
+  public sync surfaced that its sync tooling wrongly copied `.claude/agents/` and
+  `.claude/commands/_verification-laws.md` into the public git repo to satisfy an
+  internal-governance test's DOGFOOD assertion. That crosses the documented public/internal boundary:
+  the review/workflow agents reach users through the npm package (`@massu/core` `files:
+  ["agents/**/*"]`), not the public git repo, and the public-repo leak-guard allowlist intentionally
+  omits `.claude/agents/`. `1.16.2` reverts those copies and instead excludes
+  `verification-laws-shipped-and-wired.test.ts` from the mirror (the same pattern already used for
+  the other internal-only governance drift-guards), and genericizes two dev-script comments that
+  referenced internal incident paths so the public mirror carries no dangling internal references.
+
+## [1.16.1] - 2026-07-14
+
+### Security
+
+- **License-response signing key rotated (SEC-1).** The Ed25519 key that signs `/validate-key`
+  responses was rotated after a live private key was found committed in a tracked runbook (SEC-1,
+  `docs/reports/2026-07-14-codebase-audit-findings.md`). Production now signs with the new key and
+  stamps the new fingerprint `18c04567…`; the bundled client pubkey (`license-pubkey.generated.ts`)
+  is regenerated to trust the new key as primary while keeping the old key in the allowlist for the
+  transition grace window. A live signature smoke confirmed a real `/validate-key` success is signed
+  by the new key and verifies. The drift-guard `no-committed-private-keys.test.ts` forbids
+  re-introduction of any private key.
+
+### Fixed
+
+- **The 2026-07-14 codebase-audit closure is now actually delivered.** The audit-closure fixes were
+  committed (`4f4c688`) but never published — `1.16.0` on npm predates all of them. `1.16.1` ships:
+  fail-closed engine startup on a fatal DB/ABI error (SF-1), Pro-tier gating of the `/v1` capability
+  endpoints (SEC-2), the two wired-but-previously-dead CLI subcommands `massu rule show` /
+  `massu rule effectiveness` (DF-1/DF-2), the documented-but-missing webhook-test route (BND-1), and
+  the cloud-sync "server-error-as-empty" fix (BND-3).
+
+### Added
+
+- **CR-64 release-integrity gate — a published version number is immutable.** A pre-push + CI gate
+  (`scripts/release-integrity-check.mjs`) fails the moment `packages/core`'s version equals an
+  already-published npm version whose `vX.Y.Z` tag is missing or not at HEAD. This closes the class
+  where `1.16.0` was published without a git tag or release ceremony and then reused for six more
+  commits that read as "SHIPPED" while never delivered to customers. Incident:
+  `docs/incidents/2026-07-14-npm-publish-decoupled-from-release-ceremony.md`.
+
 ## [1.16.0] - 2026-07-14
 
 ### Fixed — cloud sync had, in practice, NEVER succeeded for a real session

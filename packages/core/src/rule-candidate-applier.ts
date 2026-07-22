@@ -47,6 +47,7 @@ import {
   teamSharedPromotionUpgradeMessage,
 } from './auto-learning-entitlement.ts';
 import { enqueueTeamPromotion } from './memory-db.ts';
+import { isCrossRepoOrigin } from './memory-origin.ts';
 import { recordApprovalFunnelEvent, recordDismissalFunnelEvent } from './rule-candidate-funnel.ts';
 // D-11: the candidate lifecycle lives in a real table, so the funnel is queryable.
 import { setCandidateStatus } from './rule-candidate-store.ts';
@@ -171,11 +172,28 @@ export interface RuleCandidateProvenance {
    * {@link pack_version}; `team` carries {@link promoted_by}. NO separate pack
    * entitlement by design — Team is the correct gate for both.
    */
-  origin: 'team' | 'pack';
+  /**
+   * Slice 5 A-04 (D1): the origin set is an ALLOWLIST. `'team'` / `'pack'` are the
+   * rule-shaped, Team-gated cross-seat origins (they carry {@link org_id} etc.). A
+   * `` `repo:${uuid}` `` cross-repo origin is a FIRST-CLASS recognized origin so it
+   * can never fall through to the ungated local path — but it is NEVER applied via
+   * this applier (a cross-repo MEMORY is not a rule); the apply gate refuses it
+   * wholesale, before any mutation, directing it to `acceptSharedMemory` (B-05).
+   */
+  origin: 'team' | 'pack' | `repo:${string}`;
   org_id: string;
   promoted_by: string;
   promoted_at: string;
   signature_verified: boolean;
+  /**
+   * S-6 (D2 closure): the install-bound apply MAC — HMAC(this install's
+   * `~/.massu/render-key`, canonical load-bearing fields), stamped at materialize
+   * AFTER the client verified the server envelope. The apply gate RE-COMPUTES it and
+   * refuses on mismatch, so a stored `signature_verified` boolean is no longer
+   * authority (a pre-forged sidecar from a repo that lacks this install's key has no
+   * valid MAC). Optional in the type for backward-compat; REQUIRED at the apply gate.
+   */
+  apply_mac?: string;
   /**
    * PA3-003: present (true) only on HARDENED team candidates (executable
    * destinations propagated via the hardened-review path). Absent/false on the
@@ -394,6 +412,7 @@ export function appendMemoryIndexLine(indexPath: string, line: string): void {
 // keep this module ≤999 LOC, Check 21). Imported for local use AND re-exported
 // so existing import paths (and the applier test) are unchanged.
 import { takeSnapshots, restoreSnapshots, type Snapshot } from './rule-candidate-snapshot.ts';
+import { verifyPromotionApplyMac } from './security/promotion-apply-mac.ts';
 export { takeSnapshots, restoreSnapshots, type Snapshot };
 
 interface CorrectionsMdPaths {
@@ -474,30 +493,51 @@ function validateCandidatePayload(raw: unknown): RuleCandidatePayload {
       throw new CandidatePayloadValidationError('provenance must be an object when present');
     }
     const p = r.provenance as Record<string, unknown>;
-    if (p.origin !== 'team' && p.origin !== 'pack') {
-      throw new CandidatePayloadValidationError("provenance.origin must be 'team' or 'pack'");
+    // D1 (Slice 5 A-04): the allowed provenance-origin set is an ALLOWLIST, not a
+    // two-literal `!== 'team' && !== 'pack'` enumeration. `'team'` / `'pack'` are the
+    // rule-shaped, Team-gated cross-seat origins. A `repo:<uuid>` cross-repo origin
+    // is a FIRST-CLASS recognized origin (so it can never fall through to the
+    // ungated local path) but carries NO rule fields — it is refused wholesale at
+    // the apply gate (a cross-repo memory is not a rule). Any UNRECOGNIZED origin
+    // still throws here at the I/O boundary.
+    const origin = p.origin;
+    const isTeamOrPack = origin === 'team' || origin === 'pack';
+    const isRepo = typeof origin === 'string' && isCrossRepoOrigin(origin);
+    if (!isTeamOrPack && !isRepo) {
+      throw new CandidatePayloadValidationError(
+        "provenance.origin must be 'team', 'pack', or 'repo:<uuid>'",
+      );
     }
-    if (typeof p.org_id !== 'string' || p.org_id.length === 0) {
-      throw new CandidatePayloadValidationError('provenance.org_id must be a non-empty string');
-    }
-    if (typeof p.promoted_by !== 'string' || p.promoted_by.length === 0) {
-      throw new CandidatePayloadValidationError('provenance.promoted_by must be a non-empty string');
-    }
-    if (typeof p.promoted_at !== 'string') {
-      throw new CandidatePayloadValidationError('provenance.promoted_at must be a string');
-    }
-    if (typeof p.signature_verified !== 'boolean') {
-      throw new CandidatePayloadValidationError('provenance.signature_verified must be a boolean');
-    }
-    // ARCH-FIX (destination fidelity): a provenance-bearing (team|pack) sidecar MUST
-    // carry the publisher / pack author's AUTHORITATIVE destination so the apply gate
-    // can enforce it verbatim (never re-classified). A planted sidecar that omits it
-    // (to force re-classification) is rejected here at the I/O boundary.
-    if (!isRuleDestination(r.destination)) {
-      throw new CandidatePayloadValidationError('provenance-bearing candidate must declare a valid destination');
-    }
-    if (r.draft_text !== undefined && typeof r.draft_text !== 'string') {
-      throw new CandidatePayloadValidationError('draft_text must be a string when present');
+    if (isTeamOrPack) {
+      // Only team|pack carry the full rule-shaped provenance; the apply gate then
+      // enforces tier + signature + destination fidelity on them. A repo: origin
+      // is refused before any of these fields would matter, so requiring them of it
+      // would be type-confusion (a cross-repo decision has no org_id/promoted_by).
+      if (typeof p.org_id !== 'string' || p.org_id.length === 0) {
+        throw new CandidatePayloadValidationError('provenance.org_id must be a non-empty string');
+      }
+      if (typeof p.promoted_by !== 'string' || p.promoted_by.length === 0) {
+        throw new CandidatePayloadValidationError('provenance.promoted_by must be a non-empty string');
+      }
+      if (typeof p.promoted_at !== 'string') {
+        throw new CandidatePayloadValidationError('provenance.promoted_at must be a string');
+      }
+      if (typeof p.signature_verified !== 'boolean') {
+        throw new CandidatePayloadValidationError('provenance.signature_verified must be a boolean');
+      }
+      if (p.apply_mac !== undefined && typeof p.apply_mac !== 'string') {
+        throw new CandidatePayloadValidationError('provenance.apply_mac, when present, must be a string');
+      }
+      // ARCH-FIX (destination fidelity): a provenance-bearing (team|pack) sidecar MUST
+      // carry the publisher / pack author's AUTHORITATIVE destination so the apply gate
+      // can enforce it verbatim (never re-classified). A planted sidecar that omits it
+      // (to force re-classification) is rejected here at the I/O boundary.
+      if (!isRuleDestination(r.destination)) {
+        throw new CandidatePayloadValidationError('provenance-bearing candidate must declare a valid destination');
+      }
+      if (r.draft_text !== undefined && typeof r.draft_text !== 'string') {
+        throw new CandidatePayloadValidationError('draft_text must be a string when present');
+      }
     }
   } else if (r.destination !== undefined && !isRuleDestination(r.destination)) {
     // A LOCAL candidate may omit destination (classified at approve time); if present it must be valid.
@@ -564,8 +604,26 @@ export async function applyRuleCandidate(
   // alias `entitledForTeamSharedPromotion` — same Team-gated, signed, cross-seat
   // security posture; origin distinguishes only provenance + display (see
   // {@link RuleCandidateProvenance.origin}). No separate pack entitlement by design.
-  if (candidate.provenance?.origin === 'team' || candidate.provenance?.origin === 'pack') {
+  if (candidate.provenance !== undefined) {
     const provOrigin = candidate.provenance.origin;
+    // D1 (Slice 5 A-04): provenance present ⇒ the origin MUST be a recognized,
+    // gated origin. Nothing falls through to the ungated local path. Validation
+    // already guarantees origin ∈ {team, pack, repo:<uuid>}; this is the allowlist
+    // backstop, expressed as membership rather than a two-literal `||`.
+    if (isCrossRepoOrigin(provOrigin)) {
+      // A cross-repo (repo:) memory is DATA, not a rule. It is NEVER materialized
+      // through the rule applier — its only acceptance path is `acceptSharedMemory`
+      // (Slice 5 B-05), which RE-VERIFIES the retained signed envelope bytes (a
+      // stored claim is never authority). Refuse here with ZERO mutation, BEFORE
+      // takeSnapshots / BEGIN.
+      return {
+        ok: false,
+        error:
+          'cross-repo (repo:) provenance is not applied via the rule path — use `massu memory accept`',
+      };
+    }
+    // provOrigin ∈ {'team','pack'} below — the existing Team-gated, signed,
+    // cross-seat apply gate, unchanged.
     // ARCH-FIX (destination fidelity): the publisher / pack author already decided
     // the authoritative destination (stored verbatim, carried through migration
     // 048's mapping). Refuse — with ZERO mutation, BEFORE takeSnapshots / BEGIN —
@@ -584,6 +642,30 @@ export async function applyRuleCandidate(
     }
     if (candidate.provenance.signature_verified !== true) {
       return { ok: false, error: `${provOrigin}-origin rule candidate has unverified provenance — refusing to apply` };
+    }
+    // S-6 (D2): `signature_verified` is a boolean the sidecar asserts ABOUT ITSELF —
+    // a hostile consumer repo can pre-forge it. The AUTHORITY is the install-bound
+    // apply MAC: HMAC(this install's ~/.massu key, load-bearing fields), stamped at
+    // materialize AFTER the client verified the server envelope. Re-compute it here and
+    // refuse on mismatch (BEFORE takeSnapshots / BEGIN → zero mutation). A sidecar
+    // planted by a repo that does not hold this install's key has no valid MAC.
+    if (
+      !verifyPromotionApplyMac(
+        candidate.provenance.apply_mac,
+        {
+          origin: provOrigin,
+          org_id: candidate.provenance.org_id,
+          prompt_hash: candidate.prompt_hash,
+          destination: candidate.destination ?? '',
+          draft_text: candidate.draft_text ?? '',
+        },
+        home,
+      )
+    ) {
+      return {
+        ok: false,
+        error: `${provOrigin}-origin rule candidate failed install-bound apply-MAC verification — refusing to apply`,
+      };
     }
     if (isTeamShareableDestination(opts.destination)) {
       // Phase-2 non-executing path — no extra checks beyond tier + signature.
@@ -718,8 +800,12 @@ export async function applyRuleCandidate(
     // not at all, and a throw here rolls the whole promotion back so the user can
     // retry. Fail closed, never silent.
     let teamShared = false;
-    const localOrigin =
-      candidate.provenance?.origin !== 'team' && candidate.provenance?.origin !== 'pack';
+    // A genuinely LOCAL candidate carries NO provenance block at all (team/pack/
+    // repo: all have one; a repo: origin never reaches here — it was refused at the
+    // apply gate). Only a local candidate is eligible for cross-seat re-publish;
+    // we never echo back what we pulled. (Slice 5 A-04 tightened this from a
+    // two-literal check to the structural "no provenance ⇒ local" invariant.)
+    const localOrigin = candidate.provenance === undefined;
     const entitledTeam = entitledForTeamSharedPromotion(ent.currentTier);
     const nonHardenedShare = isTeamShareableDestination(opts.destination);
     // PA3-004: a HARDENED (executable) destination publishes cross-seat ONLY when

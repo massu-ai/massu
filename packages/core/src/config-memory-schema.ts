@@ -160,4 +160,31 @@ export const MemoryConfigSchema = z.object({
     // per-session cap bounds only the RATE, never the total.
     indexMaxLines: z.number().int().min(1).default(50),
   }).default({}),
+
+  // --- Cross-repo memory surfacing (plan-living-memory-slice-5-cross-repo-surfacing) ---
+  // A decision made in one of your repos can surface in another — opt-in per
+  // decision AND opt-in per repo, signed, verified, and materialized ONLY on
+  // explicit human acceptance. Local transport is FREE and zero-network.
+  //
+  // ⛔ BOTH switches default OFF, and OFF means NOTHING EXISTS — no registry, no
+  // keys, no inbox, no behavioural difference. Two INDEPENDENT opt-ins:
+  //   • enabled   — may this repo EXPORT its shareable decisions? (opt-in #1)
+  //   • subscribe — which repo LABELS may this repo IMPORT from? (opt-in #2)
+  // `subscribe: []` means import NOTHING. There is deliberately NO `subscribe: all`
+  // — a repo you never named is a repo Massu never reads from.
+  share: z.object({
+    enabled: z.boolean().default(false),
+    subscribe: z.array(z.string()).default([]),
+    // C-04 — recall surfacing of cross-repo memories. `enabled` defaults true but is
+    // CONDITIONAL on `subscribe` being non-empty (empty by default), so the effective
+    // default is DORMANT: with `subscribe: []` the recall hook output is byte-identical
+    // to today's. `maxCrossRepoItems` caps how many accepted cross-repo items may appear
+    // per recall block (default 1); `minScore` is an OPTIONAL strictly-higher floor for
+    // cross-repo items (they are, by construction, less relevant than local ones).
+    recall: z.object({
+      enabled: z.boolean().default(true),
+      maxCrossRepoItems: z.number().int().min(0).default(1),
+      minScore: z.number().optional(),
+    }).default({}),
+  }).default({}),
 }).optional();

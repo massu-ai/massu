@@ -96,7 +96,6 @@ const GovernanceConfigSchema = z.object({
     custom_patterns: z.array(CustomPatternSchema).default([]),
   }).optional(),
   adr: z.object({
-    detection_phrases: z.array(z.string()).default(['chose', 'decided', 'switching to', 'moving from', 'going with']),
     template: z.string().default('default'),
     storage: z.string().default('database'),
     output_dir: z.string().default('docs/adr'),

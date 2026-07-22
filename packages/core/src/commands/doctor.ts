@@ -26,7 +26,7 @@ import { getCurrentTier, getLicenseInfo, type ToolTier, type LicenseValidationOu
 import { apiKeySourceLabel, type ApiKeySource } from '../credentials.ts';
 import { readSettingsAtPath } from '../lib/settings-local.ts';
 import { getExpectedHookFiles } from '../lib/hook-registry.ts';
-import { probeMemoryDbUsable, NATIVE_DB_REMEDY } from '../lib/sqlite-loader.ts';
+import { probeMemoryDbUsable, resolveDbEngine, NATIVE_DB_REMEDY } from '../db-driver.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -160,34 +160,45 @@ function checkHookFiles(projectRoot: string): CheckResult {
 
 export async function checkNativeModules(): Promise<CheckResult> {
   // TRUTHFUL DOCTOR (bug #2, incident 2026-07-12): the old check merely imported the
-  // better-sqlite3 module dynamically, which loads only the JS wrapper — the native
-  // dlopen is LAZY (fires inside the Database constructor), so it reported "loads
-  // correctly" while a real DB touch died. The shared probe actually CONSTRUCTS a
-  // DB and runs `SELECT 1`, the same probe `server.ts` startup uses, so a green
-  // doctor can never again coexist with a dead `consolidate`. Report-only
-  // (selfHeal:false) — a health check tells the truth, it does not rebuild.
+  // engine module, which loads only the JS wrapper — the native dlopen is LAZY (fires
+  // inside the Database constructor), so it reported "loads correctly" while a real DB
+  // touch died. The shared probe actually CONSTRUCTS a DB and runs `SELECT 1`, the same
+  // probe `server.ts` startup uses, so a green doctor can never again coexist with a
+  // dead `consolidate`. Report-only (selfHeal:false) — a health check tells the truth,
+  // it does not rebuild.
+  //
+  // LAYER 2 (CR-69): the default engine is Node's built-in `node:sqlite` — native-free,
+  // no ABI to mismatch. `better-sqlite3` is only the opt-in fallback. Report the ACTIVE
+  // engine truthfully (never claim "better-sqlite3" when node:sqlite is live).
+  const engine = resolveDbEngine();
+  const engineLabel =
+    engine === 'better-sqlite3'
+      ? 'better-sqlite3 (native fallback)'
+      : 'node:sqlite (native-free, Node built-in)';
   const memoryDbPath = getResolvedPaths().memoryDbPath;
   const verdict = probeMemoryDbUsable({ dbPath: memoryDbPath, selfHeal: false });
   if (verdict.ok) {
-    return { name: 'Native Modules', status: 'pass', detail: 'better-sqlite3 constructs a DB and SELECT 1 succeeds' };
+    return { name: 'Database Engine', status: 'pass', detail: `${engineLabel} constructs a DB and SELECT 1 succeeds` };
   }
   const because = verdict.detail ? ` (${verdict.detail})` : '';
   return {
-    name: 'Native Modules',
+    name: 'Database Engine',
     status: 'fail',
-    detail: `better-sqlite3 unusable — ${verdict.reason}${because}. ${verdict.remedy ?? NATIVE_DB_REMEDY}`,
+    detail: `${engineLabel} unusable — ${verdict.reason}${because}. ${verdict.remedy ?? NATIVE_DB_REMEDY}`,
   };
 }
 
 function checkNodeVersion(): CheckResult {
+  // Layer 2 floor (CR-69): node:sqlite is flag-free + FTS5-capable only from v22.13.0.
   const version = process.versions.node;
-  const major = parseInt(version.split('.')[0], 10);
+  const [major, minor] = version.split('.').map((n) => parseInt(n, 10));
+  const meets = major > 22 || (major === 22 && minor >= 13);
 
-  if (major >= 18) {
-    return { name: 'Node.js', status: 'pass', detail: `v${version} (>= 18 required)` };
+  if (meets) {
+    return { name: 'Node.js', status: 'pass', detail: `v${version} (>= 22.13.0 required for node:sqlite)` };
   }
 
-  return { name: 'Node.js', status: 'fail', detail: `v${version} — Node.js 18+ is required` };
+  return { name: 'Node.js', status: 'fail', detail: `v${version} — Node.js >= 22.13.0 is required (node:sqlite engine)` };
 }
 
 async function checkGitRepo(projectRoot: string): Promise<CheckResult> {

@@ -11,7 +11,7 @@
 // ============================================================
 
 import type Database from 'better-sqlite3';
-import { openDatabase } from '../lib/sqlite-loader.ts';
+import { openDatabase } from '../db-driver.ts';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
 import { getFeatureImpact } from '../sentinel-db.ts';

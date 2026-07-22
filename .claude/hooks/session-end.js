@@ -423,6 +423,136 @@ var init_sqlite_loader = __esm({
   }
 });
 
+// src/db-driver.ts
+import { createRequire as createRequire2 } from "module";
+import { closeSync, existsSync as existsSync3, mkdtempSync, openSync, readFileSync as readFileSync3, rmSync as rmSync3, fsyncSync } from "fs";
+import { tmpdir } from "os";
+import { join as join2 } from "path";
+function resolveDbEngine() {
+  return process.env[DB_ENGINE_ENV] === "better-sqlite3" ? "better-sqlite3" : DEFAULT_DB_ENGINE;
+}
+function nodeSqliteCtor() {
+  if (!_nodeCtor) _nodeCtor = req2("node:sqlite").DatabaseSync;
+  return _nodeCtor;
+}
+function plainRow(row) {
+  if (row == null || typeof row !== "object") return row;
+  return { ...row };
+}
+function openNodeSqlite(dbPath, opts) {
+  const Ctor = nodeSqliteCtor();
+  const raw = new Ctor(dbPath, {
+    open: true,
+    readOnly: !!opts.readonly,
+    // FAITHFULNESS: better-sqlite3's ACTUAL default is foreign_keys=ON (empirically
+    // verified — SQLite's own default is OFF, but bs3 enables it). massu was written +
+    // tested against that default, so the adapter must match it, or a store that relies
+    // on FK-ON-by-default (without an explicit pragma) would silently lose enforcement.
+    // Explicit `foreign_keys=OFF/ON` pragmas (e.g. memory-db bulk ops) still override.
+    enableForeignKeyConstraints: true,
+    allowExtension: false
+  });
+  let savepointSeq = 0;
+  const wrapStmt = (sql) => {
+    const st = raw.prepare(sql);
+    return {
+      run: (...p) => {
+        const r = st.run(...p);
+        return {
+          changes: typeof r.changes === "bigint" ? Number(r.changes) : r.changes,
+          lastInsertRowid: r.lastInsertRowid
+        };
+      },
+      get: (...p) => plainRow(st.get(...p)),
+      all: (...p) => st.all(...p).map(plainRow)
+    };
+  };
+  const pragma = (source, options) => {
+    const s = String(source).trim();
+    if (s.includes("=")) {
+      raw.exec(`PRAGMA ${s}`);
+      return void 0;
+    }
+    const rows = raw.prepare(`PRAGMA ${s}`).all().map(plainRow);
+    if (options?.simple) {
+      const first = rows[0];
+      return first ? Object.values(first)[0] : void 0;
+    }
+    return rows;
+  };
+  const transaction = (fn) => {
+    const run = (...args) => {
+      const nested = raw.isTransaction;
+      const name = `msp_${savepointSeq++}`;
+      if (nested) raw.exec(`SAVEPOINT ${name}`);
+      else raw.exec("BEGIN");
+      try {
+        const out = fn(...args);
+        if (nested) raw.exec(`RELEASE ${name}`);
+        else raw.exec("COMMIT");
+        return out;
+      } catch (e) {
+        if (nested) {
+          raw.exec(`ROLLBACK TO ${name}`);
+          raw.exec(`RELEASE ${name}`);
+        } else {
+          raw.exec("ROLLBACK");
+        }
+        throw e;
+      }
+    };
+    return run;
+  };
+  const serialize = () => {
+    if (raw.isTransaction) {
+      throw new Error(
+        "db-driver: .serialize() (node:sqlite engine) cannot run inside an open transaction \u2014 VACUUM is forbidden in a transaction. Serialize before BEGIN, or use MASSU_DB_ENGINE=better-sqlite3 for mid-transaction snapshots."
+      );
+    }
+    const dir = mkdtempSync(join2(tmpdir(), "massu-serialize-"));
+    const out = join2(dir, "snapshot.db");
+    try {
+      raw.exec(`VACUUM INTO '${out.replace(/'/g, "''")}'`);
+      const fd = openSync(out, "r");
+      try {
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+      return readFileSync3(out);
+    } finally {
+      rmSync3(dir, { recursive: true, force: true });
+    }
+  };
+  const handle = {
+    prepare: (sql) => wrapStmt(sql),
+    exec: (sql) => raw.exec(sql),
+    pragma,
+    transaction,
+    serialize,
+    close: () => raw.close()
+  };
+  return handle;
+}
+function openBetterSqlite3(dbPath, opts) {
+  return openDatabase(dbPath, opts);
+}
+function openDatabase2(dbPath, opts = {}) {
+  return resolveDbEngine() === "better-sqlite3" ? openBetterSqlite3(dbPath, opts) : openNodeSqlite(dbPath, opts);
+}
+var req2, DEFAULT_DB_ENGINE, DB_ENGINE_ENV, _nodeCtor;
+var init_db_driver = __esm({
+  "src/db-driver.ts"() {
+    "use strict";
+    init_sqlite_loader();
+    init_sqlite_loader();
+    req2 = createRequire2(import.meta.url);
+    DEFAULT_DB_ENGINE = "node-sqlite";
+    DB_ENGINE_ENV = "MASSU_DB_ENGINE";
+    _nodeCtor = null;
+  }
+});
+
 // src/lib/memory-path.ts
 function encodeMemoryDirName(projectRoot) {
   return projectRoot.replace(/\//g, "-");
@@ -566,6 +696,32 @@ var init_config_memory_schema = __esm({
         // turn of EVERY session, so an unbounded index is a permanent context tax — and the
         // per-session cap bounds only the RATE, never the total.
         indexMaxLines: z.number().int().min(1).default(50)
+      }).default({}),
+      // --- Cross-repo memory surfacing (plan-living-memory-slice-5-cross-repo-surfacing) ---
+      // A decision made in one of your repos can surface in another — opt-in per
+      // decision AND opt-in per repo, signed, verified, and materialized ONLY on
+      // explicit human acceptance. Local transport is FREE and zero-network.
+      //
+      // ⛔ BOTH switches default OFF, and OFF means NOTHING EXISTS — no registry, no
+      // keys, no inbox, no behavioural difference. Two INDEPENDENT opt-ins:
+      //   • enabled   — may this repo EXPORT its shareable decisions? (opt-in #1)
+      //   • subscribe — which repo LABELS may this repo IMPORT from? (opt-in #2)
+      // `subscribe: []` means import NOTHING. There is deliberately NO `subscribe: all`
+      // — a repo you never named is a repo Massu never reads from.
+      share: z.object({
+        enabled: z.boolean().default(false),
+        subscribe: z.array(z.string()).default([]),
+        // C-04 — recall surfacing of cross-repo memories. `enabled` defaults true but is
+        // CONDITIONAL on `subscribe` being non-empty (empty by default), so the effective
+        // default is DORMANT: with `subscribe: []` the recall hook output is byte-identical
+        // to today's. `maxCrossRepoItems` caps how many accepted cross-repo items may appear
+        // per recall block (default 1); `minScore` is an OPTIONAL strictly-higher floor for
+        // cross-repo items (they are, by construction, less relevant than local ones).
+        recall: z.object({
+          enabled: z.boolean().default(true),
+          maxCrossRepoItems: z.number().int().min(0).default(1),
+          minScore: z.number().optional()
+        }).default({})
       }).default({})
     }).optional();
   }
@@ -573,7 +729,7 @@ var init_config_memory_schema = __esm({
 
 // src/config.ts
 import { resolve as resolve2, dirname as dirname3 } from "path";
-import { existsSync as existsSync3, readFileSync as readFileSync3 } from "fs";
+import { existsSync as existsSync4, readFileSync as readFileSync4 } from "fs";
 import { homedir as homedir2 } from "os";
 import { parse as parseYaml } from "yaml";
 import { z as z2 } from "zod";
@@ -581,7 +737,7 @@ function findProjectRoot() {
   const cwd = process.cwd();
   let dir = cwd;
   while (true) {
-    if (existsSync3(resolve2(dir, "massu.config.yaml"))) {
+    if (existsSync4(resolve2(dir, "massu.config.yaml"))) {
       return dir;
     }
     const parent = dirname3(dir);
@@ -590,10 +746,10 @@ function findProjectRoot() {
   }
   dir = cwd;
   while (true) {
-    if (existsSync3(resolve2(dir, "package.json"))) {
+    if (existsSync4(resolve2(dir, "package.json"))) {
       return dir;
     }
-    if (existsSync3(resolve2(dir, ".git"))) {
+    if (existsSync4(resolve2(dir, ".git"))) {
       return dir;
     }
     const parent = dirname3(dir);
@@ -613,8 +769,8 @@ function getConfig() {
   const root = getProjectRoot();
   const configPath = resolve2(root, "massu.config.yaml");
   let rawYaml = {};
-  if (existsSync3(configPath)) {
-    const content = readFileSync3(configPath, "utf-8");
+  if (existsSync4(configPath)) {
+    const content = readFileSync4(configPath, "utf-8");
     rawYaml = parseYaml(content) ?? {};
   }
   const result = RawConfigSchema.safeParse(rawYaml);
@@ -819,7 +975,6 @@ var init_config = __esm({
         custom_patterns: z2.array(CustomPatternSchema).default([])
       }).optional(),
       adr: z2.object({
-        detection_phrases: z2.array(z2.string()).default(["chose", "decided", "switching to", "moving from", "going with"]),
         template: z2.string().default("default"),
         storage: z2.string().default("database"),
         output_dir: z2.string().default("docs/adr")
@@ -1194,26 +1349,26 @@ var init_memory_vector = __esm({
 });
 
 // src/db-backup.ts
-import { existsSync as existsSync4, mkdirSync as mkdirSync4, readdirSync, statSync, unlinkSync, copyFileSync, rmSync as rmSync3 } from "fs";
-import { resolve as resolve3, join as join2, basename, dirname as dirname4 } from "path";
+import { existsSync as existsSync5, mkdirSync as mkdirSync4, readdirSync, statSync, unlinkSync, copyFileSync, rmSync as rmSync4 } from "fs";
+import { resolve as resolve3, join as join3, basename, dirname as dirname4 } from "path";
 import { homedir as homedir3 } from "os";
 function dbBackupsRoot(home = homedir3()) {
   return resolve3(home, ".massu", "db-backups");
 }
 function projectBackupDir(projectRoot, home = homedir3()) {
   const slug = basename(projectRoot).replace(/[^A-Za-z0-9._-]/g, "_") || "project";
-  return join2(dbBackupsRoot(home), slug);
+  return join3(dbBackupsRoot(home), slug);
 }
 function backupStamp(nowMs) {
   return new Date(nowMs).toISOString().replace(/[:.]/g, "-");
 }
 function listDbBackups(projectRoot, home = homedir3()) {
   const dir = projectBackupDir(projectRoot, home);
-  if (!existsSync4(dir)) return [];
+  if (!existsSync5(dir)) return [];
   const out = [];
   for (const f of readdirSync(dir)) {
     if (!f.endsWith(".db")) continue;
-    const p = join2(dir, f);
+    const p = join3(dir, f);
     const st = statSync(p);
     const db = f.replace(/-\d{4}-\d{2}-\d{2}T.*$/, "");
     out.push({ db, path: p, bytes: st.size, mtimeMs: st.mtimeMs });
@@ -1226,13 +1381,13 @@ function hasFreshDbBackup(projectRoot, dbPath, nowMs = Date.now(), home = homedi
   if (backups.length === 0) return false;
   const newest = backups[0];
   if (nowMs - newest.mtimeMs > FRESH_WINDOW_MS) return false;
-  if (existsSync4(dbPath) && statSync(dbPath).mtimeMs > newest.mtimeMs) return false;
+  if (existsSync5(dbPath) && statSync(dbPath).mtimeMs > newest.mtimeMs) return false;
   return true;
 }
 function integrityOk(dbPath) {
   let db = null;
   try {
-    db = openDatabase(dbPath, { readonly: true });
+    db = openDatabase2(dbPath, { readonly: true });
     const rows = db.pragma("integrity_check");
     return rows.length === 1 && rows[0].integrity_check === "ok";
   } catch {
@@ -1245,16 +1400,16 @@ function integrityOk(dbPath) {
   }
 }
 function backupDb(projectRoot, dbPath, nowMs = Date.now(), home = homedir3()) {
-  if (!existsSync4(dbPath)) {
+  if (!existsSync5(dbPath)) {
     throw new DbBackupError(`cannot back up a database that does not exist: ${dbPath}`);
   }
   const dir = projectBackupDir(projectRoot, home);
   mkdirSync4(dir, { recursive: true });
   const name = basename(dbPath, ".db");
-  const dest = join2(dir, `${name}-${backupStamp(nowMs)}.db`);
+  const dest = join3(dir, `${name}-${backupStamp(nowMs)}.db`);
   let src = null;
   try {
-    src = openDatabase(dbPath, { readonly: true });
+    src = openDatabase2(dbPath, { readonly: true });
     src.exec(`VACUUM INTO '${dest.replace(/'/g, "''")}'`);
   } catch (err) {
     throw new DbBackupError(
@@ -1293,7 +1448,7 @@ function pruneDbBackups(projectRoot, dbName, keep = DEFAULT_RETENTION, home = ho
 }
 function backupBeforeSchemaChange(projectRoot, dbPath, onError, nowMs = Date.now(), home = homedir3()) {
   try {
-    if (!existsSync4(dbPath)) return null;
+    if (!existsSync5(dbPath)) return null;
     if (hasFreshDbBackup(projectRoot, dbPath, nowMs, home)) return null;
     return backupDb(projectRoot, dbPath, nowMs, home);
   } catch (err) {
@@ -1305,7 +1460,7 @@ var DEFAULT_RETENTION, FRESH_WINDOW_MS, DbBackupError;
 var init_db_backup = __esm({
   "src/db-backup.ts"() {
     "use strict";
-    init_sqlite_loader();
+    init_db_driver();
     DEFAULT_RETENTION = 5;
     FRESH_WINDOW_MS = 24 * 60 * 60 * 1e3;
     DbBackupError = class extends Error {
@@ -1565,21 +1720,21 @@ var init_rule_candidate_store = __esm({
 });
 
 // src/hooks/lib/hook-failure-signal.ts
-import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync5, existsSync as existsSync5 } from "fs";
-import { join as join3, dirname as dirname5 } from "path";
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync5, existsSync as existsSync6 } from "fs";
+import { join as join4, dirname as dirname5 } from "path";
 function resolveFailureLogPath() {
   const explicit = process.env.MASSU_HOOK_FAILURE_LOG;
   if (explicit) return explicit;
   let dir = process.cwd();
   for (let i = 0; i < 12; i++) {
-    if (existsSync5(join3(dir, ".massu")) || existsSync5(join3(dir, "massu.config.yaml"))) {
-      return join3(dir, ".massu", "hook-failures.jsonl");
+    if (existsSync6(join4(dir, ".massu")) || existsSync6(join4(dir, "massu.config.yaml"))) {
+      return join4(dir, ".massu", "hook-failures.jsonl");
     }
     const parent = dirname5(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return join3(process.cwd(), ".massu", "hook-failures.jsonl");
+  return join4(process.cwd(), ".massu", "hook-failures.jsonl");
 }
 function recordHookFailure(hook, error, context) {
   const record = {
@@ -1636,9 +1791,9 @@ var init_hook_failure_signal = __esm({
 });
 
 // src/memory-embedder-tokenizer.ts
-import { readFileSync as readFileSync4 } from "fs";
+import { readFileSync as readFileSync5 } from "fs";
 function loadVocab(vocabPath) {
-  const lines = readFileSync4(vocabPath, "utf-8").split("\n");
+  const lines = readFileSync5(vocabPath, "utf-8").split("\n");
   const vocab = /* @__PURE__ */ new Map();
   for (let i = 0; i < lines.length; i++) {
     const tok = lines[i].replace(/\r$/, "");
@@ -1758,9 +1913,9 @@ var init_memory_embedder_tokenizer = __esm({
 
 // src/memory-embedder.ts
 import { fileURLToPath } from "url";
-import { dirname as dirname6, join as join4 } from "path";
-import { existsSync as existsSync6 } from "fs";
-import { createRequire as createRequire2 } from "module";
+import { dirname as dirname6, join as join5 } from "path";
+import { existsSync as existsSync7 } from "fs";
+import { createRequire as createRequire3 } from "module";
 function getActiveEmbedModel() {
   return _activeModel;
 }
@@ -1784,7 +1939,7 @@ function resolveModelDir() {
     let dir = dirname6(fileURLToPath(import.meta.url));
     let root = null;
     for (let i = 0; i < 8; i++) {
-      if (existsSync6(join4(dir, "package.json"))) {
+      if (existsSync7(join5(dir, "package.json"))) {
         root = dir;
         break;
       }
@@ -1794,8 +1949,8 @@ function resolveModelDir() {
     }
     if (!root) return null;
     for (const rel of ["dist/embedder", "assets/embedder"]) {
-      const candidate = join4(root, rel);
-      if (existsSync6(join4(candidate, "model_quantized.onnx"))) return candidate;
+      const candidate = join5(root, rel);
+      if (existsSync7(join5(candidate, "model_quantized.onnx"))) return candidate;
     }
     return null;
   } catch {
@@ -1804,8 +1959,8 @@ function resolveModelDir() {
 }
 function resolveWasmDir() {
   try {
-    const req2 = createRequire2(import.meta.url);
-    const main2 = req2.resolve(ORT_PKG);
+    const req3 = createRequire3(import.meta.url);
+    const main2 = req3.resolve(ORT_PKG);
     return dirname6(main2);
   } catch {
     return null;
@@ -1826,8 +1981,8 @@ async function getSession() {
       ort.env.wasm.proxy = false;
       ort.env.wasm.wasmPaths = wasmDir.endsWith("/") ? wasmDir : wasmDir + "/";
       _ortTensor = ort.Tensor;
-      const modelPath = join4(modelDir, "model_quantized.onnx");
-      const vocabPath = join4(modelDir, "vocab.txt");
+      const modelPath = join5(modelDir, "model_quantized.onnx");
+      const vocabPath = join5(modelDir, "vocab.txt");
       _vocab = loadVocab(vocabPath);
       const session = await ort.InferenceSession.create(modelPath, {
         executionProviders: ["wasm"],
@@ -2163,6 +2318,7 @@ __export(memory_db_exports, {
   migrateAuditLogCheckExtension: () => migrateAuditLogCheckExtension,
   migrateMemoryFilesFor4B: () => migrateMemoryFilesFor4B,
   migrateObservationEmbeddingChunks: () => migrateObservationEmbeddingChunks,
+  migrateSharedMemoryFor5B: () => migrateSharedMemoryFor5B,
   pruneOldConversationTurns: () => pruneOldConversationTurns,
   pruneOldObservations: () => pruneOldObservations,
   pruneToolCostEvents: () => pruneToolCostEvents,
@@ -2180,7 +2336,7 @@ __export(memory_db_exports, {
   usageWarmupElapsed: () => usageWarmupElapsed
 });
 import { dirname as dirname7, basename as basename2 } from "path";
-import { existsSync as existsSync7, mkdirSync as mkdirSync6 } from "fs";
+import { existsSync as existsSync8, mkdirSync as mkdirSync6 } from "fs";
 function sanitizeFts5Query(raw) {
   const trimmed = raw.trim();
   if (!trimmed) return '""';
@@ -2197,11 +2353,11 @@ function sanitizeFts5QueryOr(raw) {
 function getMemoryDb() {
   const dbPath = getResolvedPaths().memoryDbPath;
   const dir = dirname7(dbPath);
-  if (!existsSync7(dir)) {
+  if (!existsSync8(dir)) {
     mkdirSync6(dir, { recursive: true });
   }
-  const preExisting = existsSync7(dbPath);
-  const db = openDatabase(dbPath);
+  const preExisting = existsSync8(dbPath);
+  const db = openDatabase2(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   const onDisk = db.pragma("user_version", { simple: true });
@@ -2277,6 +2433,39 @@ function migrateMemoryFilesFor4B(db) {
     db.exec(`ALTER TABLE ${add.table} ADD COLUMN ${add.name} ${add.decl}`);
   }
 }
+function migrateSharedMemoryFor5B(db) {
+  const cols = db.prepare(`PRAGMA table_info(observations)`).all();
+  if (cols.length > 0 && !cols.some((c) => c.name === "shareable")) {
+    db.exec(`ALTER TABLE observations ADD COLUMN shareable INTEGER NOT NULL DEFAULT 0`);
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shared_memory_pending (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      record_hash TEXT NOT NULL UNIQUE,        -- identity + idempotency key (hex sha256)
+      origin_repo_id TEXT NOT NULL,            -- the signed origin repo_id (v4 UUID)
+      origin_repo_label TEXT NOT NULL,         -- re-slugged on read; NEVER trusted from the wire
+      envelope_raw TEXT NOT NULL,              -- the VERBATIM signed bytes; B-05 re-verifies these
+      record_json TEXT NOT NULL,               -- the single record's canonical JSON
+      received_at_epoch INTEGER NOT NULL,      -- epoch SECONDS (Slice-2 convention)
+      accepted_at_epoch INTEGER,               -- set on accept (B-05); NULL while pending
+      refused_at_epoch INTEGER,                -- set on refuse (B-06)
+      expired_at_epoch INTEGER                 -- revocation \u21D2 EXPIRE, never DELETE (B-07 / S-3)
+    );
+    CREATE INDEX IF NOT EXISTS idx_smp_origin ON shared_memory_pending(origin_repo_id);
+    CREATE INDEX IF NOT EXISTS idx_smp_received ON shared_memory_pending(received_at_epoch DESC);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shared_memory_outbound (
+      record_hash TEXT PRIMARY KEY,          -- the exported record's canonical hash
+      observation_id INTEGER NOT NULL,       -- the source observations.id (for B-07 revocation)
+      origin_repo_id TEXT NOT NULL,          -- this repo's own repo_id at export time
+      seq INTEGER NOT NULL,                  -- the envelope seq this record first went out in
+      exported_at_epoch INTEGER NOT NULL,    -- epoch SECONDS
+      revoked_at_epoch INTEGER               -- set when the source row is superseded/expired (B-07)
+    );
+    CREATE INDEX IF NOT EXISTS idx_smo_obs ON shared_memory_outbound(observation_id);
+  `);
+}
 function migrateAuditLogCheckExtension(db) {
   const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_log'").get();
   if (!row) return;
@@ -2299,7 +2488,16 @@ function migrateAuditLogCheckExtension(db) {
     "memory_file_adopted_human",
     "memory_file_rendered",
     "memory_file_render_refused",
-    "memory_file_tombstoned"
+    "memory_file_tombstoned",
+    // B-10 (Slice 5) — the seven cross-repo shared-memory events. An existing DB whose
+    // CHECK lacks any of these triggers the table rebuild below.
+    "shared_memory_exported",
+    "shared_memory_export_refused",
+    "shared_memory_imported",
+    "shared_memory_dropped",
+    "shared_memory_accepted",
+    "shared_memory_refused",
+    "shared_memory_revoked"
   ];
   const checkClauseMatch = row.sql.match(/event_type\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*event_type\s+IN\s*\(([\s\S]*?)\)\s*\)/i);
   if (checkClauseMatch) {
@@ -2318,7 +2516,12 @@ function migrateAuditLogCheckExtension(db) {
           'code_change', 'rule_enforced', 'approval', 'review', 'commit', 'compaction',
           'rule_candidate_emitted', 'rule_promoted', 'rule_dismissed',
           'memory_file_ingested', 'memory_file_expired', 'memory_file_adopted_human',
-          'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned'
+          'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned',
+          -- B-10 (Slice 5) \u2014 cross-repo shared-memory events (must mirror the CREATE +
+          -- the expected[] list above, or the migration would loop rebuilding forever).
+          'shared_memory_exported', 'shared_memory_export_refused', 'shared_memory_imported',
+          'shared_memory_dropped', 'shared_memory_accepted', 'shared_memory_refused',
+          'shared_memory_revoked'
         )),
         actor TEXT NOT NULL DEFAULT 'ai' CHECK(actor IN ('ai', 'human', 'hook', 'agent')),
         model_id TEXT,
@@ -2395,6 +2598,12 @@ function initMemorySchema(db) {
       -- credential, or takes a snapshot. A Slice-5 synced memory arrives here with
       -- origin='team' and must never reach disk without CR-55's gates.
       origin TEXT NOT NULL DEFAULT 'local',
+      -- B-01 (Slice 5, cross-repo surfacing): the per-decision SHARE opt-in. Set to 1
+      -- ONLY by an explicit human act (massu memory share <id>); NEVER by a heuristic,
+      -- score, LLM, hook, or consolidation pass. Export (B-02) reads WHERE shareable=1
+      -- AND origin='local'. Defaults 0 so every pre-existing and machine-written row is
+      -- un-shareable until a human says otherwise (fail-closed).
+      shareable INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       created_at_epoch INTEGER NOT NULL,
       FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
@@ -2668,7 +2877,13 @@ function initMemorySchema(db) {
         'code_change', 'rule_enforced', 'approval', 'review', 'commit', 'compaction',
         'rule_candidate_emitted', 'rule_promoted', 'rule_dismissed',
         'memory_file_ingested', 'memory_file_expired', 'memory_file_adopted_human',
-        'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned'
+        'memory_file_rendered', 'memory_file_render_refused', 'memory_file_tombstoned',
+        -- B-10 (Slice 5): cross-repo shared-memory observability. Without these seven,
+        -- nobody could ever answer "what has crossed between my repos?" (and an ingest
+        -- catch would swallow the CHECK violation, silently producing NOTHING).
+        'shared_memory_exported', 'shared_memory_export_refused', 'shared_memory_imported',
+        'shared_memory_dropped', 'shared_memory_accepted', 'shared_memory_refused',
+        'shared_memory_revoked'
       )),
       actor TEXT NOT NULL DEFAULT 'ai' CHECK(actor IN ('ai', 'human', 'hook', 'agent')),
       model_id TEXT,
@@ -3037,6 +3252,7 @@ function initMemorySchema(db) {
   `);
   migrateObservationEmbeddingChunks(db);
   migrateMemoryFilesFor4B(db);
+  migrateSharedMemoryFor5B(db);
   ensureRuleCandidatesTable(db);
   migrateRuleDelivery(db);
 }
@@ -3907,7 +4123,7 @@ var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, 
 var init_memory_db = __esm({
   "src/memory-db.ts"() {
     "use strict";
-    init_sqlite_loader();
+    init_db_driver();
     init_config();
     init_memory_vector();
     init_db_backup();
@@ -3932,7 +4148,7 @@ init_memory_db();
 init_rule_delivery();
 
 // src/session-archiver.ts
-import { existsSync as existsSync8, readFileSync as readFileSync5, writeFileSync as writeFileSync3, mkdirSync as mkdirSync7, renameSync } from "fs";
+import { existsSync as existsSync9, readFileSync as readFileSync6, writeFileSync as writeFileSync3, mkdirSync as mkdirSync7, renameSync } from "fs";
 import { resolve as resolve5, dirname as dirname8 } from "path";
 
 // src/session-state-generator.ts
@@ -4085,12 +4301,12 @@ function archiveAndRegenerate(db, sessionId) {
   const archiveDir = resolved.sessionArchivePath;
   let archived = false;
   let archivePath;
-  if (existsSync8(currentMdPath)) {
-    const existingContent = readFileSync5(currentMdPath, "utf-8");
+  if (existsSync9(currentMdPath)) {
+    const existingContent = readFileSync6(currentMdPath, "utf-8");
     if (existingContent.trim().length > 10) {
       const { date, slug } = extractArchiveInfo(existingContent);
       archivePath = resolve5(archiveDir, `${date}-${slug}.md`);
-      if (!existsSync8(archiveDir)) {
+      if (!existsSync9(archiveDir)) {
         mkdirSync7(archiveDir, { recursive: true });
       }
       try {
@@ -4104,7 +4320,7 @@ function archiveAndRegenerate(db, sessionId) {
   }
   const newContent = generateCurrentMd(db, sessionId);
   const dir = dirname8(currentMdPath);
-  if (!existsSync8(dir)) {
+  if (!existsSync9(dir)) {
     mkdirSync7(dir, { recursive: true });
   }
   writeFileSync3(currentMdPath, newContent, "utf-8");
@@ -4214,11 +4430,6 @@ init_rule_delivery();
 
 // src/observation-extractor.ts
 init_memory_db();
-
-// src/adr-generator.ts
-init_config();
-
-// src/observation-extractor.ts
 init_config();
 var PRIVATE_PATTERNS = [
   /\/Users\/\w+/,
@@ -4425,13 +4636,80 @@ async function drainSyncQueue(db) {
   }
 }
 function sleep(ms) {
-  return new Promise((resolve6) => setTimeout(resolve6, ms));
+  return new Promise((resolve8) => setTimeout(resolve8, ms));
+}
+
+// src/team-rule-sync.ts
+import { existsSync as existsSync12, writeFileSync as writeFileSync6, unlinkSync as unlinkSync3, mkdirSync as mkdirSync9 } from "fs";
+import { homedir as homedir6 } from "os";
+import { join as join6, dirname as dirname10 } from "path";
+
+// src/security/promotion-apply-mac.ts
+import { createHmac as createHmac2, timingSafeEqual as timingSafeEqual2 } from "crypto";
+import { homedir as homedir5 } from "os";
+
+// src/memory-authorship.ts
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { readFileSync as readFileSync7, writeFileSync as writeFileSync4, existsSync as existsSync10, mkdirSync as mkdirSync8, chmodSync as chmodSync3, statSync as statSync2 } from "fs";
+import { homedir as homedir4 } from "os";
+import { resolve as resolve6 } from "path";
+function renderKeyPath(home = homedir4()) {
+  return resolve6(home, ".massu", "render-key");
+}
+function readRenderKey(home = homedir4()) {
+  const p = renderKeyPath(home);
+  try {
+    if (!existsSync10(p)) return void 0;
+    const raw = readFileSync7(p);
+    if (raw.length !== 32) return void 0;
+    return raw;
+  } catch {
+    return void 0;
+  }
+}
+function ensureRenderKey(home = homedir4()) {
+  const existing = readRenderKey(home);
+  if (existing) return existing;
+  const p = renderKeyPath(home);
+  try {
+    const dir = resolve6(home, ".massu");
+    mkdirSync8(dir, { recursive: true, mode: 448 });
+    try {
+      chmodSync3(dir, 448);
+    } catch {
+    }
+    const key = randomBytes(32);
+    writeFileSync4(p, key, { mode: 384 });
+    try {
+      chmodSync3(p, 384);
+    } catch {
+    }
+    return key;
+  } catch {
+    return void 0;
+  }
+}
+
+// src/security/promotion-apply-mac.ts
+var DOMAIN = "massu.promotion-apply.v1";
+function canonical(f) {
+  return [DOMAIN, f.origin, f.org_id, f.prompt_hash, f.destination, f.draft_text].join("\n");
+}
+function deriveApplyKey(renderKey) {
+  return createHmac2("sha256", renderKey).update(DOMAIN, "utf8").digest();
+}
+function computePromotionApplyMac(fields, home = homedir5()) {
+  try {
+    const key = ensureRenderKey(home);
+    if (!key) return null;
+    return createHmac2("sha256", deriveApplyKey(key)).update(canonical(fields), "utf8").digest("hex");
+  } catch {
+    return null;
+  }
 }
 
 // src/team-rule-sync.ts
 init_config();
-import { existsSync as existsSync9, writeFileSync as writeFileSync4, unlinkSync as unlinkSync2, mkdirSync as mkdirSync8 } from "fs";
-import { join as join5, dirname as dirname9 } from "path";
 
 // src/license.ts
 init_config();
@@ -4482,13 +4760,13 @@ function verifyEd25519SignedEnvelope(key, payload) {
     if (typeof k !== "string") continue;
     canonicalObj[k] = payload[k];
   }
-  const canonical = JSON.stringify(canonicalObj, [...payloadKeys].sort());
+  const canonical2 = JSON.stringify(canonicalObj, [...payloadKeys].sort());
   try {
     const der = Buffer.concat([SPKI_ED25519_PREFIX, Buffer.from(key.pubkeyBytes)]);
     const pubkey = createPublicKey({ key: der, format: "der", type: "spki" });
     const ok = cryptoVerify(
       null,
-      Buffer.from(canonical, "utf-8"),
+      Buffer.from(canonical2, "utf-8"),
       pubkey,
       Buffer.from(sig, "base64")
     );
@@ -4646,6 +4924,10 @@ var TEAM_SHARED_PROMOTION_MIN_TIER = "team";
 function entitledForTeamSharedPromotion(tier) {
   return tierLevel(tier) >= tierLevel(TEAM_SHARED_PROMOTION_MIN_TIER);
 }
+var CROSS_REPO_SURFACING_MIN_TIER = "free";
+function entitledForCrossRepoSurfacing(tier) {
+  return tierLevel(tier) >= tierLevel(CROSS_REPO_SURFACING_MIN_TIER);
+}
 
 // src/security/promotion-pubkey.generated.ts
 var PROMOTION_PUBKEY_ED25519 = new Uint8Array([107, 161, 33, 17, 189, 44, 193, 128, 252, 155, 188, 236, 100, 163, 23, 146, 219, 155, 216, 139, 134, 72, 211, 182, 151, 122, 209, 151, 135, 65, 167, 26]);
@@ -4667,6 +4949,136 @@ function verifyPromotionEnvelope(payload) {
   );
 }
 
+// src/lib/safe-write.ts
+import {
+  writeFileSync as writeFileSync5,
+  renameSync as renameSync2,
+  openSync as openSync2,
+  fsyncSync as fsyncSync2,
+  closeSync as closeSync2,
+  existsSync as existsSync11,
+  realpathSync,
+  unlinkSync as unlinkSync2,
+  accessSync as accessSync2,
+  statSync as statSync3,
+  chmodSync as chmodSync4,
+  constants
+} from "fs";
+import { dirname as dirname9, resolve as resolve7, relative, isAbsolute, basename as basename3, sep } from "path";
+var PathEscapeError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "PathEscapeError";
+  }
+};
+var RESERVED_DEVICE_NAMES = /* @__PURE__ */ new Set([
+  "con",
+  "prn",
+  "aux",
+  "nul",
+  "com1",
+  "com2",
+  "com3",
+  "com4",
+  "com5",
+  "com6",
+  "com7",
+  "com8",
+  "com9",
+  "lpt1",
+  "lpt2",
+  "lpt3",
+  "lpt4",
+  "lpt5",
+  "lpt6",
+  "lpt7",
+  "lpt8",
+  "lpt9"
+]);
+function assertContainedIn(rootDir, candidate, opts = {}) {
+  if (candidate.includes("\0")) {
+    throw new PathEscapeError("path contains a NUL byte");
+  }
+  const root = resolve7(rootDir);
+  const abs = resolve7(root, candidate);
+  if (!opts.allowNested) {
+    const rel = relative(root, abs);
+    if (rel.includes(sep)) {
+      throw new PathEscapeError(`path must be a plain basename inside ${root}: ${candidate}`);
+    }
+  }
+  const base = basename3(abs);
+  const stem = base.replace(/\.[^.]*$/, "").toLowerCase();
+  if (RESERVED_DEVICE_NAMES.has(stem)) {
+    throw new PathEscapeError(`reserved device name: ${base}`);
+  }
+  if (!isContainedIn(root, abs)) {
+    throw new PathEscapeError(`path escapes ${root}: ${candidate}`);
+  }
+  return abs;
+}
+function isContainedIn(rootDir, candidate, opts = {}) {
+  if (candidate.includes("\0")) return false;
+  const root = resolve7(rootDir);
+  const abs = resolve7(root, candidate);
+  const rel = relative(root, abs);
+  if (rel === "" && !opts.allowRoot) return false;
+  if (rel.startsWith("..") || isAbsolute(rel)) return false;
+  let probe = abs;
+  while (!existsSync11(probe) && probe.length > 1) {
+    const parent = dirname9(probe);
+    if (parent === probe) break;
+    probe = parent;
+  }
+  let realRoot;
+  let realProbe;
+  try {
+    realRoot = realpathSync(root);
+    realProbe = realpathSync(probe);
+  } catch {
+    return true;
+  }
+  const realRel = relative(realRoot, realProbe);
+  if (realRel === "") return true;
+  return !realRel.startsWith("..") && !isAbsolute(realRel);
+}
+function atomicWriteFileSync(destPath, contents) {
+  const dir = dirname9(destPath);
+  const tmp = resolve7(dir, `.${basename3(destPath)}.massu-tmp-${process.pid}`);
+  let destMode;
+  if (existsSync11(destPath)) {
+    accessSync2(destPath, constants.W_OK);
+    destMode = statSync3(destPath).mode & 511;
+  }
+  let fd;
+  try {
+    writeFileSync5(tmp, contents, "utf-8");
+    if (destMode !== void 0) chmodSync4(tmp, destMode);
+    fd = openSync2(tmp, "r+");
+    fsyncSync2(fd);
+    closeSync2(fd);
+    fd = void 0;
+    renameSync2(tmp, destPath);
+  } catch (err) {
+    if (fd !== void 0) {
+      try {
+        closeSync2(fd);
+      } catch {
+      }
+    }
+    try {
+      if (existsSync11(tmp)) unlinkSync2(tmp);
+    } catch {
+    }
+    throw err;
+  }
+}
+var SLUG_ALLOWED = /^[a-z0-9_]+$/;
+function deriveSlug(input) {
+  const cleaned = input.toLowerCase().replace(/[^a-z0-9\s]+/g, " ").replace(/\s+/g, "_").replace(/^_+|_+$/g, "");
+  return cleaned.slice(0, 60) || "rule_candidate";
+}
+
 // src/memory-index-region.ts
 init_fileLock();
 
@@ -4679,6 +5091,12 @@ init_config();
 
 // src/rule-candidate-applier.ts
 init_memory_db();
+
+// src/memory-origin.ts
+var LOCAL_ORIGIN = "local";
+function isLocalOrigin(o) {
+  return o === LOCAL_ORIGIN;
+}
 
 // src/rule-candidate-funnel.ts
 init_memory_db();
@@ -4805,11 +5223,11 @@ async function pullTeamPromotions(db, opts = {}) {
       result.revoked_handled += 1;
       continue;
     }
-    if (existsSync9(candidatePath) || alreadyApplied(db, p.prompt_hash)) {
+    if (existsSync12(candidatePath) || alreadyApplied(db, p.prompt_hash)) {
       result.skipped += 1;
       continue;
     }
-    materializeCandidate(db, projectRoot, candidatePath, p, signedOrgId);
+    materializeCandidate(db, projectRoot, candidatePath, p, signedOrgId, opts.home ?? homedir6());
     result.materialized += 1;
   }
   const serverCursor = typeof envelope.cursor === "number" ? envelope.cursor : 0;
@@ -4841,7 +5259,7 @@ function isValidWirePromotion(p) {
   return typeof r.prompt_hash === "string" && PROMPT_HASH_RE.test(r.prompt_hash) && typeof r.destination === "string" && typeof r.draft_text === "string" && typeof r.promoted_by === "string" && typeof r.promoted_at === "string";
 }
 function sidecarPath(projectRoot, promptHash) {
-  return join5(projectRoot, ".massu", "rule-candidates", `${promptHash}.json`);
+  return join6(projectRoot, ".massu", "rule-candidates", `${promptHash}.json`);
 }
 function alreadyApplied(db, promptHash) {
   try {
@@ -4855,9 +5273,9 @@ function alreadyApplied(db, promptHash) {
   }
 }
 function handleRevocation(db, projectRoot, candidatePath, promptHash) {
-  if (existsSync9(candidatePath)) {
+  if (existsSync12(candidatePath)) {
     try {
-      unlinkSync2(candidatePath);
+      unlinkSync3(candidatePath);
     } catch {
     }
     return;
@@ -4869,8 +5287,12 @@ function handleRevocation(db, projectRoot, candidatePath, promptHash) {
     );
   }
 }
-function materializeCandidate(db, projectRoot, candidatePath, p, orgId) {
+function materializeCandidate(db, projectRoot, candidatePath, p, orgId, home) {
   const promptText = p.draft_text.replace(/\n+/g, " ").slice(0, 200) || `team rule ${p.prompt_hash}`;
+  const applyMac = computePromotionApplyMac(
+    { origin: "team", org_id: orgId, prompt_hash: p.prompt_hash, destination: p.destination, draft_text: p.draft_text },
+    home
+  );
   const sidecar = {
     // Standard RuleCandidatePayload fields (so `/massu-rule approve` → readCandidate
     // → validateCandidatePayload passes), synthesized from the promotion.
@@ -4893,6 +5315,7 @@ function materializeCandidate(db, projectRoot, candidatePath, p, orgId) {
       promoted_by: p.promoted_by,
       promoted_at: p.promoted_at,
       signature_verified: true,
+      ...applyMac ? { apply_mac: applyMac } : {},
       ...p.hardened === true ? { hardened: true } : {}
     },
     // Extra fields the `/massu-rule approve` flow reads to drive the apply (the
@@ -4903,9 +5326,9 @@ function materializeCandidate(db, projectRoot, candidatePath, p, orgId) {
     draft_text: p.draft_text,
     ...p.review_attestation !== void 0 ? { publisher_review_attestation: p.review_attestation } : {}
   };
-  const dir = dirname9(candidatePath);
-  if (!existsSync9(dir)) mkdirSync8(dir, { recursive: true });
-  writeFileSync4(candidatePath, JSON.stringify(sidecar, null, 2), "utf-8");
+  const dir = dirname10(candidatePath);
+  if (!existsSync12(dir)) mkdirSync9(dir, { recursive: true });
+  writeFileSync6(candidatePath, JSON.stringify(sidecar, null, 2), "utf-8");
   try {
     shareObservation(db, p.promoted_by, getProjectName(), "rule_promotion", promptText, {
       filePath: void 0,
@@ -4954,6 +5377,830 @@ function failSync(db, reason) {
 `
   );
   return { ...ZERO, sync_error: reason };
+}
+
+// src/shared-memory-sync.ts
+init_config();
+import { homedir as homedir10 } from "os";
+
+// src/memory-repo-identity.ts
+init_config();
+init_memory_db();
+import { randomUUID as randomUUID2 } from "crypto";
+var REPO_ID_META_KEY = "repo_id";
+var SHARED_PIN_META_PREFIX = "shared_pin:";
+var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+function getRepoId(db) {
+  const v = getMemoryMeta(db, REPO_ID_META_KEY);
+  return v && UUID_RE.test(v) ? v : null;
+}
+function mintRepoId(db) {
+  const existing = getRepoId(db);
+  if (existing) return existing;
+  const id = randomUUID2();
+  setMemoryMeta(db, REPO_ID_META_KEY, id);
+  return id;
+}
+function deriveRepoLabel(projectName) {
+  if (!projectName || !projectName.trim()) return "repo";
+  const slug = deriveSlug(projectName);
+  return slug && SLUG_ALLOWED.test(slug) ? slug : "repo";
+}
+function getRepoLabel() {
+  return deriveRepoLabel(getConfig().project.name);
+}
+function getSharedPin(db, originRepoId) {
+  return getMemoryMeta(db, SHARED_PIN_META_PREFIX + originRepoId);
+}
+function tofuPinSharedFingerprint(db, originRepoId, fingerprint) {
+  const existing = getSharedPin(db, originRepoId);
+  if (existing) return existing;
+  setMemoryMeta(db, SHARED_PIN_META_PREFIX + originRepoId, fingerprint);
+  return fingerprint;
+}
+
+// src/memory-repos-registry.ts
+import {
+  chmodSync as chmodSync5,
+  existsSync as existsSync13,
+  mkdirSync as mkdirSync10,
+  readFileSync as readFileSync9,
+  writeFileSync as writeFileSync7
+} from "fs";
+import { homedir as homedir7 } from "os";
+import { dirname as dirname11, join as join7 } from "path";
+var REPOS_REGISTRY_VERSION = 1;
+function reposRegistryPath(home = homedir7()) {
+  return join7(home, ".massu", "repos.json");
+}
+function emptyRegistry() {
+  return { version: REPOS_REGISTRY_VERSION, repos: [] };
+}
+function readReposRegistry(home = homedir7()) {
+  const p = reposRegistryPath(home);
+  if (!existsSync13(p)) return emptyRegistry();
+  try {
+    const parsed = JSON.parse(readFileSync9(p, "utf-8"));
+    if (!parsed || typeof parsed !== "object") return emptyRegistry();
+    const r = parsed;
+    if (!Array.isArray(r.repos)) return emptyRegistry();
+    const repos = r.repos.filter(
+      (e) => !!e && typeof e === "object" && typeof e.repo_id === "string" && typeof e.label === "string"
+    );
+    return { version: typeof r.version === "number" ? r.version : REPOS_REGISTRY_VERSION, repos };
+  } catch {
+    return emptyRegistry();
+  }
+}
+function findRepoByLabel(home, label) {
+  return readReposRegistry(home).repos.find((e) => e.label === label) ?? null;
+}
+function upsertRepoRegistration(entry, home = homedir7()) {
+  const registry = readReposRegistry(home);
+  const next = registry.repos.filter((e) => e.repo_id !== entry.repo_id);
+  next.push(entry);
+  const out = { version: REPOS_REGISTRY_VERSION, repos: next };
+  const p = reposRegistryPath(home);
+  mkdirSync10(dirname11(p), { recursive: true, mode: 448 });
+  writeFileSync7(p, JSON.stringify(out, null, 2), { mode: 384 });
+  chmodSync5(p, 384);
+}
+
+// src/security/local-share-verifier.ts
+import { homedir as homedir9 } from "os";
+
+// src/security/local-share-signer.ts
+import {
+  chmodSync as chmodSync6,
+  existsSync as existsSync14,
+  mkdirSync as mkdirSync11,
+  readFileSync as readFileSync10,
+  writeFileSync as writeFileSync8
+} from "fs";
+import { homedir as homedir8 } from "os";
+import { join as join8 } from "path";
+import {
+  createHash as createHash3,
+  createPrivateKey,
+  createPublicKey as createPublicKey2,
+  generateKeyPairSync,
+  sign as cryptoSign
+} from "crypto";
+
+// src/shared-memory-envelope.ts
+import { createHash as createHash2 } from "crypto";
+var SHARED_MEMORY_KIND = "massu.shared-memory.v1";
+var SHARED_MEMORY_SIGNATURE_PAYLOAD_KEYS = [
+  "issued_at",
+  "kind",
+  "origin_repo_id",
+  "origin_repo_label",
+  "records_json",
+  "revokes_json",
+  "seq"
+];
+function canonicalizeSharedMemoryEnvelope(body) {
+  const keys = SHARED_MEMORY_SIGNATURE_PAYLOAD_KEYS;
+  const canonicalObj = {};
+  for (const k of keys) {
+    canonicalObj[k] = body[k];
+  }
+  return JSON.stringify(canonicalObj, [...keys].sort());
+}
+function hashSharedMemoryRecord(record) {
+  const canonical2 = JSON.stringify({
+    created_at_epoch: record.created_at_epoch,
+    detail: record.detail,
+    importance: record.importance,
+    superseded_by_hash: record.superseded_by_hash,
+    title: record.title,
+    type: record.type
+  });
+  return createHash2("sha256").update(canonical2, "utf-8").digest("hex");
+}
+
+// src/security/local-share-signer.ts
+function localShareKeyDir(home = homedir8()) {
+  return join8(home, ".massu", "keys");
+}
+function localSharePrivKeyPath(home = homedir8()) {
+  return join8(localShareKeyDir(home), "local-share.key");
+}
+function localSharePubKeyPath(home = homedir8()) {
+  return join8(localShareKeyDir(home), "local-share.pub");
+}
+var SPKI_ED25519_PREFIX_LEN = 12;
+function ensureLocalShareKeypair(home = homedir8()) {
+  const privPath = localSharePrivKeyPath(home);
+  if (existsSync14(privPath)) return;
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const privPem = privateKey.export({ format: "pem", type: "pkcs8" });
+  const pubPem = publicKey.export({ format: "pem", type: "spki" });
+  mkdirSync11(localShareKeyDir(home), { recursive: true, mode: 448 });
+  writeFileSync8(privPath, privPem, { mode: 384 });
+  chmodSync6(privPath, 384);
+  writeFileSync8(localSharePubKeyPath(home), pubPem, { mode: 420 });
+}
+function readLocalSharePublicKeyRaw(home = homedir8()) {
+  const pubPem = readFileSync10(localSharePubKeyPath(home), "utf-8");
+  const der = createPublicKey2(pubPem).export({ format: "der", type: "spki" });
+  return Uint8Array.from(der.subarray(SPKI_ED25519_PREFIX_LEN));
+}
+function localSharePubkeyFingerprint(home = homedir8()) {
+  return createHash3("sha256").update(Buffer.from(readLocalSharePublicKeyRaw(home))).digest("hex");
+}
+function signSharedMemoryEnvelope(body, home = homedir8()) {
+  ensureLocalShareKeypair(home);
+  const privPem = readFileSync10(localSharePrivKeyPath(home), "utf-8");
+  const privKey = createPrivateKey(privPem);
+  const canonical2 = canonicalizeSharedMemoryEnvelope(body);
+  const signature = cryptoSign(null, Buffer.from(canonical2, "utf-8"), privKey).toString("base64");
+  return {
+    ...body,
+    _signature: signature,
+    _signature_alg: "ed25519",
+    _signature_payload_keys: SHARED_MEMORY_SIGNATURE_PAYLOAD_KEYS,
+    _signature_pubkey_fingerprint: localSharePubkeyFingerprint(home)
+  };
+}
+
+// src/security/local-share-verifier.ts
+function verifyLocalShareEnvelope(envelope, pinnedFingerprint, home = homedir9()) {
+  let key;
+  try {
+    const pubkeyBytes = readLocalSharePublicKeyRaw(home);
+    key = {
+      pubkeyBytes,
+      // The fingerprint of the key we are ABOUT to verify with (the on-disk key).
+      fingerprintHex: localSharePubkeyFingerprint(home),
+      // The trusted set comes from the PIN — a different artifact than the key.
+      // If the on-disk key was swapped, fingerprintHex ∉ this set → the core's
+      // self-check fails → hard drop. This Set is deliberately NOT built from
+      // `fingerprintHex`/`pubkeyBytes` (that would be vacuous — defect D4).
+      knownFingerprints: /* @__PURE__ */ new Set([pinnedFingerprint]),
+      keyLabel: "local-share"
+    };
+  } catch (err) {
+    return {
+      kind: "error",
+      reason: `local-share pubkey unavailable: ${err instanceof Error ? err.message : String(err)}`
+    };
+  }
+  return verifyEd25519SignedEnvelope(key, envelope);
+}
+
+// src/shared-memory-sync.ts
+init_memory_db();
+
+// src/shared-memory-audit.ts
+function latestSessionId(db) {
+  try {
+    const row = db.prepare(`SELECT session_id FROM sessions ORDER BY started_at_epoch DESC LIMIT 1`).get();
+    return row?.session_id ?? null;
+  } catch {
+    return null;
+  }
+}
+function writeSharedAudit(db, eventType, evidence, metadata, actor = "hook") {
+  const sessionId = latestSessionId(db);
+  if (!sessionId) return;
+  try {
+    db.prepare(
+      `INSERT INTO audit_log (session_id, event_type, actor, evidence, metadata)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(sessionId, eventType, actor, evidence, JSON.stringify(metadata));
+  } catch {
+  }
+}
+
+// src/shared-memory-sync.ts
+var REPO_ID_RE = /^[0-9a-f-]{36}$/;
+var SHARED_CURSOR_PREFIX = "shared_cursor:";
+var ZERO_IMPORT = { imported: 0, dropped: 0, revoked: 0, skipped: 0 };
+async function importSharedMemories(db, transport, opts = {}) {
+  const home = opts.home ?? homedir10();
+  const nowEpoch = opts.nowEpoch ?? Math.floor(Date.now() / 1e3);
+  const config = getConfig();
+  const tier = opts.tier ?? getCachedTierReadOnly(db);
+  if (!entitledForCrossRepoSurfacing(tier)) return { ...ZERO_IMPORT };
+  const subscribe = opts.subscribe ?? config.memory?.share?.subscribe ?? [];
+  if (!Array.isArray(subscribe) || subscribe.length === 0) return { ...ZERO_IMPORT };
+  const ownRepoId = getRepoId(db);
+  const result = { ...ZERO_IMPORT };
+  for (const subscribedLabel of subscribe) {
+    const entry = findRepoByLabel(home, subscribedLabel);
+    if (!entry || !REPO_ID_RE.test(entry.repo_id)) continue;
+    const originRepoId = entry.repo_id;
+    if (ownRepoId && originRepoId === ownRepoId) continue;
+    const pinned = getSharedPin(db, originRepoId) ?? tofuPinSharedFingerprint(db, originRepoId, entry.pubkey_fingerprint);
+    const cursorKey = SHARED_CURSOR_PREFIX + originRepoId;
+    const since = parseCursor2(getMemoryMeta(db, cursorKey));
+    let envelopes;
+    try {
+      envelopes = await transport.fetchSince(originRepoId, since);
+    } catch {
+      continue;
+    }
+    let maxSeq = since;
+    const advancePast = (env) => {
+      if (typeof env.seq === "number" && env.seq > maxSeq) maxSeq = env.seq;
+    };
+    for (const env of envelopes) {
+      const verdict = verifyLocalShareEnvelope(env, pinned, home);
+      if (verdict.kind !== "valid") {
+        result.dropped += 1;
+        drop(db, "bad_signature", { kind: verdict.kind, origin: originRepoId });
+        if (verdict.kind === "bad_signature") advancePast(env);
+        continue;
+      }
+      if (!hasSignedLoadBearingKeys(env)) {
+        result.dropped += 1;
+        drop(db, "unsigned_field", { origin: originRepoId });
+        advancePast(env);
+        continue;
+      }
+      if (env.origin_repo_id !== originRepoId) {
+        result.dropped += 1;
+        drop(db, "origin_mismatch", { expected: originRepoId, got: env.origin_repo_id });
+        advancePast(env);
+        continue;
+      }
+      if (ownRepoId && env.origin_repo_id === ownRepoId) {
+        result.dropped += 1;
+        advancePast(env);
+        continue;
+      }
+      advancePast(env);
+      for (const revokedHash of parseStringArray(env.revokes_json)) {
+        if (applyRevocation(db, revokedHash, nowEpoch)) result.revoked += 1;
+      }
+      const originLabel = deriveRepoLabel(entry.label);
+      for (const rec of parseRecords(env.records_json)) {
+        if (!isWellFormedRecord(rec)) {
+          result.dropped += 1;
+          drop(db, "malformed_record", { origin: originRepoId });
+          continue;
+        }
+        const computed = hashSharedMemoryRecord(stripHash(rec));
+        if (computed !== rec.record_hash) {
+          result.dropped += 1;
+          drop(db, "record_hash_mismatch", { origin: originRepoId });
+          continue;
+        }
+        if (pendingExists(db, rec.record_hash)) {
+          result.skipped += 1;
+          continue;
+        }
+        insertPending(db, rec, env, originRepoId, originLabel, nowEpoch);
+        result.imported += 1;
+        writeSharedAudit(db, "shared_memory_imported", `pending from ${originLabel}`, {
+          record_hash: rec.record_hash,
+          origin_repo_id: originRepoId
+        });
+      }
+    }
+    if (maxSeq > since) setMemoryMeta(db, cursorKey, String(maxSeq));
+  }
+  return result;
+}
+var SIGNED_LOAD_BEARING_KEYS = ["origin_repo_id", "records_json", "revokes_json"];
+function hasSignedLoadBearingKeys(env) {
+  const signed = Array.isArray(env._signature_payload_keys) ? env._signature_payload_keys : [];
+  return SIGNED_LOAD_BEARING_KEYS.every((k) => signed.includes(k));
+}
+function parseCursor2(raw) {
+  if (raw === null) return 0;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : 0;
+}
+function parseStringArray(json) {
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+function parseRecords(json) {
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+function isWellFormedRecord(r) {
+  if (!r || typeof r !== "object") return false;
+  const o = r;
+  return typeof o.record_hash === "string" && typeof o.type === "string" && typeof o.title === "string" && typeof o.detail === "string" && typeof o.importance === "number" && typeof o.created_at_epoch === "number" && (o.superseded_by_hash === null || typeof o.superseded_by_hash === "string");
+}
+function stripHash(r) {
+  return {
+    type: r.type,
+    title: r.title,
+    detail: r.detail,
+    importance: r.importance,
+    created_at_epoch: r.created_at_epoch,
+    superseded_by_hash: r.superseded_by_hash
+  };
+}
+function pendingExists(db, recordHash) {
+  return !!db.prepare(`SELECT 1 FROM shared_memory_pending WHERE record_hash = ? LIMIT 1`).get(recordHash);
+}
+function loadPending(db, recordHash) {
+  return db.prepare(
+    `SELECT id, record_hash, origin_repo_id, origin_repo_label, envelope_raw, record_json,
+                accepted_at_epoch, refused_at_epoch, expired_at_epoch
+           FROM shared_memory_pending WHERE record_hash = ? LIMIT 1`
+  ).get(recordHash) ?? null;
+}
+function insertPending(db, rec, env, originRepoId, originLabel, nowEpoch) {
+  db.prepare(
+    `INSERT OR IGNORE INTO shared_memory_pending
+       (record_hash, origin_repo_id, origin_repo_label, envelope_raw, record_json, received_at_epoch)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(rec.record_hash, originRepoId, originLabel, JSON.stringify(env), JSON.stringify(rec), nowEpoch);
+}
+function applyRevocation(db, recordHash, nowEpoch) {
+  const row = loadPending(db, recordHash);
+  if (!row) return false;
+  let changed = false;
+  if (row.accepted_at_epoch !== null) {
+    const iso = new Date(nowEpoch * 1e3).toISOString();
+    const res = db.prepare(
+      `UPDATE observations
+            SET valid_to = ?, expired_at = ?, valid_to_epoch = ?, expired_at_epoch = ?
+          WHERE origin = ?
+            AND expired_at IS NULL
+            AND json_extract(evidence, '$.record_hash') = ?`
+    ).run(iso, iso, nowEpoch, nowEpoch, `repo:${row.origin_repo_id}`, recordHash);
+    changed = res.changes > 0;
+  }
+  const p = db.prepare(`UPDATE shared_memory_pending SET expired_at_epoch = ? WHERE record_hash = ? AND expired_at_epoch IS NULL`).run(nowEpoch, recordHash);
+  changed = changed || p.changes > 0;
+  if (changed) writeSharedAudit(db, "shared_memory_revoked", `revoked ${recordHash}`, { record_hash: recordHash });
+  return changed;
+}
+function drop(db, reason, meta) {
+  recordTelemetry(db, "shared_memory_dropped", { reason, ...meta });
+  writeSharedAudit(db, "shared_memory_dropped", `dropped: ${reason}`, { reason, ...meta });
+}
+
+// src/shared-memory-export.ts
+init_config();
+import { homedir as homedir11 } from "os";
+import { join as join9, dirname as dirname12 } from "path";
+import { mkdirSync as mkdirSync12, chmodSync as chmodSync7, writeFileSync as writeFileSync9, renameSync as renameSync3, openSync as openSync3, fsyncSync as fsyncSync3, closeSync as closeSync3 } from "fs";
+
+// src/consolidation-config.ts
+init_config();
+var DEFAULT_CONSOLIDATION_CONFIG = {
+  enabled: true,
+  sessionSweepEnabled: true,
+  // llmEndpoint / llmModel deliberately UNSET: the shipped default is
+  // zero-LLM, zero-network, works offline on any machine.
+  summarizeAfterDays: 5,
+  // inside the 7-day conversation_turns prune window
+  retentionDays: 90,
+  importanceFloor: 2,
+  protectedTypes: ["decision", "cr_violation", "incident_near_miss"],
+  usageWarmupDays: 30,
+  usageDecay: 0.9,
+  reweightIntervalDays: 1,
+  promoteMinOccurrences: 3,
+  budgetMs: 3e3,
+  suggestUpgrades: true,
+  suggestIntervalDays: 30
+};
+function resolveConsolidationConfig() {
+  try {
+    const c = getConfig().memory?.consolidation;
+    if (!c) return { ...DEFAULT_CONSOLIDATION_CONFIG };
+    return { ...DEFAULT_CONSOLIDATION_CONFIG, ...c };
+  } catch {
+    return { ...DEFAULT_CONSOLIDATION_CONFIG };
+  }
+}
+
+// src/memory-llm.ts
+var LLM_API_KEY_ENV = "MASSU_MEMORY_LLM_API_KEY";
+var DEFAULT_BUDGET_MS = 2e4;
+var DEFAULT_MAX_CHARS = 900;
+var NOISE_PATTERNS = [
+  /<command-(name|message|args)>/i,
+  /<local-command-[^>]*>/i,
+  /^\s*<[a-z-]+>\s*$/i,
+  /^\s*(ok|okay|thanks|thank you|yes|no|yep|nope|sure|continue|proceed|go ahead)\s*[.!]?\s*$/i,
+  /^\s*\/[a-z-]+\s*$/i,
+  // a bare slash-command invocation
+  /system-reminder/i
+];
+function isSummarizableSignal(text) {
+  const t = text.trim();
+  if (t.length < 25) return false;
+  return !NOISE_PATTERNS.some((re) => re.test(t));
+}
+var CREDENTIAL_LABELS = ["api[_-]?key", "secret", "password", "token"];
+var LABELLED_CREDENTIAL = new RegExp(
+  `\\b[A-Za-z0-9_-]*(?:${CREDENTIAL_LABELS.join("|")})["'\\s:=]+[A-Za-z0-9_\\-/+]{16,}`,
+  "gi"
+);
+var SECRET_PATTERNS = [
+  [/\bms_live_[A-Za-z0-9_-]{6,}/g, "ms_live_[REDACTED]", "MASSU_LIVE_KEY"],
+  [/\bsk-[A-Za-z0-9_-]{16,}/g, "sk-[REDACTED]", "OPENAI_STYLE_KEY"],
+  [/\b(gh[pousr]|github_pat)_[A-Za-z0-9_]{16,}/g, "[REDACTED_TOKEN]", "GITHUB_TOKEN"],
+  [/\bsbp_[A-Za-z0-9]{16,}/g, "sbp_[REDACTED]", "SUPABASE_TOKEN"],
+  [/\bAKIA[0-9A-Z]{12,}/g, "[REDACTED_AWS_KEY]", "AWS_ACCESS_KEY"],
+  [
+    /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}/g,
+    "[REDACTED_JWT]",
+    "JWT"
+  ],
+  [LABELLED_CREDENTIAL, "[REDACTED_CREDENTIAL]", "LABELLED_CREDENTIAL"]
+];
+function redactSecrets(text) {
+  let out = text;
+  for (const [re, replacement] of SECRET_PATTERNS) out = out.replace(re, replacement);
+  return out;
+}
+function containsSecret(text) {
+  for (const [re, , name] of SECRET_PATTERNS) {
+    re.lastIndex = 0;
+    const hit = re.test(text);
+    re.lastIndex = 0;
+    if (hit) return { matched: true, patternName: name };
+  }
+  return { matched: false };
+}
+function extractiveSummary(sources, maxChars = DEFAULT_MAX_CHARS) {
+  const cleaned = sources.map((s, i) => ({ ...s, i, text: s.text.replace(/\s+/g, " ").trim() })).filter((s) => isSummarizableSignal(s.text));
+  if (cleaned.length === 0) return "";
+  const ranked = [...cleaned].sort((a, b) => b.weight - a.weight || a.i - b.i);
+  const picked = [];
+  let used = 0;
+  for (const s of ranked) {
+    const cost = s.text.length + 1;
+    if (used + cost > maxChars) continue;
+    picked.push(s);
+    used += cost;
+  }
+  if (picked.length === 0) {
+    return ranked[0].text.slice(0, maxChars);
+  }
+  picked.sort((a, b) => a.i - b.i);
+  return picked.map((s) => s.text).join(" ");
+}
+async function summarizeViaEndpoint(endpoint, model, material, budgetMs, maxChars) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budgetMs);
+    const apiKey = process.env[LLM_API_KEY_ENV];
+    const headers = { "content-type": "application/json" };
+    if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
+    let resp;
+    try {
+      resp = await fetch(`${endpoint.replace(/\/+$/, "")}/v1/chat/completions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model,
+          // a NAME/ALIAS the user configured — never a physical model id
+          messages: [
+            {
+              role: "system",
+              content: "You distill a software engineering session into ONE durable lesson a developer will read months later. Be concrete and factual. State what broke, what was tried and rejected, and what actually worked. Invent nothing that is not in the input."
+            },
+            { role: "user", content: material }
+          ],
+          max_tokens: 400,
+          temperature: 0.2
+        }),
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const text = data.choices?.[0]?.message?.content;
+    if (typeof text !== "string" || !text.trim()) return null;
+    return text.trim().slice(0, maxChars);
+  } catch {
+    return null;
+  }
+}
+async function summarizeText(sources, opts = {}) {
+  const cfg = opts.config ?? resolveConsolidationConfig();
+  const maxChars = opts.maxChars ?? DEFAULT_MAX_CHARS;
+  const budgetMs = opts.budgetMs ?? DEFAULT_BUDGET_MS;
+  const extractive = extractiveSummary(sources, maxChars);
+  if (!cfg.llmEndpoint || !cfg.llmModel || !extractive) {
+    return { text: extractive, tier: "extractive" };
+  }
+  const material = redactSecrets(
+    sources.map((s) => s.text.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n")
+  );
+  const viaModel = await summarizeViaEndpoint(
+    cfg.llmEndpoint,
+    cfg.llmModel,
+    material,
+    budgetMs,
+    maxChars
+  );
+  return viaModel ? { text: viaModel, tier: "model" } : { text: extractive, tier: "extractive" };
+}
+
+// src/shared-memory-export.ts
+init_memory_db();
+var DEFAULT_EXPORT_CAPS = {
+  maxRecords: 200,
+  maxBytesPerRecord: 16384,
+  maxTotalBytes: 512e3
+};
+var EXPORT_SEQ_KEY = "shared_export_seq";
+var BACKUP_DONE_KEY = "shared_backup_at";
+function zero(enabled) {
+  return { enabled, published: false, exported: 0, refused: 0, refusals: [], seq: null };
+}
+function ensureSharingBackup(db, repoId, home, nowEpoch, backupDirOverride) {
+  if (getMemoryMeta(db, BACKUP_DONE_KEY)) return;
+  const backupDir = backupDirOverride ?? join9(home, ".massu", "shared", "backups", repoId);
+  const dest = join9(backupDir, `memory-${nowEpoch}.db`);
+  const snapshot = db.serialize();
+  mkdirSync12(dirname12(dest), { recursive: true, mode: 448 });
+  const tmp = `${dest}.tmp-${process.pid}`;
+  writeFileSync9(tmp, snapshot, { mode: 384 });
+  const fd = openSync3(tmp, "r+");
+  fsyncSync3(fd);
+  closeSync3(fd);
+  renameSync3(tmp, dest);
+  chmodSync7(dest, 384);
+  setMemoryMeta(db, BACKUP_DONE_KEY, String(nowEpoch));
+}
+async function exportSharedMemories(db, transport, opts = {}) {
+  const home = opts.home ?? homedir11();
+  const nowEpoch = opts.nowEpoch ?? Math.floor(Date.now() / 1e3);
+  const caps = opts.caps ?? DEFAULT_EXPORT_CAPS;
+  const config = getConfig();
+  const shareEnabled = opts.shareEnabled ?? config.memory?.share?.enabled ?? false;
+  if (!shareEnabled) return zero(false);
+  const tier = opts.tier ?? getCachedTierReadOnly(db);
+  if (!entitledForCrossRepoSurfacing(tier)) return zero(true);
+  const repoId = getRepoId(db) ?? mintRepoId(db);
+  const label = getRepoLabel();
+  ensureLocalShareKeypair(home);
+  const fingerprint = localSharePubkeyFingerprint(home);
+  upsertRepoRegistration(
+    {
+      repo_id: repoId,
+      label,
+      pubkey_fingerprint: fingerprint,
+      last_seen_path: getProjectRoot(),
+      share_enabled: true
+    },
+    home
+  );
+  try {
+    ensureSharingBackup(db, repoId, home, nowEpoch, opts.backupDir);
+  } catch (err) {
+    recordTelemetry(db, "shared_memory_export_refused", {
+      reason: "backup_failed",
+      detail: err instanceof Error ? err.message : String(err)
+    });
+    auditExportRefused(db, null, "backup_failed");
+    return { ...zero(true), refused: 1, refusals: [{ observation_id: null, reason: "backup_failed" }] };
+  }
+  const rows = db.prepare(
+    `SELECT id, type, title, detail, importance, created_at_epoch, origin
+         FROM observations
+        WHERE shareable = 1
+        ORDER BY id
+        LIMIT ?`
+  ).all(caps.maxRecords + 1);
+  if (rows.length > caps.maxRecords) {
+    recordTelemetry(db, "shared_memory_export_refused", { reason: "too_many_records", count: rows.length });
+    auditExportRefused(db, null, "too_many_records");
+    return { ...zero(true), refused: 1, refusals: [{ observation_id: null, reason: "too_many_records" }] };
+  }
+  const wasExported = db.prepare(`SELECT 1 FROM shared_memory_outbound WHERE record_hash = ? LIMIT 1`);
+  const refusals = [];
+  const records = [];
+  const outboundInserts = [];
+  for (const r of rows) {
+    if (!isLocalOrigin(r.origin)) {
+      refusals.push({ observation_id: r.id, reason: "non_local_origin" });
+      auditExportRefused(db, r.id, "non_local_origin");
+      continue;
+    }
+    const title = r.title ?? "";
+    const detail = r.detail ?? "";
+    const sTitle = containsSecret(title);
+    const sDetail = containsSecret(detail);
+    if (sTitle.matched || sDetail.matched) {
+      const reason = `secret:${sTitle.patternName ?? sDetail.patternName}`;
+      refusals.push({ observation_id: r.id, reason });
+      auditExportRefused(db, r.id, reason);
+      continue;
+    }
+    if (home && (title.includes(home) || detail.includes(home))) {
+      refusals.push({ observation_id: r.id, reason: "home_path" });
+      auditExportRefused(db, r.id, "home_path");
+      continue;
+    }
+    const base = {
+      type: r.type,
+      title,
+      detail,
+      importance: r.importance,
+      created_at_epoch: r.created_at_epoch,
+      superseded_by_hash: null
+    };
+    const record_hash = hashSharedMemoryRecord(base);
+    if (wasExported.get(record_hash)) continue;
+    const recordBytes = Buffer.byteLength(JSON.stringify({ ...base, record_hash }), "utf-8");
+    if (recordBytes > caps.maxBytesPerRecord) {
+      refusals.push({ observation_id: r.id, reason: "record_too_large" });
+      auditExportRefused(db, r.id, "record_too_large");
+      continue;
+    }
+    records.push({ ...base, record_hash });
+    outboundInserts.push({ hash: record_hash, id: r.id });
+  }
+  const revokeRows = db.prepare(
+    `SELECT o.record_hash AS h
+         FROM shared_memory_outbound o
+         JOIN observations obs ON obs.id = o.observation_id
+        WHERE o.revoked_at_epoch IS NULL
+          AND obs.expired_at IS NOT NULL
+        LIMIT ?`
+  ).all(caps.maxRecords);
+  const revokedHashes = revokeRows.map((r) => r.h);
+  if (records.length === 0 && revokedHashes.length === 0) {
+    return { ...zero(true), refused: refusals.length, refusals };
+  }
+  const recordsJson = JSON.stringify(records);
+  if (Buffer.byteLength(recordsJson, "utf-8") > caps.maxTotalBytes) {
+    recordTelemetry(db, "shared_memory_export_refused", { reason: "envelope_too_large" });
+    auditExportRefused(db, null, "envelope_too_large");
+    return { ...zero(true), refused: refusals.length + 1, refusals: [...refusals, { observation_id: null, reason: "envelope_too_large" }] };
+  }
+  const seq = nextSeq(db);
+  const body = {
+    kind: SHARED_MEMORY_KIND,
+    origin_repo_id: repoId,
+    origin_repo_label: label,
+    seq,
+    issued_at: new Date(nowEpoch * 1e3).toISOString(),
+    records_json: recordsJson,
+    revokes_json: JSON.stringify(revokedHashes)
+  };
+  const envelope = signSharedMemoryEnvelope(body, home);
+  await transport.publish(envelope);
+  const insertOutbound = db.prepare(
+    `INSERT OR IGNORE INTO shared_memory_outbound (record_hash, observation_id, origin_repo_id, seq, exported_at_epoch)
+     VALUES (?, ?, ?, ?, ?)`
+  );
+  const markRevoked = db.prepare(
+    `UPDATE shared_memory_outbound SET revoked_at_epoch = ? WHERE record_hash = ? AND revoked_at_epoch IS NULL`
+  );
+  const commit = db.transaction(() => {
+    for (const o of outboundInserts) insertOutbound.run(o.hash, o.id, repoId, seq, nowEpoch);
+    for (const h of revokedHashes) markRevoked.run(nowEpoch, h);
+    setMemoryMeta(db, EXPORT_SEQ_KEY, String(seq));
+  });
+  commit();
+  recordTelemetry(db, "shared_memory_exported", { count: records.length, revoked: revokedHashes.length, seq });
+  auditExported(db, records.length, seq);
+  return { enabled: true, published: true, exported: records.length, refused: refusals.length, refusals, seq };
+}
+function nextSeq(db) {
+  const raw = getMemoryMeta(db, EXPORT_SEQ_KEY);
+  const last = raw !== null && Number.isInteger(Number(raw)) ? Number(raw) : 0;
+  return last + 1;
+}
+function auditExported(db, count, seq) {
+  writeSharedAudit(db, "shared_memory_exported", `exported ${count} record(s) at seq ${seq}`, { count, seq });
+}
+function auditExportRefused(db, obsId, reason) {
+  writeSharedAudit(db, "shared_memory_export_refused", `export refused: ${reason}`, { observation_id: obsId, reason });
+}
+
+// src/shared-memory-transport.ts
+import {
+  chmodSync as chmodSync8,
+  existsSync as existsSync15,
+  mkdirSync as mkdirSync13,
+  readdirSync as readdirSync2,
+  readFileSync as readFileSync11
+} from "fs";
+import { homedir as homedir12 } from "os";
+import { join as join10 } from "path";
+import { createHash as createHash4 } from "crypto";
+var REPO_ID_PATH_RE = /^[0-9a-f-]{36}$/;
+var CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
+function sharedRootDir(home = homedir12()) {
+  return join10(home, ".massu", "shared");
+}
+function outboxDirFor(originRepoId, home = homedir12()) {
+  if (!REPO_ID_PATH_RE.test(originRepoId)) {
+    throw new Error(`refusing to use an unvalidated repo_id as a path component: ${originRepoId}`);
+  }
+  const rel = join10("outbox", originRepoId);
+  return assertContainedIn(sharedRootDir(home), rel, { allowNested: true });
+}
+function envelopeContentHash(env) {
+  return createHash4("sha256").update(JSON.stringify(env), "utf-8").digest("hex");
+}
+var LocalFsTransport = class {
+  constructor(home = homedir12()) {
+    this.home = home;
+  }
+  home;
+  async publish(env) {
+    const dir = outboxDirFor(env.origin_repo_id, this.home);
+    mkdirSync13(dir, { recursive: true, mode: 448 });
+    const hash = envelopeContentHash(env);
+    if (!CONTENT_HASH_RE.test(hash)) {
+      throw new Error(`refusing to write an envelope with a malformed content hash: ${hash}`);
+    }
+    const dest = assertContainedIn(dir, `${seqPrefix(env.seq)}-${hash}.json`, { allowNested: false });
+    atomicWriteFileSync(dest, JSON.stringify(env, null, 2));
+    chmodSync8(dest, 384);
+  }
+  async fetchSince(originRepoId, sinceSeq) {
+    if (!REPO_ID_PATH_RE.test(originRepoId)) return [];
+    let dir;
+    try {
+      dir = outboxDirFor(originRepoId, this.home);
+    } catch {
+      return [];
+    }
+    if (!existsSync15(dir)) return [];
+    const out = [];
+    for (const name of readdirSync2(dir)) {
+      if (!name.endsWith(".json")) continue;
+      const seqFromName = parseSeqPrefix(name);
+      if (seqFromName !== null && seqFromName <= sinceSeq) continue;
+      let env;
+      try {
+        const p = assertContainedIn(dir, name, { allowNested: false });
+        env = JSON.parse(readFileSync11(p, "utf-8"));
+      } catch {
+        continue;
+      }
+      if (typeof env?.seq === "number" && env.seq > sinceSeq) out.push(env);
+    }
+    out.sort((a, b) => a.seq - b.seq);
+    return out;
+  }
+};
+function seqPrefix(seq) {
+  const s = Number.isInteger(seq) && seq >= 0 ? seq : 0;
+  return String(s).padStart(16, "0");
+}
+function parseSeqPrefix(name) {
+  const m = name.match(/^(\d{1,16})-/);
+  return m ? Number(m[1]) : null;
 }
 
 // src/hooks/session-end.ts
@@ -5107,7 +6354,7 @@ function storeSessionCost(db, sessionId, usage, cost) {
 
 // src/prompt-analyzer.ts
 init_config();
-import { createHash as createHash2 } from "crypto";
+import { createHash as createHash5 } from "crypto";
 
 // src/security-utils.ts
 function escapeRegex(str) {
@@ -5131,7 +6378,7 @@ function categorizePrompt(promptText) {
 }
 function hashPrompt(promptText) {
   const normalized = promptText.toLowerCase().replace(/\s+/g, " ").trim();
-  return createHash2("sha256").update(normalized).digest("hex").slice(0, 16);
+  return createHash5("sha256").update(normalized).digest("hex").slice(0, 16);
 }
 function detectOutcome(followUpPrompts, assistantResponses) {
   let correctionsNeeded = 0;
@@ -5744,160 +6991,9 @@ ${d.decision}`.trim(),
 
 // src/memory-consolidate.ts
 init_memory_db();
-import { createHash as createHash3 } from "crypto";
-import { existsSync as existsSync10, mkdirSync as mkdirSync9, writeFileSync as writeFileSync5 } from "fs";
-import { join as join6 } from "path";
-
-// src/consolidation-config.ts
-init_config();
-var DEFAULT_CONSOLIDATION_CONFIG = {
-  enabled: true,
-  sessionSweepEnabled: true,
-  // llmEndpoint / llmModel deliberately UNSET: the shipped default is
-  // zero-LLM, zero-network, works offline on any machine.
-  summarizeAfterDays: 5,
-  // inside the 7-day conversation_turns prune window
-  retentionDays: 90,
-  importanceFloor: 2,
-  protectedTypes: ["decision", "cr_violation", "incident_near_miss"],
-  usageWarmupDays: 30,
-  usageDecay: 0.9,
-  reweightIntervalDays: 1,
-  promoteMinOccurrences: 3,
-  budgetMs: 3e3,
-  suggestUpgrades: true,
-  suggestIntervalDays: 30
-};
-function resolveConsolidationConfig() {
-  try {
-    const c = getConfig().memory?.consolidation;
-    if (!c) return { ...DEFAULT_CONSOLIDATION_CONFIG };
-    return { ...DEFAULT_CONSOLIDATION_CONFIG, ...c };
-  } catch {
-    return { ...DEFAULT_CONSOLIDATION_CONFIG };
-  }
-}
-
-// src/memory-llm.ts
-var LLM_API_KEY_ENV = "MASSU_MEMORY_LLM_API_KEY";
-var DEFAULT_BUDGET_MS = 2e4;
-var DEFAULT_MAX_CHARS = 900;
-var NOISE_PATTERNS = [
-  /<command-(name|message|args)>/i,
-  /<local-command-[^>]*>/i,
-  /^\s*<[a-z-]+>\s*$/i,
-  /^\s*(ok|okay|thanks|thank you|yes|no|yep|nope|sure|continue|proceed|go ahead)\s*[.!]?\s*$/i,
-  /^\s*\/[a-z-]+\s*$/i,
-  // a bare slash-command invocation
-  /system-reminder/i
-];
-function isSummarizableSignal(text) {
-  const t = text.trim();
-  if (t.length < 25) return false;
-  return !NOISE_PATTERNS.some((re) => re.test(t));
-}
-var CREDENTIAL_LABELS = ["api[_-]?key", "secret", "password", "token"];
-var LABELLED_CREDENTIAL = new RegExp(
-  `\\b[A-Za-z0-9_-]*(?:${CREDENTIAL_LABELS.join("|")})["'\\s:=]+[A-Za-z0-9_\\-/+]{16,}`,
-  "gi"
-);
-var SECRET_PATTERNS = [
-  [/\bms_live_[A-Za-z0-9_-]{6,}/g, "ms_live_[REDACTED]", "MASSU_LIVE_KEY"],
-  [/\bsk-[A-Za-z0-9_-]{16,}/g, "sk-[REDACTED]", "OPENAI_STYLE_KEY"],
-  [/\b(gh[pousr]|github_pat)_[A-Za-z0-9_]{16,}/g, "[REDACTED_TOKEN]", "GITHUB_TOKEN"],
-  [/\bsbp_[A-Za-z0-9]{16,}/g, "sbp_[REDACTED]", "SUPABASE_TOKEN"],
-  [/\bAKIA[0-9A-Z]{12,}/g, "[REDACTED_AWS_KEY]", "AWS_ACCESS_KEY"],
-  [
-    /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}/g,
-    "[REDACTED_JWT]",
-    "JWT"
-  ],
-  [LABELLED_CREDENTIAL, "[REDACTED_CREDENTIAL]", "LABELLED_CREDENTIAL"]
-];
-function redactSecrets(text) {
-  let out = text;
-  for (const [re, replacement] of SECRET_PATTERNS) out = out.replace(re, replacement);
-  return out;
-}
-function extractiveSummary(sources, maxChars = DEFAULT_MAX_CHARS) {
-  const cleaned = sources.map((s, i) => ({ ...s, i, text: s.text.replace(/\s+/g, " ").trim() })).filter((s) => isSummarizableSignal(s.text));
-  if (cleaned.length === 0) return "";
-  const ranked = [...cleaned].sort((a, b) => b.weight - a.weight || a.i - b.i);
-  const picked = [];
-  let used = 0;
-  for (const s of ranked) {
-    const cost = s.text.length + 1;
-    if (used + cost > maxChars) continue;
-    picked.push(s);
-    used += cost;
-  }
-  if (picked.length === 0) {
-    return ranked[0].text.slice(0, maxChars);
-  }
-  picked.sort((a, b) => a.i - b.i);
-  return picked.map((s) => s.text).join(" ");
-}
-async function summarizeViaEndpoint(endpoint, model, material, budgetMs, maxChars) {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), budgetMs);
-    const apiKey = process.env[LLM_API_KEY_ENV];
-    const headers = { "content-type": "application/json" };
-    if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
-    let resp;
-    try {
-      resp = await fetch(`${endpoint.replace(/\/+$/, "")}/v1/chat/completions`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          model,
-          // a NAME/ALIAS the user configured — never a physical model id
-          messages: [
-            {
-              role: "system",
-              content: "You distill a software engineering session into ONE durable lesson a developer will read months later. Be concrete and factual. State what broke, what was tried and rejected, and what actually worked. Invent nothing that is not in the input."
-            },
-            { role: "user", content: material }
-          ],
-          max_tokens: 400,
-          temperature: 0.2
-        }),
-        signal: controller.signal
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    const text = data.choices?.[0]?.message?.content;
-    if (typeof text !== "string" || !text.trim()) return null;
-    return text.trim().slice(0, maxChars);
-  } catch {
-    return null;
-  }
-}
-async function summarizeText(sources, opts = {}) {
-  const cfg = opts.config ?? resolveConsolidationConfig();
-  const maxChars = opts.maxChars ?? DEFAULT_MAX_CHARS;
-  const budgetMs = opts.budgetMs ?? DEFAULT_BUDGET_MS;
-  const extractive = extractiveSummary(sources, maxChars);
-  if (!cfg.llmEndpoint || !cfg.llmModel || !extractive) {
-    return { text: extractive, tier: "extractive" };
-  }
-  const material = redactSecrets(
-    sources.map((s) => s.text.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n")
-  );
-  const viaModel = await summarizeViaEndpoint(
-    cfg.llmEndpoint,
-    cfg.llmModel,
-    material,
-    budgetMs,
-    maxChars
-  );
-  return viaModel ? { text: viaModel, tier: "model" } : { text: extractive, tier: "extractive" };
-}
-
-// src/memory-consolidate.ts
+import { createHash as createHash6 } from "crypto";
+import { existsSync as existsSync16, mkdirSync as mkdirSync14, writeFileSync as writeFileSync10 } from "fs";
+import { join as join11 } from "path";
 init_memory_embedder();
 init_memory_vector();
 var LEASE_KEY = "consolidate_lease";
@@ -6064,7 +7160,7 @@ ${r.detail ?? ""}`.trim());
     }
     clusters.push(cluster);
   }
-  const candidateDir = join6(projectRoot, ".massu", "rule-candidates");
+  const candidateDir = join11(projectRoot, ".massu", "rule-candidates");
   let promoted = 0;
   for (const cluster of clusters) {
     const occurrences = cluster.reduce((n, c) => n + (c.recurrence_count || 1), 0);
@@ -6076,15 +7172,15 @@ ${r.detail ?? ""}`.trim());
     const promptText = `${representative.title}${representative.detail ? `
 ${representative.detail}` : ""}`;
     const clusterKey = cluster.map((c) => c.title.toLowerCase().replace(/\s+/g, " ").trim()).sort().join("|");
-    const promptHash = createHash3("sha256").update(clusterKey).digest("hex").slice(0, 16);
-    const candidatePath = join6(candidateDir, `${promptHash}.json`);
-    if (existsSync10(candidatePath)) continue;
+    const promptHash = createHash6("sha256").update(clusterKey).digest("hex").slice(0, 16);
+    const candidatePath = join11(candidateDir, `${promptHash}.json`);
+    if (existsSync16(candidatePath)) continue;
     if (dryRun) {
       promoted++;
       continue;
     }
-    mkdirSync9(candidateDir, { recursive: true });
-    writeFileSync5(
+    mkdirSync14(candidateDir, { recursive: true });
+    writeFileSync10(
       candidatePath,
       JSON.stringify(
         {
@@ -6149,7 +7245,7 @@ function stageReweight(db, cfg, now) {
     MAX_ROWS_PER_STAGE
   );
   const bump = db.prepare(`UPDATE observations SET importance = importance + 1 WHERE id = ?`);
-  const drop = db.prepare(`UPDATE observations SET importance = importance - 1 WHERE id = ?`);
+  const drop2 = db.prepare(`UPDATE observations SET importance = importance - 1 WHERE id = ?`);
   const mark = db.prepare(
     `INSERT INTO memory_usage (source, record_id, hit_count, hits_windowed, last_reweight_epoch)
      VALUES ('observation', ?, 0, 0, ?)
@@ -6162,7 +7258,7 @@ function stageReweight(db, cfg, now) {
       changed++;
     }
     for (const r of demote) {
-      drop.run(r.id);
+      drop2.run(r.id);
       mark.run(r.id, now);
       changed++;
     }
@@ -6320,6 +7416,12 @@ async function main() {
         try {
           await pullTeamPromotions(db);
         } catch (_pullErr) {
+        }
+        try {
+          const shareTransport = new LocalFsTransport();
+          await exportSharedMemories(db, shareTransport);
+          await importSharedMemories(db, shareTransport);
+        } catch (_shareErr) {
         }
       } catch (syncErr) {
         const msg = syncErr instanceof Error ? syncErr.message : String(syncErr);
@@ -6583,14 +7685,14 @@ function extractFilesFromToolCall(toolName, input) {
   return [];
 }
 function readStdin() {
-  return new Promise((resolve6) => {
+  return new Promise((resolve8) => {
     let data = "";
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (chunk) => {
       data += chunk;
     });
-    process.stdin.on("end", () => resolve6(data));
-    setTimeout(() => resolve6(data), 5e3);
+    process.stdin.on("end", () => resolve8(data));
+    setTimeout(() => resolve8(data), 5e3);
   });
 }
 main();

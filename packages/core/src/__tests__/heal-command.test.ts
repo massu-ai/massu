@@ -11,7 +11,7 @@
  * so this test has no filesystem side effects.
  */
 
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { runHeal } from '../commands/heal.ts';
@@ -40,10 +40,18 @@ function throwAbi(): never {
 
 afterEach(() => {
   __setSqliteLoaderTestHooks({ ctor: null, heal: null });
+  delete process.env.MASSU_DB_ENGINE;
   vi.restoreAllMocks();
 });
 
+// The `massu heal` ABI/rebuild contract is SPECIFIC to the better-sqlite3 native
+// fallback engine (Layer 2, CR-69). Under the default native-free node:sqlite there is
+// no binary to rebuild — that path is covered by the last describe. These three force
+// the fallback engine so the injected bs3 ctor drives the heal.
 describe('massu heal --check (non-mutating)', () => {
+  beforeEach(() => {
+    process.env.MASSU_DB_ENGINE = 'better-sqlite3';
+  });
   it('exit 0 when the binary matches the running Node', async () => {
     __setSqliteLoaderTestHooks({ ctor: makeCtor(() => {}) as never });
     const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
@@ -64,12 +72,34 @@ describe('massu heal --check (non-mutating)', () => {
 });
 
 describe('massu heal (already-healthy path, no rebuild)', () => {
+  beforeEach(() => {
+    process.env.MASSU_DB_ENGINE = 'better-sqlite3';
+  });
   it('exit 0 and reports nothing to do when the engine is healthy', async () => {
     __setSqliteLoaderTestHooks({ ctor: makeCtor(() => {}) as never });
     const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     const { exitCode } = await runHeal([]);
     expect(exitCode).toBe(0);
     expect(out.mock.calls.flat().join('')).toMatch(/nothing to do/);
+  });
+});
+
+describe('massu heal (default node:sqlite engine — native-free, nothing to rebuild)', () => {
+  it('exit 0 and reports the native-free engine even with a broken bs3 ctor injected', async () => {
+    // No MASSU_DB_ENGINE override → the default node:sqlite engine. The injected bs3
+    // ctor is irrelevant: node:sqlite has no native binary, so heal has nothing to do.
+    __setSqliteLoaderTestHooks({ ctor: makeCtor(() => throwAbi()) as never });
+    const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const { exitCode } = await runHeal([]);
+    expect(exitCode).toBe(0);
+    expect(out.mock.calls.flat().join('')).toMatch(/node:sqlite \(native-free/);
+  });
+
+  it('--check exit 0 on the native-free engine', async () => {
+    const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const { exitCode } = await runHeal(['--check']);
+    expect(exitCode).toBe(0);
+    expect(out.mock.calls.flat().join('')).toMatch(/native-free/);
   });
 });
 

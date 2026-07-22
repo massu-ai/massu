@@ -40,7 +40,7 @@
  */
 
 import type Database from 'better-sqlite3';
-import { openDatabase } from './lib/sqlite-loader.ts';
+import { openDatabase } from './db-driver.ts';
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, copyFileSync, rmSync } from 'fs';
 import { resolve, join, basename, dirname } from 'path';
 import { homedir } from 'os';

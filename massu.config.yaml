@@ -137,12 +137,6 @@ governance:
       import_existence: true
       naming_conventions: true
   adr:
-    detection_phrases:
-      - chose
-      - decided
-      - switching to
-      - moving from
-      - going with
     storage: database
 security:
   auto_score_on_edit: true
@@ -295,3 +289,33 @@ memory:
     #   at most every suggestIntervalDays. Massu NEVER turns it on by itself.
     suggestUpgrades: true
     suggestIntervalDays: 30
+
+  # --- Cross-repo memory surfacing (plan-living-memory-slice-5-cross-repo-surfacing) ---
+  # A decision made in one of your repos can surface in another — signed, verified,
+  # and materialized ONLY when you explicitly accept it. The local transport is
+  # FREE and 100% offline (no network, no LLM, no license).
+  #
+  # BOTH switches below default OFF, and OFF means nothing exists: no keys, no
+  # registry, no inbox, no change to any prompt. Turning sharing on is a deliberate,
+  # per-repo act — Massu never does it for you.
+  share:
+    # enabled: may THIS repo EXPORT its decisions you have marked shareable?
+    #   (opt-in #1). Default false.
+    enabled: false
+    # subscribe: which repo LABELS may this repo IMPORT decisions from?
+    #   (opt-in #2). Default [] — import nothing. There is no `all`: you name each
+    #   repo you trust, or you trust none.
+    #   Example: subscribe: ["massu", "my_other_project"]
+    subscribe: []
+
+  # --- 4B file-writer (plan-living-memory-slice-4-one-source-of-truth / WS3) ---
+  # files.renderEnabled: the ONE switch that lets Massu WRITE memory files (defaults
+  #   FALSE in schema). Turned ON 2026-07-21 by operator after the WS3 render --dry-run
+  #   confirmed a CLEAN, curated candidate set — the ingestion-fix cluster shipped first
+  #   (plan-memory-ingestion-decision-noise-fix: stop tool-response/free-text decision
+  #   noise, end the hook double-fire, prune the corpus, render memory-worthy types only).
+  #   A real render only writes inside MEMORY.md's managed region + files it can PROVE it
+  #   authored (keyed HMAC); it never touches a human-authored file. Effective next
+  #   session-start. renderMaxFilesPerSession caps it (default 3).
+  files:
+    renderEnabled: true

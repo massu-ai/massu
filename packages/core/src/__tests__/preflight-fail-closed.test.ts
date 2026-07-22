@@ -25,6 +25,7 @@ import {
   CodegraphDbUnusableError,
   CodegraphDbNotInitializedError,
   MIN_NODE_MAJOR,
+  MIN_NODE_MINOR,
 } from '../preflight.ts';
 
 function makeDb(dir: string, name: string, rows: number, tableName = 'files'): string {
@@ -130,9 +131,14 @@ describe('G-3: fail-closed startup (CodeGraph)', () => {
 });
 
 describe('G-3: Node version — ONE source of truth (C-2)', () => {
-  it('enforces the floor from the engines field', () => {
+  it('enforces the node:sqlite floor (>=22.13.0) — MINOR-precision boundary', () => {
     expect(checkNodeVersion('v18.20.0').ok).toBe(false);
-    expect(checkNodeVersion(`v${MIN_NODE_MAJOR}.0.0`).ok).toBe(true);
+    // Below the minor floor: node:sqlite is flagged/absent on 22.0..22.12.
+    expect(checkNodeVersion(`v${MIN_NODE_MAJOR}.0.0`).ok).toBe(false);
+    expect(checkNodeVersion(`v${MIN_NODE_MAJOR}.${MIN_NODE_MINOR - 1}.9`).ok).toBe(false);
+    // At and above the floor.
+    expect(checkNodeVersion(`v${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0`).ok).toBe(true);
+    expect(checkNodeVersion(`v${MIN_NODE_MAJOR + 1}.0.0`).ok).toBe(true);
   });
 
   it('C-2 REFUTED: Node 26 is NOT rejected — codegraph 1.4.1 runs on it', () => {
@@ -148,11 +154,17 @@ describe('G-3: Node version — ONE source of truth (C-2)', () => {
     const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf-8'));
     // NB: `.replace(/[^\d]/, '')` strips only the FIRST non-digit — ">=20.0.0" -> "=20.0.0"
     // -> NaN. Match the number instead of trying to delete everything around it.
-    const declared = Number.parseInt(String(pkg.engines?.node ?? '').match(/(\d+)/)![1], 10);
+    const m = String(pkg.engines?.node ?? '').match(/(\d+)\.(\d+)/)!;
+    const declaredMajor = Number.parseInt(m[1], 10);
+    const declaredMinor = Number.parseInt(m[2], 10);
     expect(
-      declared,
-      'MIN_NODE_MAJOR must equal the engines floor — a second copy is how four sources ' +
-        'came to disagree about the supported range in the first place (C-2).',
+      declaredMajor,
+      'MIN_NODE_MAJOR must equal the engines floor major — a second copy is how four ' +
+        'sources came to disagree about the supported range in the first place (C-2).',
     ).toBe(MIN_NODE_MAJOR);
+    expect(
+      declaredMinor,
+      'MIN_NODE_MINOR must equal the engines floor minor (the node:sqlite 22.13 boundary).',
+    ).toBe(MIN_NODE_MINOR);
   });
 });

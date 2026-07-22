@@ -18,11 +18,16 @@ import { getMemoryDb, recordRecallHits } from '../memory-db.ts';
 import { getResolvedPaths, getConfig } from '../config.ts';
 import { hybridSearch, type HybridSource } from '../memory-hybrid-search.ts';
 import { formatRecallBlock, selectRecallItems } from '../memory-recall-format.ts';
+import {
+  crossRepoRecallEnabled,
+  enrichAndCapCrossRepo,
+  pendingPointer,
+} from '../shared-memory-recall.ts';
 import { embed, getActiveEmbedModel } from '../memory-embedder.ts';
 import { writeHookMessage } from './lib/write-hook-message.ts';
 import { existsSync } from 'fs';
 import type Database from 'better-sqlite3';
-import { openDatabase } from '../lib/sqlite-loader.ts';
+import { openDatabase } from '../db-driver.ts';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
@@ -177,8 +182,36 @@ async function computeRecall(
       includeSuperseded: annotateSuperseded,
     });
 
+    // Slice 5 C-03/C-01 — the cross-repo arm. GATED on memory.share.recall.enabled AND
+    // a non-empty subscribe list; otherwise this is a no-op and recall is byte-identical
+    // to the pre-Slice-5 behavior (C-04). Enrich+cap runs BEFORE the budget trim so the
+    // cap/reorder governs what is shown; the pending pointer is inert (C-01, zero
+    // candidate-derived bytes).
+    let ranked = results;
+    let pending = '';
+    try {
+      const share = getConfig().memory?.share as
+        | { subscribe?: unknown; recall?: { enabled?: boolean; maxCrossRepoItems?: number; minScore?: number } }
+        | undefined;
+      const subscribeCount = Array.isArray(share?.subscribe) ? share!.subscribe.length : 0;
+      const recallEnabled = share?.recall?.enabled ?? true;
+      if (crossRepoRecallEnabled({ enabled: recallEnabled, subscribeCount })) {
+        ranked = enrichAndCapCrossRepo(memDb, results, {
+          enabled: true,
+          maxCrossRepoItems: share?.recall?.maxCrossRepoItems ?? 1,
+          minScore: share?.recall?.minScore,
+          localMinScore: cfg.minScore,
+        });
+        pending = pendingPointer(memDb);
+      }
+    } catch {
+      // Any cross-repo recall failure degrades to classic recall — never a blank block.
+      ranked = results;
+      pending = '';
+    }
+
     // Which records actually fit the budget — i.e. what the model really sees.
-    const shown = selectRecallItems(results, { maxTokens: cfg.maxTokens });
+    const shown = selectRecallItems(ranked, { maxTokens: cfg.maxTokens });
 
     // P4-002 (plan-living-memory-slice-3): record that these memories earned
     // their place in context. This is the signal the consolidation pass uses to
@@ -200,7 +233,12 @@ async function computeRecall(
       }
     }
 
-    return formatRecallBlock(shown, { maxTokens: cfg.maxTokens });
+    const block = formatRecallBlock(shown, { maxTokens: cfg.maxTokens });
+    // C-01: the inert pending pointer rides alongside the block. If recall itself is
+    // empty but there are pending items, the pointer still surfaces (it is not gated
+    // on local recall having results).
+    if (pending) return block ? block + pending : pending;
+    return block;
   } catch (err) {
     // G-2: this returned '' on ANY failure — so a broken recall engine rendered
     // EXACTLY like a session with nothing worth recalling. That is the whole bug

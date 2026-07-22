@@ -23,7 +23,12 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { AUTO_LEARNING_MIN_TIER } from '../auto-learning-entitlement.ts';
+import {
+  AUTO_LEARNING_MIN_TIER,
+  CROSS_REPO_SURFACING_MIN_TIER,
+  entitledForCrossRepoSurfacing,
+} from '../auto-learning-entitlement.ts';
+import { readdirSync } from 'node:fs';
 
 const SRC_DIR = resolve(__dirname, '..');
 const REPO_ROOT = resolve(__dirname, '../../../..');
@@ -89,5 +94,38 @@ describe('ALTG auto-learning-tier-gate drift-guard (CR-54)', () => {
     expect(PATTERN_SCANNER).toContain('entitledForAutoLearning');
     expect(PATTERN_SCANNER).toContain('autoLearningUpgradeMessage');
     expect(PATTERN_SCANNER).toMatch(/AUTO_LEARNING_MIN_TIER: ToolTier = 'pro'/);
+  });
+
+  // ---- Slice 5 A-08: cross-repo surfacing entitlement lives in the SAME SoT ----
+  it('ALTG-05: CROSS_REPO_SURFACING_MIN_TIER is "free" and lives in the entitlement SoT', () => {
+    const ENTITLEMENT_SRC = readSrc('auto-learning-entitlement.ts');
+    // The local cross-repo transport is universal (the LAW) → floor is Free.
+    expect(CROSS_REPO_SURFACING_MIN_TIER).toBe('free');
+    expect(entitledForCrossRepoSurfacing('free')).toBe(true);
+    // Source-level pin so a hand-edit is caught structurally, mirroring ALTG-03.
+    expect(
+      /CROSS_REPO_SURFACING_MIN_TIER:\s*ToolTier\s*=\s*'free'/.test(ENTITLEMENT_SRC),
+      "auto-learning-entitlement.ts must pin CROSS_REPO_SURFACING_MIN_TIER to 'free'",
+    ).toBe(true);
+  });
+
+  it('ALTG-06: CROSS_REPO_SURFACING_MIN_TIER is declared in EXACTLY ONE module (no parallel scheme)', () => {
+    // Enumerate every non-test .ts under src/ and assert the constant is DECLARED
+    // in exactly one file — the SoT. A second declaration is a parallel tier scheme.
+    const collect = (dir: string, acc: string[] = []): string[] => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = resolve(dir, e.name);
+        if (e.isDirectory()) {
+          if (e.name === '__tests__' || e.name === 'node_modules' || e.name === 'dist') continue;
+          collect(p, acc);
+        } else if (e.name.endsWith('.ts')) {
+          acc.push(p);
+        }
+      }
+      return acc;
+    };
+    const decl = /CROSS_REPO_SURFACING_MIN_TIER\s*:\s*ToolTier\s*=/;
+    const declaring = collect(SRC_DIR).filter((f) => decl.test(readFileSync(f, 'utf-8')));
+    expect(declaring.map((f) => f.replace(SRC_DIR + '/', ''))).toEqual(['auto-learning-entitlement.ts']);
   });
 });

@@ -162,15 +162,10 @@ project:
   name: test
 governance:
   adr:
-    detection_phrases:
-      - chose
-      - decided
-      - opted for
     storage: filesystem
     output_dir: docs/decisions
 `);
       const config = getConfig();
-      expect(config.governance!.adr!.detection_phrases).toContain('opted for');
       expect(config.governance!.adr!.storage).toBe('filesystem');
       expect(config.governance!.adr!.output_dir).toBe('docs/decisions');
     });

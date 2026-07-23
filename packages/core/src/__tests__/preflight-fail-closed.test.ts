@@ -131,10 +131,13 @@ describe('G-3: fail-closed startup (CodeGraph)', () => {
 });
 
 describe('G-3: Node version — ONE source of truth (C-2)', () => {
-  it('enforces the node:sqlite floor (>=22.13.0) — MINOR-precision boundary', () => {
+  it('enforces the node:sqlite floor (>=22.16.0) — MINOR-precision boundary', () => {
     expect(checkNodeVersion('v18.20.0').ok).toBe(false);
-    // Below the minor floor: node:sqlite is flagged/absent on 22.0..22.12.
+    // Below the minor floor: node:sqlite is flagged/absent on 22.0..22.12, and flag-free
+    // but WITHOUT FTS5/isTransaction on 22.13..22.15 (the default engine is non-functional
+    // there) — so the true product floor is 22.16.0.
     expect(checkNodeVersion(`v${MIN_NODE_MAJOR}.0.0`).ok).toBe(false);
+    // v22.15.9 (just below the floor) must be rejected — the FTS5/isTransaction boundary.
     expect(checkNodeVersion(`v${MIN_NODE_MAJOR}.${MIN_NODE_MINOR - 1}.9`).ok).toBe(false);
     // At and above the floor.
     expect(checkNodeVersion(`v${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0`).ok).toBe(true);
@@ -164,7 +167,7 @@ describe('G-3: Node version — ONE source of truth (C-2)', () => {
     ).toBe(MIN_NODE_MAJOR);
     expect(
       declaredMinor,
-      'MIN_NODE_MINOR must equal the engines floor minor (the node:sqlite 22.13 boundary).',
+      'MIN_NODE_MINOR must equal the engines floor minor (the node:sqlite 22.16 FTS5/isTransaction boundary).',
     ).toBe(MIN_NODE_MINOR);
   });
 });

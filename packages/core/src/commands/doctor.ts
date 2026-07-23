@@ -295,7 +295,9 @@ export async function checkNativeModules(): Promise<CheckResult> {
 }
 
 function checkNodeVersion(): CheckResult {
-  // Layer 2 floor (CR-69): node:sqlite is flag-free + FTS5-capable only from v22.13.0.
+  // Layer 2 floor (CR-69): node:sqlite becomes FTS5-capable + isTransaction-capable only
+  // from v22.16.0 (the true product floor — see lib/node-floor.ts for the full capability
+  // rationale, and docs/plans/2026-07-23-node-sqlite-fts5-floor-correction.md).
   // The floor is a SINGLE SoT in preflight.ts (MIN_NODE_MAJOR/MINOR + checkNodeVersion);
   // reuse it here — a second hardcoded copy is exactly the CR-59 one-SoT drift class.
   const version = process.versions.node;

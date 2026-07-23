@@ -96,7 +96,7 @@ describe('CR-71 workspace ↔ @massu/core dependency + engine + lockfile coheren
 
   // (d) Every literal `node-version:` pin in .github/workflows/*.yml MUST be >= core's engines.node
   //     floor. CI's Test + Anti-Vacuity jobs were pinned to Node 20 while core's 2.0.0 default
-  //     engine (`node:sqlite`) needs >=22.13 — so those jobs failed "No such built-in module:
+  //     engine (`node:sqlite`) needs >=22.16 — so those jobs failed "No such built-in module:
   //     node:sqlite" the moment `npm ci` was fixed enough for them to run (incident 2026-07-23).
   it('every literal node-version pin in .github/workflows/*.yml is >= core engines.node floor', () => {
     if (!CORE_ENGINE) return;

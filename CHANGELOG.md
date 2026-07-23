@@ -10,6 +10,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.3.0] - 2026-07-23
+
+### Fixed
+
+- **Corrected the `node:sqlite` Node floor `22.13.0 → 22.16.0` — the true version where the
+  built-in engine gains FTS5 AND `DatabaseSync.isTransaction`.** `2.0.0` (CR-69) made Node's
+  built-in `node:sqlite` the default DB engine and set the floor to `>=22.13.0` on the belief
+  that FTS5 was available there. It is not: `node:sqlite` is flag-free from 22.13.0, but Node
+  enabled the `SQLITE_ENABLE_FTS5` compile flag **and** added `DatabaseSync.prototype.isTransaction`
+  in the **same release, 22.16.0** (22.15.1 has neither; identical bundled SQLite 3.49.1 — a Node
+  build-config change). Below 22.16 the memory DB's `observations_fts` virtual table cannot be
+  created (`no such module: fts5`) and the nested-savepoint adapter throws `cannot start a
+  transaction within a transaction`. **Installs on Node 22.13–22.15 never had a working default DB
+  engine.** This release raises `engines.node` to `>=22.16.0` in `@massu/core` and both adapters
+  (`@massu/adapter-rails` / `@massu/adapter-spring` → `1.1.0`, CR-71 coherence), moves every CI pin
+  to the true floor (`22.16.0`, tested AT the real floor — not latest-22.x), and adds a real
+  can-fail capability drift-guard (`node-sqlite-capability-floor.test.ts`) that exercises FTS5 +
+  `isTransaction` at the pinned floor Node so a future floor drop fails loudly. Also repairs 6
+  `windows-latest`-only node-bootstrap test-fixtures from the 2.2.0 work (glob-separator,
+  none-found isolation, remedy-regex, re-exec stdin fidelity). Semver: MINOR (a floor *correction*
+  — no working support in 22.13–22.15 is removed). Incident:
+  `docs/incidents/2026-07-23-node-sqlite-fts5-floor-wrong.md`.
+  (plan-2026-07-23-node-sqlite-fts5-floor-correction)
+
 ## [2.2.0] - 2026-07-22
 
 ### Added

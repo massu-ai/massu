@@ -10,7 +10,7 @@
  * mismatched native ABI), every hook crashed with ERR_DLOPEN_FAILED and massu degraded
  * silently — the failure surfaced only in .massu/hook-failures.jsonl.
  *
- * Layer 1 (2.0.0, CR-69) removed the native ABI for Node >= 22.13 by defaulting to
+ * Layer 1 (2.0.0, CR-69) removed the native ABI for Node >= 22.16 by defaulting to
  * node:sqlite. This module closes the residual gap G-1: a sub-floor Node still breaks a
  * bare hook. At the SINGLE cli.ts chokepoint (above the dispatch switch — so it covers BOTH
  * the hook-runner path AND the MCP-server path of the one bin) we:
@@ -35,7 +35,7 @@
 import { existsSync, readdirSync, statSync, realpathSync } from 'fs';
 import { spawnSync, execFileSync } from 'child_process';
 import { homedir } from 'os';
-import { isAbsolute, resolve, win32 as pathWin32 } from 'path';
+import { win32 as pathWin32, posix as pathPosix } from 'path';
 // Import the floor from the LEAF SoT (zero non-fs imports), NOT from preflight.ts — this module
 // runs to rescue a sub-floor Node, so it must not transitively pull in the DB-driver/config
 // chain (a module-eval side effect there would crash the very rescuer). preflight.ts re-exports
@@ -82,18 +82,23 @@ export function allowlistPatterns(
 
   const patterns: string[] = [];
   const rawHome = env.HOME || homedir();
-  const home = rawHome && isAbsolute(rawHome) ? rawHome : null;
+  // Use `path.posix.*` (never the ambient `path.*`) for the POSIX branch — symmetric with the
+  // win32 branch's `pathWin32.*` — so the injected `platform` seam is HOST-INDEPENDENT: injecting
+  // `platform='linux'` on a Windows CI runner must still produce forward-slash POSIX patterns, not
+  // the backslash/drive-mangled paths the ambient (win32-on-Windows) `resolve` would emit. On a
+  // real POSIX host `path.posix` === `path`, so this is a no-op in production.
+  const home = rawHome && pathPosix.isAbsolute(rawHome) ? rawHome : null;
 
   // Version-manager install dirs (each glob enumerates ALL installed versions). Prefer the
   // manager's own install-DIR env pointer; else the default home-relative layout.
   const addAbs = (dir: string | null | undefined, suffix: string) => {
-    if (dir && isAbsolute(dir)) patterns.push(resolve(dir, suffix));
+    if (dir && pathPosix.isAbsolute(dir)) patterns.push(pathPosix.resolve(dir, suffix));
   };
-  addAbs(env.NVM_DIR ?? (home && resolve(home, '.nvm')), 'versions/node/*/bin/node');
-  addAbs(env.FNM_DIR ?? (home && resolve(home, '.local/share/fnm')), 'node-versions/*/installation/bin/node');
-  addAbs(env.VOLTA_HOME ?? (home && resolve(home, '.volta')), 'tools/image/node/*/bin/node');
-  addAbs(env.ASDF_DATA_DIR ?? (home && resolve(home, '.asdf')), 'installs/nodejs/*/bin/node');
-  addAbs(env.N_PREFIX ?? (home && resolve(home, 'n')), 'bin/node'); // tj/n installs to $N_PREFIX/bin
+  addAbs(env.NVM_DIR ?? (home && pathPosix.resolve(home, '.nvm')), 'versions/node/*/bin/node');
+  addAbs(env.FNM_DIR ?? (home && pathPosix.resolve(home, '.local/share/fnm')), 'node-versions/*/installation/bin/node');
+  addAbs(env.VOLTA_HOME ?? (home && pathPosix.resolve(home, '.volta')), 'tools/image/node/*/bin/node');
+  addAbs(env.ASDF_DATA_DIR ?? (home && pathPosix.resolve(home, '.asdf')), 'installs/nodejs/*/bin/node');
+  addAbs(env.N_PREFIX ?? (home && pathPosix.resolve(home, 'n')), 'bin/node'); // tj/n installs to $N_PREFIX/bin
 
   // Homebrew keg globs + canonical prefixes (always absolute; always included).
   patterns.push(

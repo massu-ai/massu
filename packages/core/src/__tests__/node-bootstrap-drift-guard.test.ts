@@ -95,7 +95,11 @@ describe('P4-001 node-bootstrap drift-guard (Layer 2, CR-70)', () => {
     expect(spy.exitCode).not.toBe(0);
     // The remedy reuses the preflight requirement statement + a copy-paste install line.
     expect(spy.stderr).toMatch(new RegExp(`${MIN_NODE_MAJOR}\\.${MIN_NODE_MINOR}\\.0`));
-    expect(spy.stderr).toMatch(/nvm install|brew install node/);
+    // Platform-aware install line: writeLoudRemedy reads process.platform — `winget install`
+    // on win32, `nvm/brew install node` on POSIX (node-bootstrap.ts:388) — so assert the
+    // running platform's actual remedy, not the POSIX-only line (P4-003).
+    const remedy = process.platform === 'win32' ? /winget install/ : /nvm install|brew install node/;
+    expect(spy.stderr).toMatch(remedy);
   });
 
   it('(d) MASSU_NO_NODE_BOOTSTRAP=1 below floor → NO re-exec but STILL loud-fails', () => {

@@ -7,18 +7,26 @@
  * This is a LEAF module: it imports NOTHING (no fs, no db-driver, no config). That property
  * is load-bearing for CR-70: `lib/node-bootstrap.ts` runs at the very top of `cli.ts:main()`
  * to RESCUE a sub-floor Node, and it must be able to read the floor WITHOUT dragging in the
- * DB-driver / config import chain — a module-eval side effect (or a `>=22.13`-only API) in any
+ * DB-driver / config import chain — a module-eval side effect (or a `>=22.16`-only API) in any
  * of those transitive modules would crash the very rescuer meant to escape the sub-floor Node.
  * `preflight.ts` RE-EXPORTS these so every existing importer (doctor, the preflight assertions,
  * the drift-guards) keeps its `from '../preflight.ts'` path unchanged — still ONE SoT, now with
  * a dependency-free reader for the bootstrap path.
  *
- * LAYER 2 (CR-69): the default DB engine is Node's built-in `node:sqlite`, which is flag-free +
- * FTS5-capable only from v22.13.0 — so the floor is `>=22.13.0` (a MINOR-precision boundary:
- * 22.0..22.12 have node:sqlite behind a flag). These literals are LOCKED to `@massu/core`'s
- * `engines.node` by the `node-compat-drift-guard` / `preflight-fail-closed` tests — a mutation
- * here that disagrees with `engines` fails the guard, so the two cannot silently drift (that
- * drift is how four sources once disagreed about the range, C-2).
+ * LAYER 2 (CR-69): the default DB engine is Node's built-in `node:sqlite`. That engine is
+ * flag-free from v22.13.0, but it becomes **FTS5-capable AND `DatabaseSync.prototype.isTransaction`
+ * -capable only from v22.16.0** — Node enabled the `SQLITE_ENABLE_FTS5` compile flag and added
+ * `isTransaction` in the SAME release (22.15.1 has neither, 22.16.0 has both, identical bundled
+ * SQLite 3.49.1 — a Node build-config change, not a SQLite bump). The memory DB's `observations_fts`
+ * virtual table needs FTS5, and `db-driver.ts` nested-savepoint `transaction()` needs
+ * `raw.isTransaction`, so the true product floor is `>=22.16.0` (a MINOR-precision boundary:
+ * 22.0..22.12 have node:sqlite behind a flag; 22.13..22.15 have it flag-free but WITHOUT FTS5 /
+ * isTransaction → the default engine is non-functional there). See
+ * `docs/plans/2026-07-23-node-sqlite-fts5-floor-correction.md`. These literals are LOCKED to
+ * `@massu/core`'s `engines.node` by the `node-compat-drift-guard` / `preflight-fail-closed` /
+ * `node-sqlite-capability-floor` tests — a mutation here that disagrees with `engines` fails the
+ * guard, so the two cannot silently drift (that drift is how four sources once disagreed about the
+ * range, C-2).
  *
  * NOTE (C-2 partially REFUTED, 2026-07-13): the plan claimed CodeGraph "hard-refuses" Node >= 25.
  * EXECUTED: `@colbymchenry/codegraph@1.4.1` ran on Node v26.0.0 and indexed 1,266 files. There is
@@ -26,7 +34,7 @@
  */
 
 export const MIN_NODE_MAJOR = 22;
-export const MIN_NODE_MINOR = 13;
+export const MIN_NODE_MINOR = 16;
 
 export function checkNodeVersion(version: string = process.version): {
   ok: boolean;

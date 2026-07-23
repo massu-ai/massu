@@ -272,7 +272,7 @@ export function openDatabase(dbPath: string, opts: OpenDatabaseOptions = {}): Ma
 /** Remedy surfaced when Node's built-in `node:sqlite` itself fails (not an ABI class —
  *  there is no binary to rebuild; `massu heal` cannot help). */
 export const NODE_SQLITE_REMEDY =
-  "Node's built-in node:sqlite failed to open the database. Ensure Node >= 22.13.0 (`node --version`) " +
+  "Node's built-in node:sqlite failed to open the database. Ensure Node >= 22.16.0 (`node --version`) " +
   'and that this Node build includes SQLite, then restart your MCP client / Claude Code.';
 
 /**

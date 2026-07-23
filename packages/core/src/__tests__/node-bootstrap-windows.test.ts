@@ -108,7 +108,10 @@ describe('P4-001 Windows Layer-2 bootstrap (CR-70 Windows parity)', () => {
     const pattern = `${dir}\\v*\\node.exe`;
     const out = expandSingleStarGlob(pattern);
     expect(out).toHaveLength(1);
-    expect(out[0].endsWith('v18/node.exe')).toBe(true);
+    // Assert on a separator-normalized value: `expandSingleStarGlob` joins segments with a
+    // literal `/` (node-bootstrap.ts:270), so out[0] already uses `/` even on Windows — the
+    // normalization is a no-op there and DEFENSIVE against either separator (P4-001).
+    expect(out[0].replace(/\\/g, '/').endsWith('v18/node.exe')).toBe(true);
     // A forward-slash pattern at the same dir expands identically (superset property).
     expect(expandSingleStarGlob(`${dir}/v*/node.exe`)).toHaveLength(1);
   });
@@ -133,15 +136,23 @@ describe('P4-001 Windows Layer-2 bootstrap (CR-70 Windows parity)', () => {
   });
 
   it('(e) win32 + sub-floor + none found → loud fail (exit≠0), never a silent crash', () => {
-    // Point every win root at a nonexistent dir → win32 discovery finds nothing.
     const env: NodeJS.ProcessEnv = { USERPROFILE: 'C:\\Users\\nobody-xyz' };
-    expect(discoverCompatibleNode(env, 'win32')).toBeNull();
+    // The win32 allowlist ALWAYS includes the unconditional system MSI root
+    // (C:\Program Files\nodejs\node.exe). On a real windows-latest runner that binary EXISTS
+    // and is >= floor, so a real-FS win32 discovery correctly does NOT return null there — the
+    // "roots don't resolve → null" claim is only valid where the FS has no allowlisted Node
+    // (a POSIX host), so assert it off-win32 only (P4-002).
+    if (process.platform !== 'win32') {
+      expect(discoverCompatibleNode(env, 'win32')).toBeNull();
+    }
 
     let exitCode: number | null = null;
     let stderr = '';
+    // Drive the LOUD-FAIL path (the real unit under test) with a DETERMINISTIC injected
+    // none-found discover so it runs green on every platform, incl. real Windows (P4-002).
     bootstrapNodeOrExit([], env, {
       nodeVersion: BELOW_FLOOR,
-      discover: (e) => discoverCompatibleNode(e, 'win32'),
+      discover: () => null,
       stderr: (m) => {
         stderr += m;
       },
@@ -181,7 +192,7 @@ describe('P4-001 Windows Layer-2 bootstrap (CR-70 Windows parity)', () => {
 
   // POSITIVE end-to-end discovery (L2-W-1) — only meaningful on a REAL Windows host (a `C:\…\node.exe`
   // must be a real, probe-able binary). Runs on the windows-latest CI leg. Plants a DETERMINISTIC
-  // real node.exe (a copy of the running Node, guaranteed >= floor on the 22.13.0/latest matrix)
+  // real node.exe (a copy of the running Node, guaranteed >= floor on the 22.16.0/latest matrix)
   // under a synthetic scoop allowlist root, so the assertion is UNCONDITIONAL — a broken discovery
   // and a nothing-found host can no longer render identically (architecture review ARCH-1).
   it.skipIf(process.platform !== 'win32')(
@@ -198,8 +209,13 @@ describe('P4-001 Windows Layer-2 bootstrap (CR-70 Windows parity)', () => {
       expect(result).not.toBeNull();
       expect(isAcceptedCandidatePath(result as string, 'win32')).toBe(true);
       expect(isWindowsTrusted(result as string, env)).toBe(true);
-      // Negative control: with the plant removed (empty env), discovery finds nothing here.
-      expect(discoverCompatibleNode({ USERPROFILE: 'C:\\Users\\nobody-xyz-unused' }, 'win32')).toBeNull();
+      // Negative control: with the plant's env removed, discovery does NOT return our synthetic
+      // planted scoop path — it may legitimately return the real system MSI Node (correct product
+      // behaviour on a Windows host with Node installed), so the point is that the positive result
+      // above came from the PLANT, not ambient discovery (P4-002; a bare `toBeNull()` here would
+      // spuriously red on a real windows-latest runner whose MSI root has Node).
+      const withoutPlant = discoverCompatibleNode({ USERPROFILE: 'C:\\Users\\nobody-xyz-unused' }, 'win32');
+      expect(withoutPlant).not.toBe(planted);
     },
   );
 });

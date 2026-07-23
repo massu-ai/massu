@@ -19,7 +19,8 @@ import { DEFAULT_DB_ENGINE } from '../db-driver.ts';
 /*    (a) node:sqlite (the default engine) loads + round-trips + FTS5  */
 /*        under whatever Node runs the suite;                          */
 /*    (a2) better-sqlite3 (the fallback) still loads + round-trips;    */
-/*    (b) `engines.node` == `>=22.13.0` EXACTLY (the node:sqlite floor),*/
+/*    (b) `engines.node` == `>=22.16.0` EXACTLY (the node:sqlite FTS5/  */
+/*        isTransaction floor),                                        */
 /*        with NO `<` upper bound, and DEFAULT_DB_ENGINE == node-sqlite;*/
 /*    (c) the CI Node-major matrix drops Node < 22, keeps an           */
 /*        auto-tracking `latest` leg, and the required Gate stays wired.*/
@@ -64,14 +65,16 @@ describe('DB-engine compatibility (Layer 2 — node:sqlite default, incident 202
     }
   });
 
-  it('(b) engines.node is locked to the node:sqlite floor (>=22.13.0), no ceiling; default engine is node:sqlite', () => {
+  it('(b) engines.node is locked to the node:sqlite floor (>=22.16.0), no ceiling; default engine is node:sqlite', () => {
     const pkg = JSON.parse(readFileSync(resolve(CORE_ROOT, 'package.json'), 'utf-8')) as {
       engines?: { node?: string };
     };
     const range = pkg.engines?.node ?? '';
-    // EXACT floor — node:sqlite is flag-free + FTS5-capable only from v22.13.0. A mutation
-    // that lowers this (re-admitting Node 20/21, where node:sqlite is absent/flagged) fails here.
-    expect(range).toBe('>=22.13.0');
+    // EXACT floor — node:sqlite is FTS5-capable + isTransaction-capable only from v22.16.0
+    // (flag-free from 22.13, but FTS5/isTransaction land in 22.16 — see lib/node-floor.ts). A
+    // mutation that lowers this (re-admitting 22.13–22.15, where the default engine is
+    // non-functional, or Node 20/21 where node:sqlite is absent/flagged) fails here.
+    expect(range).toBe('>=22.16.0');
     // A `<` upper bound is what locked Node 26 out in 2026-07-05 — never reintroduce one.
     expect(
       range.includes('<'),
@@ -87,7 +90,7 @@ describe('DB-engine compatibility (Layer 2 — node:sqlite default, incident 202
       /name:\s*Native Module \(Node \$\{\{ matrix\.node \}\}\)/,
     );
     // The matrix `node:` list must include an auto-tracking 'latest' leg and must NOT
-    // include any Node major below the 22.13 floor (20 / 21).
+    // include any Node major below the 22.16 floor (20 / 21).
     const nodeList = /\n\s*node:\s*(\[[^\]]*\])/.exec(ci)?.[1] ?? '';
     expect(nodeList, 'matrix node: list must be present').not.toBe('');
     expect(nodeList).toMatch(/'latest'/);

@@ -12,7 +12,7 @@
  *       `new DatabaseSync()` / `require('node:sqlite')` that could bypass the adapter;
  *   (c) `openDatabase` is imported from the adapter (`db-driver.ts`) everywhere — the
  *       ONLY file allowed to import it from the Layer-1 loader is the adapter itself;
- *   (d) `engines.node` is locked to the node:sqlite floor `>=22.13.0`.
+ *   (d) `engines.node` is locked to the node:sqlite FTS5/isTransaction floor `>=22.16.0`.
  *
  * Mirrored by pattern-scanner Check 46 (grep layer) — two structural layers atop the
  * adapter being the sole open chokepoint.
@@ -93,10 +93,10 @@ describe('db-driver adapter drift-guard (Layer 2, CR-69)', () => {
     expect(offenders, `openDatabase imported from the loader outside the adapter:\n${offenders.join('\n')}`).toEqual([]);
   });
 
-  it('(d) engines.node is locked to the node:sqlite floor >=22.13.0', () => {
+  it('(d) engines.node is locked to the node:sqlite floor >=22.16.0', () => {
     const pkg = JSON.parse(readFileSync(join(SRC, '..', 'package.json'), 'utf-8')) as {
       engines?: { node?: string };
     };
-    expect(pkg.engines?.node).toBe('>=22.13.0');
+    expect(pkg.engines?.node).toBe('>=22.16.0');
   });
 });

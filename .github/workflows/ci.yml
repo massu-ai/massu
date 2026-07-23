@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22.13.0'
           cache: 'npm'
       - run: npm ci
       - name: Build Adapters (required for Phase 9b workspace tsc resolution)
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22.13.0'
           cache: 'npm'
       - run: npm ci
       - name: Build Adapters (required for Phase 9b workspace tests)
@@ -73,7 +73,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22.13.0'
       - name: Drift check
         # plan-rulesets-as-code P-C-007: forward + reverse coverage between
         # .github/rulesets/main-branch.json and .github/workflows/*.yml. Same
@@ -91,7 +91,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22.13.0'
           cache: 'npm'
       - run: npm ci
       - name: Build Hooks (Core)

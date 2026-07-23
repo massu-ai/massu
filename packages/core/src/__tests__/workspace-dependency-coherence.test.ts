@@ -94,6 +94,34 @@ describe('CR-71 workspace ↔ @massu/core dependency + engine + lockfile coheren
     });
   }
 
+  // (d) Every literal `node-version:` pin in .github/workflows/*.yml MUST be >= core's engines.node
+  //     floor. CI's Test + Anti-Vacuity jobs were pinned to Node 20 while core's 2.0.0 default
+  //     engine (`node:sqlite`) needs >=22.13 — so those jobs failed "No such built-in module:
+  //     node:sqlite" the moment `npm ci` was fixed enough for them to run (incident 2026-07-23).
+  it('every literal node-version pin in .github/workflows/*.yml is >= core engines.node floor', () => {
+    if (!CORE_ENGINE) return;
+    const floor = semver.minVersion(CORE_ENGINE);
+    expect(floor).not.toBeNull();
+    const wfDir = resolve(REPO_ROOT, '.github', 'workflows');
+    if (!existsSync(wfDir)) return;
+    const offenders: string[] = [];
+    for (const f of readdirSync(wfDir).filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'))) {
+      const text = readFileSync(resolve(wfDir, f), 'utf-8');
+      // Only LITERAL numeric pins — `${{ matrix.node }}` / 'latest' are not our concern.
+      for (const m of text.matchAll(/node-version:\s*['"]?(\d+(?:\.\d+){0,2})['"]?/g)) {
+        const raw = m[1];
+        const pin = semver.coerce(raw);
+        if (!pin) continue;
+        // A bare major (`'22'`) resolves via setup-node to the LATEST 22.x (>= floor as long as
+        // its major >= floor.major); only a full pin below the floor, or an older major, fails.
+        const majorOnly = /^\d+$/.test(raw);
+        const bad = majorOnly ? pin.major < floor!.major : semver.lt(pin.version, floor!.version);
+        if (bad) offenders.push(`${f}: node-version ${raw} < floor ${floor!.version}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   // (c) package-lock.json workspace version entries MUST match their package.json — a version bump
   //     without regenerating the lock is exactly what makes a clean `npm ci` drift (mixed versions).
   it('package-lock.json workspace versions match package.json (no bump-without-lock-regen drift)', () => {

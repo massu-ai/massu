@@ -79,6 +79,25 @@ describe('P4-004 installer launch-symmetry drift-guard (Layer 3, CR-70)', () => 
     expect(hookCmd.slice(serverAsString.length)).toMatch(/^\s+hook-runner\s+\S+$/);
   });
 
+  it('P4-004 (win32): the emitters stay `npx -y @massu/core@<v>` on win32 (platform-neutral, Layer 3-W)', () => {
+    // Fast local mirror of the windows-latest CI leg (P4-003): assert the two emitters are
+    // platform-NEUTRAL — with process.platform forced to win32 they still produce the SAME
+    // `npx -y @massu/core@<ver>` mechanism, never a hand-wrapped divergence.
+    const orig = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      const hookMech = deriveMechanism(firstHookCommand());
+      const srv = serverCommand();
+      const srvMech = deriveMechanism(srv.command, srv.args);
+      expect(hookMech.binary).toBe('npx');
+      expect(srvMech.binary).toBe('npx');
+      expect(hookMech.pin).toBe(srvMech.pin);
+      expect(hookMech.pin).toMatch(/^-y @massu\/core@/);
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true });
+    }
+  });
+
   it('G-6 anti-vacuity: a `node@22`-wrapped hook command makes the symmetry check go RED', () => {
     const srv = serverCommand();
     const srvMech = deriveMechanism(srv.command, srv.args);

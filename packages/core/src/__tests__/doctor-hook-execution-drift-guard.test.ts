@@ -97,6 +97,22 @@ describe('P4-005 doctor checkHookExecution drift-guard (Layer 4, CR-70)', () => 
     expect(r.status).toBe('fail');
   });
 
+  it('P4-004 (win32): checkHookExecution stays truthful on win32 — healthy→pass, broken→fail (Layer 4-W)', async () => {
+    // Fast local mirror of the windows-latest CI leg (P4-003): the canary control flow must not
+    // diverge on win32 — a healthy hook still passes and a crash-at-load still reports RED. The
+    // authoritative Windows RUNTIME proof is the CI leg; this asserts platform-neutral control flow.
+    const orig = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      const ok = await checkHookExecution(CORE_ROOT, { hookFile: healthy });
+      expect(ok.status).toBe('pass');
+      const bad = await checkHookExecution(CORE_ROOT, { hookFile: crashesAtLoad });
+      expect(bad.status).toBe('fail');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true });
+    }
+  });
+
   it('the REAL resolver path (no hookFile override) resolves the session-start canary and runs it', async () => {
     // Exercises resolveHookFile('session-start') + the real spawn end-to-end (requires a built
     // dist/hooks/session-start.js — the build pipeline runs build:hooks before test). If the hook

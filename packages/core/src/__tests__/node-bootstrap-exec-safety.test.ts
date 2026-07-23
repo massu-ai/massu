@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { discoverCompatibleNode } from '../lib/node-bootstrap.ts';
+import { discoverCompatibleNode, allowlistPatterns } from '../lib/node-bootstrap.ts';
 
 const SRC = readFileSync(resolve(__dirname, '..', 'lib', 'node-bootstrap.ts'), 'utf-8');
 
@@ -41,6 +41,30 @@ describe('P4-002 node-bootstrap exec-safety (Layer 2-7, CR-70)', () => {
     expect(CODE).not.toMatch(/\bwhich\b/);
     expect(CODE).not.toMatch(/command -v/);
     expect(CODE).not.toMatch(/\btype -p\b/);
+  });
+
+  it('win32 discovery NEVER reads the Windows PATH resolver (where.exe / %PATH% / env.Path)', () => {
+    // CR-70 Windows parity (Layer 2-W): the win32 branch must be as strict as the POSIX one —
+    // no `where.exe` (the Windows `which`), no `%PATH%` expansion, no `process.env.Path`/`env.Path`.
+    // Source-grep mirror of pattern-scanner Check 47's second (Windows) ban.
+    expect(CODE).not.toMatch(/where\.exe/);
+    expect(CODE).not.toMatch(/%PATH%/);
+    expect(CODE).not.toMatch(/process\.env\.Path\b/);
+    expect(CODE).not.toMatch(/env\.Path\b/);
+  });
+
+  it('behavioural: the win32 allowlist (platform-injected) reads NONE of PATH/Path — only install-dir pointers', () => {
+    // Inject platform='win32' + a hostile PATH/Path on a POSIX host (P2-000 seam). Every emitted
+    // candidate pattern must be an absolute `…\node.exe`, none derived from the hostile PATH/Path.
+    const patterns = allowlistPatterns(
+      { USERPROFILE: 'C:\\Users\\x', PATH: 'C:\\hostile\\a', Path: 'C:\\hostile\\b' } as NodeJS.ProcessEnv,
+      'win32',
+    );
+    expect(patterns.length).toBeGreaterThan(0);
+    for (const p of patterns) {
+      expect(p.includes('hostile')).toBe(false);
+      expect(p.toLowerCase().endsWith('node.exe')).toBe(true);
+    }
   });
 
   it('re-exec uses an argv ARRAY and NEVER a shell (no shell:true, no execSync/exec strings)', () => {

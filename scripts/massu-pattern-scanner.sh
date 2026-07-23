@@ -2124,6 +2124,15 @@ if [ -f "$NB_FILE" ]; then
     fail "Check 47: node-bootstrap.ts reads PATH/which or uses shell:true — discovery MUST use the strict absolute-path allowlist + argv-array exec (CR-70 L2-7)"
     CHECK47_OK=0
   fi
+  # CR-70 Windows parity (Layer 2-W): the win32 discovery branch MUST NOT consult the Windows PATH
+  # resolver (`where.exe`), the `%PATH%` env expansion, or `process.env.Path`/`env.Path` (the
+  # Windows-cased analogue of the forbidden `which`/`env.PATH`). It uses the strict absolute-path
+  # allowlist keyed to Windows install-dir env pointers only. Distinct message = a NEW anti-vacuity
+  # fail-point (registered in gate-registry.json, P4-005).
+  if printf '%s' "$NB_CODE" | grep -qE "where\.exe|%PATH%|process\.env\.Path\b|env\.Path\b"; then
+    fail "Check 47: node-bootstrap.ts touches Windows PATH / where.exe / %PATH% — win32 discovery MUST use the strict absolute-path allowlist (CR-70 L2-7 Windows parity)"
+    CHECK47_OK=0
+  fi
 fi
 if [ "$CHECK47_OK" -eq 1 ]; then
   pass "Check 47: Node-bootstrap chokepoint + exec-safety (CR-70)"

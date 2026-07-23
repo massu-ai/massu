@@ -10,6 +10,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.2.0] - 2026-07-22
+
+### Added
+
+- **Windows Node bootstrap — CR-70 Layer 2 auto-recovery now covers Windows.** `2.1.0` shipped
+  the self-bootstrapping launcher that re-execs massu under a compatible installed Node when the
+  running Node is below the floor — but discovery was Unix-only (a slash-rooted allowlist, a POSIX
+  ownership gate). On Windows it degraded to a correct-but-manual winget/nodejs.org remedy. `2.2.0`
+  extends the SAME chokepoint, floor SoT, and re-exec to Windows: discovery now enumerates the
+  Windows install layouts (nvm-windows, fnm, volta, scoop, the MSI / winget / Chocolatey
+  `C:\Program Files\nodejs`, and `%LOCALAPPDATA%\Programs\nodejs`) from their env pointers only —
+  never `%PATH%` / `where.exe` — with a strict absolute-path allowlist-root containment trust gate
+  (the `getuid` analogue). A Windows customer with a compatible Node already installed now gets the
+  identical zero-onus auto-fix on `npm i -g @massu/core@2.2.0`; otherwise the already-shipped
+  correct Windows loud remedy. The POSIX path is byte-for-byte unchanged (regression-guarded). A
+  real `windows-latest` CI leg (`Windows Bootstrap Gate`) proves re-exec fidelity, installer
+  symmetry, and the doctor canary at runtime on Windows. No new Canonical Rule — Windows parity of
+  CR-70, folded into `canonical-rules-detail.md#cr-70`.
+
 ## [2.1.0] - 2026-07-22
 
 ### Added

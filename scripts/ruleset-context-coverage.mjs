@@ -74,6 +74,12 @@ const WORKFLOW_NOT_REQUIRED_AS_CONTEXT = new Set([
   // 'Native Module Gate' aggregator IS the required gating context
   // (main-branch.json); this allowlists the matrix.
   'Native Module (Node ${{ matrix.node }})',
+  // matrix-shaped Windows Layer-2 bootstrap verification (ci.yml, CR-70 Windows parity). The job
+  // name is the LITERAL TEMPLATE STRING 'Windows Bootstrap (Node ${{ matrix.node }})' at YAML
+  // level — the expanded check-run names exist only at GitHub runtime, so the matrix job cannot
+  // be a required context. The static 'Windows Bootstrap Gate' aggregator IS the required gating
+  // context (main-branch.json); this allowlists the matrix.
+  'Windows Bootstrap (Node ${{ matrix.node }})',
   // G-6 anti-vacuity meta-gate (ci.yml job "Anti-Vacuity"). A deterministic full
   // DEFEAT sweep (~14min, CR-68) that goes RED on ANY decoration — fail-closed at the
   // job level. It is intentionally NOT a hard required merge-context: a ~14min gate as

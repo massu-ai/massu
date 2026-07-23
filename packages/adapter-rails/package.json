@@ -1,6 +1,6 @@
 {
   "name": "@massu/adapter-rails",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Massu first-party adapter for Ruby on Rails — Tree-sitter AST detection of routes, namespaces, and root controllers in config/routes.rb",
   "type": "module",
   "main": "dist/index.js",
@@ -16,7 +16,7 @@
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
-    "@massu/core": "^1.6.0",
+    "@massu/core": ">=2.0.0",
     "web-tree-sitter": "~0.25.10"
   },
   "publishConfig": {
@@ -29,7 +29,7 @@
   },
   "license": "BSL-1.1",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.13.0"
   },
   "keywords": [
     "mcp",

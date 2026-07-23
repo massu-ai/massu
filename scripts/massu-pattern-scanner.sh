@@ -2190,6 +2190,45 @@ if [ "$CHECK49_OK" -eq 1 ]; then
 fi
 
 # -------------------------------------------------------
+# Check 50: Workspace ↔ @massu/core dependency + engine coherence (CR-71)
+# -------------------------------------------------------
+# A first-party workspace (packages/adapter-*) that declares a @massu/core peer/dep range NOT
+# satisfying core's version, or an engines.node NARROWER than core's, breaks a clean `npm ci`
+# (ERESOLVE) — invisible to `npm test` (reuses node_modules). Latent since the 2.0.0 major
+# (adapters kept `^1.6.0`); incident 2026-07-23-npm-ci-workspace-peer-drift. Grep-mirror of
+# workspace-dependency-coherence.test.ts (CR-71), using node+semver for a correct range check.
+echo "Check 50: Workspace dependency coherence (CR-71)"
+CHECK50_ERR=$(node -e '
+const fs=require("fs"),path=require("path"),semver=require("semver");
+const pkgs=path.join(process.argv[1],"packages");
+const core=JSON.parse(fs.readFileSync(path.join(pkgs,"core","package.json"),"utf8"));
+const cv=core.version, ce=core.engines&&core.engines.node;
+const bad=[];
+for(const d of fs.readdirSync(pkgs)){
+  if(d==="core")continue;
+  const pj=path.join(pkgs,d,"package.json");
+  if(!fs.existsSync(pj))continue;
+  const p=JSON.parse(fs.readFileSync(pj,"utf8"));
+  for(const f of ["dependencies","peerDependencies","devDependencies"]){
+    const r=p[f]&&p[f]["@massu/core"];
+    if(!r||r.startsWith("workspace:")||r.startsWith("file:"))continue;
+    if(!semver.satisfies(cv,r))bad.push(`${p.name} ${f} @massu/core "${r}" !satisfies core ${cv}`);
+  }
+  const we=p.engines&&p.engines.node;
+  if(we&&ce){const cm=semver.minVersion(ce);
+    if(cm&&!semver.satisfies(cm.version,we))bad.push(`${p.name} engines "${we}" excludes core floor ${cm.version}`);
+    for(const m of [22,23,24,25,26,27,28]){const v=m+".13.0"; if(semver.satisfies(v,ce)&&!semver.satisfies(v,we)){bad.push(`${p.name} engines "${we}" excludes core-allowed ${v}`);break;}}
+  }
+}
+if(bad.length){console.error(bad.join(" | "));process.exit(1);}
+' "$REPO_ROOT" 2>&1)
+if [ $? -eq 0 ]; then
+  pass "Check 50: Workspace dependency coherence (CR-71)"
+else
+  fail "Check 50: workspace incoherent with @massu/core — $CHECK50_ERR (CR-71)"
+fi
+
+# -------------------------------------------------------
 # Summary
 # -------------------------------------------------------
 echo ""

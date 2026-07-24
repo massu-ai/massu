@@ -71,14 +71,23 @@ if ! grep -q "$VERCEL_ORG" <<<"$vercel_teams_list"; then
 fi
 
 # === Most recent website-touching commit on origin/main ===
-WEBSITE_COMMIT_EPOCH=$(git log -1 origin/main --format=%ct -- website/ 2>&1)
+# CWD-INDEPENDENCE (incident 2026-07-23): `-- website/` is resolved RELATIVE TO CWD, so
+# running this gate from any subdirectory (e.g. packages/core, as npm lifecycle scripts do)
+# matched zero commits and the gate printed "no website/ commits — skipping" and exited 0.
+# Pin the pathspec to the repo root. Same class as the pattern-scanner cwd incident.
+_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+WEBSITE_COMMIT_EPOCH=$(git -C "$_REPO_ROOT" log -1 origin/main --format=%ct -- website/ 2>/dev/null)
 if [ -z "$WEBSITE_COMMIT_EPOCH" ]; then
   # Fallback to local HEAD if origin/main not available
-  WEBSITE_COMMIT_EPOCH=$(git log -1 --format=%ct -- website/ 2>&1)
+  WEBSITE_COMMIT_EPOCH=$(git -C "$_REPO_ROOT" log -1 --format=%ct -- website/ 2>/dev/null)
 fi
 if [ -z "$WEBSITE_COMMIT_EPOCH" ]; then
-  echo "WARN: no website/ commits found in git history — skipping staleness check"
-  exit 0
+  # FAIL LOUD, never skip (prime directive). `website/` demonstrably exists in this repo's
+  # history; finding zero commits means the query is wrong, not that the gate is unneeded.
+  echo "FAIL: no website/ commits found in git history — the staleness check did NOT run." >&2
+  echo "      This is a HARD FAILURE, not a skip: an unverifiable gate is an unmet gate." >&2
+  echo "      (repo root resolved to: $_REPO_ROOT)" >&2
+  exit 1
 fi
 
 # === Most recent production Vercel deploy ===
@@ -86,7 +95,18 @@ fi
 # the table reliably, capture stderr→stdout for the LS path. The --json
 # variant DOES emit to stdout but exited Vercel CLI 47.x and may not be
 # available in older installs; use plaintext as the primary path.
-DEPLOY_LISTING=$($VERCEL_CMD ls "$VERCEL_PROJECT" 2>&1)
+#
+# CLI-CONTRACT DRIFT (incident 2026-07-23): Vercel CLI >= ~50.x REJECTS a project-name
+# argument — `vercel ls massu` errors "The provided argument \"massu\" is not a valid
+# project name". `ls` must instead run FROM the linked project directory, which reads
+# `.vercel/project.json`. The old invocation failed on every run, the parse then found no
+# Production row, and the gate printed "WARN: could not parse … skipping" and exited 0 —
+# so the ONE check for "shipped to npm but not deployed to Vercel" silently covered
+# NOTHING while a real 2-day deploy lag sat behind it (the CR-48 bug class this gate
+# exists to prevent). Run from the linked dir; treat an unparseable listing as a HARD
+# FAILURE, never a skip (see §fail-loud below).
+_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+DEPLOY_LISTING=$(cd "$_REPO_ROOT/website" 2>/dev/null && $VERCEL_CMD ls 2>&1)
 DEPLOY_EPOCH_SECS=""
 
 # Plaintext parse: extract age column (e.g., "33d") of the first Production row.
@@ -102,8 +122,19 @@ if [ -n "$AGE_STR" ]; then
   NOW=$(date +%s)
   DEPLOY_EPOCH_SECS=$(( NOW - DEPLOY_AGE_SECS ))
 else
-  echo "WARN: could not parse Vercel deploy listing — skipping staleness check"
-  exit 0
+  # FAIL LOUD, never skip (prime directive; incident 2026-07-23). A gate that cannot
+  # perform its check has NOT passed — it has stopped checking. Exiting 0 here is what
+  # let a CLI-contract change silently disable this gate indefinitely while a real
+  # deploy lag (and 4 HIGH-severity website CVEs) sat undeployed behind it.
+  echo "FAIL: could not parse the Vercel deploy listing — the staleness check did NOT run." >&2
+  echo "      This is a HARD FAILURE, not a skip: an unverifiable gate is an unmet gate." >&2
+  echo "      Listing received was:" >&2
+  echo "$DEPLOY_LISTING" | head -8 | sed 's/^/        /' >&2
+  echo "      Likely cause: a Vercel CLI contract change (the 2026-07-23 incident was" >&2
+  echo "      \`vercel ls <project>\` being rejected in CLI >= 50.x — it must run from the" >&2
+  echo "      linked project dir). Fix the parse, or bypass EXPLICITLY and on the record" >&2
+  echo "      with MASSU_SKIP_DEPLOY_STALENESS_CHECK=1." >&2
+  exit 1
 fi
 
 # === Lag computation ===

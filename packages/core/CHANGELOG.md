@@ -10,6 +10,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.3.1] - 2026-07-23
+
+### Fixed
+
+- **Anti-vacuity verification repairs — seven registered gates were listed as proven-can-fail
+  while exercising nothing.** A full DEFEAT sweep (the first to run to completion in some time)
+  found seven `gate-registry.json` plants whose patterns no longer matched their target source, so
+  the "planted defect" mutated nothing and the guarded test stayed green under it. Causes were
+  benign source edits the plants were never updated for: a retuned timeout constant, an engines
+  floor bump, an import gaining a symbol, a check being renamed, and a version pinned as a literal
+  (which rots every release by design). All seven re-derived as rot-proof patterns (character
+  classes, `\d` groups, `\g<0>` back-references) and individually DEFEAT-proven.
+- **New `gate-plant-liveness-drift-guard`** asserts every plant pattern still matches its target,
+  so this rot fails in `npm test` in ~23ms instead of an hour into CI — and only against
+  git-tracked targets, since build artifacts are legitimately absent on a fresh checkout.
+- **`.git/hooks/pre-push` now runs the 22-gate battery.** It was previously manual: `.git/hooks/`
+  held only `*.sample`, so nothing invoked `scripts/pre-push-light.sh` on `git push` and gate
+  `[20/22] Incident Coverage` (CR-62) never ran. Incident:
+  `docs/incidents/2026-07-23-unenforced-pre-push-gates-and-guard-validated-against-local-state.md`.
+
+No runtime behaviour of `@massu/core` changes in this release; it is verification-infrastructure
+only. Published because CR-64 forbids commits sitting on top of a published, tagged release.
+
 ## [2.3.0] - 2026-07-23
 
 ### Fixed

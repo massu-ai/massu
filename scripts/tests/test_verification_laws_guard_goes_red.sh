@@ -92,7 +92,7 @@ assert_red "inversion" "$d" "grep -q 'NEVER ask' packages/core/commands/_verific
 echo
 echo "════ B. DEAD PATH: the laws file is referenced everywhere, and does not exist ════"
 d="$TMP/deadpath"; make_scratch "$d"
-rm -f "$d/packages/core/commands/_verification-laws.md"
+rm -f "${d:?d is empty - refusing to build a destructive path (G17)}/packages/core/commands/_verification-laws.md"
 assert_red "dead-path" "$d" "! test -e packages/core/commands/_verification-laws.md"
 
 # ── C. SUBDIRECTORY — a shipped instruction file in a nested skill folder ───────────────────
@@ -208,7 +208,7 @@ assert_red "wrong-tree" "$d" "! grep -q 'CR-64' .claude/commands/_verification-l
 echo
 echo "════ F. DELETION: the laws file is deleted outright ════"
 d="$TMP/deleted"; make_scratch "$d"
-rm -f "$d/packages/core/commands/_verification-laws.md" "$d/.claude/commands/_verification-laws.md"
+rm -f "${d:?d is empty - refusing to build a destructive path (G17)}/packages/core/commands/_verification-laws.md" "$d/.claude/commands/_verification-laws.md"
 assert_red "deletion" "$d" "! test -e .claude/commands/_verification-laws.md"
 
 # ── G. A COMMAND STOPS ROUTING to the laws ──────────────────────────────────────────────────

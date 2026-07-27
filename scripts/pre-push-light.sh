@@ -95,9 +95,9 @@ if [ "${MASSU_PREPUSH_CLEAN:-0}" = "1" ]; then
     # packages/adapter-* doesn't require touching this script (HIGH arch
     # finding fix; mirrors ci-tarball-e2e.sh single-SoT principle).
     for pkg in "${WORKSPACE_PKGS[@]}"; do
-      rm -rf "$pkg/dist"
+      rm -rf "${pkg:?pkg is empty - refusing to build a destructive path (G17)}/dist"
     done
-    rm -rf "$PROJECT_ROOT/node_modules" "$PROJECT_ROOT/website/.next"
+    rm -rf "$PROJECT_ROOT/node_modules" "${PROJECT_ROOT:?PROJECT_ROOT is empty - refusing to build a destructive path (G17)}/website/.next"
     cd "$PROJECT_ROOT" && npm ci
     cd "$PROJECT_ROOT" && npm run build:types
     cd "$PROJECT_ROOT" && npm run build:adapters

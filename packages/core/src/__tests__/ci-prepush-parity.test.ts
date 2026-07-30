@@ -27,6 +27,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '../../../..');
 const WORKFLOWS_DIR = resolve(REPO_ROOT, '.github/workflows');
+const ACTIONS_DIR = resolve(REPO_ROOT, '.github/actions');
 
 /**
  * Workflows intentionally inline because they implement INFRASTRUCTURE /
@@ -56,6 +57,7 @@ const CI_ONLY_SCRIPTS = new Set<string>([
   'ci-fresh-install.sh',   // matrix per-fixture variant — covered locally by [0/15] clean-state sim
   'ci-config-drift.sh',    // workspace-shadow avoidance scratch-dir setup is CI-environment-specific
   'ci-anti-vacuity.sh',    // full anti-vacuity DEFEAT sweep ~14min (CR-68) — too slow for pre-push; pre-push mirrors --completeness-only at step [22/22] (G-6 Wave 1 P6)
+  'ci-provision-public-mirror.sh', // clones massu-ai/massu into $HOME and overwrites its pre-push hook — DESTRUCTIVE to a developer's real working clone, so it must never run from pre-push-light.sh; the pre-push mirror is that the operator's own $HOME/massu already exists and is already scanner-wired (W-2, plan-2026-07-26-anti-vacuity-9-unproven-gates)
 ]);
 
 const MAX_INLINE_SHELL_LINES = 5;
@@ -81,6 +83,33 @@ function readWorkflowFiles(): string[] {
     .filter((name) => name.endsWith('.yml') || name.endsWith('.yaml'))
     .filter((name) => !WORKFLOW_FILE_EXCLUSIONS.has(name))
     .sort();
+}
+
+/**
+ * Every CI surface that can carry an inline `run:` block — workflows AND composite actions.
+ *
+ * W-2 of plan-2026-07-26-anti-vacuity-9-unproven-gates. A composite action is a workflow surface,
+ * so leaving `.github/actions/` unscanned is a hole in CR-50 — one this plan OPENED by moving the
+ * public-mirror provisioning into a composite action, and therefore must close.
+ *
+ * RECURSION IS LOAD-BEARING: `readdirSync(dir)` without `{ recursive: true }` returns depth-1
+ * entries only, so a nested action would escape silently. Mirrored in the bash half by `find`
+ * (`shopt -s globstar` is unavailable under the bash 3.2 the pattern scanner runs on).
+ *
+ * Returns repo-relative paths so an offender message names the file the author must open —
+ * every composite action's basename is the ambiguous `action.yml`.
+ */
+function readCiSurfaceFiles(): string[] {
+  const surfaces = readWorkflowFiles().map((name) => `.github/workflows/${name}`);
+  if (existsSync(ACTIONS_DIR)) {
+    for (const entry of readdirSync(ACTIONS_DIR, { recursive: true }) as string[]) {
+      const base = entry.split(/[\\/]/).pop() ?? '';
+      if (base === 'action.yml' || base === 'action.yaml') {
+        surfaces.push(`.github/actions/${entry.replace(/\\/g, '/')}`);
+      }
+    }
+  }
+  return surfaces.sort();
 }
 
 function listCiScripts(): string[] {
@@ -113,14 +142,11 @@ function firstCommentLines(scriptPath: string, n: number): string {
 const IS_INTERNAL_REPO = existsSync(resolve(REPO_ROOT, 'website')) && existsSync(resolve(REPO_ROOT, 'docs'));
 
 describe('ci-prepush-parity (P3-001 drift-guard for CR-50 / VR-CI-PARITY)', () => {
-  it('WORKFLOW_FILE_EXCLUSIONS entries all exist on disk (no orphans)', () => {
-    if (!IS_INTERNAL_REPO) {
-      // Sync-mirror tree: EXCLUSIONS list is internal-tree-authoritative.
-      // In the mirror, `ci.public.yml` is renamed to `ci.yml` by
-      // `scripts/sync-public.sh:117`, so it doesn't physically exist.
-      // The orphan check is meaningful only against the live internal tree.
-      return;
-    }
+  // ADJUDICATED environment-conditional (G-1): the sync-mirror tree renames
+  // `ci.public.yml` to `ci.yml` (`scripts/sync-public.sh:117`), so the EXCLUSIONS
+  // list — which is internal-tree-authoritative — has no on-disk counterpart there.
+  // SKIPPED in the mirror, which vitest reports distinguishably; never a silent PASS.
+  it.skipIf(!IS_INTERNAL_REPO)('WORKFLOW_FILE_EXCLUSIONS entries all exist on disk (no orphans)', () => {
     const missing: string[] = [];
     for (const entry of WORKFLOW_FILE_EXCLUSIONS) {
       const path = resolve(WORKFLOWS_DIR, entry);
@@ -150,27 +176,41 @@ describe('ci-prepush-parity (P3-001 drift-guard for CR-50 / VR-CI-PARITY)', () =
     ).toEqual([]);
   });
 
-  it('every multi-line run: block (>5 lines) in workflow YAMLs delegates to scripts/ci-*.sh', () => {
+  it('every multi-line run: block (>5 lines) in workflow YAMLs AND composite actions delegates to scripts/ci-*.sh', () => {
     const offenders: string[] = [];
-    for (const filename of readWorkflowFiles()) {
-      const path = resolve(WORKFLOWS_DIR, filename);
-      const doc = parseYaml(readFileSync(path, 'utf-8')) as WorkflowDoc;
-      if (!doc?.jobs) continue;
-      for (const [jobName, job] of Object.entries(doc.jobs)) {
-        const steps = job?.steps ?? [];
+    const surfaces = readCiSurfaceFiles();
+    for (const relPath of surfaces) {
+      const doc = parseYaml(readFileSync(resolve(REPO_ROOT, relPath), 'utf-8')) as WorkflowDoc & {
+        runs?: { steps?: WorkflowJobStep[] };
+      };
+      // A workflow nests steps under jobs.<name>.steps; a composite action puts them at
+      // runs.steps with no job layer. Scanning only `doc.jobs` silently skips every action.
+      const stepGroups: Array<[string, WorkflowJobStep[]]> = [];
+      for (const [jobName, job] of Object.entries(doc?.jobs ?? {})) {
+        stepGroups.push([jobName, job?.steps ?? []]);
+      }
+      if (doc?.runs?.steps) stepGroups.push(['runs', doc.runs.steps]);
+
+      for (const [groupName, steps] of stepGroups) {
         for (let i = 0; i < steps.length; i++) {
           const run = steps[i].run;
           if (typeof run !== 'string') continue;
           const lineCount = run.split('\n').filter((l) => l.length > 0).length;
           if (lineCount <= MAX_INLINE_SHELL_LINES) continue;
           if (run.includes('bash scripts/ci-')) continue;
-          offenders.push(`${filename}:${jobName}:step[${i}] (${lineCount} lines)`);
+          offenders.push(`${relPath}:${groupName}:step[${i}] (${lineCount} lines)`);
         }
       }
     }
+    // M1 — prove it looked. An empty surface list means the enumeration broke, and a broken
+    // check emits exactly what a clean one emits. "Scanned 0, found 0" must never be a pass.
+    expect(
+      surfaces.length,
+      'CI surface enumeration returned ZERO files — readCiSurfaceFiles() is broken, not clean'
+    ).toBeGreaterThan(0);
     expect(
       offenders,
-      `Workflow YAML has multi-line run: block (>${MAX_INLINE_SHELL_LINES} lines) not delegating to scripts/ci-*.sh:\n  ${offenders.join('\n  ')}`
+      `CI surface has multi-line run: block (>${MAX_INLINE_SHELL_LINES} lines) not delegating to scripts/ci-*.sh (scanned ${surfaces.length} surface file(s)):\n  ${offenders.join('\n  ')}`
     ).toEqual([]);
   });
 

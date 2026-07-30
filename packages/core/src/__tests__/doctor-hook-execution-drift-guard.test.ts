@@ -121,13 +121,26 @@ describe('P4-005 doctor checkHookExecution drift-guard (Layer 4, CR-70)', () => 
     const r = await checkHookExecution(CORE_ROOT);
     expect(r.name).toBe('Hook Runtime');
     expect(['pass', 'fail']).toContain(r.status);
-    // Under the test's at-or-above-floor Node with a built hook, the canary must pass.
-    if (r.detail.includes('unresolved')) {
-      // resolver could not find a built hook (dev tree without build:hooks) — that is a fail, and
-      // still proves the resolver→catch path (not a silent pass).
-      expect(r.status).toBe('fail');
-    } else {
-      expect(r.status).toBe('pass');
-    }
+    // FAIL CLOSED. This used to branch: `unresolved -> expect(r.status).toBe('fail')`,
+    // which PASSES the test on a tree with no dist/hooks. The reasoning was that it
+    // "still proves the resolver→catch path" — true, and beside the point. CR-70's
+    // claim is that doctor proves hooks EXECUTE, and the unresolved branch proves
+    // only that a missing hook is reported as missing. An un-built tree could not
+    // fail this test, so it asserted nothing about execution.
+    //
+    // That is not hypothetical: ci.yml::windows-bootstrap ran this suite after
+    // `build:adapters` alone until 2026-07-28, so the ONLY Windows leg of CR-70 was
+    // permanently taking the degraded branch — green, and blind. Requiring the
+    // artifact is what makes the Windows leg mean what its name says.
+    expect(
+      r.detail.includes('unresolved'),
+      `checkHookExecution could not resolve a built hook: ${r.detail}\n` +
+        'dist/hooks is MISSING — the canary never executed, so this proves nothing about\n' +
+        'hook execution (CR-70). Run "npm run build" (or "npm run build:hooks") in\n' +
+        'packages/core. Do NOT restore the unresolved-tolerating branch: a job that\n' +
+        'forgets the build must go RED here, which is exactly how the ci.yml Windows leg\n' +
+        'was found to be asserting nothing.',
+    ).toBe(false);
+    expect(r.status).toBe('pass');
   });
 });

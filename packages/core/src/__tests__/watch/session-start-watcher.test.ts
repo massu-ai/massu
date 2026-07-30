@@ -90,14 +90,18 @@ function runHook(cwd: string, env: NodeJS.ProcessEnv = {}): { stdout: string; co
 
 describe('session-start watcher banner (Plan 3a Phase 6)', () => {
   beforeAll(() => {
-    if (!existsSync(HOOK)) {
-      // eslint-disable-next-line no-console
-      console.warn(`[session-start-watcher.test] ${HOOK} missing; build:hooks not run`);
-    }
+    // FAIL CLOSED (G-1, plan-2026-07-26-anti-vacuity-9-unproven-gates). All five
+    // it() bodies used to `return` here, so the suite reported PASSED without ever
+    // spawning the hook. ci-anti-vacuity.sh:25-26 names this file as a dist-artifact
+    // oracle — an oracle that cannot see its artifact must go RED, never quiet.
+    expect(
+      existsSync(HOOK),
+      `${HOOK} missing — this suite cannot exercise the hook and must not report clean. ` +
+        `Run "npm run build:hooks" (packages/core). Do NOT restore the per-test skip.`,
+    ).toBe(true);
   });
 
   it('shows watcher banner and suppresses drift banner when watcher is live + fresh', () => {
-    if (!existsSync(HOOK)) return;
     const dir = stageFixture('ts-nextjs');
     // Use a STALE fingerprint so the drift banner WOULD fire absent the watcher.
     writeBaseConfig(dir, '0'.repeat(64));
@@ -117,7 +121,6 @@ describe('session-start watcher banner (Plan 3a Phase 6)', () => {
   });
 
   it('suppresses watcher banner when daemon pid is dead', () => {
-    if (!existsSync(HOOK)) return;
     const dir = stageFixture('ts-nextjs');
     writeBaseConfig(dir, null); // no fingerprint -> drift can't fire either
     writeWatchState(dir, {
@@ -134,7 +137,6 @@ describe('session-start watcher banner (Plan 3a Phase 6)', () => {
   });
 
   it('suppresses watcher banner when last refresh > 24h ago', () => {
-    if (!existsSync(HOOK)) return;
     const dir = stageFixture('ts-nextjs');
     writeBaseConfig(dir, null);
     writeWatchState(dir, {
@@ -151,7 +153,6 @@ describe('session-start watcher banner (Plan 3a Phase 6)', () => {
   });
 
   it('MASSU_DRIFT_QUIET=1 suppresses watcher banner (env override wins)', () => {
-    if (!existsSync(HOOK)) return;
     const dir = stageFixture('ts-nextjs');
     writeBaseConfig(dir, null);
     writeWatchState(dir, {
@@ -169,7 +170,6 @@ describe('session-start watcher banner (Plan 3a Phase 6)', () => {
   });
 
   it('emits NO watcher banner and shows drift banner when watch-state.json is absent', () => {
-    if (!existsSync(HOOK)) return;
     const dir = stageFixture('ts-nextjs');
     writeBaseConfig(dir, '0'.repeat(64)); // stale fingerprint -> drift banner fires
     // No watch-state.json written.

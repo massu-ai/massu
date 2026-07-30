@@ -28,7 +28,9 @@ import { recordHookFailure } from './lib/hook-failure-signal.ts';
 // 10MB+ working trees don't trigger Stop-hook timeout. Short-stat first,
 // only read full diff body when estimated bytes <= cap. execFileSync argv
 // form is defense-in-depth (P-001 pattern).
-const MAX_FULL_DIFF_BYTES = 2 * 1024 * 1024; // 2MB; ~25k lines at 80 bytes/line
+// Exported so the DG-2 drift-guard binds to THIS value rather than restating
+// it — a second copy of a cap is a cap that drifts.
+export const MAX_FULL_DIFF_BYTES = 2 * 1024 * 1024; // 2MB; ~25k lines at 80 bytes/line
 
 interface HookInput {
   session_id: string;

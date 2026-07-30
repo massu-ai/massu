@@ -78,13 +78,16 @@ describe('hook-registry parity (DG-1)', () => {
     expect([...REGISTERED_HOOKS]).toContain('pre-tool-use-gate');
   });
 
-  it('REGISTERED_HOOKS matches dist/hooks/*.js after build:hooks (when available)', () => {
+  it('REGISTERED_HOOKS matches dist/hooks/*.js after build:hooks', () => {
     const distHooksDir = resolve(__dirname, '../../dist/hooks');
-    if (!existsSync(distHooksDir)) {
-      // Build artifact missing in this env (e.g., fresh checkout, CI before
-      // build step). Skip — covered by the src parity test above.
-      return;
-    }
+    // FAIL CLOSED (G-1, plan-2026-07-26-anti-vacuity-9-unproven-gates): this used to
+    // `return`, so "the hooks were never built" reported identically to "every hook
+    // matches". The src-parity test above cannot cover the built artifacts.
+    expect(
+      existsSync(distHooksDir),
+      `${distHooksDir} missing — this test cannot compare against the built hooks. ` +
+        `Run "npm run build:hooks" (packages/core). Do NOT restore the skip.`,
+    ).toBe(true);
 
     const distHooks = readdirSync(distHooksDir)
       .filter((f) => f.endsWith('.js'))
@@ -126,12 +129,15 @@ describe('hook-registry parity (DG-1)', () => {
   it('resolveHookFile() succeeds for every hook emitted by buildHooksConfig() (closes 1.13.0 regression)', () => {
     // Direct regression guard: every hook name the installer writes to
     // customer settings.local.json MUST be dispatchable at fire-time.
-    // Skipped automatically if build artifacts aren't present (fresh
-    // checkout / pre-build CI step) — covered by the keys-parity test.
+    // FAIL CLOSED (G-1, plan-2026-07-26-anti-vacuity-9-unproven-gates): this used to
+    // `return` when the build artifacts were absent, which is precisely the state in
+    // which "every emitted hook is dispatchable" is unverifiable.
     const distHooksDir = resolve(__dirname, '../../dist/hooks');
-    if (!existsSync(distHooksDir)) {
-      return;
-    }
+    expect(
+      existsSync(distHooksDir),
+      `${distHooksDir} missing — dispatchability cannot be proven without the built hooks. ` +
+        `Run "npm run build:hooks" (packages/core). Do NOT restore the skip.`,
+    ).toBe(true);
     const config = buildHooksConfig();
     const emitted = new Set<string>();
     for (const event of Object.values(config)) {

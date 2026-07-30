@@ -41,13 +41,72 @@ git -C "$MIRROR_DIR" config user.email "ci@massu.ai"
 git -C "$MIRROR_DIR" config user.name "CI Bot"
 git -C "$MIRROR_DIR" commit --quiet --allow-empty -m "init"
 
+# Step 1b: give the ephemeral mirror the SAME pre-commit gate the real mirror runs.
+#
+# WHY. `git init` here inherits the global `init.templateDir` hook, so payload-safety runs —
+# but the PUBLIC LEAK GUARD is installed only in ~/massu itself, so it did NOT. This check
+# therefore exercised ONE of the two gates that can refuse a publication commit and reported
+# exit 0 while the real `sync-public.sh "$HOME/massu"` exited 1.
+#
+# Measured 2026-07-29: the leak guard held 6 findings and had made the mirror UNSYNCABLE for
+# ~5 days; this script was green throughout, and so was pre-push [14/22]. A gate that
+# exercises a subset of the real gates reports the same green as one that exercises all of
+# them — the blind-gate law, aimed at the sync proxy.
+#
+# FAIL LOUD if the real hook is missing: "the mirror has no gate" must never be indistinguish-
+# able from "the gate passed" (M2).
+REAL_MIRROR_HOOK="$HOME/massu/.git/hooks/pre-commit"
+if [ -x "$REAL_MIRROR_HOOK" ]; then
+  cp "$REAL_MIRROR_HOOK" "$MIRROR_DIR/.git/hooks/pre-commit"
+  chmod +x "$MIRROR_DIR/.git/hooks/pre-commit"
+  echo "[ci-sync-check] mirrored the real pre-commit gate from $REAL_MIRROR_HOOK"
+else
+  echo "[ci-sync-check] FAIL: no executable pre-commit gate at $REAL_MIRROR_HOOK." >&2
+  echo "  The real mirror's publication gate could not be exercised, so a green result here" >&2
+  echo "  would prove nothing about whether a sync can complete. Re-arm it with" >&2
+  echo "  the payload-safety hook installer in the automations repo (--apply)" >&2
+  exit 1
+fi
+
 # Step 2: run the sync.
 bash "$REPO_ROOT/scripts/sync-public.sh" "$MIRROR_DIR"
 
 # Step 3: install + build + test inside the mirror.
+#
+# THE SAME PRECONDITION GAP W-1 CLOSED IN THE ANTI-VACUITY JOB, FOUND HERE 2026-07-27.
+# This step built ONLY the adapters, then ran the whole suite. Tests that assert against
+# `dist/` therefore ran against artifacts that were never produced. That stayed invisible
+# for exactly one reason: those tests SILENTLY SKIPPED when their sentinel was absent —
+# `if (!existsSync(SENTINEL)) return;` reports PASSED having asserted nothing. G-1
+# (plan-2026-07-26, commit 0b9bcf65) made them fail-closed across 75 sites / 28 files, and
+# this step went red the same day. The gap did not appear then; it became VISIBLE then.
+#
+# So build every artifact the suite asserts against, and ASSERT THE END STATE rather than
+# inferring it from `npm run` exit 0 (CR-69) — `npm run` can exit 0 having emitted nothing.
 cd "$MIRROR_DIR"
 npm ci
 npm run build:adapters
+( cd packages/core && npm run build:bundle-adapters )
+( cd packages/core && npm run build:hooks && npm run build:cli )
+( cd packages/core && npm run build:assets )
+
+_sync_require() {  # $1 = path, $2 = remedy
+  if [ ! -e "$1" ]; then
+    echo "FATAL: [ci-sync-check] mirror build produced no '$1'." >&2
+    echo "       The build command exited 0 without emitting it." >&2
+    echo "       REMEDY: $2" >&2
+    exit 2
+  fi
+}
+_sync_require "packages/adapter-rails/dist/index.js"  "npm run build:adapters"
+_sync_require "packages/adapter-spring/dist/index.js" "npm run build:adapters"
+_sync_require "packages/core/dist/detect/adapters/.bundle-shasums.json" \
+              "(cd packages/core && npm run build:bundle-adapters)"
+_sync_require "packages/core/dist/cli.js"             "(cd packages/core && npm run build:cli)"
+_sync_require "packages/core/dist/hooks/session-start.js" \
+              "(cd packages/core && npm run build:hooks)"
+echo "── [ci-sync-check] mirror artifacts present — running the suite against a BUILT tree ──"
+
 npm test
 
 # Step 4: assertions.
@@ -58,8 +117,8 @@ npm test
 # removed (CR-46 / derive-from-filesystem). Was hardcoded `-ne 59`; silently
 # drifted to 60 when v0.2 added massu-rule.md and failed Sync Check undetected
 # until 2026-05-27.
-COUNT=$(ls "$MIRROR_DIR/.claude/commands/massu-"*.md 2>/dev/null | wc -l | tr -d ' ')
-EXPECTED=$(ls "$REPO_ROOT/.claude/commands/massu-"*.md 2>/dev/null | grep -cv '/massu-internal-')
+COUNT=$(find "$MIRROR_DIR/.claude/commands" -maxdepth 1 -name 'massu-*.md' 2>/dev/null | wc -l | tr -d ' ')
+EXPECTED=$(find "$REPO_ROOT/.claude/commands" -maxdepth 1 -name 'massu-*.md' 2>/dev/null | grep -cv '/massu-internal-')
 echo "Command count: $COUNT (expected $EXPECTED, derived from internal public commands)"
 if [ "$COUNT" -ne "$EXPECTED" ]; then
   echo "FAIL: Expected $EXPECTED public commands in mirror, got $COUNT"
@@ -126,7 +185,7 @@ if [ -f "$MIRROR_DIR/scripts/sync-public.sh" ]; then
 fi
 echo "PASS: No sync script"
 
-HOOK_COUNT=$(ls "$MIRROR_DIR/.claude/hooks/"*.js 2>/dev/null | wc -l | tr -d ' ')
+HOOK_COUNT=$(find "$MIRROR_DIR/.claude/hooks" -maxdepth 1 -name '*.js' 2>/dev/null | wc -l | tr -d ' ')
 echo "Hook count: $HOOK_COUNT"
 if [ "$HOOK_COUNT" -lt 10 ]; then
   echo "FAIL: Expected >= 10 hooks, got $HOOK_COUNT"

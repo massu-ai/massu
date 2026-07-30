@@ -27,6 +27,13 @@ import {
 // a timeout masquerading as a defect. Give them a realistic budget.
 vi.setConfig({ testTimeout: 60_000 });
 
+// G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): these two corpora are absent
+// in a public-repo clone. Resolved at MODULE scope so `it.skipIf` can adjudicate at
+// collection time and vitest reports SKIPPED — a state distinguishable from PASSED.
+// They used to be resolved inside the test bodies, which then `return`ed silently.
+const INCIDENT_LOG_PATH = resolve(__dirname, '../../../../.claude/incidents/INCIDENT-LOG.md');
+const PLANS_DIR = resolve(__dirname, '../../../../docs/plans');
+
 
 // P1-006: Knowledge Indexer Unit Tests
 
@@ -79,9 +86,10 @@ describe('parseVRTable', () => {
 });
 
 describe('parseIncidents', () => {
-  it('extracts incidents from INCIDENT-LOG.md if it exists', () => {
-    const incidentPath = resolve(__dirname, '../../../../.claude/incidents/INCIDENT-LOG.md');
-    if (!existsSync(incidentPath)) return; // Skip if file not present
+  // ADJUDICATED environment-conditional (G-1): the incident log is not present in a
+  // public-repo clone. SKIPPED there rather than silently passing.
+  it.skipIf(!existsSync(INCIDENT_LOG_PATH))('extracts incidents from INCIDENT-LOG.md', () => {
+    const incidentPath = INCIDENT_LOG_PATH;
 
     const content = readFileSync(incidentPath, 'utf-8');
     const incidents = parseIncidents(content);
@@ -288,12 +296,10 @@ describe('categorizeFile (plan/docs)', () => {
 });
 
 describe('indexAllKnowledge with plans/docs', () => {
-  it('indexes plan documents when plansDir exists', () => {
-    // Plans directory may not exist in all environments (e.g., public repo clone)
-    const plansDir = resolve(__dirname, '../../../../docs/plans');
-    if (!existsSync(plansDir)) {
-      return; // Skip — no plans directory in this environment
-    }
+  // ADJUDICATED environment-conditional (G-1): docs/plans is not present in a
+  // public-repo clone. SKIPPED there rather than silently passing.
+  it.skipIf(!existsSync(PLANS_DIR))('indexes plan documents when plansDir exists', () => {
+    const plansDir = PLANS_DIR;
 
     const db = createTestDb();
     try {

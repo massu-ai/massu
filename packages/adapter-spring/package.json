@@ -1,7 +1,7 @@
 {
   "name": "@massu/adapter-spring",
   "version": "1.1.0",
-  "description": "Massu first-party adapter for Spring (Java) — Tree-sitter AST detection of @RestController, @RequestMapping, @GetMapping/@PostMapping/etc. annotations in Spring Boot codebases",
+  "description": "Massu first-party adapter for Spring (Java) \u2014 Tree-sitter AST detection of @RestController, @RequestMapping, @GetMapping/@PostMapping/etc. annotations in Spring Boot codebases",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -13,7 +13,7 @@
   "scripts": {
     "build": "tsc -p .",
     "test": "vitest run",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && bash ../../scripts/npm-publish-guard.sh \"$PWD\""
   },
   "peerDependencies": {
     "@massu/core": ">=2.0.0",

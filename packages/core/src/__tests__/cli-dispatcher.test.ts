@@ -30,16 +30,17 @@ function runCli(args: string[]): { code: number | null; stdout: string; stderr: 
 
 describe('CLI dispatcher: config subcommand', () => {
   beforeAll(() => {
-    // Sanity: tests require a built CLI. If absent, we skip — the main build
-    // pipeline runs `build:cli` before `test`.
-    if (!existsSync(CLI)) {
-      // eslint-disable-next-line no-console
-      console.warn(`[cli-dispatcher.test] ${CLI} missing; build:cli not yet run`);
-    }
+    // FAIL CLOSED (G-1, plan-2026-07-26-anti-vacuity-9-unproven-gates). These tests
+    // require a built CLI. Every it() used to `return` on its absence, so the suite
+    // reported PASSED without dispatching a single subcommand.
+    expect(
+      existsSync(CLI),
+      `${CLI} missing — this suite cannot dispatch anything and must not report clean. ` +
+        `Run "npm run build:cli" (packages/core). Do NOT restore the per-test skip.`,
+    ).toBe(true);
   });
 
   it('config --help lists all 5 subcommands and their flags', () => {
-    if (!existsSync(CLI)) return;
     const { code, stdout } = runCli(['config', '--help']);
     expect(code).toBe(0);
     expect(stdout).toMatch(/refresh/);
@@ -54,28 +55,24 @@ describe('CLI dispatcher: config subcommand', () => {
   });
 
   it('config (no sub) prints help and exits 0', () => {
-    if (!existsSync(CLI)) return;
     const { code, stdout } = runCli(['config']);
     expect(code).toBe(0);
     expect(stdout).toMatch(/Subcommands/i);
   });
 
   it('unknown config subcommand exits non-zero with error message', () => {
-    if (!existsSync(CLI)) return;
     const { code, stderr } = runCli(['config', 'not-a-real-subcommand']);
     expect(code).not.toBe(0);
     expect(stderr).toMatch(/unknown config subcommand/);
   });
 
   it('top-level --help lists config command', () => {
-    if (!existsSync(CLI)) return;
     const { code, stdout } = runCli(['--help']);
     expect(code).toBe(0);
     expect(stdout).toMatch(/config <sub>/);
   });
 
   it('--version prints a version string', () => {
-    if (!existsSync(CLI)) return;
     const { code, stdout } = runCli(['--version']);
     expect(code).toBe(0);
     expect(stdout).toMatch(/massu v/);

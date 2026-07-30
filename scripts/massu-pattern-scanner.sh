@@ -891,7 +891,7 @@ CHECK26_VIOLATIONS=0
 # 26a: scripts/ci-*.sh policy. CI_ONLY_SCRIPTS_BASH MUST mirror
 # packages/core/src/__tests__/ci-prepush-parity.test.ts:CI_ONLY_SCRIPTS — the
 # drift-guard test asserts byte-equivalence of the two arrays.
-CI_ONLY_SCRIPTS_BASH="ci-fresh-install.sh ci-config-drift.sh ci-anti-vacuity.sh"
+CI_ONLY_SCRIPTS_BASH="ci-fresh-install.sh ci-config-drift.sh ci-anti-vacuity.sh ci-provision-public-mirror.sh"
 
 # Strip shell COMMENTS from pre-push-light.sh ONCE, into a variable (P3 hardening: a
 # commented-out reference `# TODO: run ci-foo.sh` must not satisfy the parity check; only a
@@ -938,9 +938,38 @@ fi
 # 26b: workflow YAML inline-shell-block scan. Exclusion list MUST mirror
 # WORKFLOW_FILE_EXCLUSIONS in ci-prepush-parity.test.ts.
 CI_INLINE_OFFENDERS=""
+# W-2 (plan-2026-07-26-anti-vacuity-9-unproven-gates): the scanned surface is workflows AND
+# composite actions. A composite action is a workflow surface that can carry a `run: |` block, so
+# leaving it unscanned is a hole in CR-50 — one this plan OPENED by moving the public-mirror
+# provisioning into .github/actions/, and must therefore close.
+#
+# RECURSION: `.github/actions/**/action.yml` does NOT work here. This scanner runs under
+# /bin/bash 3.2 on macOS, where `shopt -s globstar` is rejected ("invalid shell option name") and
+# `**` degrades to a single `*` — so the glob would match depth 1 only and a nested action would
+# escape silently. `find` is the portable recursive enumeration.
+CI_SURFACE_FILES=""
 for workflow in .github/workflows/*.yml; do
   [ -e "$workflow" ] || continue
+  CI_SURFACE_FILES="$CI_SURFACE_FILES $workflow"
+done
+if [ -d .github/actions ]; then
+  CI_SURFACE_FILES="$CI_SURFACE_FILES $(find .github/actions \( -name 'action.yml' -o -name 'action.yaml' \) | LC_ALL=C sort | tr '\n' ' ')"
+fi
+# M1 — prove it looked. "Scanned 0, found 0" is a LOUD ERROR, never a pass: an empty surface list
+# means the glob/find broke, and a broken Check 26 emits exactly what a clean one emits.
+CI_SURFACE_COUNT=$(printf '%s\n' $CI_SURFACE_FILES | grep -c . || true)
+if [ "$CI_SURFACE_COUNT" -eq 0 ]; then
+  echo "FAIL: Check 26b scanned ZERO workflow/action files — the enumeration is broken, not clean." >&2
+  exit 1
+fi
+for workflow in $CI_SURFACE_FILES; do
+  [ -e "$workflow" ] || continue
   base=$(basename "$workflow")
+  # A composite action's basename is always `action.yml`; label offenders by PATH so the message
+  # names the file the author must open.
+  case "$workflow" in
+    .github/actions/*) base="$workflow" ;;
+  esac
   case "$base" in
     ci.public.yml|apply-ruleset.yml|branch-protection-audit.yml|leak-guard.yml|leak-guard-retro.yml|leak-guard-scheduled.yml|leak-guard-source-of-truth.yml)
       continue ;;  # see WORKFLOW_FILE_EXCLUSIONS in ci-prepush-parity.test.ts for rationale per entry

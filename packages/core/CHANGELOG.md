@@ -10,6 +10,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.3.2] - 2026-07-24
+
+### Fixed
+
+- **`sync-public.sh` self-exempts its bulk `git rm -rf .` / `git clean -fd` from the machine
+  deletion circuit breaker.** The public-mirror sync wipes the mirror with `git rm -rf .` +
+  `git clean -fd` — hundreds of unlinks under `$HOME`, whose bulk-delete signature the breaker
+  SIGSTOPs — freezing the git child mid-sync on every run. Both bulk deletes now route through a
+  `cb_exempt_git` helper that registers each git child pid plus a start-time identity token in
+  `~/.claude/cb-exempt-pids.txt` for the duration of that one command, scoped to only the pids this
+  script adds, fail-open (the sync never depends on the breaker), with an `EXIT`/`INT`/`TERM`
+  cleanup trap that de-registers them even on interrupt. The start-time token pairs with the
+  breaker's identity-verifying exempt list so a reused pid cannot inherit a stale exemption.
+  Drift-guarded (`sync-public-cb-exempt-drift-guard.test.ts`, registered as a DEFEAT-proven G-6
+  anti-vacuity guard).
+
+### Changed
+
+- **Synced `packages/core/CHANGELOG.md` with the previously-missing `[2.3.1]` entry.** The 2.3.1
+  release added `[2.3.1]` to the root and website CHANGELOGs but omitted
+  `packages/core/CHANGELOG.md`, leaving the three copies out of sync. Parity restored.
+- **Trimmed `CLAUDE.md` back under its size budget**, relocating the removed detail into
+  `.claude/reference/patterns-quickref.md` so `.claude/CLAUDE.md` stays under its 55,000-character
+  cap.
+
+No runtime behaviour of `@massu/core` changes in this release; it is repo-tooling and documentation
+only. Published because CR-64 forbids commits sitting on top of a published, tagged release.
+
 ## [2.3.1] - 2026-07-23
 
 ### Fixed

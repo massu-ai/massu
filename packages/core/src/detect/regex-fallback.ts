@@ -28,6 +28,24 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { resolve, join, basename } from 'path';
 import type { DetectionResult } from './index.ts';
 
+/**
+ * Python introspection patterns, exported as SOURCE strings.
+ *
+ * These carry a ReDoS-safety claim (anchored, bounded windows, no nested
+ * quantifiers). A comment asserting that is not a mechanism, so the sources are
+ * exported and `codebase-introspector.test.ts` measures their SCALING against
+ * adversarial input directly — with no file I/O in the measurement, which is
+ * what makes the signal sensitive enough to mean anything.
+ *
+ * Sources rather than RegExp instances on purpose: a module-level `/g` regex
+ * carries `lastIndex` between calls, so a shared instance would be a state bug.
+ * Each call site constructs its own from these.
+ */
+export const PY_AUTH_DEP_PATTERN = String.raw`\bDepends\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)`;
+export const PY_DJANGO_AUTH_PATTERN = String.raw`^@\s*([a-z_][a-z0-9_]*(?:_required|_login))\b`;
+export const PY_API_PREFIX_PATTERN = String.raw`\bAPIRouter\s*\(\s*[^)]*?prefix\s*=\s*["']([^"']+)["']`;
+export const PY_TEST_ASYNC_PATTERN = String.raw`^(@pytest\.mark\.asyncio(?:\s*\([^)]*\))?)`;
+
 export const MAX_FILE_BYTES = 256 * 1024;
 export const MAX_SAMPLES_PER_ADAPTER = 3;
 export const MAX_DIR_DEPTH = 6;
@@ -101,14 +119,14 @@ export function introspectPython(
 
     // Auth dependency: `Depends(<name>)` — capture the call's argument.
     // ReDoS-safe: anchored, short window, no nested quantifiers.
-    const authRegex = /\bDepends\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)/gu;
+    const authRegex = new RegExp(PY_AUTH_DEP_PATTERN, 'gu');
     forEachMatch(authRegex, body, m => {
       const name = m[1];
       if (!authDeps.has(name)) authDeps.set(name, path);
     });
 
     // Django: `@login_required` or `@permission_required` decorators.
-    const djangoAuthRegex = /^@\s*([a-z_][a-z0-9_]*(?:_required|_login))\b/gmu;
+    const djangoAuthRegex = new RegExp(PY_DJANGO_AUTH_PATTERN, 'gmu');
     forEachMatch(djangoAuthRegex, body, m => {
       const name = m[1];
       if (!authDeps.has(name)) authDeps.set(name, path);
@@ -116,7 +134,7 @@ export function introspectPython(
 
     // API prefix base: `APIRouter(prefix="/api/...")` — capture just the BASE
     // (everything up to the second `/` from the start).
-    const prefixRegex = /\bAPIRouter\s*\(\s*[^)]*?prefix\s*=\s*["']([^"']+)["']/gu;
+    const prefixRegex = new RegExp(PY_API_PREFIX_PATTERN, 'gu');
     forEachMatch(prefixRegex, body, m => {
       const fullPrefix = m[1];
       const base = extractPrefixBase(fullPrefix);
@@ -124,7 +142,7 @@ export function introspectPython(
     });
 
     // Test async pattern: `@pytest.mark.asyncio` (with possible parens).
-    const asyncRegex = /^(@pytest\.mark\.asyncio(?:\s*\([^)]*\))?)/gmu;
+    const asyncRegex = new RegExp(PY_TEST_ASYNC_PATTERN, 'gmu');
     forEachMatch(asyncRegex, body, m => {
       const pat = m[1].trim();
       if (!testAsyncPatterns.has(pat)) testAsyncPatterns.set(pat, path);

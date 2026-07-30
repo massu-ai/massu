@@ -126,14 +126,17 @@ describe('rule-candidate-applier (extended destinations)', () => {
       expect(result.idempotent_noop).toBe(true);
     });
 
-    it('snapshot-set: drift-guard sidecar deleted on rollback (NEW file)', async () => {
+    it('snapshot-set: drift-guard sidecar deleted on rollback (NEW file)', async (ctx) => {
       const id = writeCandidate();
       // Pre-fill MEMORY.md as read-only to force a Step-3 failure.
       const memoryIndex = join(tmpHome, '.claude', 'projects', encodeMemoryDirName(tmpProjectRoot), 'memory', 'MEMORY.md');
       const { chmodSync, statSync } = require('fs');
       chmodSync(memoryIndex, 0o444);
       const writable = (statSync(memoryIndex).mode & 0o200) !== 0;
-      if (writable) { chmodSync(memoryIndex, 0o644); return; }
+      // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): chmod is a no-op when running as root, so the Step-3 failure this
+      // test needs cannot be forced. ctx.skip() reports SKIPPED; the old `return`
+      // reported PASSED for a rollback that was never exercised.
+      if (writable) { chmodSync(memoryIndex, 0o644); ctx.skip(); }
 
       try {
         const result = await applyRuleCandidate(db, {
@@ -237,14 +240,17 @@ describe('rule-candidate-applier (extended destinations)', () => {
       expect(result.error).toMatch(/escapes project root/);
     });
 
-    it('snapshot-set: NEW destination file deleted on rollback', async () => {
+    it('snapshot-set: NEW destination file deleted on rollback', async (ctx) => {
       // No pre-existing dest file → it will be NEW during Step 2.
       const id = writeCandidate();
       const memoryIndex = join(tmpHome, '.claude', 'projects', encodeMemoryDirName(tmpProjectRoot), 'memory', 'MEMORY.md');
       const { chmodSync, statSync } = require('fs');
       chmodSync(memoryIndex, 0o444);
       const writable = (statSync(memoryIndex).mode & 0o200) !== 0;
-      if (writable) { chmodSync(memoryIndex, 0o644); return; }
+      // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): chmod is a no-op when running as root, so the Step-3 failure this
+      // test needs cannot be forced. ctx.skip() reports SKIPPED; the old `return`
+      // reported PASSED for a rollback that was never exercised.
+      if (writable) { chmodSync(memoryIndex, 0o644); ctx.skip(); }
       try {
         mkdirSync(join(tmpProjectRoot, 'docs'), { recursive: true });
         const result = await applyRuleCandidate(db, {

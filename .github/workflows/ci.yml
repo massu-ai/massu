@@ -57,11 +57,16 @@ jobs:
           node-version: '22.16.0'
           cache: 'npm'
       - run: npm ci
-      - name: Build Adapters (required for Phase 9b workspace tests)
+      - name: Build (adapters + core dist — required by the fail-closed dist oracles)
         # After Plan 3c Phase 9b, packages/core/src/detect/adapters/*.ts re-exports
         # from @massu/adapter-{rails,phoenix,aspnet,spring,go-chi} workspace packages.
         # vitest needs adapter dist/ artifacts; npm ci does NOT run workspace builds.
-        run: npm run build:adapters
+        #
+        # G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): the dist oracles now FAIL
+        # CLOSED instead of `return`ing on a missing artifact, so the job that runs them
+        # must produce what they observe. Mirrors the internal ci.yml `test` job — the
+        # public mirror runs the same suite and would otherwise go red on every push.
+        run: npm run build
       - name: Test (Core)
         run: npm test
 

@@ -439,12 +439,34 @@ for plan_file in "${PLAN_FILES[@]}"; do
     # incident 2026-07-16): a large commit's --stat would SIGPIPE git when grep short-circuits, and
     # pipefail would then mis-classify a website-touching commit as NOT touching website/.
     sha_show_stat="$(git -C "$REPO_ROOT" show --stat "$sha" 2>/dev/null)"
-    if grep -qE "^\s+website/" <<<"$sha_show_stat"; then
+    # CR-48 is about the VERCEL deploy (`/massu-deploy` -> massu.ai). Not every path under
+    # website/ is served by Vercel: website/supabase/** are Supabase EDGE FUNCTIONS, shipped
+    # by `supabase functions deploy`, and a Vercel deploy neither publishes nor affects them.
+    # Requiring /massu-deploy for an edge-function-only commit asks the author to document a
+    # deploy that would have been a no-op — and a gate that cries wolf is one people learn to
+    # ignore. Verified 2026-07-27: e7d67f6 touches ONLY website/supabase/functions/**, and its
+    # plan documents the real Supabase redeploy with live HTTP 200/401 probes.
+    # Capture, then match with a here-string — never pipe a producer into `grep -q`. Under
+    # `set -o pipefail` the -q short-circuit SIGPIPEs the producer and the pipeline's status
+    # misreports (incident 2026-07-16); the repo's own grep-q-pipeline drift-guard caught this
+    # exact line when it was first written as a pipe.
+    website_lines="$(grep -E "^\s+website/" <<<"$sha_show_stat" || true)"
+    if grep -qvE "^\s+website/supabase/" <<<"$website_lines" && [ -n "$website_lines" ]; then
       touches_website=1
       break
     fi
   done
   [ "$touches_website" -eq 0 ] && continue
+
+  # A SUPERSEDED plan's status line cites the SHA of the plan that SUPERSEDED it, not a SHA
+  # it shipped itself. The deploy obligation belongs to the superseding plan, which carries
+  # its own row in this same scan. Attributing it here demands the same evidence twice and
+  # blames the wrong document. Verified 2026-07-27: 2026-02-17-website-audit.md is SUPERSEDED
+  # by 2026-05-11-1.7.0-cohesive-cleanup.md, whose body documents `massu-deploy.sh` (:230) —
+  # the record exists, in the plan that actually shipped those files.
+  if echo "$status_line" | grep -qE '^\s*SUPERSEDED\b|^\*\*Status\*\*:\s*SUPERSEDED\b|\bSUPERSEDED\b.*\bby\b'; then
+    continue
+  fi
   # Plan touches website/ in its SHIPPED commit. Body MUST document /massu-deploy.
   if ! grep -qE "/massu-deploy|massu-deploy\.sh" "$plan_file"; then
     if [ "$JSON_MODE" != "1" ]; then

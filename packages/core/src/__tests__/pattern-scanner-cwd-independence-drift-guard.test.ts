@@ -28,6 +28,13 @@ const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '../../../..');
 const SCANNER = resolve(REPO_ROOT, 'scripts/massu-pattern-scanner.sh');
 
+// G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates) - ADJUDICATED: `scripts/` is not
+// in PUBLIC_DIRS, so the scanner is absent in the public mirror; and the behavioral
+// check is opt-in because running the full scanner three times costs ~70s. Both are
+// gated at collection time -> SKIPPED, never a silent PASS.
+const HAS_SCANNER = existsSync(SCANNER);
+const RUN_SLOW = Boolean(process.env.MASSU_SLOW_DRIFT_GUARDS);
+
 function runScanner(cwd: string): number {
   try {
     execFileSync('bash', [SCANNER], { cwd, stdio: 'pipe' });
@@ -39,8 +46,7 @@ function runScanner(cwd: string): number {
 }
 
 describe('pattern scanner cwd-independence (CR-62 drift-guard)', () => {
-  it('scanner pins its working dir to REPO_ROOT before any check runs', () => {
-    if (!existsSync(SCANNER)) return;
+  it.skipIf(!HAS_SCANNER)('scanner pins its working dir to REPO_ROOT before any check runs', () => {
     const src = readFileSync(SCANNER, 'utf-8');
     const pinIdx = src.search(/^cd "\$REPO_ROOT"/m);
     const firstCheckIdx = src.search(/echo "Check 1[:\b]/);
@@ -55,8 +61,7 @@ describe('pattern scanner cwd-independence (CR-62 drift-guard)', () => {
   // reliable regression lock — with `cd "$REPO_ROOT"` present, every relative path
   // resolves from the repo root by construction. Run the behavioral check explicitly
   // (release verification / CI slow lane) with MASSU_SLOW_DRIFT_GUARDS=1.
-  it('behavioral: same verdict from packages/core (npm prepublish cwd) as from root', () => {
-    if (!existsSync(SCANNER) || !process.env.MASSU_SLOW_DRIFT_GUARDS) return;
+  it.skipIf(!HAS_SCANNER || !RUN_SLOW)('behavioral: same verdict from packages/core (npm prepublish cwd) as from root', () => {
     const fromRoot = runScanner(REPO_ROOT);
     const fromCore = runScanner(resolve(REPO_ROOT, 'packages/core'));
     const fromTmp = runScanner(tmpdir());

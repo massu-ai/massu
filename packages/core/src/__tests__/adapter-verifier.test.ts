@@ -21,7 +21,7 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import nacl from 'tweetnacl';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { verifyManifest } from '../security/adapter-verifier.js';
 import {
@@ -269,26 +269,20 @@ describe('verifyManifest — schema version (step 9)', () => {
   });
 });
 
+// G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): `registry-site/` is absent on
+// a fresh checkout. Resolved at MODULE scope so `it.skipIf` adjudicates at collection
+// time and vitest reports SKIPPED. The old try/catch `return` also swallowed a
+// MALFORMED envelope — an absent fixture and a broken signature payload rendered the
+// same. Parsing outside the try means a corrupt envelope now FAILS, as it must.
+const LIVE_ENVELOPE_PATH = resolve(__dirname, '../../../../registry-site/adapters/manifest.json');
+const HAS_LIVE_ENVELOPE = existsSync(LIVE_ENVELOPE_PATH);
+
 describe('verifyManifest — live registry envelope after canonicalization fix', () => {
-  it('verifies the live envelope at registry-site/adapters/manifest.json', () => {
+  it.skipIf(!HAS_LIVE_ENVELOPE)('verifies the live envelope at registry-site/adapters/manifest.json', () => {
     // The publisher (registry-publish.sh post-1b724d3) writes the same
     // envelope shape that's currently deployed. Read the locally-saved
     // copy and verify it against the bundled pubkey.
-    const path = resolve(
-      __dirname,
-      '../../../../registry-site/adapters/manifest.json',
-    );
-    let envelope: unknown;
-    try {
-      envelope = JSON.parse(readFileSync(path, 'utf-8'));
-    } catch {
-      // If the registry-site copy isn't accessible from this test run
-      // (e.g. CI on a fresh checkout that doesn't have registry-site/),
-      // skip this test rather than fail. The fixture-based tests above
-      // already cover the verifier's correctness.
-      console.warn('skipping live-envelope test: registry-site/ not present');
-      return;
-    }
+    const envelope: unknown = JSON.parse(readFileSync(LIVE_ENVELOPE_PATH, 'utf-8'));
     const result = verifyManifest({ envelope, publicKey: REGISTRY_PUBKEY_ED25519 });
     expect(result.ok).toBe(true);
     if (result.ok) {

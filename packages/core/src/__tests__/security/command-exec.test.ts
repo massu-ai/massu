@@ -27,7 +27,7 @@ import {
   _startRssWatchdog,
   LSP_WATCHDOG_OVERBUDGET_SAMPLES,
 } from '../../lsp/client.ts';
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 import { spawn, type ChildProcess } from 'child_process';
@@ -37,19 +37,42 @@ import { spawn, type ChildProcess } from 'child_process';
 // ============================================================
 
 describe('Cmd exec — argv array form prevents shell injection (F-013)', () => {
-  it('shell metachars in argv element are treated as a literal — never expanded', () => {
+  it('shell metachars in argv element are treated as a literal — never expanded', async () => {
     // The argv array form means `;`, `&&`, backticks, `$()` are kernel-
     // level argv strings, not shell tokens. The kernel has no shell. The
     // factory MUST NOT reject these (they may be legitimate filenames),
     // but it MUST also not invoke a shell.
+    //
+    // ── WHY THE PAYLOAD IS A `touch`, NOT AN `rm` ──────────────────────
+    // This test previously passed an argv of echo, then a `;`, then a recursive
+    // force-delete of `~`, and asserted ONLY that validation did not throw. It
+    // never checked whether that delete ran — the safety property lived in a
+    // comment.  payload-safety: allow — narrative prose describing the historical
+    // defect, deliberately written WITHOUT the literal tokens adjacent so the
+    // scanner cannot mistake this explanation for an executable payload.
+    //
+    // That is load-bearing here, because the anti-vacuity sweep
+    // (scripts/lib/gate-registry.json) proves this guard can fail by
+    // PLANTING `shell: true` into lsp/client.ts and re-running this file.
+    // Under that plant Node concatenates argv into `/bin/sh -c`, the `;`
+    // becomes a command separator, and the payload EXECUTES. With an `rm
+    // -rf ~` payload the sweep deleted the CI runner's home directory —
+    // observed twice (runs 30139986763, 30187340631), which is what took
+    // out the workspace mid-sweep.
+    //
+    // So the payload is now an OBSERVABLE, HARMLESS side effect and the
+    // absence of that side effect is ASSERTED. This is strictly stronger
+    // than the old test (it proves non-execution instead of asserting it
+    // in prose) and it is inert under any plant.
+    const probeDir = mkdtempSync(join(tmpdir(), 'massu-metachar-probe-'));
+    const marker = join(probeDir, 'SHELL-RAN');
     let validationError: string | null = null;
     try {
       const client = LSPClient.fromCommand({
         language: 'python',
-        argv: ['/usr/bin/echo', ';', 'rm', '-rf', '~'],
-        // We intentionally use /usr/bin/echo (real binary) so spawn
-        // succeeds. The point is: rm -rf is NOT executed because there
-        // is no shell.
+        // /usr/bin/echo is a real binary so spawn succeeds. `touch <marker>`
+        // is only reachable if a shell interprets the `;`.
+        argv: ['/usr/bin/echo', ';', 'touch', marker],
       });
       void client.shutdown();
     } catch (e) {
@@ -57,6 +80,17 @@ describe('Cmd exec — argv array form prevents shell injection (F-013)', () => 
     }
     // Validation should NOT fire on metachars in non-argv[0] positions.
     expect(validationError).toBeNull();
+
+    // Bounded wait: with `shell: false` the marker can never appear, so this
+    // only bounds how long we give a hypothetical shell to act before
+    // concluding none ran. Poll rather than sleep so the pass is fast.
+    for (let i = 0; i < 40 && !existsSync(marker); i++) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+
+    // THE ASSERTION THAT MATTERS: no shell interpreted the `;`.
+    expect(existsSync(marker)).toBe(false);
+    rmSync(probeDir, { recursive: true, force: true });
   });
 
   it('source code never passes shell:true to spawn', () => {
@@ -259,7 +293,7 @@ describe('Cmd exec — SUID binary refusal (F-014)', () => {
     expect((det!.mode & 0o4000) !== 0).toBe(true);
   });
 
-  it('_detectSetuid returns hasSetuid=true for a SGID-bit file', () => {
+  it('_detectSetuid returns hasSetuid=true for a SGID-bit file', (ctx) => {
     const path = join(dir, 'fake-sgid');
     writeFileSync(path, '#!/bin/sh\necho ok\n');
     chmodSync(path, 0o2755); // -rwxr-sr-x
@@ -268,7 +302,9 @@ describe('Cmd exec — SUID binary refusal (F-014)', () => {
     // bit actually stuck so this asserts real detection where the environment
     // can set SGID, and skips (rather than false-fails) where it cannot.
     if ((statSync(path).mode & 0o2000) === 0) {
-      return; // environment stripped the SGID bit — cannot validly exercise detection
+      // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): only knowable at run time (BSD/macOS strips SGID here, Linux CI keeps
+      // it), so this is ctx.skip() — reported SKIPPED — not a `return` reported PASSED.
+      ctx.skip();
     }
     const det = _detectSetuid(path);
     expect(det).not.toBeNull();

@@ -127,7 +127,7 @@ describe('rule-candidate-applier', () => {
   });
 
   describe('Scenario 2: rollback on Step-3 failure (MEMORY.md write blocked)', () => {
-    it('restores all snapshotted files and leaves candidate in place', async () => {
+    it('restores all snapshotted files and leaves candidate in place', async (ctx) => {
       const id = writeCandidate();
       const memDir = resolveMemoryDir(tmpProjectRoot, tmpHome);
       const memoryIndexPath = join(memDir, 'MEMORY.md');
@@ -139,10 +139,11 @@ describe('rule-candidate-applier', () => {
       const stat = statSync(memoryIndexPath);
       const writableByOwner = (stat.mode & 0o200) !== 0;
       if (writableByOwner) {
-        // chmod was a no-op on this platform; skip the test honestly rather
-        // than passing a false positive.
+        // chmod was a no-op on this platform (e.g. running as root): the Step-3
+        // failure this test needs cannot be forced. G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): skip HONESTLY — ctx.skip()
+        // reports SKIPPED, where the old `return` reported PASSED.
         chmodSync(memoryIndexPath, 0o644);
-        return;
+        ctx.skip();
       }
 
       try {

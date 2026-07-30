@@ -43,6 +43,24 @@ fi
 
 OVERALL_FAILED=0
 
+# ── WHY a failure happened, not just THAT one did ────────────────────────────────────────
+# This gate had SIX distinct failure paths and ONE summary line for all of them:
+# "FAIL: at least one package below its coverage floor", with the remedy "raise coverage with
+# tests". Only one of the six is actually below-floor. On 2026-07-29 the real cause was a
+# FAILING TEST — the suite aborted, so coverage-summary.json was never written and NO
+# percentage was ever compared — and the summary sent the reader to write tests. The
+# per-package line said "coverage-summary.json not generated"; pre-push prints only the
+# summary, so that is the line that was acted on.
+#
+# A gate that reports a cause it did not determine is worse than one that reports nothing:
+# it manufactures a confident wrong remedy. Each failure site now DECLARES its kind, and the
+# summary can only print kinds that were declared.
+FAIL_KINDS=""
+_note_kind() {   # $1 = reason code; set semantics, first-occurrence order preserved
+  case " $FAIL_KINDS " in *" $1 "*) return 0 ;; esac
+  FAIL_KINDS="${FAIL_KINDS}${FAIL_KINDS:+ }$1"
+}
+
 # Args: <package-key-in-floors> <package-dir-relative-to-repo-root>
 check_package() {
   local KEY="$1"
@@ -57,6 +75,7 @@ check_package() {
   FLOOR=$(node -e "const f=require('$FLOORS_JSON'); const v=f['$KEY']; if(typeof v!=='number'){process.exit(2)} console.log(v)" 2>/dev/null)
   if [ -z "$FLOOR" ]; then
     fail "$KEY: no numeric floor in coverage-floors.json"
+    _note_kind floor-config
     OVERALL_FAILED=1
     echo ""
     return
@@ -75,6 +94,7 @@ check_package() {
   if [ ! -f "$SUMMARY" ]; then
     fail "$KEY: coverage-summary.json not generated ($SUMMARY)"
     tail -20 "$LOG" 2>/dev/null || true
+    _note_kind unmeasured
     OVERALL_FAILED=1
     echo ""
     return
@@ -88,6 +108,7 @@ check_package() {
 
   if [ -z "$PCT" ]; then
     fail "$KEY: could not parse .total.lines.pct from $SUMMARY"
+    _note_kind unmeasured
     OVERALL_FAILED=1
     echo ""
     return
@@ -99,6 +120,7 @@ check_package() {
   # data into `node -e`). FLOOR is already typeof-number-validated above.
   if ! [[ "$PCT" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
     fail "$KEY: non-numeric coverage pct '$PCT' in $SUMMARY"
+    _note_kind unmeasured
     OVERALL_FAILED=1
     echo ""
     return
@@ -115,6 +137,7 @@ check_package() {
     pass "$KEY: ${PCT}% line coverage (${COVERED}/${TOTAL}) >= floor ${FLOOR}%"
   else
     fail "$KEY: ${PCT}% line coverage (${COVERED}/${TOTAL}) < floor ${FLOOR}%"
+    _note_kind below-floor
     OVERALL_FAILED=1
   fi
   echo ""
@@ -157,6 +180,7 @@ if [ -f "$WEB_SUMMARY" ]; then
     fail "website/src/lib: modules absent from coverage-summary (unloadable → silently dropped from the denominator):"
     echo "$MISSING" | while IFS= read -r m; do echo "    - $m"; done
     echo "    REMEDY: make the module loadable under vitest (e.g. a resolve.alias for an export-less ESM dep) so it is instrumented + counted."
+    _note_kind denominator-incomplete
     OVERALL_FAILED=1
   else
     pass "website/src/lib: all source modules present in coverage-summary (none silently dropped)"
@@ -171,7 +195,39 @@ if [ "$OVERALL_FAILED" -eq 0 ]; then
   echo -e "  ${GREEN}PASS: all packages >= their coverage-floors.json floor${NC}"
   exit 0
 else
-  echo -e "  ${RED}FAIL: at least one package below its coverage floor${NC}"
-  echo -e "  ${YELLOW}Floors: $FLOORS_JSON (monotonic — raise tests, not lower the floor)${NC}"
+  # A failure whose KIND nobody declared cannot be summarised — and must not be summarised
+  # generically, because a generic summary is exactly how "the suite failed" was reported as
+  # "below the coverage floor". If a new failure site is added without _note_kind, say so
+  # LOUDLY rather than falling back to a plausible sentence.
+  if [ -z "$FAIL_KINDS" ]; then
+    echo -e "  ${RED}FAIL: the coverage gate failed but NO failure site declared its kind.${NC}"
+    echo -e "  ${YELLOW}This is a defect in this script, not in your coverage: a fail site is${NC}"
+    echo -e "  ${YELLOW}missing its _note_kind call, so the reason cannot be reported. Read the${NC}"
+    echo -e "  ${YELLOW}per-package FAIL lines above for the real cause.${NC}"
+    exit 1
+  fi
+
+  echo -e "  ${RED}FAIL: coverage gate failed — reason(s): ${FAIL_KINDS}${NC}"
+  case " $FAIL_KINDS " in *" unmeasured "*)
+    echo -e "  ${YELLOW}unmeasured${NC}: coverage was NOT produced, so NO percentage was ever compared"
+    echo -e "    against any floor. This is almost always a FAILING TEST (the suite aborted"
+    echo -e "    before writing coverage-summary.json) — adding tests cannot fix a run that"
+    echo -e "    never completed."
+    echo -e "    REMEDY: fix the suite first. The per-package FAIL line above names the file,"
+    echo -e "    and its full log is at /tmp/massu-coverage-<key>.log." ;;
+  esac
+  case " $FAIL_KINDS " in *" below-floor "*)
+    echo -e "  ${YELLOW}below-floor${NC}: a package was measured and came in under its floor."
+    echo -e "    REMEDY: raise coverage with tests. Floors: $FLOORS_JSON (monotonic — raise"
+    echo -e "    tests, never lower the floor)." ;;
+  esac
+  case " $FAIL_KINDS " in *" denominator-incomplete "*)
+    echo -e "  ${YELLOW}denominator-incomplete${NC}: a module was silently dropped from the"
+    echo -e "    denominator, so the reported % is higher than the truth. See the REMEDY above." ;;
+  esac
+  case " $FAIL_KINDS " in *" floor-config "*)
+    echo -e "  ${YELLOW}floor-config${NC}: a package has no numeric floor in coverage-floors.json."
+    echo -e "    REMEDY: add the numeric floor for the named key — nothing was measured for it." ;;
+  esac
   exit 1
 fi

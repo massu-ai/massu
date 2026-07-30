@@ -70,10 +70,28 @@ for sha in $COMMITS; do
   # Only conventional `fix` commits. feat/docs/chore/refactor are not bug fixes.
   [[ "$SUBJECT" =~ ^fix(\(.*\))?!?: ]] || continue
 
-  # Did it touch real (non-test) product source?
+  # Did it touch real (non-test) code?
+  #
+  # SCOPE — widened 2026-07-24 to include the ENFORCEMENT LAYER.
+  # This regex used to be product source only:
+  #     ^(packages/[^/]+/src/|website/src/)
+  # On 2026-07-24 eight real defects were found and fixed — a pre-push gate whose
+  # predicate could never be true, a sync script that exited 1 after succeeding, an
+  # installer that wired the PUBLIC leak guard into the private repo, a scanner that
+  # reported CLEAN when git failed — and this gate printed PASS on all six pushes.
+  # Not because coverage existed: 0 of the 33 changed files matched the regex,
+  # because every one of them lived in scripts/.
+  #
+  # A rule whose text is "a bug the MACHINE finds must produce the same artifacts as
+  # a bug the HUMAN reports" cannot exclude the machinery from being code. The gate
+  # layer is where gate bugs are, and gate bugs are the ones that make every OTHER
+  # gate untrustworthy — so they are the LAST thing that should be exempt.
+  #
+  # Incident: docs/incidents/2026-07-24-incident-pipeline-blind-to-the-gate-layer.md
+  # Drift-guard: packages/core/src/__tests__/incident-coverage-scope.test.ts
   SRC_TOUCHED="$(git show --name-only --format= "$sha" \
-    | grep -E '^(packages/[^/]+/src/|website/src/)' \
-    | grep -vE '(__tests__/|\.test\.|\.spec\.)' || true)"
+    | grep -E '^(packages/[^/]+/src/|website/src/|scripts/|\.claude/hooks/)' \
+    | grep -vE '(__tests__/|\.test\.|\.spec\.|^scripts/tests/)' || true)"
   [[ -n "$SRC_TOUCHED" ]] || continue
 
   if [[ -z "$INCIDENT_DOCS" ]]; then

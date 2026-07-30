@@ -147,14 +147,16 @@ describe.skipIf(!ENABLED)('init end-to-end against the BUILT tarball', () => {
     expect(existsSync(cliPath), `dist/cli.js missing at ${cliPath}`).toBe(true);
   });
 
-  it('tarball: every CORE_BUNDLED_IDS entry has templates/<id>/massu.config.yaml', () => {
+  it('tarball: every CORE_BUNDLED_IDS entry has templates/<id>/massu.config.yaml', (ctx) => {
     // Read CORE_BUNDLED_IDS from the installed tarball's source (kept in
     // src/ per the package.json files[] glob).
     const indexSrcPath = join(
       SHARED_INSTALL_DIR!,
       'node_modules/@massu/core/src/detect/adapters/index.ts',
     );
-    if (!existsSync(indexSrcPath)) return; // src not shipped in this build (acceptable)
+    // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): ADJUDICATED environment-conditional — whether src/ ships is a property of
+    // the tarball built in beforeAll, so it is only knowable at run time. SKIPPED.
+    if (!existsSync(indexSrcPath)) ctx.skip();
     const src = readFileSync(indexSrcPath, 'utf-8');
     const setMatch = /CORE_BUNDLED_IDS[^=]*=\s*new Set\(\[([\s\S]*?)\]\)/.exec(src);
     expect(setMatch, 'CORE_BUNDLED_IDS regex must match in shipped src').not.toBeNull();
@@ -173,7 +175,7 @@ describe.skipIf(!ENABLED)('init end-to-end against the BUILT tarball', () => {
     }
   });
 
-  it('tarball: every workspace-canonical CORE_BUNDLED_IDS entry has dist/detect/adapters/<id>.js (P-B-007)', () => {
+  it('tarball: every workspace-canonical CORE_BUNDLED_IDS entry has dist/detect/adapters/<id>.js (P-B-007)', (ctx) => {
     // Plan 3c Phase 9b P-B-007: extension of the templates check above. After
     // Phase 9b, the 5 framework adapters (rails/phoenix/aspnet/spring/go-chi)
     // are workspace-canonical and bundled by `bundle-adapters.ts` into
@@ -183,10 +185,13 @@ describe.skipIf(!ENABLED)('init end-to-end against the BUILT tarball', () => {
       SHARED_INSTALL_DIR!,
       'node_modules/@massu/core/src/detect/adapters/index.ts',
     );
-    if (!existsSync(indexSrcPath)) return; // src not shipped (acceptable)
+    // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): see above — run-time property of the built tarball, so SKIPPED.
+    if (!existsSync(indexSrcPath)) ctx.skip();
     const src = readFileSync(indexSrcPath, 'utf-8');
     const setMatch = /CORE_BUNDLED_IDS[^=]*=\s*new Set\(\[([\s\S]*?)\]\)/.exec(src);
-    if (!setMatch) return;
+    // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): a shipped src/ whose CORE_BUNDLED_IDS cannot be parsed is a REAL defect,
+    // not an environment. Assert rather than fall silent.
+    expect(setMatch, 'CORE_BUNDLED_IDS regex must match in shipped src').not.toBeNull();
     const ids = (setMatch![1].match(/'([^']+)'/g) ?? []).map((s) => s.slice(1, -1));
     // Workspace-canonical ids = those with packages/adapter-<id>/ in the
     // monorepo. Detected by checking the re-export shim source for the

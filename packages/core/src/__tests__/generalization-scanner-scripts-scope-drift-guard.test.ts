@@ -36,6 +36,14 @@ const SCANNER = resolve(REPO_ROOT, 'scripts/massu-generalization-scanner.sh');
 const GUARD = resolve(REPO_ROOT, 'scripts/lib/home-path-guard.sh');
 const SYNC = resolve(REPO_ROOT, 'scripts/sync-public.sh');
 
+// G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates) - ADJUDICATED
+// environment-conditional: `scripts/` is not in PUBLIC_DIRS, so neither the guard nor
+// sync-public.sh exists in the public mirror. Gated at collection time -> vitest
+// reports SKIPPED. These three used to `return`, reporting PASSED in the one tree
+// where the guard they assert about is absent.
+const HAS_SYNC = existsSync(SYNC);
+const HAS_GUARD = existsSync(GUARD);
+
 /** Extract Check 2's `for dir in ...; do` scan-dir list from the scanner source. */
 function check2ScanDirs(src: string): string[] {
   // Anchor on the Check 2 echo, then find the next `for dir in ... ; do`.
@@ -82,8 +90,7 @@ describe('generalization scanner scripts/ scope (CR-62 drift-guard)', () => {
     expect(bad, `guard must not embed concrete usernames: ${bad.join(', ')}`).toHaveLength(0);
   });
 
-  it('sync-public.sh sources and invokes the guard before committing (internal repo)', () => {
-    if (!existsSync(SYNC)) return; // sync-public.sh is present only in the private repo; skip in the public mirror
+  it.skipIf(!HAS_SYNC)('sync-public.sh sources and invokes the guard before committing (internal repo)', () => {
     const s = readFileSync(SYNC, 'utf-8');
     expect(s).toMatch(/home-path-guard\.sh/);
     expect(s).toMatch(/home_path_guard\s+"\$PUBLIC_REPO"/);
@@ -94,8 +101,7 @@ describe('generalization scanner scripts/ scope (CR-62 drift-guard)', () => {
     expect(guardIdx).toBeGreaterThan(addIdx);
   });
 
-  it('guard behaviorally refuses a real home path but passes placeholders', () => {
-    if (!existsSync(GUARD)) return;
+  it.skipIf(!HAS_GUARD)('guard behaviorally refuses a real home path but passes placeholders', () => {
     const dir = mkdtempSync(resolve(tmpdir(), 'hpg-drift-'));
     try {
       const git = (args: string[]) =>
@@ -128,12 +134,11 @@ describe('generalization scanner scripts/ scope (CR-62 drift-guard)', () => {
     }
   });
 
-  it('guard refuses when SOURCED under a hostile IFS (sync-public.sh call path)', () => {
+  it.skipIf(!HAS_GUARD)('guard refuses when SOURCED under a hostile IFS (sync-public.sh call path)', () => {
     // Regression lock: sync-public.sh SOURCES the guard. If the placeholder
     // alternation were built with unquoted word-splitting, a non-default IFS in
     // the sourcing shell would collapse it to one literal and every real home
     // path would pass — a vacuous guard that is green in standalone tests.
-    if (!existsSync(GUARD)) return;
     const dir = mkdtempSync(resolve(tmpdir(), 'hpg-ifs-'));
     try {
       const git = (args: string[]) =>

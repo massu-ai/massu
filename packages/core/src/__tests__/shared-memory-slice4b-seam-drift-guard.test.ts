@@ -32,24 +32,25 @@ describe('Slice 5 S-1 — a cross-repo row is structurally unrenderable to disk'
       return /atomicWriteFileSync\s*\(/.test(src) && /RenderCandidate|renderMemoryFiles|composeFile/.test(src);
     });
 
+    // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): both branches assert — a genuine two-branch test, not a skip. The
+    // early `return` read exactly like the silent-skip class; if/else does not.
     if (writers.length === 0) {
       // BRANCH B: no memory-file writer at all ⇒ nothing can render a foreign row.
       // Still an assertion (non-vacuous): the seam holds by absence.
       expect(writers).toEqual([]);
-      return;
+    } else {
+      // BRANCH A: a writer exists ⇒ EVERY writer must gate its write behind isLocalOrigin,
+      // and the gate must DOMINATE the write in source order.
+      expect(writers.map((f) => f.replace(SRC + '/', ''))).toEqual(['memory-renderer.ts']);
+      const src = readFileSync(RENDERER, 'utf-8');
+      expect(src).toMatch(/import\s*\{[^}]*isLocalOrigin[^}]*\}\s*from\s*'\.\/memory-origin\.ts'/);
+      const gateAt = src.indexOf('!isLocalOrigin(');
+      const writeAt = src.indexOf('atomicWriteFileSync(');
+      expect(gateAt, 'the isLocalOrigin gate must exist').toBeGreaterThan(-1);
+      expect(writeAt, 'the atomic write must exist').toBeGreaterThan(-1);
+      expect(gateAt, 'the isLocalOrigin gate must dominate the write (appear before it)').toBeLessThan(writeAt);
+      // The gate refuses and CONTINUES (never falls through to the write).
+      expect(src).toMatch(/if\s*\(\s*!isLocalOrigin\([^)]*\)\s*\)\s*\{[\s\S]{0,400}?continue;/);
     }
-
-    // BRANCH A: a writer exists ⇒ EVERY writer must gate its write behind isLocalOrigin,
-    // and the gate must DOMINATE the write in source order.
-    expect(writers.map((f) => f.replace(SRC + '/', ''))).toEqual(['memory-renderer.ts']);
-    const src = readFileSync(RENDERER, 'utf-8');
-    expect(src).toMatch(/import\s*\{[^}]*isLocalOrigin[^}]*\}\s*from\s*'\.\/memory-origin\.ts'/);
-    const gateAt = src.indexOf('!isLocalOrigin(');
-    const writeAt = src.indexOf('atomicWriteFileSync(');
-    expect(gateAt, 'the isLocalOrigin gate must exist').toBeGreaterThan(-1);
-    expect(writeAt, 'the atomic write must exist').toBeGreaterThan(-1);
-    expect(gateAt, 'the isLocalOrigin gate must dominate the write (appear before it)').toBeLessThan(writeAt);
-    // The gate refuses and CONTINUES (never falls through to the write).
-    expect(src).toMatch(/if\s*\(\s*!isLocalOrigin\([^)]*\)\s*\)\s*\{[\s\S]{0,400}?continue;/);
   });
 });

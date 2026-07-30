@@ -35,6 +35,16 @@ import {
 } from '../security/registry-pubkey.generated.js';
 import type { Envelope } from '../security/manifest-schema.js';
 
+// G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): `registry-site/` is not
+// checked out in every environment. Resolved at MODULE scope so `it.skipIf` can
+// adjudicate at collection time and vitest reports SKIPPED — distinguishable from
+// PASSED. Each of the seven tests below used to wrap the read in try/catch and
+// `return` from the catch, which ALSO swallowed a corrupt or unreadable manifest:
+// a real defect and an absent fixture rendered identically. Reading it outside the
+// try means a malformed manifest now FAILS, which is what it should always have done.
+const LIVE_MANIFEST_PATH = resolve(__dirname, '../../../../registry-site/adapters/manifest.json');
+const HAS_LIVE_MANIFEST = existsSync(LIVE_MANIFEST_PATH);
+
 let workdir: string;
 let paths: CachePaths;
 
@@ -160,41 +170,22 @@ describe('loadCachedManifest', () => {
 });
 
 describe('cacheManifest + lock + file mode (gap-37 + gap-59)', () => {
-  it('writes the cache file with mode 0o600', () => {
+  it.skipIf(!HAS_LIVE_MANIFEST)('writes the cache file with mode 0o600', () => {
     // Use the live deployed envelope so verifier round-trips correctly.
-    const livePath = resolve(__dirname, '../../../../registry-site/adapters/manifest.json');
-    let envelope: Envelope;
-    try {
-      envelope = JSON.parse(readFileSync(livePath, 'utf-8')) as Envelope;
-    } catch {
-      console.warn('skipping cache-write test: registry-site/ not present');
-      return;
-    }
+    const envelope = JSON.parse(readFileSync(LIVE_MANIFEST_PATH, 'utf-8')) as Envelope;
     cacheManifest(envelope, paths);
     expect(existsSync(paths.cachePath)).toBe(true);
     expect(getCacheFileMode(paths)).toBe(0o600);
   });
 
-  it('cleans up lock pidfile on success', () => {
-    const livePath = resolve(__dirname, '../../../../registry-site/adapters/manifest.json');
-    let envelope: Envelope;
-    try {
-      envelope = JSON.parse(readFileSync(livePath, 'utf-8')) as Envelope;
-    } catch {
-      return;
-    }
+  it.skipIf(!HAS_LIVE_MANIFEST)('cleans up lock pidfile on success', () => {
+    const envelope = JSON.parse(readFileSync(LIVE_MANIFEST_PATH, 'utf-8')) as Envelope;
     cacheManifest(envelope, paths);
     expect(existsSync(`${paths.lockPath}.pid`)).toBe(false);
   });
 
-  it('subsequent cacheManifest calls succeed (lock released)', () => {
-    const livePath = resolve(__dirname, '../../../../registry-site/adapters/manifest.json');
-    let envelope: Envelope;
-    try {
-      envelope = JSON.parse(readFileSync(livePath, 'utf-8')) as Envelope;
-    } catch {
-      return;
-    }
+  it.skipIf(!HAS_LIVE_MANIFEST)('subsequent cacheManifest calls succeed (lock released)', () => {
+    const envelope = JSON.parse(readFileSync(LIVE_MANIFEST_PATH, 'utf-8')) as Envelope;
     cacheManifest(envelope, paths);
     cacheManifest(envelope, paths); // would throw if lock not released
     expect(getCacheFileMode(paths)).toBe(0o600);
@@ -202,14 +193,8 @@ describe('cacheManifest + lock + file mode (gap-37 + gap-59)', () => {
 });
 
 describe('refreshManifest with mocked fetch', () => {
-  it('returns refreshed when fetch + verify succeed', async () => {
-    const livePath = resolve(__dirname, '../../../../registry-site/adapters/manifest.json');
-    let liveBody: string;
-    try {
-      liveBody = readFileSync(livePath, 'utf-8');
-    } catch {
-      return;
-    }
+  it.skipIf(!HAS_LIVE_MANIFEST)('returns refreshed when fetch + verify succeed', async () => {
+    const liveBody = readFileSync(LIVE_MANIFEST_PATH, 'utf-8');
     const fakeFetch = async () => ({ status: 200, body: liveBody });
     const result = await refreshManifest(paths, fakeFetch as never);
     expect(result.kind).toBe('refreshed');
@@ -258,14 +243,8 @@ describe('refreshManifest with mocked fetch', () => {
 });
 
 describe('getManifest high-level orchestration', () => {
-  it('returns ok cache-fresh when cache is fresh', async () => {
-    const livePath = resolve(__dirname, '../../../../registry-site/adapters/manifest.json');
-    let envelope: Envelope;
-    try {
-      envelope = JSON.parse(readFileSync(livePath, 'utf-8')) as Envelope;
-    } catch {
-      return;
-    }
+  it.skipIf(!HAS_LIVE_MANIFEST)('returns ok cache-fresh when cache is fresh', async () => {
+    const envelope = JSON.parse(readFileSync(LIVE_MANIFEST_PATH, 'utf-8')) as Envelope;
     cacheManifest(envelope, paths);
     // No fetch should happen — pass a throwing fetch to ensure short-circuit.
     const throwingFetch = async () => {
@@ -276,16 +255,9 @@ describe('getManifest high-level orchestration', () => {
     if (result.kind === 'ok') expect(result.source).toBe('cache-fresh');
   });
 
-  it('force=true skips cache and re-fetches', async () => {
-    const livePath = resolve(__dirname, '../../../../registry-site/adapters/manifest.json');
-    let envelope: Envelope;
-    let body: string;
-    try {
-      body = readFileSync(livePath, 'utf-8');
-      envelope = JSON.parse(body) as Envelope;
-    } catch {
-      return;
-    }
+  it.skipIf(!HAS_LIVE_MANIFEST)('force=true skips cache and re-fetches', async () => {
+    const body = readFileSync(LIVE_MANIFEST_PATH, 'utf-8');
+    const envelope = JSON.parse(body) as Envelope;
     cacheManifest(envelope, paths);
     let fetchCalled = false;
     const fakeFetch = async () => {
@@ -309,7 +281,7 @@ describe('getManifest high-level orchestration', () => {
     }
   });
 
-  it('rotation-detected cache forces refresh; returns refreshed result', async () => {
+  it.skipIf(!HAS_LIVE_MANIFEST)('rotation-detected cache forces refresh; returns refreshed result', async () => {
     // Plant a cache with rotation-mismatch, then provide a successful refresh.
     const { envelope } = buildEphemeralEnvelope({
       manifest_schema_version: 1,
@@ -324,13 +296,7 @@ describe('getManifest high-level orchestration', () => {
     mkdirSync(workdir, { recursive: true });
     writeFileSync(paths.cachePath, JSON.stringify(wrapper), 'utf-8');
 
-    const livePath = resolve(__dirname, '../../../../registry-site/adapters/manifest.json');
-    let body: string;
-    try {
-      body = readFileSync(livePath, 'utf-8');
-    } catch {
-      return;
-    }
+    const body = readFileSync(LIVE_MANIFEST_PATH, 'utf-8');
     const fakeFetch = async () => ({ status: 200, body });
     const result = await getManifest({ paths, fetchFn: fakeFetch as never });
     expect(result.kind).toBe('ok');

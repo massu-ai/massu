@@ -394,15 +394,36 @@ else
   # exactly when there is the MOST to sync. Same broken-pipe class as pattern-scanner Check 26
   # (incident 2026-07-16). Capturing to a variable removes the pipe; `-n` == "any output" == the
   # old `grep -q .`.
+  SYNC_TOUCHABLE_PATHS=(
+       packages/ scripts/ eslint-rules/ examples/
+       .github/workflows/ .github/rulesets/
+       website/content/docs/
+       .gitignore.public package.public.json README.public.md
+       .claude/CLAUDE.public.md .claude/settings.json .claude/hooks/ .claude/commands/
+       package-lock.json massu.config.yaml CHANGELOG.md LICENSE CLA.md CONTRIBUTING.md
+  )
   sync_relevant_status="$(git -C "$PROJECT_ROOT" status --short -- \
-       packages/ scripts/ eslint-rules/ examples/ \
-       .github/workflows/ .github/rulesets/ \
-       website/content/docs/ \
-       .gitignore.public package.public.json README.public.md \
-       .claude/CLAUDE.public.md .claude/settings.json .claude/hooks/ .claude/commands/ \
-       package-lock.json massu.config.yaml CHANGELOG.md LICENSE CLA.md CONTRIBUTING.md \
-       2>/dev/null)"
-  if [ -n "$sync_relevant_status" ]; then
+       "${SYNC_TOUCHABLE_PATHS[@]}" 2>/dev/null)"
+
+  # ...and the COMMITS ABOUT TO BE PUSHED. `git status` reports only UNCOMMITTED
+  # modifications, and at pre-push time the tree is clean by construction — so
+  # this gate skipped on essentially every push and had effectively never run.
+  # It was CI, not pre-push, that caught the internal repo URL leaking into
+  # scripts/tests/ on 449e0cca, on a push where step [14/22] reported
+  # "SKIP (no sync-touchable paths changed)" for a commit that changed a file
+  # which demonstrably syncs. A gate that cannot fire is not a gate (CR-50: the
+  # pre-push battery must mirror CI).
+  sync_upstream="$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || echo 'origin/main')"
+  if git -C "$PROJECT_ROOT" rev-parse --verify --quiet "$sync_upstream" >/dev/null 2>&1; then
+    sync_relevant_commits="$(git -C "$PROJECT_ROOT" diff --name-only \
+         "$sync_upstream...HEAD" -- "${SYNC_TOUCHABLE_PATHS[@]}" 2>/dev/null)"
+  else
+    # No upstream to compare against: cannot determine what is being pushed, so
+    # do NOT infer "nothing changed". Fail toward running the check.
+    sync_relevant_commits="(no upstream — running sync check unconditionally)"
+  fi
+
+  if [ -n "$sync_relevant_status" ] || [ -n "$sync_relevant_commits" ]; then
     if bash "$SCRIPT_DIR/ci-sync-check.sh" > /tmp/massu-sync-check.log 2>&1; then
       echo "PASS"
     else

@@ -14,25 +14,26 @@ import { getResolvedPaths } from '../config.ts';
 const HELP_SITE_PATH = getResolvedPaths().helpSitePath;
 const DOCS_MAP_PATH = getResolvedPaths().docsMapPath;
 
-describe('docs integration: real help site', () => {
+// G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates) — ADJUDICATED
+// environment-conditional: the help site is a separate checkout and is genuinely
+// absent in most environments, so this suite cannot be made fail-closed. It is
+// gated ONCE, at collection time, so vitest reports these tests SKIPPED. Every one
+// of the nine used to `return` on the same condition, reporting PASSED for a suite
+// that had opened no file at all.
+const HAS_HELP_SITE = existsSync(HELP_SITE_PATH);
+
+describe.skipIf(!HAS_HELP_SITE)('docs integration: real help site', () => {
   let docsMap: any;
 
   beforeAll(() => {
-    // Skip tests if help site is not available
-    if (!existsSync(HELP_SITE_PATH)) {
-      console.warn('Help site not found at', HELP_SITE_PATH);
-      return;
-    }
     docsMap = JSON.parse(readFileSync(DOCS_MAP_PATH, 'utf-8'));
   });
 
   it('help site exists and has pages directory', () => {
-    if (!existsSync(HELP_SITE_PATH)) return; // Skip when help site not available
     expect(existsSync(resolve(HELP_SITE_PATH, 'pages'))).toBe(true);
   });
 
   it('all mapped help pages exist', () => {
-    if (!docsMap) return;
 
     const missing: string[] = [];
     for (const mapping of docsMap.mappings) {
@@ -45,7 +46,6 @@ describe('docs integration: real help site', () => {
   });
 
   it('coverage report includes all 8+ top-level categories', () => {
-    if (!docsMap) return;
 
     const topLevelPages = docsMap.mappings.filter((m: any) =>
       m.helpPage.startsWith('pages/') && !m.helpPage.includes('/index.mdx') ||
@@ -55,7 +55,6 @@ describe('docs integration: real help site', () => {
   });
 
   it('frontmatter parsing works on real MDX files', () => {
-    if (!docsMap) return;
 
     // Test a few real MDX files
     const testPages = ['pages/dashboard.mdx', 'pages/users.mdx', 'pages/billing.mdx'];
@@ -79,7 +78,6 @@ describe('docs integration: real help site', () => {
   });
 
   it('known router change maps to correct help page', () => {
-    if (!docsMap) return;
 
     // Simulate: dashboard.ts changed, should map to dashboard help page
     const changedFile = 'src/server/api/routers/dashboard.ts';
@@ -100,7 +98,6 @@ describe('docs integration: real help site', () => {
   });
 
   it('non-user-facing changes return no affected mappings', () => {
-    if (!docsMap) return;
 
     const nonUserFiles = [
       'scripts/pattern-scanner.sh',
@@ -126,7 +123,6 @@ describe('docs integration: real help site', () => {
   });
 
   it('changelog page exists', () => {
-    if (!existsSync(HELP_SITE_PATH)) return;
     const changelogPath = resolve(HELP_SITE_PATH, 'pages/changelog.mdx');
     expect(existsSync(changelogPath)).toBe(true);
 
@@ -136,7 +132,6 @@ describe('docs integration: real help site', () => {
   });
 
   it('_meta.json includes changelog', () => {
-    if (!existsSync(HELP_SITE_PATH)) return;
     const metaPath = resolve(HELP_SITE_PATH, 'pages/_meta.json');
     expect(existsSync(metaPath)).toBe(true);
 
@@ -145,7 +140,6 @@ describe('docs integration: real help site', () => {
   });
 
   it('all MDX files have lastVerified frontmatter', () => {
-    if (!existsSync(HELP_SITE_PATH)) return;
 
     function findMdxFiles(dir: string): string[] {
       const files: string[] = [];

@@ -40,11 +40,37 @@ HOME_PATH_PLACEHOLDERS_DEFAULT="dev foo bar baz qux test tests example examples 
 
 home_path_guard() {
   local root="${1:?home_path_guard: <repo-root> required}"
+  local mode="${2:-auto}"
 
-  if [ ! -d "$root/.git" ] && ! git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
-    echo "home_path_guard: '$root' is not a git repo — cannot determine the tracked publication set." >&2
-    return 2
+  [ -d "$root" ] || { echo "home_path_guard: '$root' is not a directory." >&2; return 2; }
+
+  # --- Mode selection (P2-4's sibling problem: C4's tarballs are not git trees) ---
+  # This guard used to REQUIRE a git repo and return 2 otherwise, so it could not
+  # run over an extracted npm tarball at all. That is why it had exactly one call
+  # site (sync-public.sh) and why the tarball channel was covered by the deny-list
+  # alone — never by this deny-list-INDEPENDENT check, which is the only layer
+  # that catches a SECOND operator's home path.
+  #
+  # tree = git-tracked set (what is about to be committed).
+  # dir  = plain filesystem walk (an extracted tarball, a staging directory).
+  if [ "$mode" = "auto" ]; then
+    if [ -d "$root/.git" ] || git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+      mode="tree"
+    else
+      mode="dir"
+    fi
   fi
+
+  case "$mode" in
+    tree)
+      if [ ! -d "$root/.git" ] && ! git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+        echo "home_path_guard: --tree requested but '$root' is not a git repo." >&2
+        return 2
+      fi
+      ;;
+    dir) : ;;
+    *) echo "home_path_guard: unknown mode '$mode' (expected tree|dir|auto)." >&2; return 2 ;;
+  esac
 
   # Build an anchored alternation of allowed placeholder names.
   # Split on whitespace via `tr` (NOT unquoted word-splitting) so the result is
@@ -55,13 +81,36 @@ home_path_guard() {
   local allow_alt
   allow_alt="$(printf '%s' "$placeholders" | tr ' \t' '\n\n' | sed '/^$/d' | sort -u | paste -sd'|' -)"
 
-  # All /Users/<name> occurrences across the tracked tree. `-I` skips binary files.
-  # The name class deliberately requires a leading alphanumeric/underscore, so
-  # angle-bracket placeholders like `/Users/<user>/` never match.
+  # LIVENESS (P-A). Count what is actually in scope BEFORE scanning. A guard that
+  # prints GREEN because it examined nothing is the failure this plan exists to
+  # end, and "no hits" is indistinguishable from "no files" without this.
+  local scanned=0
+  if [ "$mode" = "tree" ]; then
+    scanned="$(git -C "$root" ls-files | wc -l | tr -d ' ')"
+  else
+    scanned="$(find "$root" -type f -not -path '*/.git/*' -not -path '*/node_modules/*' | wc -l | tr -d ' ')"
+  fi
+  if [ "$scanned" -eq 0 ]; then
+    echo "home_path_guard: scanned 0 files under '$root' (mode=$mode) — refusing to report clean." >&2
+    return 2
+  fi
+  echo "home_path_guard: mode=$mode, scanning $scanned file(s) under $root" >&2
+
+  # All /Users/<name> occurrences. `-I` skips binary files. The name class
+  # deliberately requires a leading alphanumeric/underscore, so angle-bracket
+  # placeholders like `/Users/<user>/` never match.
+  local raw
+  if [ "$mode" = "tree" ]; then
+    raw="$(git -C "$root" grep -nEI "/Users/[A-Za-z0-9_][A-Za-z0-9._-]*" -- . 2>/dev/null || true)"
+  else
+    # Paths are printed relative to $root so `dir` and `tree` output read alike.
+    raw="$(cd "$root" && grep -rnEI \
+             --exclude-dir='.git' --exclude-dir='node_modules' \
+             "/Users/[A-Za-z0-9_][A-Za-z0-9._-]*" . 2>/dev/null \
+           | sed 's|^\./||' || true)"
+  fi
   local hits
-  hits="$(git -C "$root" grep -nEI "/Users/[A-Za-z0-9_][A-Za-z0-9._-]*" -- . 2>/dev/null \
-    | grep -vE "/Users/(${allow_alt})\\b" \
-    || true)"
+  hits="$(printf '%s' "$raw" | grep -vE "/Users/(${allow_alt})\\b" || true)"
 
   if [ -n "$hits" ]; then
     echo "" >&2
@@ -82,5 +131,5 @@ home_path_guard() {
 
 # Standalone invocation
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
-  home_path_guard "${1:?usage: home-path-guard.sh <repo-root>}"
+  home_path_guard "${1:?usage: home-path-guard.sh <root> [tree|dir|auto]}" "${2:-auto}"
 fi

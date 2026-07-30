@@ -9,6 +9,7 @@ import {
   MissingVariableError,
   TemplateParseError,
 } from '../commands/template-engine.ts';
+import { measureScalingRatio, MIN_MEASURABLE_NS } from './helpers/scaling.ts';
 
 /**
  * Plan #2 P1-002: Templating engine tests.
@@ -217,23 +218,40 @@ describe('Template Engine: TPL-SEC-04 (no recursive expansion)', () => {
 });
 
 describe('Template Engine: TPL-SEC-05 (no quadratic blowup)', () => {
-  it('renders 100,000 instances of {{var}} in linear (not quadratic) time', () => {
-    const piece = '{{x}}';
-    const tpl = piece.repeat(100_000);
-    const start = process.hrtime.bigint();
-    const out = renderTemplate(tpl, { x: 'a' });
-    const elapsedMs = Number(process.hrtime.bigint() - start) / 1_000_000;
-    expect(out.length).toBe(100_000);
-    // BOUND DERIVED FROM THE INVARIANT, not from one machine's wall clock. TPL-SEC-05 guards
-    // against QUADRATIC blowup (the DoS class): an O(n²) renderer over 100k tokens is ~10^10
-    // operations — tens of seconds to minutes. A LINEAR renderer is ~10ms locally and ~120ms
-    // under V8 coverage instrumentation on a shared CI runner. The original `<100ms` bound was
-    // therefore a hardware/instrumentation BENCHMARK, not a complexity guard: it went RED at
-    // 117.8ms on the coverage run (CI 2026-07-23) while the implementation was still perfectly
-    // linear. 2000ms keeps a >15x margin over the slowest observed linear run while a quadratic
-    // implementation would exceed it by orders of magnitude.
-    expect(elapsedMs).toBeLessThan(2000);
-  });
+  it('renders {{var}} in linear (not quadratic) time as the token count grows', () => {
+    // MEASURE THE SCALING, NOT THE CLOCK.
+    //
+    // The history of this one assertion is the argument. It began as `<100ms`,
+    // went RED at 117.8ms on the coverage run (CI 2026-07-23) with the renderer
+    // still perfectly linear, and was widened to 2000ms. The accompanying
+    // comment correctly identified the original bound as "a hardware/
+    // instrumentation BENCHMARK, not a complexity guard" — and then set a
+    // bigger benchmark. Widening a wall-clock bound never converts it into a
+    // complexity guard; it only moves the machine speed at which it misfires,
+    // and the same class took down `codebase-introspector.test.ts` at
+    // 126,715ms in the pre-push battery on 2026-07-28.
+    //
+    // cost(4n)/cost(n) IS the complexity claim: ~4 linear, ~16 quadratic. Both
+    // measurements run back-to-back on the same host, so ambient load inflates
+    // both and largely cancels — including V8 coverage instrumentation, which
+    // was what broke the original bound.
+    const render = (tokens: number): (() => void) => {
+      const tpl = '{{x}}'.repeat(tokens);
+      return () => { renderTemplate(tpl, { x: 'a' }); };
+    };
+
+    // Correctness first — the output is still exactly one char per token.
+    expect(renderTemplate('{{x}}'.repeat(100_000), { x: 'a' }).length).toBe(100_000);
+
+    const m = measureScalingRatio(render(100_000), render(400_000));
+
+    // If the baseline is too fast to time, the ratio is noise — asserting on it
+    // would be a blind gate.
+    expect(m.smallNs).toBeGreaterThan(MIN_MEASURABLE_NS);
+    // Linear ≈ 4, quadratic ≈ 16; 8 sits midway on a log scale.
+    expect(m.ratio, `ratio ${m.ratio.toFixed(2)} suggests super-linear rendering`)
+      .toBeLessThan(8);
+  }, 60_000);
 });
 
 describe('Template Engine: TPL-SEC-06 (malformed `{{{{var}}}}`)', () => {

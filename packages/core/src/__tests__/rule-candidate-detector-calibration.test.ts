@@ -218,23 +218,24 @@ body`;
   });
 
   describe('live memory corpus (if present)', () => {
-    it('parses every memory/feedback_*.md description without throwing', () => {
+    it('parses every memory/feedback_*.md description without throwing', (ctx) => {
       // Derive the operator's memory dir generically from this repo's root —
       // Claude Code encodes the project dir as the absolute path with '/' -> '-'.
       // (Was hardcoded to a single operator's path; now works for any operator.)
       const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
       const encodedProject = repoRoot.replace(/\//g, '-');
       const memoryDir = join(homedir(), '.claude', 'projects', encodedProject, 'memory');
+      // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): the memory store lives OUTSIDE the repo and the path is derived at run
+      // time from homedir() + the encoded project dir, so this is ctx.skip() —
+      // reported SKIPPED — not a `return` reported as a clean parse of a live corpus.
       if (!existsSync(memoryDir)) {
-        // eslint-disable-next-line no-console
-        console.log('[calibration] memory dir not present, skipping live corpus check');
-        return;
+        ctx.skip();
       }
       const files = readdirSync(memoryDir).filter(f => /^feedback_.+\.md$/.test(f));
+      // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): an EMPTY corpus proves nothing about the parser — "parsed every file
+      // without throwing" is vacuously true of zero files. SKIPPED, never PASSED.
       if (files.length === 0) {
-        // eslint-disable-next-line no-console
-        console.log('[calibration] no feedback files found, skipping');
-        return;
+        ctx.skip();
       }
       for (const f of files) {
         const content = readFileSync(join(memoryDir, f), 'utf-8');

@@ -8,8 +8,11 @@
  * adding a new adapter to CORE_BUNDLED_IDS without listing its id in
  * the bundler's ADAPTERS array).
  *
- * Skipped (not failed) when dist is missing — local dev convenience.
- * CI MUST run `npm run build` before tests.
+ * FAILS (does not skip) when dist is missing. Run `npm run build` first.
+ * Until plan-2026-07-26-anti-vacuity-9-unproven-gates this test `return`ed on the
+ * absent sentinel, so vitest reported it PASSED while it could observe nothing —
+ * and the anti-vacuity sweep scored it as a proven can-fail gate on that basis.
+ * "The artifact is missing" and "every assertion held" must never render alike.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -35,10 +38,13 @@ describe('core-bundled adapter dist files presence (P-B-006)', () => {
 
     it(`${id}: has dist/detect/adapters/${id}.js after build (workspace-canonical)`, () => {
       const distFile = resolve(DIST_ADAPTERS, `${id}.js`);
-      if (!existsSync(resolve(DIST_ADAPTERS, '.bundle-shasums.json'))) {
-        console.warn(`[core-bundled-files-presence] SKIP ${id}: dist not built (run "npm run build" first)`);
-        return;
-      }
+      expect(
+        existsSync(resolve(DIST_ADAPTERS, '.bundle-shasums.json')),
+        `adapter bundle sentinel missing — this test cannot verify anything. ` +
+          `Run "npm run build:adapters && npm run build:bundle-adapters" (packages/core). ` +
+          `Do NOT restore the skip: a skipped it() is reported as PASSED, which is how this ` +
+          `guard shipped as decoration (plan-2026-07-26-anti-vacuity-9-unproven-gates).`,
+      ).toBe(true);
       expect(existsSync(distFile), `${distFile} missing — bundle-adapters.ts didn't emit ${id}.js`).toBe(true);
     });
   }

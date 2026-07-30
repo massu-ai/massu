@@ -21,21 +21,79 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# ── Step 0 — build the dist/ artifacts the vitest dist-guard oracles spawn (R12-1) ──────────
-# The Wave-1b vitest-guard `dist-artifact` oracles (session-start-drift / cli-dispatcher /
+# ── Step 0 — build EVERY artifact the sweep's gates need (R12-1; W-1 of
+#    plan-2026-07-26-anti-vacuity-9-unproven-gates) ────────────────────────────────────────────
+# The vitest-guard `dist-artifact` oracles (session-start-drift / cli-dispatcher /
 # session-start-watcher) `spawnSync('node', [dist/hooks/*.js | dist/cli.js])`, and those
-# artifacts are gitignored build output — the CI Test/Type-Check jobs build only adapters, so a
-# fresh runner has NO dist/. Without this build the dist-guard oracles abort LOUD on a missing
-# artifact (the M3 alive-locally-dead-in-CI trap). Wiring the build HERE, in the same job that
-# runs the sweep, keeps the CI job stable across the Wave-1a→1b boundary (Wave 1b adds the
-# vitest kinds to the SAME runner + registry; no CI re-wire needed).
+# artifacts are gitignored build output, so a fresh runner has NO dist/.
 #
-# NOTE (honest state, not laundered): in Wave 1a the runner sweeps ONLY the 107 shell
-# fail-points — no vitest guard is registered yet — so nothing in THIS wave consumes dist/.
-# The build is present now because R12-1 makes it a mandatory part of P6's one-time CI wiring;
-# it becomes load-bearing when Wave 1b registers the first dist-artifact vitest oracle.
-echo "── [ci-anti-vacuity] Step 0: building dist (build:hooks + build:cli) for dist-guard oracles ──"
+# W-1 CORRECTION: this comment previously read "the CI Test/Type-Check jobs build only adapters",
+# which is precisely BACKWARDS about what THIS job was missing, and is the sentence that made the
+# gap invisible for ten days. The sibling jobs each run `npm run build:adapters` (ci.yml — the
+# Type Check job and the Test job); THIS job ran neither. `build:hooks`/`build:cli` mark the
+# workspace adapters `--external:`, so dist/hooks/*.js and dist/cli.js resolve
+# `@massu/adapter-*` at RUNTIME from node_modules -> packages/adapter-*, whose dist/ `npm ci`
+# does NOT build. Result: 4 of the 9 gates reported "not proven can-fail" when they were in fact
+# failing CLOSED on an artifact this job never produced.
+#
+# ORDER MATTERS: build:bundle-adapters CONSUMES packages/adapter-*/dist, so it must follow
+# build:adapters; build:hooks/build:cli leave the adapters external and resolve them at runtime.
+echo "── [ci-anti-vacuity] Step 0: building adapters + adapter bundle + dist (hooks/cli) ──"
+npm run build:adapters
+( cd packages/core && npm run build:bundle-adapters )
 ( cd packages/core && npm run build:hooks && npm run build:cli )
+
+# ASSERT THE END STATE — never infer it from `npm run` exit 0 (CR-69 / G12). `npm run` can exit 0
+# having emitted nothing, and a missing artifact downstream is rendered by the sweep as
+# "not proven can-fail", i.e. indistinguishable from decoration. Fail LOUD, with the remedy.
+_av_require_artifact() {
+  # $1 = path, $2 = remedy command
+  if [ ! -e "$1" ]; then
+    echo "FATAL: [ci-anti-vacuity] Step 0 produced no '$1'." >&2
+    echo "       The build command exited 0 without emitting it." >&2
+    echo "       REMEDY: $2" >&2
+    exit 2
+  fi
+}
+# X-1: the required set is DERIVED from scripts/lib/gate-requires.json, never re-typed here.
+# This block previously hardcoded five `_av_require_artifact` calls naming the same artifacts
+# and remedies the vocabulary now holds — two authoring sites for one fact, which is the exact
+# drift class this plan exists to close, sitting inside the plan's own CI step. A precondition
+# added to the vocabulary and not mirrored here would have been provisioned by nobody.
+_AV_REQUIRES_SOT="scripts/lib/gate-requires.json"
+if [ ! -r "$_AV_REQUIRES_SOT" ]; then
+  echo "FATAL: [ci-anti-vacuity] cannot read $_AV_REQUIRES_SOT — refusing to run the sweep" >&2
+  echo "       with an unknown precondition contract (M2: unreadable is an ERROR, not empty)." >&2
+  exit 2
+fi
+_AV_CHECKED=0
+_AV_TOTAL="$(python3 -c 'import json;print(len(json.load(open("scripts/lib/gate-requires.json"))["vocabulary"]))')"
+while IFS=$'\t' read -r _name _probe _remedy; do
+  [ -n "${_name:-}" ] || continue
+  _AV_CHECKED=$((_AV_CHECKED + 1))
+  if ! bash -c "$_probe" >/dev/null 2>&1; then
+    echo "FATAL: [ci-anti-vacuity] Step 0 left precondition '$_name' UNSATISFIED." >&2
+    echo "       probe : $_probe" >&2
+    echo "       REMEDY: $_remedy" >&2
+    exit 2
+  fi
+done < <(python3 - "$_AV_REQUIRES_SOT" <<'PY'
+import json, sys
+sot = json.load(open(sys.argv[1]))
+vocab = sot.get("vocabulary") or {}
+if not vocab:
+    sys.exit("FATAL: gate-requires.json vocabulary is EMPTY — refusing to verify nothing (M1).")
+for name, spec in sorted(vocab.items()):
+    print("\t".join([name, spec["probe"], spec["remedy"]]))
+PY
+)
+# M1: report the DENOMINATOR and ASSERT it. "checked 0 of 0, all present" must never pass.
+if [ "$_AV_CHECKED" -eq 0 ] || [ "$_AV_CHECKED" -ne "$_AV_TOTAL" ]; then
+  echo "FATAL: [ci-anti-vacuity] verified $_AV_CHECKED of $_AV_TOTAL declared precondition(s)." >&2
+  echo "       A preflight that did not read every entry cannot report them all present." >&2
+  exit 2
+fi
+echo "── [ci-anti-vacuity] Step 0: verified $_AV_CHECKED of $_AV_TOTAL declared precondition(s) ──"
 
 # ── Step 1 — the full anti-vacuity DEFEAT sweep, fail-closed ─────────────────────────────────
 # AV_CONCURRENCY is honored by the runner (default: cores-2, soft-cap 16). CI sets it via the
@@ -58,7 +116,7 @@ if [ "$SWEEP_RC" -ne 0 ]; then
     echo "Distinguishing lines (which guard/fail-point did not go RED, or FATAL'd):"
     echo '```'
     sed -E $'s/\033\\[[0-9;]*m//g' "$SWEEP_OUT" \
-      | grep -E 'IT IS DECORATION|stayed .*GREEN|FATAL|── [a-z0-9].*—|FAIL  ?\[|FAIL: |CONTROL: |ORACLE did|PLANT: |no ORACLE|no defect|proven can-fail|failures  *:|Unknown|npm error|Error:' \
+      | grep -E 'IT IS DECORATION|stayed .*GREEN|FATAL|── [a-z0-9].*—|FAIL  ?\[|FAIL: |CONTROL: |ORACLE did|PLANT: |no ORACLE|no defect|proven can-fail|failures  *:|PRECONDITION MISSING|remedy  *:|blocks  *:|preflight  *:|validated [0-9]+ of [0-9]+|Unknown|npm error|Error:' \
       | tail -80
     echo '```'
   } >> "${GITHUB_STEP_SUMMARY:-/dev/stderr}"

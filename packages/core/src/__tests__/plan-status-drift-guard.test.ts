@@ -248,12 +248,27 @@ describe('plan-status-drift-guard (Plan 1.5.8 P2-002)', () => {
 
   // ----- Live HEAD assertion (unconditional after Phase 4 backfill) -----
 
-  it('case 8: live HEAD — validator + scanner exit 0 against real docs/plans/*.md', { timeout: 30_000 }, () => {
-    // Timeout bumped from default 5s to 30s 2026-05-11: plan-1.6.3 P-C-005
-    // added an L3 retrospective check that runs `git show --stat` per shipped-
-    // subset plan with cited SHA. With ~60 plans, this can take 5-15s on
-    // first run (no git cache warm). The validator + scanner are both fast
-    // individually; the test invocation overhead dominates.
+  it('case 8: live HEAD — validator + scanner exit 0 against real docs/plans/*.md', { timeout: 180_000 }, () => {
+    // BUDGET, MEASURED 2026-07-27 — re-derive it, do not trust this number (CR-68).
+    //
+    //   bash scripts/massu-plan-status-validator.sh   ->  6s   (115 plans)
+    //   bash scripts/massu-plan-commit-drift.sh       ->  4s   (645 commits)
+    //   combined, idle machine                        -> 10s
+    //
+    // The previous budget was 30s, written 2026-05-11 against "~60 plans". There are now
+    // 115, and the scanners grow with BOTH plan count and commit count. 10s idle looked
+    // like 3x headroom — and this test TIMED OUT in the pre-push battery on 2026-07-27,
+    // blocking a push, because it does not run idle: it runs inside `npm test`, which
+    // fans 342 test files across parallel workers. The observed slowdown was therefore
+    // at least 3x. Sizing a budget on an idle measurement while the thing runs under the
+    // load the suite itself creates is M3 — test the gate the way production runs it.
+    //
+    // 180s is ~18x today's idle cost, which absorbs both contention and continued growth.
+    // It is NOT a licence to let these scripts get slow: if the idle figure above passes
+    // ~30s, the right fix is to make the scanners incremental, not to raise this again.
+    // Re-derive with:
+    //   S=$(date +%s); bash scripts/massu-plan-status-validator.sh >/dev/null 2>&1; \
+    //   bash scripts/massu-plan-commit-drift.sh >/dev/null 2>&1; echo $(( $(date +%s) - S ))s
     const v = runScript(VALIDATOR_PATH);
     if (v.exitCode !== 0) {
       throw new Error(

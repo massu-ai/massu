@@ -63,10 +63,15 @@ describe('atomicWrite', () => {
     const result = atomicWrite(path, '{}', { mode: 0o600, ensureParentDirMode: 0o700 });
     expect(result.written).toBe(true);
     expect(existsSync(parentDir)).toBe(true);
-    // Note: parent dir mode comparison requires masking off the directory bit
-    // since stat mode includes the file-type bits. 0o700 lower 9 bits is what
-    // we requested; mkdirSync mode is masked by umask but we passed it
-    // explicitly so umask shouldn't apply on most systems.
+    // Note: parent dir mode comparison requires masking off the directory bit since stat mode
+    // includes the file-type bits.
+    //
+    // ⚠ The comment here used to claim "mkdirSync mode is masked by umask but we passed it
+    // explicitly so umask shouldn't apply on most systems". That is FALSE — passing `mode`
+    // explicitly does not bypass the umask; nothing does except a later `chmod`. This assertion
+    // survives only because 0o700 & ~umask == 0o700 for every umask that masks GROUP/OTHER bits,
+    // which is the common case. It is luck, not the stated reason. The sibling test below needed
+    // 0o755 and therefore really did break under umask 077.
     const dirMode = statSync(parentDir).mode & 0o777;
     expect(dirMode).toBe(0o700);
   });
@@ -74,8 +79,23 @@ describe('atomicWrite', () => {
   it('does NOT chmod existing parent dir', () => {
     const parentDir = join(workdir, 'shared');
     mkdirSync(parentDir, { mode: 0o755 });
+    // chmod AFTER mkdir, because `mkdirSync`'s mode IS masked by the process umask and passing
+    // it explicitly does not bypass that — `chmod` is the only call that is not masked. Under a
+    // restrictive umask this fixture came out 0o700, so the assertion below was measuring the
+    // UMASK rather than atomicWrite: `expected 448 to be 493` (0o700 vs 0o755).
+    //
+    // Not hypothetical, and not only a CI concern: any user whose umask is 077 fails `npm test`
+    // here. Found 2026-07-29 when the mirror-parity Guardian watcher ran the suite under its
+    // LaunchAgent's `Umask 63` (= 0o077) and reported the public mirror UNSYNCABLE — a false
+    // CRITICAL produced entirely by this fixture. Differentially proven: umask 022 -> 13 pass,
+    // umask 077 -> this one test fails with exactly that message.
+    chmodSync(parentDir, 0o755);
     const originalMode = statSync(parentDir).mode & 0o777;
-    expect(originalMode).toBe(0o755);
+    expect(
+      originalMode,
+      'fixture precondition: the parent must really be 0o755 before we can assert atomicWrite ' +
+        'left it alone. If this fails, chmod did not take effect — the fixture, not the subject.',
+    ).toBe(0o755);
 
     const path = join(parentDir, 'state.json');
     const result = atomicWrite(path, '{}', { ensureParentDirMode: 0o700 });

@@ -4132,3 +4132,6 @@ function readStdin() {
   });
 }
 main();
+export {
+  MAX_FULL_DIFF_BYTES
+};

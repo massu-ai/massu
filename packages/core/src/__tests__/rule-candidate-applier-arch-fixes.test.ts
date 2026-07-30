@@ -211,7 +211,25 @@ describe('Phase 1.5 architecture-fix tests', () => {
       const result = await applyRuleCandidate(db, {
         candidateId: id, destination: 'pattern-scanner',
         draftText: 'echo safe',
-        slug: '$(rm -rf $HOME) && echo pwned',   // shell-injection attempt
+        // The injection SHAPE is what matters — `$(…)` plus `&&` — not which command
+        // sits inside it. It used to hold a recursive force-delete of the home
+        // directory inside the substitution.
+        //
+        // WHY IT CHANGED, stated precisely so this comment does not become another
+        // over-claim: that payload was NOT exploitable. Measured 2026-07-29 —
+        // applyRuleCandidate imports no child_process (0 matches against 30 for
+        // `export`, i.e. the grep worked), nothing here executes the generated
+        // scanner, and no registry gate plants into this test, so no anti-vacuity
+        // mutation can flip a property to make it live.
+        //
+        // It changed because it was inert *because of the property under test* — the
+        // sanitizer. G25/CR-88 requires a payload be inert under EVERY plant, not
+        // inert because the thing being tested is working. `$HOME` in a `$(…)` is
+        // expanded by a SHELL at execution time, so it would resolve to the operator's
+        // REAL home, never this test's `tmpHome`. A `touch` keeps the injection shape,
+        // keeps the assertions below meaningful, and cannot destroy anything if some
+        // future refactor ever does hand this string to a shell.
+        slug: '$(touch pwned_marker) && echo pwned',   // shell-injection attempt
         patternScannerCheckNumber: 50,
         projectRoot: tmpProjectRoot, home: tmpHome,
       });
@@ -219,8 +237,16 @@ describe('Phase 1.5 architecture-fix tests', () => {
       // Verify the slug was sanitized down to [a-z0-9_]
       const scanner = readFileSync(join(tmpProjectRoot, 'scripts', 'massu-pattern-scanner.sh'), 'utf-8');
       expect(scanner).not.toContain('$(');
-      expect(scanner).not.toContain('rm -rf');
-      expect(scanner).toMatch(/Check 50: rm_rf_home_echo_pwned/);
+      expect(scanner).not.toContain('&&');
+      expect(scanner).toMatch(/Check 50: touch_pwned_marker_echo_pwned/);
+
+      // PROVE non-execution by OBSERVATION rather than by asserting the sanitizer's
+      // output alone (G25/CR-88). If the slug were ever handed to a shell, `touch
+      // pwned_marker` would land in the process CWD; both plausible landing sites are
+      // checked, so this fails loudly instead of silently passing.
+      for (const dir of [process.cwd(), tmpProjectRoot, tmpHome]) {
+        expect(existsSync(join(dir, 'pwned_marker')), `injection executed in ${dir}`).toBe(false);
+      }
     });
   });
 

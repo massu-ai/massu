@@ -21,7 +21,7 @@
  * REFUSE the loaded adapter at install time.
  */
 
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
@@ -38,25 +38,26 @@ function sha256OfFile(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
+const SENTINEL_REMEDY =
+  `${SENTINEL} missing — these tests cannot verify anything. ` +
+  `Run "npm run build:adapters && npm run build:bundle-adapters" (packages/core). ` +
+  `Do NOT restore the skip: a skipped it() is reported as PASSED ` +
+  `(G-1, plan-2026-07-26-anti-vacuity-9-unproven-gates).`;
+
 describe('bundle-adapters reproducibility (P-B-003 / drift-prevention #2)', () => {
+  // FAIL CLOSED. Until G-1 this suite skipped on the absent sentinel — and the
+  // first test then asserted that same sentinel exists, so it could not fail in
+  // EITHER direction: absent -> skipped -> PASSED, present -> assertion trivially
+  // true. ci-anti-vacuity.sh:25-26 names this file as a dist-artifact oracle.
+  beforeAll(() => {
+    expect(existsSync(SENTINEL), SENTINEL_REMEDY).toBe(true);
+  });
+
   it('sentinel file exists after build', () => {
-    if (!existsSync(SENTINEL)) {
-      // Skip cleanly if dist is missing (e.g. local dev where the user hasn't
-      // run `npm run build`). CI MUST run build before tests so this case
-      // shouldn't fire in CI.
-      console.warn(
-        `[adapter-bundle-reproducibility] SKIP: ${SENTINEL} missing — run "npm run build" before this test.`,
-      );
-      return;
-    }
-    expect(existsSync(SENTINEL)).toBe(true);
+    expect(existsSync(SENTINEL), SENTINEL_REMEDY).toBe(true);
   });
 
   it('sentinel sha256 entries match on-disk dist files (round-trip)', () => {
-    if (!existsSync(SENTINEL)) {
-      console.warn('[adapter-bundle-reproducibility] SKIP: dist not built');
-      return;
-    }
     const sentinel = JSON.parse(readFileSync(SENTINEL, 'utf-8')) as Record<string, string>;
     const entries = Object.entries(sentinel);
     expect(entries.length).toBeGreaterThan(0);
@@ -91,10 +92,6 @@ describe('bundle-adapters reproducibility (P-B-003 / drift-prevention #2)', () =
     // new adapter requires touching THREE places (workspace package,
     // bundle-adapters.ts ADAPTERS, and this list) and the drift between
     // any two FAILs this test.
-    if (!existsSync(SENTINEL)) {
-      console.warn('[adapter-bundle-reproducibility] SKIP: dist not built');
-      return;
-    }
     const sentinel = JSON.parse(readFileSync(SENTINEL, 'utf-8')) as Record<string, string>;
     const keys = Object.keys(sentinel).sort();
 

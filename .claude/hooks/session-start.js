@@ -12646,23 +12646,23 @@ function introspectPython(detection, projectRoot) {
   for (const path of candidates) {
     const body = readSafe(path);
     if (body === null) continue;
-    const authRegex = /\bDepends\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)/gu;
+    const authRegex = new RegExp(PY_AUTH_DEP_PATTERN, "gu");
     forEachMatch(authRegex, body, (m) => {
       const name = m[1];
       if (!authDeps.has(name)) authDeps.set(name, path);
     });
-    const djangoAuthRegex = /^@\s*([a-z_][a-z0-9_]*(?:_required|_login))\b/gmu;
+    const djangoAuthRegex = new RegExp(PY_DJANGO_AUTH_PATTERN, "gmu");
     forEachMatch(djangoAuthRegex, body, (m) => {
       const name = m[1];
       if (!authDeps.has(name)) authDeps.set(name, path);
     });
-    const prefixRegex = /\bAPIRouter\s*\(\s*[^)]*?prefix\s*=\s*["']([^"']+)["']/gu;
+    const prefixRegex = new RegExp(PY_API_PREFIX_PATTERN, "gu");
     forEachMatch(prefixRegex, body, (m) => {
       const fullPrefix = m[1];
       const base = extractPrefixBase(fullPrefix);
       if (base && !prefixBases.has(base)) prefixBases.set(base, path);
     });
-    const asyncRegex = /^(@pytest\.mark\.asyncio(?:\s*\([^)]*\))?)/gmu;
+    const asyncRegex = new RegExp(PY_TEST_ASYNC_PATTERN, "gmu");
     forEachMatch(asyncRegex, body, (m) => {
       const pat = m[1].trim();
       if (!testAsyncPatterns.has(pat)) testAsyncPatterns.set(pat, path);
@@ -12867,10 +12867,14 @@ function relativeTo(projectRoot, absPath) {
   }
   return basename4(absPath);
 }
-var MAX_FILE_BYTES, MAX_SAMPLES_PER_ADAPTER, MAX_DIR_DEPTH;
+var PY_AUTH_DEP_PATTERN, PY_DJANGO_AUTH_PATTERN, PY_API_PREFIX_PATTERN, PY_TEST_ASYNC_PATTERN, MAX_FILE_BYTES, MAX_SAMPLES_PER_ADAPTER, MAX_DIR_DEPTH;
 var init_regex_fallback = __esm({
   "src/detect/regex-fallback.ts"() {
     "use strict";
+    PY_AUTH_DEP_PATTERN = String.raw`\bDepends\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)`;
+    PY_DJANGO_AUTH_PATTERN = String.raw`^@\s*([a-z_][a-z0-9_]*(?:_required|_login))\b`;
+    PY_API_PREFIX_PATTERN = String.raw`\bAPIRouter\s*\(\s*[^)]*?prefix\s*=\s*["']([^"']+)["']`;
+    PY_TEST_ASYNC_PATTERN = String.raw`^(@pytest\.mark\.asyncio(?:\s*\([^)]*\))?)`;
     MAX_FILE_BYTES = 256 * 1024;
     MAX_SAMPLES_PER_ADAPTER = 3;
     MAX_DIR_DEPTH = 6;

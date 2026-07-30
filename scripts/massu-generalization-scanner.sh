@@ -126,7 +126,12 @@ fi
 # $PRIVATE_BOUNDARY_FILES, exactly as Check 1 does. `scripts/lib/home-path-guard.sh`
 # is likewise excluded: it is the layer-2 sync guard for this very rule, so its
 # detection regex is literally `/Users/…` — the same self-exclusion this scanner
-# already applies to itself.
+# already applies to itself. `scripts/tests/test_home_path_guard_tarball_mode.sh`
+# is excluded for the identical reason one level up: it is that guard's own
+# can-fail proof, so it MUST carry a real-looking `/Users/<name>` fixture or it
+# proves nothing. Its fixture name is assembled at RUNTIME, so no contiguous
+# `/Users/<name>` literal exists in the file and the home-path guard itself stays
+# green on it when it syncs public — verified against a real sync.
 # -------------------------------------------------------
 echo "Check 2: No hardcoded /Users/ paths in source"
 
@@ -151,6 +156,7 @@ if [ -n "$USERS_DIRS" ]; then
     | grep -v 'massu-generalization-scanner' \
     | grep -v 'massu-push-light' \
     | grep -v 'scripts/lib/home-path-guard\.sh' \
+    | grep -v 'scripts/tests/test_home_path_guard_tarball_mode\.sh' \
     | grep -vE "$PRIVATE_BOUNDARY_FILES" \
     | wc -l | tr -d ' ')
   if [ "$USERS_COUNT" -gt 0 ]; then
@@ -170,6 +176,7 @@ if [ -n "$USERS_DIRS" ]; then
       | grep -v 'massu-generalization-scanner' \
       | grep -v 'massu-push-light' \
       | grep -v 'scripts/lib/home-path-guard\.sh' \
+    | grep -v 'scripts/tests/test_home_path_guard_tarball_mode\.sh' \
       | grep -vE "$PRIVATE_BOUNDARY_FILES" \
       | head -10
   else

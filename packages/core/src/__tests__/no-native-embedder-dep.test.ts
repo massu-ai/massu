@@ -109,7 +109,13 @@ describe('P5-003: native-dependency drift-guard (embedder)', () => {
 
   it('ships no compiled *.node addon in the built dist/', () => {
     const distDir = join(CORE_ROOT, 'dist');
-    if (!existsSync(distDir)) return; // dist not built in this env — skip (post-build guard is P6-001)
+    // FAIL CLOSED (G-1, plan-2026-07-26-anti-vacuity-9-unproven-gates): "no *.node
+    // addon shipped" is vacuously true of a dist/ that was never built.
+    expect(
+      existsSync(distDir),
+      `${distDir} missing — "ships no compiled addon" is unverifiable without a build. ` +
+        'Run "npm run build" (packages/core). Do NOT restore the skip.',
+    ).toBe(true);
     const offenders: string[] = [];
     const walk = (dir: string): void => {
       for (const entry of readdirSync(dir)) {
@@ -125,7 +131,13 @@ describe('P5-003: native-dependency drift-guard (embedder)', () => {
 
   it('repo root has no accidental native embedder dep either', () => {
     const rootPkgPath = join(REPO_ROOT, 'package.json');
-    if (!existsSync(rootPkgPath)) return;
+    // FAIL CLOSED (G-1): the repo root package.json is a repo invariant, not an
+    // environment variable. Its absence means REPO_ROOT resolved wrong.
+    expect(
+      existsSync(rootPkgPath),
+      `${rootPkgPath} missing — REPO_ROOT resolved to the wrong directory, so this ` +
+        'test inspected nothing. Do NOT restore the skip.',
+    ).toBe(true);
     const rootPkg = JSON.parse(readFileSync(rootPkgPath, 'utf-8')) as {
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;

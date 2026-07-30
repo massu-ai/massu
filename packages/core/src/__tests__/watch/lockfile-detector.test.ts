@@ -21,21 +21,30 @@ describe('watch/lockfile-detector', () => {
     expect(lockfileMidWrite(dir)).toBe(false);
   });
 
+  // `now` is PINNED once and reused as the detector's clock. Calling Date.now()
+  // a second time inside the assertion made the elapsed wall-time between the
+  // two calls part of the measurement: delta = 100 + Δ, so the test failed
+  // whenever Δ >= 400ms. That is test-harness latency, not the unit under test,
+  // and it went RED in the full-suite sync-check run on 2026-07-25 while passing
+  // in isolation and under 6x parallel load. Pinning the clock removes the race
+  // outright rather than widening the window to hide it.
   it('returns true when package-lock.json was just modified', () => {
     const path = resolve(dir, 'package-lock.json');
     writeFileSync(path, '{}', 'utf-8');
-    // mtime = now - 100ms (within 500ms window)
-    const t = (Date.now() - 100) / 1000;
+    const now = Date.now();
+    // mtime = now - 100ms (within the 500ms window)
+    const t = (now - 100) / 1000;
     utimesSync(path, t, t);
-    expect(lockfileMidWrite(dir, Date.now(), 500)).toBe(true);
+    expect(lockfileMidWrite(dir, now, 500)).toBe(true);
   });
 
   it('returns false when lockfile mtime is outside window', () => {
     const path = resolve(dir, 'yarn.lock');
     writeFileSync(path, '', 'utf-8');
-    const t = (Date.now() - 5_000) / 1000;
+    const now = Date.now();
+    const t = (now - 5_000) / 1000;
     utimesSync(path, t, t);
-    expect(lockfileMidWrite(dir, Date.now(), 500)).toBe(false);
+    expect(lockfileMidWrite(dir, now, 500)).toBe(false);
   });
 
   it('gitMidOperation: false when .git absent', () => {

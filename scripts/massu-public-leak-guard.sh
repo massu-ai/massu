@@ -265,11 +265,33 @@ while IFS= read -r path; do
     fi
   fi
   content=$(get_file_content "$path")
+  pat_idx=0
   for pat in "${CONTENT_PATTERNS[@]}"; do
-    matches=$(echo "$content" | grep -Ei "$pat" | grep -vE 'leak-guard-allow:' || true)
+    pat_idx=$((pat_idx + 1))
+    # -n so we can report a LOCATION instead of the matched text (see below).
+    matches=$(echo "$content" | grep -nEi "$pat" | grep -vE 'leak-guard-allow:' || true)
     if [ -n "$matches" ]; then
-      first_line=$(echo "$matches" | head -1 | cut -c1-100)
-      content_violations+=("$path  (matched: $pat)  -> ${first_line}")
+      if [ -n "${GITHUB_ACTIONS:-}" ]; then
+        # ─── P7-1: in public CI, the detector must not republish what it detects ───
+        # This guard runs in leak-guard.yml, leak-guard-retro.yml and
+        # leak-guard-scheduled.yml, whose logs are world-readable on a public
+        # repo. Two of those run `tree` mode over EVERY tracked file, so a hit
+        # used to dump up to 100 characters of the matching line — plus the
+        # pattern that found it — into a public log. A leak detector that
+        # publishes the leak on detection converts a private finding into a
+        # public one at the exact moment it fires, and the retro/scheduled
+        # workflows do it unattended.
+        #
+        # A maintainer with repo access can reproduce the full context locally
+        # by running this script without GITHUB_ACTIONS set; nothing is lost
+        # except the broadcast.
+        first_line_no="${matches%%:*}"
+        content_violations+=("$path:${first_line_no}  (signature CP-$(printf '%02d' "$pat_idx"))  [content redacted in CI — P7-1]")
+      else
+        # Local/maintainer context: the matched text is the whole point.
+        first_line=$(echo "$matches" | head -1 | cut -c1-100)
+        content_violations+=("$path  (matched: $pat)  -> ${first_line}")
+      fi
     fi
   done
 done <<< "$FILE_LIST"

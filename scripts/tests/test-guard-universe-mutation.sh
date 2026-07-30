@@ -28,7 +28,7 @@
 #  10. UNRESOLVABLE         — a readFileSync(runtimeVar) test → FLAGGED unresolvable, un-ruled → FAIL (never silently dropped)
 set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || { echo "FATAL: cannot cd to $REPO_ROOT" >&2; exit 2; }
 RUNNER="scripts/massu-gate-anti-vacuity.sh"
 REG="scripts/lib/gate-registry.json"
 REASONS="scripts/lib/exempt-reasons.json"
@@ -51,7 +51,24 @@ fi
 SNAP="$(mktemp -d)"; cp -p "$REG" "$SNAP/reg.json"; cp -p "$REASONS" "$SNAP/reasons.json"
 drop_probe(){ git reset -q -- "$1" 2>/dev/null || true; rm -f "$1"; }
 restore(){ cp -p "$SNAP/reg.json" "$REG"; cp -p "$SNAP/reasons.json" "$REASONS"; for p in "${PROBES[@]}"; do drop_probe "$p"; done; }
-trap 'restore; rm -rf "$SNAP"' EXIT
+# A FUNCTION, not an inline trap string. The previous form inlined a call to `restore`, a
+# separator, and a recursive force-delete of the snapshot dir all inside ONE quoted trap
+# argument — putting a shell metacharacter beside a destructive token in a single literal,
+# the shape G25/CR-88 forbids,
+# and the payload-safety gate correctly flagged it. This is real cleanup rather than a test
+# payload, so it was never weaponizable by a plant; the fix is still worth making, because a
+# scanner that has to distinguish "cleanup" from "payload" by intent is a scanner people learn
+# to argue with.
+#
+# `${SNAP:?}` is the G17/CR-77 half: if SNAP were ever empty or unset this aborts LOUDLY
+# instead of running `rm -rf ""`. `set -u` does NOT cover this — SNAP would be SET-and-empty
+# if mktemp failed, and empty is exactly the value that widens a delete to its parent.
+# shellcheck disable=SC2329  # invoked indirectly by `trap cleanup EXIT` below
+cleanup() {
+  restore
+  rm -rf "${SNAP:?cleanup: SNAP is empty/unset — refusing to rm}"
+}
+trap cleanup EXIT
 
 # CAPTURE-then-here-string: `<producer> | grep -q` short-circuits under `set -o pipefail` (grep -q
 # exits on match → SIGPIPE to the runner → pipeline non-zero → the `&&` never fires). That is the
@@ -121,11 +138,11 @@ PY
 }
 CR_NAMED="packages/core/src/__tests__/ci-prepush-parity.test.ts"
 restore; exempt_append "$(printf '{"path":"%s","reason":"laundering","hash":"sha256:x"}' "$CR_NAMED")"; run_comp
-comp_has '\(i\) a CR-named' && _ok "EXEMPT (i): CR-named guard in exempt → FAIL" || _bad "EXEMPT (i): not caught"
+if comp_has '\(i\) a CR-named'; then _ok "EXEMPT (i): CR-named guard in exempt → FAIL"; else _bad "EXEMPT (i): not caught"; fi
 restore; exempt_append '{"path":"packages/core/src/__tests__/__nope.test.ts","reason":"x","hash":"sha256:x"}'; run_comp
-comp_has '\(ii\) stale' && _ok "EXEMPT (ii): stale exempt path → FAIL" || _bad "EXEMPT (ii): not caught"
+if comp_has '\(ii\) stale'; then _ok "EXEMPT (ii): stale exempt path → FAIL"; else _bad "EXEMPT (ii): not caught"; fi
 restore; exempt_append '{"path":"scripts/tests/test-run-logged.sh","reason":"   ","hash":"sha256:x"}'; run_comp
-comp_has '\(iii\) empty' && _ok "EXEMPT (iii): empty reason → FAIL" || _bad "EXEMPT (iii): not caught"
+if comp_has '\(iii\) empty'; then _ok "EXEMPT (iii): empty reason → FAIL"; else _bad "EXEMPT (iii): not caught"; fi
 restore
 python3 - <<PY
 import json
@@ -135,7 +152,7 @@ for e in reg.get("exempt",[]):
 json.dump(reg,open("$REG","w"),indent=2)
 PY
 run_comp
-comp_has '\(iv\) content-hash mismatch' && _ok "EXEMPT (iv): hash mismatch → FAIL" || _bad "EXEMPT (iv): not caught"
+if comp_has '\(iv\) content-hash mismatch'; then _ok "EXEMPT (iv): hash mismatch → FAIL"; else _bad "EXEMPT (iv): not caught"; fi
 restore
 
 # FINAL: registry + reasons byte-identical to snapshot; no probe leaked.

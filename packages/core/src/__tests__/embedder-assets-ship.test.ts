@@ -53,8 +53,15 @@ describe('P5-002: embedder asset-ship drift-guard', () => {
     );
   });
 
-  it('when dist is built, dist/embedder holds the copied model + vocab', () => {
-    if (!existsSync(DIST_ASSETS_DIR)) return; // not built in this env — P6-001 gate covers the built case
+  it('dist/embedder holds the copied model + vocab after build:assets', () => {
+    // FAIL CLOSED (G-1, plan-2026-07-26-anti-vacuity-9-unproven-gates): the previous
+    // `return` made "assets were never copied" and "both assets are present" report
+    // the same PASS, which is the only state this test exists to tell apart.
+    expect(
+      existsSync(DIST_ASSETS_DIR),
+      `${DIST_ASSETS_DIR} missing — the shipped embedder assets cannot be checked. ` +
+        'Run "npm run build:assets" (packages/core). Do NOT restore the skip.',
+    ).toBe(true);
     for (const f of ['model_quantized.onnx', 'vocab.txt']) {
       expect(existsSync(join(DIST_ASSETS_DIR, f)), `dist/embedder/${f} must exist post-build`).toBe(
         true,

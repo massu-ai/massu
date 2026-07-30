@@ -150,12 +150,13 @@ describe.skipIf(!IS_INTERNAL_REPO)('coverage-floor-monotonic (P0-005 ratchet dri
     ).toEqual([...PINNED_CORE_COVERAGE_EXCLUDE].sort());
   });
 
-  it('no floor is lowered vs the value committed in HEAD (monotonic ratchet)', () => {
+  it('no floor is lowered vs the value committed in HEAD (monotonic ratchet)', (ctx) => {
     const floors = readFloors();
     const prior = readPriorFloors();
     if (prior === null) {
       // Bootstrap commit (coverage-floors.json absent in HEAD) — no prior floor.
-      return;
+      // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): only knowable at run time (it is a `git show` result), so SKIPPED.
+      ctx.skip();
     }
     const lowered: string[] = [];
     for (const [key, floor] of Object.entries(floors)) {

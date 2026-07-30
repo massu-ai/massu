@@ -58,14 +58,16 @@ function parseFrontmatter(content: string): Record<string, string> {
   return out;
 }
 
+// G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates) — ADJUDICATED environment-conditional: the memory store lives OUTSIDE the
+// repo (~/.claude/projects/<encoded>/memory) and is absent on CI and fresh clones.
+// Resolved once at module scope so `it.skipIf` adjudicates at collection time and
+// vitest reports SKIPPED. All four tests used to `return`, reporting PASSED for a
+// corpus they had never opened.
+const MEMORY_DIR = resolveMemoryDir();
+
 describe('auto-learning source-tag drift-guard (P-E-005)', () => {
-  it('every feedback_*.md last_updated >= 2026-05-20 has a `source:` field', () => {
-    const memoryDir = resolveMemoryDir();
-    if (!memoryDir) {
-      // eslint-disable-next-line no-console
-      console.log('[source-tag] memory dir not found, skipping');
-      return;
-    }
+  it.skipIf(!MEMORY_DIR)('every feedback_*.md last_updated >= 2026-05-20 has a `source:` field', () => {
+    const memoryDir = MEMORY_DIR!;
     const feedbackFiles = readdirSync(memoryDir).filter(f => /^feedback_.+\.md$/.test(f));
     const violations: Array<{ file: string; lastUpdated: string }> = [];
 
@@ -82,9 +84,8 @@ describe('auto-learning source-tag drift-guard (P-E-005)', () => {
     expect(violations).toEqual([]);
   });
 
-  it('source field, when present, is one of {interactive, post-loop-reflection}', () => {
-    const memoryDir = resolveMemoryDir();
-    if (!memoryDir) return;
+  it.skipIf(!MEMORY_DIR)('source field, when present, is one of {interactive, post-loop-reflection}', () => {
+    const memoryDir = MEMORY_DIR!;
     const feedbackFiles = readdirSync(memoryDir).filter(f => /^feedback_.+\.md$/.test(f));
     const violations: Array<{ file: string; source: string }> = [];
 
@@ -100,15 +101,11 @@ describe('auto-learning source-tag drift-guard (P-E-005)', () => {
     expect(violations).toEqual([]);
   });
 
-  it('v0.2 marker feedback file is present + tagged source: post-loop-reflection', () => {
-    const memoryDir = resolveMemoryDir();
-    if (!memoryDir) return;
+  it.skipIf(!MEMORY_DIR)('v0.2 marker feedback file is present + tagged source: post-loop-reflection', (ctx) => {
+    const memoryDir = MEMORY_DIR!;
     const target = join(memoryDir, 'feedback_v0_2_interactive_rule_approval.md');
-    if (!existsSync(target)) {
-      // eslint-disable-next-line no-console
-      console.log('[source-tag] v0.2 feedback file not yet shipped in this branch');
-      return;
-    }
+    // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): whether this branch ships the marker file is only knowable at run time.
+    if (!existsSync(target)) ctx.skip();
     const content = readFileSync(target, 'utf-8');
     expect(content).toMatch(/source:\s*(interactive|post-loop-reflection)/);
   });

@@ -65,8 +65,12 @@ describe('CR-71 workspace ↔ @massu/core dependency + engine + lockfile coheren
     for (const field of ['dependencies', 'peerDependencies', 'devDependencies'] as const) {
       const range = pkg[field]?.['@massu/core'];
       if (!range) continue;
-      it(`${name}: ${field}["@massu/core"] "${range}" must satisfy core ${CORE_VERSION}`, () => {
-        if (range.startsWith('workspace:') || range.startsWith('file:')) return;
+      // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): `workspace:`/`file:` ranges are coherent BY CONSTRUCTION (they resolve to
+      // the local core), and `range` is known at collection time — so this is
+      // it.skipIf, reported SKIPPED, not a `return` reported as a satisfied range.
+      it.skipIf(range.startsWith('workspace:') || range.startsWith('file:'))(
+        `${name}: ${field}["@massu/core"] "${range}" must satisfy core ${CORE_VERSION}`,
+        () => {
         // NO includePrerelease — the guard must mirror npm's ACTUAL resolver (standard semver): a
         // prerelease core (e.g. 2.2.1-dev.0) does NOT satisfy `>=2.0.0` in `npm ci`, so the guard
         // must agree, or it would read green while `npm ci` ERESOLVEs (the exact class this closes).
@@ -78,9 +82,13 @@ describe('CR-71 workspace ↔ @massu/core dependency + engine + lockfile coheren
     //     must be a SUPERSET of core's. Core's floor must satisfy the workspace range, and the
     //     workspace must not exclude any major core allows (an adapter `<26` cap vs core-uncapped
     //     was a real EBADENGINE leak to customers on Node 26).
-    it(`${name}: engines.node must be a superset of core engines.node (${CORE_ENGINE ?? 'n/a'})`, () => {
+    // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): both operands are known at collection time -> skipIf, reported SKIPPED.
+    // A workspace that declares no engines.node, or a core that declares none, cannot
+    // be checked for superset-ness; that is a genuine absence, not a passing check.
+    it.skipIf(!pkg.engines?.node || !CORE_ENGINE)(
+      `${name}: engines.node must be a superset of core engines.node (${CORE_ENGINE ?? 'n/a'})`,
+      () => {
       const wsEngine = pkg.engines?.node;
-      if (!wsEngine || !CORE_ENGINE) return;
       const coreMin = semver.minVersion(CORE_ENGINE);
       expect(coreMin).not.toBeNull();
       expect(semver.satisfies(coreMin!.version, wsEngine)).toBe(true);
@@ -98,12 +106,19 @@ describe('CR-71 workspace ↔ @massu/core dependency + engine + lockfile coheren
   //     floor. CI's Test + Anti-Vacuity jobs were pinned to Node 20 while core's 2.0.0 default
   //     engine (`node:sqlite`) needs >=22.16 — so those jobs failed "No such built-in module:
   //     node:sqlite" the moment `npm ci` was fixed enough for them to run (incident 2026-07-23).
-  it('every literal node-version pin in .github/workflows/*.yml is >= core engines.node floor', () => {
-    if (!CORE_ENGINE) return;
+  // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): CORE_ENGINE is a collection-time value -> skipIf. `.github/workflows`, by
+  // contrast, is a REPO INVARIANT present in both the internal tree and the public
+  // mirror (`sync-public.sh` writes ci.yml into it) — its absence means REPO_ROOT
+  // resolved wrong and the scan covered nothing, so that one FAILS CLOSED.
+  it.skipIf(!CORE_ENGINE)('every literal node-version pin in .github/workflows/*.yml is >= core engines.node floor', () => {
     const floor = semver.minVersion(CORE_ENGINE);
     expect(floor).not.toBeNull();
     const wfDir = resolve(REPO_ROOT, '.github', 'workflows');
-    if (!existsSync(wfDir)) return;
+    expect(
+      existsSync(wfDir),
+      `${wfDir} missing — REPO_ROOT resolved wrong, so ZERO workflow files were ` +
+        'scanned for node-version pins. Do NOT restore the skip.',
+    ).toBe(true);
     const offenders: string[] = [];
     for (const f of readdirSync(wfDir).filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'))) {
       const text = readFileSync(resolve(wfDir, f), 'utf-8');

@@ -44,7 +44,7 @@ describe('cloud-sync AbortController (DG-3)', () => {
     if (db) db.close();
   });
 
-  it('aborts a hanging fetch within 1s when the endpoint never responds', async () => {
+  it('aborts a hanging fetch without retrying when the endpoint never responds', async () => {
     // Mock fetch to hang forever — simulates unreachable endpoint.
     // AbortSignal.timeout should fire and reject after requestTimeoutMs.
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((_url, opts) => {
@@ -61,16 +61,17 @@ describe('cloud-sync AbortController (DG-3)', () => {
       });
     });
 
-    const start = Date.now();
     const result = await syncToCloud(db, {
       sessions: [{ local_session_id: 'test' }],
     });
-    const elapsedMs = Date.now() - start;
 
     expect(result.success).toBe(false);
-    // Single-shot abort + no retry on AbortError → well under 1s
-    expect(elapsedMs).toBeLessThan(1_000);
-    expect(fetchSpy).toHaveBeenCalled();
+    // The property the old `elapsedMs < 1000` stood for is SINGLE-SHOT: an
+    // AbortError must not be retried. Attempt-counting states that directly and
+    // does not depend on how loaded the machine is. It is also stronger — a
+    // retry loop that happened to finish inside a second would have passed the
+    // wall-clock form and fails this one.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
     // Verify signal was passed
     const callOpts = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
     expect(callOpts?.signal).toBeDefined();
@@ -104,7 +105,7 @@ describe('cloud-sync AbortController (DG-3)', () => {
       },
     } as ReturnType<typeof configModule.getConfig>);
 
-    vi.spyOn(globalThis, 'fetch').mockImplementation((_url, opts) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((_url, opts) => {
       return new Promise((_resolve, reject) => {
         const signal = (opts as RequestInit | undefined)?.signal;
         if (signal) {
@@ -117,12 +118,17 @@ describe('cloud-sync AbortController (DG-3)', () => {
       });
     });
 
-    const start = Date.now();
+    // The configured value must reach `AbortSignal.timeout()`. The old
+    // `elapsedMs < 500` only inferred this from how fast the call came back,
+    // which a busy machine breaks and a hardcoded 400ms would have satisfied
+    // just as well. Observing the argument asserts the config knob itself.
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+
     const result = await syncToCloud(db, { sessions: [{ local_session_id: 'test' }] });
-    const elapsedMs = Date.now() - start;
 
     expect(result.success).toBe(false);
-    // 50ms timeout + abort handling — should be very fast
-    expect(elapsedMs).toBeLessThan(500);
+    expect(timeoutSpy).toHaveBeenCalledWith(50);
+    // Single-shot: an AbortError is not retried.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });

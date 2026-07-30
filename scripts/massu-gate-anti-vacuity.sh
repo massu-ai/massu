@@ -84,6 +84,14 @@ done
 
 FAILURES=0
 PROVEN=0
+# Gates whose PLANT TARGET was dirty, so their proof could not run. Counted as
+# failures (a proof that did not run is not a pass) but reported rather than aborting.
+DIRTY_SKIPPED=0
+DIRTY_GATES=""
+# Gates whose PLANT TARGET was absent (a missing build, or a probe's deliberate
+# withdrawal). Same contract as DIRTY: reported and counted, never a silent pass.
+ABSENT_SKIPPED=0
+ABSENT_GATES=""
 
 # ── Scratch pristine copy of the tree (once) ────────────────────────────────────────────
 TMP="$(mktemp -d)"
@@ -350,6 +358,12 @@ fi
 
 if [ "$COMPLETENESS_ONLY" -eq 1 ]; then
   echo
+  # X-1: the precondition preflight runs on the DEFEAT path ONLY, and its suppression here is
+  # ANNOUNCED rather than inferred (G11 — name the switch). `--completeness-only` runs no gate,
+  # so it needs no artifact; a preflight above this exit would exit 2 on every fresh clone and
+  # brick pre-push [22/22] plus both mutation scripts, which is CR-72's brick direction on the
+  # mechanism this plan calls the one that matters most.
+  echo "  preflight       : NOT RUN (--completeness-only runs no gate, so it requires no artifact)"
   [ "$FAILURES" -gt 0 ] && { echo "${RED}FAIL${NC}: $FAILURES registry-level gate(s) failed."; exit 1; }
   echo "${GREEN}PASS${NC}: registry-level gates green."; exit 0
 fi
@@ -398,6 +412,130 @@ if [ -z "$GATE_IDS" ] && [ -z "$GUARD_GATE_IDS" ]; then
   echo "${RED}FATAL${NC}: no gates selected — refusing to exit 0 on an empty run." >&2
   exit 2
 fi
+
+# ── X-1 PRECONDITION PREFLIGHT ──────────────────────────────────────────────────────────
+#
+# A gate whose proof needs an artifact the job never built is NOT decoration, and must never
+# be reported in the words used for decoration. This asserts the SELECTED gates' declared
+# `requires[]` before any of them runs, and fails LOUD naming each unmet one AND its remedy.
+#
+# SCOPED TO THE SELECTED SET, not the registry-wide union. `--gate`/`--like` take this same
+# DEFEAT path; a registry-wide union would exit 2 at all four `--gate` sites in
+# test-anti-vacuity-runner-mutation.sh the moment ANY annotated gate's precondition is unmet,
+# whether or not that gate is selected — reddening a registry `self-proving` gate that is also
+# an anti-vacuity job step, on a tree where nothing it tests is broken.
+#
+# ANTI-LAUNDERING: an unmet precondition is FATAL for the whole sweep (exit 2). There is no
+# per-gate skip, and PRECONDITION MISSING is counted in NEITHER `proven` NOR `failures`.
+# INJECTABLE, so the ADJUDICATOR can measure without being constrained by its own prior
+# conclusions. `scripts/ops/probe-gate-requires.sh` discovers which gates require which
+# artifacts by WITHDRAWING an artifact and observing which gates go red — but once its
+# output is in place, this preflight sees that same artifact declared as required and
+# FATALs the sweep before a single gate runs, emitting zero verdicts.
+#
+# Measured 2026-07-28: the probe succeeded exactly once, against an empty ledger
+# (`dc29151b`: requires=0, probed=false). Re-running it after `6c52ae9f` populated 14
+# annotations aborted on the first withdrawal — so the adjudicator was ONE-SHOT, and every
+# future gate addition would have hit the same wall.
+#
+# Default is unchanged for every real caller; only the probe overrides it.
+REQUIRES_SOT="${MASSU_REQUIRES_SOT:-$REPO_ROOT/scripts/lib/gate-requires.json}"
+if [ ! -r "$REQUIRES_SOT" ]; then
+  echo "${RED}FATAL${NC}: cannot read $REQUIRES_SOT — refusing to run gates with an unknown" >&2
+  echo "       precondition contract. A missing SoT is an ERROR, never an empty one (M2)." >&2
+  exit 2
+fi
+PREFLIGHT_OUT=$(python3 - "$REQUIRES_SOT" "$REGISTRY" "$(echo $GATE_IDS $GUARD_GATE_IDS)" <<'PY'
+import json, os, subprocess, sys
+
+sot_path, reg_path, selected_blob = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    sot = json.load(open(sot_path))
+    reg = json.load(open(reg_path))
+except (OSError, json.JSONDecodeError) as exc:
+    print(f"__FATAL__\tunreadable precondition contract: {exc}")
+    raise SystemExit(0)
+
+vocab = sot.get("vocabulary") or {}
+requires = sot.get("requires") or {}
+if not vocab:
+    print("__FATAL__\tvocabulary is EMPTY — refusing to validate against nothing (M1)")
+    raise SystemExit(0)
+
+all_gate_ids = [g["id"] for g in reg["gates"]]
+selected = [g for g in selected_blob.split() if g]
+
+# (a) VALIDATE THE WHOLE REGISTRY, and report the validator's OWN denominator. A validator
+#     scoped to the gates it happens to reach passes the unknown-value test while never
+#     looking at the rest — so N < M is a hard error, not a smaller number.
+validated = 0
+unknown = []
+for gid in all_gate_ids:
+    validated += 1
+    for name in requires.get(gid, []):
+        if name not in vocab:
+            unknown.append((gid, name))
+print(f"__VALIDATED__\t{validated}\t{len(all_gate_ids)}")
+if unknown:
+    for gid, name in unknown:
+        print(f"__UNKNOWN__\t{gid}\t{name}")
+    raise SystemExit(0)
+
+# A ledger id that no longer exists in the registry is drift, not a skip.
+for gid in requires:
+    if gid not in set(all_gate_ids):
+        print(f"__STALE__\t{gid}")
+
+# (b) The union is taken over the SELECTED gates only.
+needed = {}
+for gid in selected:
+    for name in requires.get(gid, []):
+        needed.setdefault(name, []).append(gid)
+print(f"__SCOPE__\t{len(needed)}\t{len(selected)}")
+
+for name in sorted(needed):
+    spec = vocab[name]
+    rc = subprocess.run(["bash", "-c", spec["probe"]], capture_output=True).returncode
+    if rc != 0:
+        print(f"__UNMET__\t{name}\t{spec['remedy']}\t{len(needed[name])}\t{needed[name][0]}")
+PY
+)
+if [ -z "$PREFLIGHT_OUT" ]; then
+  echo "${RED}FATAL${NC}: the precondition preflight produced NO output — a check that cannot" >&2
+  echo "       report what it looked at has not looked (M1)." >&2
+  exit 2
+fi
+while IFS=$'\t' read -r tag a b c d; do
+  case "$tag" in
+    __FATAL__)     echo "${RED}FATAL${NC}: precondition contract unusable — $a" >&2; exit 2 ;;
+    __VALIDATED__)
+      echo "  validated $a of $b registry gates against the requires[] vocabulary"
+      if [ "$a" -lt "$b" ]; then
+        echo "${RED}FATAL${NC}: the requires[] validator saw $a of $b gates — a validator that" >&2
+        echo "       did not read every gate cannot report a clean vocabulary (M1)." >&2
+        exit 2
+      fi ;;
+    __UNKNOWN__)
+      echo "${RED}FATAL${NC}: unknown requires value '$b' on gate $a." >&2
+      echo "       A closed vocabulary that ignores what it does not recognise swallows its" >&2
+      echo "       own input (G3). Add it to scripts/lib/gate-requires.json or remove it." >&2
+      exit 2 ;;
+    __STALE__)
+      echo "${RED}FATAL${NC}: gate-requires.json annotates '$a', which is not in the registry." >&2
+      echo "       Re-run scripts/ops/probe-gate-requires.sh --write." >&2
+      exit 2 ;;
+    __SCOPE__)     echo "  preflight       : $a requirement(s) over $b selected gate(s)" ;;
+    __UNMET__)
+      echo
+      echo "${RED}PRECONDITION MISSING${NC}: $a — NOT SATISFIED."
+      echo "  remedy : $b"
+      echo "  blocks : $c selected gate(s), e.g. $d"
+      echo
+      echo "${RED}FATAL${NC}: this sweep cannot judge those gates. They are NOT decoration and are" >&2
+      echo "       counted in neither 'proven can-fail' nor 'failures' — the artifact is missing." >&2
+      exit 2 ;;
+  esac
+done <<< "$PREFLIGHT_OUT"
 
 # ── Detect a copy-on-write clone flag so 100+ full-tree copies are near-free (APFS/reflink) ─
 # macOS BSD cp: `-c` (clonefile). GNU cp: `--reflink=auto`. Fall back to a plain deep copy.
@@ -639,14 +777,99 @@ if [ -n "$GUARD_GATE_IDS" ]; then
     echo "${RED}FATAL${NC}: missing $GUARD_EXEC — cannot run guard-kind proofs." >&2; exit 2
   fi
   for gid in $GUARD_GATE_IDS; do
-    if python3 "$GUARD_EXEC" --registry "$REGISTRY" --repo-root "$REPO_ROOT" --gate "$gid"; then
+    # RE-CHECK the executor EVERY iteration, not just once up front. A guard's
+    # own defeat run can destroy the tree it runs in (a planted defect can make
+    # a test file's payload live), and `python3 <missing-file>` ALSO exits 2 —
+    # the same code the executor uses for "dirty tree / leaked restore". Before
+    # this re-check, a vanished executor was reported as a dirty tree: a
+    # confident, specific, WRONG diagnosis that pointed away from the real
+    # cause for two full CI runs (30139986763, 30187340635). Distinguishing the
+    # two is the difference between "your restore leaked" and "something just
+    # deleted this checkout".
+    if [ ! -f "$GUARD_EXEC" ]; then
+      echo "${RED}FATAL${NC}: $GUARD_EXEC VANISHED mid-sweep (was present at start, gone before $gid)." >&2
+      echo "        The working tree is being destroyed BY the sweep. Do NOT re-run this locally:" >&2
+      echo "        a planted defect can make a test's own payload execute. Inspect the last" >&2
+      echo "        OK guard above — its plant is the prime suspect." >&2
+      exit 2
+    fi
+    # X-3 (plan-2026-07-26-anti-vacuity-9-unproven-gates): CAPTURE the executor's output,
+    # RE-EMIT it, then discriminate on its text. This invocation used to run bare, so
+    # inside the exit-2 branch only `$?` was in scope and EVERY exit 2 — no such gate,
+    # tree already dirty, unknown kind/recipe, restore leak, and now PLANT TARGET ABSENT
+    # — was rendered as "dirty tree / leaked restore". A missing BUILD therefore surfaced
+    # in CI as a dirty-tree accusation and aborted the sweep before the summary, naming a
+    # cause that was not the cause. anti-vacuity-plant-payload-safety.test.ts:140-141
+    # records the same conflation disguising a deletion as a restore leak for two CI runs.
+    # A bare $(…) capture would fix the discrimination and DELETE the executor's lines
+    # from the job log — the only place they appear — so it is re-emitted first.
+    gout="$(python3 "$GUARD_EXEC" --registry "$REGISTRY" --repo-root "$REPO_ROOT" --gate "$gid" 2>&1)"
+    gec=$?
+    printf '%s\n' "$gout"
+    if [ "$gec" -eq 0 ]; then
       PROVEN=$((PROVEN + 1))
+    elif [ "$gec" -eq 2 ]; then
+      case "$gout" in
+        *"PLANT TARGET ABSENT"*)
+          # REPORTED, NOT ABORTING — same treatment as the dirty case above, and for
+          # the same reason: one gate's unavailable input says nothing about the other
+          # 400, so aborting made it un-provable-by-proxy for the entire registry.
+          #
+          # MEASURED 2026-07-28, and the cost was the whole point of fixing it. The
+          # requires[] probe adjudicates by WITHDRAWING a build artifact and re-sweeping,
+          # so an absent plant target is the DELIBERATE, EXPECTED condition of every
+          # withdrawal sweep. Aborting on it truncated each sweep to 12 verdicts against
+          # a 267-verdict baseline; the 255 unjudged gates then all read as "differing",
+          # producing 241 candidates that per-item confirmation spent ~an hour refuting
+          # down to 1 — per requirement, six requirements, ~6 hours a run. The gate that
+          # aborted the sweep was adapter-bundle-reproducibility.test.ts: the single TRUE
+          # dependent of the artifact being withdrawn. The probe found its answer and
+          # then destroyed its ability to measure anything else.
+          #
+          # It stays a FAILURE (counted, non-zero exit) — a proof that could not run is
+          # never a pass. For an ordinary CI sweep this is now strictly MORE informative:
+          # you learn every missing artifact in one run instead of only the first.
+          ABSENT_SKIPPED=$((ABSENT_SKIPPED + 1))
+          ABSENT_GATES="${ABSENT_GATES}${ABSENT_GATES:+$'\n'}  $gid"
+          echo "${YELLOW}UNPROVEN${NC} [$gid] plant target ABSENT — proof could not run. Build the artifact (e.g. \`npm run build\`) and re-run." >&2
+          FAILURES=$((FAILURES + 1))
+          continue ;;
+        *"target tree already dirty"*)
+          # REPORTED, NOT ABORTING — and this one case only.
+          #
+          # A dirty plant target says nothing about the OTHER gates, so aborting the
+          # whole sweep for it made one uncommitted file un-provable-by-proxy for
+          # every gate in the registry. That created a cycle with no legal ordering:
+          # adding a gate makes invariant 3c red (registry > gates_probed), 3c blocks
+          # `npm test` and therefore the commit, the fix is to re-probe — and the probe
+          # runs this sweep, which aborted on the very file the commit would have
+          # cleaned. Hit 2026-07-28 registering the suite-requires-build guard, whose
+          # plant target is the ci.yml being changed in the same batch.
+          #
+          # It stays a FAILURE (counted below, non-zero exit): a gate whose proof could
+          # not run must never read as proven — that is the blind-gate law and it is
+          # not negotiable. What changes is blast radius: this gate is named and
+          # counted, the rest of the sweep still executes. Every OTHER exit-2 cause
+          # (absent plant target, leaked restore, unknown recipe, unrecognised) still
+          # aborts, because each of those means the harness itself is untrustworthy.
+          DIRTY_SKIPPED=$((DIRTY_SKIPPED + 1))
+          DIRTY_GATES="${DIRTY_GATES}${DIRTY_GATES:+$'\n'}  $gid"
+          echo "${YELLOW}UNPROVEN${NC} [$gid] plant target is DIRTY — proof could not run. Commit that file and re-run." >&2
+          FAILURES=$((FAILURES + 1))
+          continue ;;
+        *"LEAKED changes into the working tree"*)
+          echo "${RED}FATAL${NC}: guard defeat ABORTED for $gid — the proof LEAKED changes into the tree (restore incomplete)." >&2 ;;
+        *"no gate "*)
+          echo "${RED}FATAL${NC}: guard defeat ABORTED for $gid — the registry has no gate with that id." >&2 ;;
+        *"unknown kind/recipe"*)
+          echo "${RED}FATAL${NC}: guard defeat ABORTED for $gid — unknown kind/recipe in its registry row." >&2 ;;
+        *)
+          # A closed vocabulary silently swallows what it did not anticipate (G3), so the
+          # unmatched case is LOUD and points at the re-emitted text rather than guessing.
+          echo "${RED}FATAL${NC}: guard defeat ABORTED for $gid — executor exit 2 with an UNRECOGNISED cause. Its output is directly above; do not infer a cause from this line." >&2 ;;
+      esac
+      exit 2
     else
-      gec=$?
-      if [ "$gec" -eq 2 ]; then
-        echo "${RED}FATAL${NC}: guard defeat ABORTED (dirty tree / leaked restore) for $gid — refusing to continue." >&2
-        exit 2
-      fi
       FAILURES=$((FAILURES + 1))
     fi
   done
@@ -695,6 +918,16 @@ fi
 echo
 echo "═════════════════════════════════════════════════════════════════════"
 echo "  proven can-fail : $PROVEN"
+if [ "$ABSENT_SKIPPED" -gt 0 ]; then
+  echo "  UNPROVEN (plant target absent) : $ABSENT_SKIPPED"
+  printf '%s\n' "$ABSENT_GATES"
+  echo "  ^ these gates were NOT proven. Build the missing artifact(s) and re-run."
+fi
+if [ "$DIRTY_SKIPPED" -gt 0 ]; then
+  echo "  UNPROVEN (dirty plant target) : $DIRTY_SKIPPED"
+  printf '%s\n' "$DIRTY_GATES"
+  echo "  ^ these gates were NOT proven. Commit the listed plant target(s) and re-run."
+fi
 echo "  failures        : $FAILURES"
 if [ "$FAILURES" -gt 0 ]; then
   echo "${RED}FAIL${NC}: $FAILURES gate(s) are not proven. A gate that cannot fail is not a gate."

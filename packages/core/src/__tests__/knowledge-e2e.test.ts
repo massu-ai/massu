@@ -182,20 +182,24 @@ describe('Graceful Degradation', () => {
 });
 
 describe('Plan Documents in Index', () => {
-  it('plan documents appear in FTS search results when plans exist', () => {
+  it('plan documents appear in FTS search results when plans exist', (ctx) => {
     const docCount = (db.prepare('SELECT COUNT(*) as cnt FROM knowledge_documents').get() as { cnt: number }).cnt;
     if (docCount === 0) indexAllKnowledge(db);
 
     const planDocs = db.prepare("SELECT COUNT(*) as cnt FROM knowledge_documents WHERE category = 'plan'").get() as { cnt: number };
 
-    // Plans directory may not exist in all environments (e.g., public repo clone)
+    // Plans directory may not exist in all environments (e.g., public repo clone).
+    // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): this is a genuine environment skip, but it was a `return` reported as
+    // PASSED — so "the indexer stopped indexing plans" looked identical to "there
+    // are no plans to index". ctx.skip() renders it SKIPPED. Note the asymmetry the
+    // original logic already encoded and must keep: a plans DIRECTORY that exists
+    // while the index holds zero plan docs is a REAL failure and falls through.
     if (planDocs.cnt === 0) {
-      // Verify no plans dir exists — if it does, this is a real failure
       const { existsSync } = require('fs');
       const { resolve } = require('path');
       const plansDir = resolve(__dirname, '../../../../docs/plans');
       if (!existsSync(plansDir)) {
-        return; // Skip — no plans directory in this environment
+        ctx.skip();
       }
     }
 

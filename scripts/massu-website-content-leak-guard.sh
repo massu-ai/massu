@@ -35,6 +35,10 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # leak risk to assert.
 if [ ! -d "$REPO_ROOT/website/content" ]; then
   echo "SKIP: website/content/ scope not present (public-repo or pre-init tree)"
+  # fail-open-approved: scope absence, not check failure. website/ is never
+  # synced to the public mirror, so in that context the directory legitimately
+  # does not exist and there is no content to assert about. Note this is NOT a
+  # licence for C5 generally — the Vercel deploy path is gated separately.
   exit 0
 fi
 

@@ -25,6 +25,13 @@ CLI="$CORE/dist/cli.js"
 skip() { echo "  SKIP (loud): $1"; echo "SKIPPED"; exit 0; }
 fail() { echo "  FAIL: $1" >&2; echo "FAILED"; exit 1; }
 pass() { echo "  PASS: $1"; }
+# G-3 (plan-2026-07-26-anti-vacuity-9-unproven-gates): a PRECONDITION failure is exit 2, and is
+# NOT a verdict about the self-heal path. Distinct from fail() (exit 1 = "the guard is unproven")
+# because the two were being collapsed: on CI the CLI died at ESM module resolution BEFORE ever
+# reaching the self-heal code, and the script reported that as
+# "non-zero exit (1) but no clear remedy in output — loud but unhelpful", i.e. a verdict on a code
+# path that never ran. Exit 2 is what the sweep's executor treats as FATAL/precondition.
+precondition() { echo "  PRECONDITION: $1" >&2; echo "  REMEDY: $2" >&2; echo "FATAL"; exit 2; }
 
 echo "=== test-native-abi-selfheal (CR-65) ==="
 
@@ -54,6 +61,33 @@ BAK="$(mktemp -d)/better_sqlite3.node.bak"
 cp "$BIN" "$BAK" || skip "could not back up the native binary"
 restore() { cp -f "$BAK" "$BIN" 2>/dev/null || true; rm -rf "$(dirname "$BAK")" 2>/dev/null || true; }
 trap restore EXIT
+
+# --- CONTROL, BEFORE any mutation (G-3). --------------------------------------------------------
+# Run the EXACT invocation this test judges, on the UNMUTATED runtime, and require it to succeed.
+#
+# WHY: the verdict branches below distinguish "self-healed" from "failed loudly with a remedy".
+# Both presuppose the process reaches the self-heal path at all. On CI it did not — `dist/cli.js`
+# marks @massu/adapter-* `--external:`, the adapter dist was never built, and the CLI died at ESM
+# module resolution. With no control, that foreign crash was scored as a verdict on the self-heal
+# path ("loud but unhelpful"), which is a statement about code that never executed. A control that
+# fails means the ENVIRONMENT is wrong, not that the guard is unproven — hence exit 2, not 1.
+echo "  --- CONTROL: consolidate --dry-run --json on the UNMUTATED runtime (must succeed) ---"
+CTL_OUT="$(mktemp)"; CTL_ERR="$(mktemp)"
+( cd "$CORE" && node "$CLI" consolidate --dry-run --json ) >"$CTL_OUT" 2>"$CTL_ERR"
+CTL_CODE=$?
+CTL_STDERR="$(cat "$CTL_ERR")"
+rm -f "$CTL_OUT" "$CTL_ERR"
+if [ "$CTL_CODE" -ne 0 ]; then
+  if grep -q "Cannot find package" <<<"$CTL_STDERR"; then
+    precondition \
+      "the CLI cannot resolve a workspace package BEFORE any ABI mutation (exit $CTL_CODE): ${CTL_STDERR:0:220}" \
+      "npm run build:adapters && (cd packages/core && npm run build:bundle-adapters && npm run build:cli)"
+  fi
+  precondition \
+    "the CLI fails on the UNMUTATED runtime (exit $CTL_CODE) — nothing below can be a verdict about the self-heal path: ${CTL_STDERR:0:220}" \
+    "cd packages/core && npm run build:cli   # and check the runtime's native deps"
+fi
+pass "CONTROL: the CLI succeeds before mutation (a later failure is attributable to the ABI plant)"
 
 # --- Force the mismatch: fetch a prebuilt for a DIFFERENT Node ABI. Try a list of
 #     candidate majors (better-sqlite3 only publishes prebuilts for some) and use the

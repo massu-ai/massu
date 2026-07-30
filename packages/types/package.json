@@ -1,7 +1,7 @@
 {
   "name": "@massu/types",
   "version": "1.12.0",
-  "description": "Shared TypeScript types for Massu — single source of truth for tier names, tool names, billing plan IDs, and marketing counts. Re-exported by @massu/core and the Vercel website.",
+  "description": "Shared TypeScript types for Massu \u2014 single source of truth for tier names, tool names, billing plan IDs, and marketing counts. Re-exported by @massu/core and the Vercel website.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,7 +23,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "prepare": "tsc -p tsconfig.json",
-    "prepublishOnly": "cp ../../LICENSE ./LICENSE && npm run build"
+    "prepublishOnly": "cp ../../LICENSE ./LICENSE && npm run build && bash ../../scripts/npm-publish-guard.sh \"$PWD\""
   },
   "devDependencies": {
     "typescript": "^5.4.0"

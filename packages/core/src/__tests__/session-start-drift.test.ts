@@ -66,14 +66,17 @@ function runHook(cwd: string, sessionId = 'test-session'): { stdout: string; std
 
 describe('session-start drift banner', () => {
   beforeAll(() => {
-    if (!existsSync(HOOK)) {
-      // eslint-disable-next-line no-console
-      console.warn(`[session-start-drift.test] ${HOOK} missing; build:hooks not run`);
-    }
+    // FAIL CLOSED (G-1, plan-2026-07-26-anti-vacuity-9-unproven-gates). This used to
+    // warn and let every it() `return`, so the suite reported PASSED while it could
+    // not run the hook at all — and the anti-vacuity sweep scored it as proven.
+    expect(
+      existsSync(HOOK),
+      `${HOOK} missing — this suite cannot exercise the hook and must not report clean. ` +
+        `Run "npm run build:hooks" (packages/core). Do NOT restore the per-test skip.`,
+    ).toBe(true);
   });
 
   it('emits NO banner when config has no stored fingerprint (v1 back-compat)', () => {
-    if (!existsSync(HOOK)) return;
     const dir = stageFixture('ts-nextjs');
     // v1 config (no detection.fingerprint).
     writeFileSync(
@@ -93,7 +96,6 @@ describe('session-start drift banner', () => {
   });
 
   it('emits banner when stored fingerprint does NOT match current', () => {
-    if (!existsSync(HOOK)) return;
     const dir = stageFixture('ts-nextjs');
     writeFileSync(
       resolve(dir, 'massu.config.yaml'),
@@ -114,7 +116,6 @@ describe('session-start drift banner', () => {
   });
 
   it('never throws on malformed config (best-effort)', () => {
-    if (!existsSync(HOOK)) return;
     const dir = stageFixture('ts-nextjs');
     writeFileSync(resolve(dir, 'massu.config.yaml'), 'not: [[\n\tvalid', 'utf-8');
     const { code } = runHook(dir);

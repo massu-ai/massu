@@ -81,9 +81,19 @@ class Snap:
     def cleanup(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+class PlantTargetAbsent(Exception):
+    """The file a `replace` plant targets does not exist.
+
+    X-3 (plan-2026-07-26-anti-vacuity-9-unproven-gates): this used to `continue`, so an
+    ABSENT plant target and an INERT pattern both arrived at the caller as changed==0 and
+    were reported "the mutation is inert". Gate #7 was filed as a rotted pin on that
+    basis when it was a missing BUILD. The two states now have different words."""
+
+
 def apply_plant(repo, plant, snap):
     """plant: list of {path,pattern,replace} OR {write:{path:content}} OR {delete:[paths]}.
-    Returns the number of files actually changed (0 = the mutation was inert → caller FAILs)."""
+    Returns the number of files actually changed (0 = the mutation was inert → caller FAILs).
+    Raises PlantTargetAbsent when a `replace` target is missing (X-3)."""
     changed = 0
     ops = plant if isinstance(plant, list) else [plant]
     for op in ops:
@@ -107,7 +117,8 @@ def apply_plant(repo, plant, snap):
                 elif os.path.exists(p) or os.path.islink(p): os.remove(p); changed += 1
         else:  # replace
             rel = op["path"]; snap.add(rel); p = os.path.join(repo, rel)
-            if not os.path.exists(p): continue
+            if not os.path.exists(p):
+                raise PlantTargetAbsent(rel)
             s = open(p).read(); new = re.sub(op["pattern"], op["replace"], s, flags=re.M)
             if new != s: open(p, "w").write(new); changed += 1
     return changed
@@ -164,7 +175,11 @@ def run(reg_path, repo, gid):
                     print(f"FAIL [{gid}] dist artifact missing after build: {artifact}", file=sys.stderr); return 1
                 base = vitest()
                 if base.returncode != 0:
-                    print(f"FAIL [{gid}] BASELINE: test is RED before planting (a proof against an already-red test proves nothing)", file=sys.stderr); return 1
+                    # X-3: print the tail, as the dist-build (:161) and rebuild (:180)
+                    # branches already do. Without it a CI failure of this shape is
+                    # undiagnosable from the log — gate #9's cause had to be recovered
+                    # by an independent route.
+                    print(f"FAIL [{gid}] BASELINE: test is RED before planting (a proof against an already-red test proves nothing):\n{base.stdout.decode('utf-8','replace')[-1500:]}", file=sys.stderr); return 1
             changed = apply_plant(repo, g["plant"], snap)
             if changed == 0:
                 print(f"FAIL [{gid}] PLANT changed nothing — the mutation is inert", file=sys.stderr); return 1
@@ -227,6 +242,17 @@ def run(reg_path, repo, gid):
             return 1
 
         print(f"FATAL: gate {gid} has unknown kind/recipe: {kind}/{recipe}", file=sys.stderr); return 2
+    except PlantTargetAbsent as e:
+        # X-3: a DISTINCT `FATAL:` prefix, because the consumer discriminates on this
+        # text. Exit 2 already carries four meanings on this channel (no gate :127,
+        # tree already dirty :143, unknown kind/recipe :244, restore leak :256); this
+        # is the fifth, and it is the one that means "rebuild", not "something broke".
+        print(f"FATAL: PLANT TARGET ABSENT: {e} — the gate's plant target does not exist, "
+              f"so the mutation could not be applied. This is a MISSING BUILD or a moved "
+              f"file, NOT an inert pattern and NOT a dirty tree. Build the artifact (e.g. "
+              f"`npm run build`) and re-run, or correct the gate's plant path in the registry.",
+              file=sys.stderr)
+        return 2
     finally:
         snap.restore()
         leak = porcelain(repo, touched)

@@ -27,6 +27,10 @@
  */
 
 import { build } from 'esbuild';
+// The bundling contract's single source of truth, shared with build:cli / build:hooks.
+// Kept as .mjs (not .ts) so `node` can run build-bundles.mjs with no loader; TypeScript
+// resolves it under moduleResolution:bundler and types it from its JSDoc.
+import { EXTERNALS as BUNDLE_EXTERNALS } from './build-config.mjs';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
@@ -57,21 +61,12 @@ const HELPERS = [
   ['types', 'src/detect/adapters/types.ts'],
 ] as const;
 
-// External dependencies — keep in lockstep with build:cli externals so the
-// bundled output references runtime npm deps instead of inlining them.
-const EXTERNALS = [
-  'better-sqlite3',
-  'yaml',
-  'zod',
-  'chokidar',
-  'proper-lockfile',
-  'fsevents',
-  'web-tree-sitter',
-  'tweetnacl',
-  'tar',
-  'smol-toml',
-  'vscode-languageserver-protocol',
-];
+// External dependencies come from the SINGLE source of truth in ./build-config.mjs, which
+// build:cli and build:hooks also consume. This used to be a third hand-maintained copy
+// carrying the comment "keep in lockstep with build:cli externals" — and by 2026-07-29 it
+// had drifted, missing `onnxruntime-web`, `@massu/adapter-rails` and `@massu/adapter-spring`
+// (11 entries against build:cli's 14). Importing removes the lockstep obligation entirely.
+const EXTERNALS = [...BUNDLE_EXTERNALS];
 
 function sha256OfFile(path: string): string {
   const buf = readFileSync(path);

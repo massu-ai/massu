@@ -154,27 +154,29 @@ describe.skipIf(!ENABLED)('adapter manifest round-trip (P-D-001)', () => {
     }
   });
 
-  it('manifest envelope fetched (or offline cache hit)', () => {
+  it('manifest envelope fetched (or offline cache hit)', (ctx) => {
     if (fetchSkipReason) {
-      // Soft skip — registry transient outage shouldn't fail CI.
-      return;
+      // Soft skip — a registry transient outage shouldn't fail CI. G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): the
+      // outcome is decided in beforeAll, so this is a RUN-TIME skip; ctx.skip()
+      // reports SKIPPED instead of a `return` reported as PASSED.
+      ctx.skip();
     }
     expect(envelope).not.toBeNull();
     expect(envelope!.manifest).toBeDefined();
     expect(Array.isArray(envelope!.manifest.adapters)).toBe(true);
   });
 
-  it('every manifest.adapters entry has matching workspace dist sha256', () => {
-    if (fetchSkipReason || !envelope) return;
+  it('every manifest.adapters entry has matching workspace dist sha256', (ctx) => {
+    // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): run-time skip (see above).
+    if (fetchSkipReason || !envelope) ctx.skip();
 
     const adapters = envelope.manifest.adapters;
     if (adapters.length === 0) {
-      // Empty list = first-publish gap window (envelope deployed pre-Stage-C
-      // P-C-006). PASS — no entries to verify means no possible drift.
-      console.warn(
-        '[adapter-manifest-roundtrip] manifest.adapters is empty — first-publish gap window (pre-Stage-C P-C-006). Test PASSES.',
-      );
-      return;
+      // Empty list = first-publish gap window (envelope deployed pre-Stage-C P-C-006).
+      // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): previously a warn + `return` reported as PASSED, i.e. exactly the same
+      // signal as "every adapter's sha256 matched". SKIPPED states it truthfully —
+      // an empty adapter list proves nothing about round-trip integrity.
+      ctx.skip();
     }
 
     for (const entry of adapters) {
@@ -219,8 +221,9 @@ describe.skipIf(!ENABLED)('adapter manifest round-trip (P-D-001)', () => {
     }
   });
 
-  it('manifest signing_key_id matches the registry pubkey id', () => {
-    if (fetchSkipReason || !envelope) return;
+  it('manifest signing_key_id matches the registry pubkey id', (ctx) => {
+    // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): run-time skip (see above).
+    if (fetchSkipReason || !envelope) ctx.skip();
     // Must match registry-pubkey.generated.ts:8 (sha256 prefix 3b6226d0…)
     const EXPECTED_KEY_ID =
       '3b6226d036c472e533110d11a7d0cd2773ce1d7d4f1003517d5bd69c5418ed4c';

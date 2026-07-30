@@ -55,18 +55,50 @@ git -C "$MIRROR_DIR" commit --quiet --allow-empty -m "init"
 #
 # FAIL LOUD if the real hook is missing: "the mirror has no gate" must never be indistinguish-
 # able from "the gate passed" (M2).
-REAL_MIRROR_HOOK="$HOME/massu/.git/hooks/pre-commit"
-if [ -x "$REAL_MIRROR_HOOK" ]; then
-  cp "$REAL_MIRROR_HOOK" "$MIRROR_DIR/.git/hooks/pre-commit"
-  chmod +x "$MIRROR_DIR/.git/hooks/pre-commit"
-  echo "[ci-sync-check] mirrored the real pre-commit gate from $REAL_MIRROR_HOOK"
-else
+# ── COPY THE WHOLE CHAIN, NOT JUST `pre-commit` (regression found 2026-07-30) ─────────────
+# This copied ONLY `pre-commit`, which was correct until 10:56 that day. The payload-safety
+# shim installer then took over `pre-commit` in $HOME/massu and PRESERVED the pre-existing
+# leak guard beside it as `pre-commit.local`, which the shim chains to. So the file this
+# script copied stopped being the leak guard and became a shim whose chain target was left
+# behind — and the proxy went back to exercising ONE of the two gates that can refuse a
+# publication commit, which is the exact defect fbad16d5 existed to close.
+#
+# It regressed WITHOUT ANYONE EDITING THIS FILE: the fix was keyed to a hook LAYOUT, and the
+# layout changed underneath it. Copying `pre-commit*` follows the chain wherever it goes, and
+# the reachability assertion below means a future layout change fails LOUD instead of silently
+# narrowing the proxy again.
+REAL_HOOK_DIR="$HOME/massu/.git/hooks"
+REAL_MIRROR_HOOK="$REAL_HOOK_DIR/pre-commit"
+if [ ! -x "$REAL_MIRROR_HOOK" ]; then
   echo "[ci-sync-check] FAIL: no executable pre-commit gate at $REAL_MIRROR_HOOK." >&2
   echo "  The real mirror's publication gate could not be exercised, so a green result here" >&2
   echo "  would prove nothing about whether a sync can complete. Re-arm it with" >&2
   echo "  the payload-safety hook installer in the automations repo (--apply)" >&2
   exit 1
 fi
+_copied=0
+for _h in "$REAL_HOOK_DIR"/pre-commit*; do
+  [ -f "$_h" ] || continue
+  cp "$_h" "$MIRROR_DIR/.git/hooks/$(basename "$_h")"
+  chmod +x "$MIRROR_DIR/.git/hooks/$(basename "$_h")"
+  _copied=$((_copied + 1))
+done
+echo "[ci-sync-check] mirrored $_copied pre-commit hook file(s) from $REAL_HOOK_DIR"
+
+# ASSERT THE LEAK GUARD IS ACTUALLY REACHABLE. Counting files proves nothing about which
+# gates can run: the whole regression was a copied file that no longer contained the guard.
+# So grep the copied CHAIN for the guard's entry point and fail closed when it is absent —
+# "the guard is not in the chain" must never look like "the guard passed" (M2).
+if ! grep -rqs 'massu-public-leak-guard\.sh' "$MIRROR_DIR/.git/hooks/"; then
+  echo "[ci-sync-check] FAIL: the copied pre-commit chain does NOT reach the public leak" >&2
+  echo "  guard (no massu-public-leak-guard.sh reference in $MIRROR_DIR/.git/hooks/)." >&2
+  echo "  This proxy would then exercise only payload-safety — ONE of the two gates that" >&2
+  echo "  can refuse a publication commit — and report exit 0 while the real sync fails." >&2
+  echo "  That is precisely the defect fbad16d5 closed; it regressed once already when the" >&2
+  echo "  hook layout changed. Check $REAL_HOOK_DIR for a chained pre-commit.local." >&2
+  exit 1
+fi
+echo "[ci-sync-check] leak guard is REACHABLE in the copied chain (asserted, not assumed)"
 
 # Step 2: run the sync.
 bash "$REPO_ROOT/scripts/sync-public.sh" "$MIRROR_DIR"

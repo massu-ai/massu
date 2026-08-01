@@ -454,6 +454,12 @@ import { join as join2 } from "path";
 function resolveDbEngine() {
   return process.env[DB_ENGINE_ENV] === "better-sqlite3" ? "better-sqlite3" : DEFAULT_DB_ENGINE;
 }
+function resolveBusyTimeoutMs() {
+  const raw = process.env[DB_BUSY_TIMEOUT_ENV];
+  if (raw === void 0 || raw === "") return DEFAULT_BUSY_TIMEOUT_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_BUSY_TIMEOUT_MS;
+}
 function nodeSqliteCtor() {
   if (!_nodeCtor) _nodeCtor = req2("node:sqlite").DatabaseSync;
   return _nodeCtor;
@@ -475,6 +481,7 @@ function openNodeSqlite(dbPath, opts) {
     enableForeignKeyConstraints: true,
     allowExtension: false
   });
+  raw.exec(`PRAGMA busy_timeout = ${resolveBusyTimeoutMs()}`);
   let savepointSeq = 0;
   const wrapStmt = (sql) => {
     const st = raw.prepare(sql);
@@ -558,12 +565,14 @@ function openNodeSqlite(dbPath, opts) {
   return handle;
 }
 function openBetterSqlite3(dbPath, opts) {
-  return openDatabase(dbPath, opts);
+  const db = openDatabase(dbPath, opts);
+  db.exec(`PRAGMA busy_timeout = ${resolveBusyTimeoutMs()}`);
+  return db;
 }
 function openDatabase2(dbPath, opts = {}) {
   return resolveDbEngine() === "better-sqlite3" ? openBetterSqlite3(dbPath, opts) : openNodeSqlite(dbPath, opts);
 }
-var req2, DEFAULT_DB_ENGINE, DB_ENGINE_ENV, _nodeCtor;
+var req2, DEFAULT_DB_ENGINE, DB_ENGINE_ENV, DEFAULT_BUSY_TIMEOUT_MS, DB_BUSY_TIMEOUT_ENV, _nodeCtor;
 var init_db_driver = __esm({
   "src/db-driver.ts"() {
     "use strict";
@@ -572,6 +581,8 @@ var init_db_driver = __esm({
     req2 = createRequire2(import.meta.url);
     DEFAULT_DB_ENGINE = "node-sqlite";
     DB_ENGINE_ENV = "MASSU_DB_ENGINE";
+    DEFAULT_BUSY_TIMEOUT_MS = 5e3;
+    DB_BUSY_TIMEOUT_ENV = "MASSU_DB_BUSY_TIMEOUT_MS";
     _nodeCtor = null;
   }
 });

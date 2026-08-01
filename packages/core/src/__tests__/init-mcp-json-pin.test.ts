@@ -40,17 +40,22 @@ describe('P-002: .mcp.json version pinning', () => {
 
     const content = readFileSync(mcpPath, 'utf-8');
 
-    // Must contain a pinned reference.
-    expect(content).toMatch(/@massu\/core@\d+\.\d+\.\d+/);
-
-    // Must NOT contain the bare unpinned form (regression guard).
-    // Specifically: the args array must NOT have a bare "@massu/core" entry.
+    // Must PIN A VERSION. AMENDED (plan-2026-08-01 phase B): massu emits either the npx
+    // form (`-y @massu/core@X.Y.Z`) or the version-stable shim form (args `[X.Y.Z]`). The
+    // property P-002 protects is "no drift onto an unpinned @massu/core", and BOTH forms
+    // satisfy it. The old assertion pinned the npx MECHANISM instead (G28).
     const parsed = JSON.parse(content);
     const args = parsed.mcpServers.massu.args as string[];
-    expect(args).toHaveLength(2);
-    expect(args[0]).toBe('-y');
-    expect(args[1]).not.toBe('@massu/core');
-    expect(args[1]).toMatch(/^@massu\/core@\d+\.\d+\.\d+/);
+    if (args[0] === '-y') {
+      expect(args).toHaveLength(2);
+      expect(args[1]).not.toBe('@massu/core');           // the bare unpinned form
+      expect(args[1]).toMatch(/^@massu\/core@\d+\.\d+\.\d+/);
+      expect(content).toMatch(/@massu\/core@\d+\.\d+\.\d+/);
+    } else {
+      expect(args).toHaveLength(1);
+      expect(args[0]).toMatch(/^\d+\.\d+\.\d+/);      // an explicit pinned version
+      expect(content).not.toContain('"@massu/core"');     // never the bare unpinned form
+    }
   });
 
   it('uses the installer\'s own version (matches package.json)', () => {
@@ -67,6 +72,9 @@ describe('P-002: .mcp.json version pinning', () => {
     const content = JSON.parse(readFileSync(mcpPath, 'utf-8'));
     const args = content.mcpServers.massu.args as string[];
 
-    expect(args[1]).toBe(`@massu/core@${pkg.version}`);
+    // AMENDED (plan-2026-08-01 phase B): the shim form carries the version as args[0].
+    // Either way the emitted server MUST name the installer's own version.
+    if (args[0] === '-y') expect(args[1]).toBe(`@massu/core@${pkg.version}`);
+    else expect(args[0]).toBe(pkg.version);
   });
 });

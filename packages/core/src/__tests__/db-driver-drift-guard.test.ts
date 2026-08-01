@@ -99,4 +99,45 @@ describe('db-driver adapter drift-guard (Layer 2, CR-69)', () => {
     };
     expect(pkg.engines?.node).toBe('>=22.16.0');
   });
+
+  // (e) P1-003 (plan-2026-07-23-hook-latency-silent-loss-fixes). BOTH engine paths must
+  // arm the busy-timeout before handing the connection out, or a concurrent writer fails
+  // instantly and the hook silently drops its row. Structural, because the behavioural
+  // proof (db-busy-timeout.test.ts) only exercises whichever engine the suite runs under —
+  // this clause is what stops the OTHER path from regressing unnoticed.
+  it('(e) both open functions arm PRAGMA busy_timeout before returning the handle', () => {
+    const adapter = readFileSync(join(SRC, ADAPTER_REL), 'utf-8');
+
+    // Slice each function body from its declaration to the next top-level declaration,
+    // so the assertion is about THAT function, not merely about the file containing the
+    // string somewhere (a file-level grep passes even if only one path is armed).
+    const bodyOf = (fnName: string): string => {
+      const start = adapter.indexOf(`function ${fnName}(`);
+      expect(start, `${fnName} not found in ${ADAPTER_REL} — did it get renamed?`).toBeGreaterThan(-1);
+      const after = adapter.slice(start);
+      const nextDecl = after.slice(1).search(/\n(?:export )?(?:function|const|class) /);
+      return nextDecl === -1 ? after : after.slice(0, nextDecl + 1);
+    };
+
+    for (const fn of ['openNodeSqlite', 'openBetterSqlite3']) {
+      const body = bodyOf(fn);
+      const pragmaAt = body.indexOf('PRAGMA busy_timeout');
+      expect(pragmaAt, `${fn}() does not arm PRAGMA busy_timeout — a locked writer will fail instantly and lose its row`).toBeGreaterThan(-1);
+
+      // Before the LAST return, not merely present: a pragma after the handle is returned
+      // is unreachable, and would read identically to a correct one on a plain grep.
+      const lastReturn = body.lastIndexOf('return ');
+      expect(lastReturn, `${fn}() has no return`).toBeGreaterThan(-1);
+      expect(pragmaAt, `${fn}() arms PRAGMA busy_timeout AFTER its return — unreachable`).toBeLessThan(lastReturn);
+    }
+  });
+
+  it('(e2) the busy-timeout value is resolved, never a hard-coded literal in the PRAGMA', () => {
+    const adapter = readFileSync(join(SRC, ADAPTER_REL), 'utf-8');
+    // A literal would silently ignore MASSU_DB_BUSY_TIMEOUT_MS, which is the knob the
+    // RED half of db-busy-timeout.test.ts depends on — the gate would lose its can-fail proof.
+    const literalPragmas = adapter.match(/PRAGMA busy_timeout\s*=\s*\d/g) ?? [];
+    expect(literalPragmas, `hard-coded busy_timeout literal(s): ${literalPragmas.join(', ')}`).toEqual([]);
+    expect(adapter).toMatch(/PRAGMA busy_timeout = \$\{resolveBusyTimeoutMs\(\)\}/);
+  });
 });

@@ -7,39 +7,65 @@
  * THE ASYMMETRY THIS LOCKS OUT (incident 2026-07-22-native-abi-hooks-bare-node-launch): the
  * MCP server was hand-wrapped to a compatible Node while the hooks ran BARE. massu's own two
  * emitters — `registerMcpServer()` (.mcp.json server command) and `hookCmd()` /
- * `buildHooksConfig()` (hook commands) — are ALREADY symmetric (both `npx -y @massu/core@<ver>`,
- * the hook merely appending `hook-runner <name>`). This guard LOCKS that symmetry so a
- * hand-wrap on one side can never silently reintroduce the drift.
+ * `buildHooksConfig()` (hook commands) — must share ONE launch mechanism, so a hand-wrap on
+ * one side can never silently reintroduce the drift.
  *
- * G-6 anti-vacuity: a mutated hook command wrapped in `node@22` MUST make the symmetry check
- * go RED — proving the guard can fail (CR-64).
+ * AMENDED by plan-2026-08-01 phase B. This guard used to assert the LITERAL `'npx'` on both
+ * sides. That pinned an implementation detail rather than the property (G28 — a gate's scope
+ * predicate must BE the property, not a correlate), with two consequences:
+ *
+ *   1. it would go RED on a CORRECT change (the node-direct launch this plan ships), and
+ *   2. it would stay GREEN on a WRONG one that happened to use npx on both sides.
+ *
+ * It now asserts the invariant that actually matters — BOTH EMITTERS AGREE, whatever the
+ * mechanism — and exercises BOTH supported mechanisms explicitly rather than depending on
+ * whichever runtime happens to exist on the machine running the tests.
+ *
+ * G-6 anti-vacuity: a hand-wrapped hook command MUST make the symmetry check go RED.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'fs';
 import { resolve } from 'path';
 import { tmpdir } from 'os';
 import { registerMcpServer, buildHooksConfig } from '../commands/init.ts';
 
 /**
- * Reduce a launch command to its comparable MECHANISM: the binary + the pinned
- * `-y @massu/core@<version>` prefix, IGNORING any trailing `hook-runner <name>` (the one
- * legitimate difference between the hook and server commands). Any extra wrapper (e.g.
- * `node@22 npx …`) changes `binary`, so a wrapped command is NOT symmetric.
+ * Reduce a launch command to its comparable MECHANISM.
+ *
+ * `kind` is the invariant both emitters must agree on:
+ *   'npx'  -> `npx -y @massu/core@<ver> …`
+ *   'node' -> `node <abs path to massu cli.js> …`
+ * Anything else (a `node@22` wrapper, a `bash -c` shim) is `other`, which can never equal
+ * the peer's kind — that is what makes a hand-wrap detectable.
+ *
+ * `pin` is the version-identifying payload, ignoring any trailing `hook-runner <name>` —
+ * the one legitimate difference between the hook and server commands.
  */
-function deriveMechanism(command: string, argv?: string[]): { binary: string; pin: string } {
-  const tokens = argv ? [command, ...argv] : command.trim().split(/\s+/);
-  const binary = tokens[0];
-  // Find `-y` `@massu/core@<ver>` (adjacent) — the pinned-install prefix.
-  const yIdx = tokens.indexOf('-y');
-  const pkg = yIdx >= 0 ? tokens[yIdx + 1] : '';
-  return { binary, pin: `-y ${pkg}` };
+function deriveMechanism(command: string, argv?: string[]): { kind: string; pin: string } {
+  const tokens = argv ? [command, ...argv] : (command.trim().match(/"[^"]*"|\S+/g) ?? []);
+  const binary = tokens[0] ?? '';
+  const strip = (s: string): string => s.replace(/^"|"$/g, '');
+
+  if (binary === 'npx') {
+    const yIdx = tokens.indexOf('-y');
+    return { kind: 'npx', pin: yIdx >= 0 ? strip(tokens[yIdx + 1] ?? '') : '' };
+  }
+  if (/massu-hook"?$/.test(binary)) {
+    // Phase B shim form: `"<shim>" <version> hook-runner <name>` / server `<shim>` + [version].
+    // The pin is the VERSION, which both emitters must agree on.
+    return { kind: 'shim', pin: strip(tokens[1] ?? '') };
+  }
+  if (binary === 'node') {
+    // The pin is the resolved cli path, minus any trailing hook-runner subcommand.
+    return { kind: 'node', pin: strip(tokens[1] ?? '') };
+  }
+  return { kind: 'other', pin: binary };
 }
 
 function firstHookCommand(): string {
   const cfg = buildHooksConfig();
-  const group = cfg.SessionStart?.[0];
-  const cmd = group?.hooks?.[0]?.command;
+  const cmd = cfg.SessionStart?.[0]?.hooks?.[0]?.command;
   if (!cmd) throw new Error('buildHooksConfig() emitted no SessionStart hook command');
   return cmd;
 }
@@ -57,21 +83,39 @@ function serverCommand(): { command: string; args: string[] } {
   }
 }
 
-describe('P4-004 installer launch-symmetry drift-guard (Layer 3, CR-70)', () => {
-  it('the hook launcher and the .mcp.json server launcher share ONE mechanism (same binary + version pin)', () => {
-    const hookMech = deriveMechanism(firstHookCommand());
-    const srv = serverCommand();
-    const srvMech = deriveMechanism(srv.command, srv.args);
+/** Both emitters, derived under whatever mode is currently forced. */
+function bothMechanisms(): { hook: ReturnType<typeof deriveMechanism>; srv: ReturnType<typeof deriveMechanism> } {
+  const hook = deriveMechanism(firstHookCommand());
+  const s = serverCommand();
+  return { hook, srv: deriveMechanism(s.command, s.args) };
+}
 
-    expect(srvMech.binary).toBe('npx');
-    expect(hookMech.binary).toBe('npx');
-    expect(hookMech.binary).toBe(srvMech.binary);
-    // Same pinned @massu/core@<version> on both sides — no unpinned / divergent version.
-    expect(hookMech.pin).toBe(srvMech.pin);
-    expect(hookMech.pin).toMatch(/^-y @massu\/core@/);
+const ORIGINAL_NO_DIRECT = process.env.MASSU_NO_NODE_DIRECT;
+afterEach(() => {
+  if (ORIGINAL_NO_DIRECT === undefined) delete process.env.MASSU_NO_NODE_DIRECT;
+  else process.env.MASSU_NO_NODE_DIRECT = ORIGINAL_NO_DIRECT;
+});
+
+describe('P4-004 installer launch-symmetry drift-guard (Layer 3, CR-70)', () => {
+  it('THE INVARIANT: both emitters agree on mechanism AND pin, under the ambient mode', () => {
+    const { hook, srv } = bothMechanisms();
+    expect(hook.kind, 'hook and server launch mechanisms diverged').toBe(srv.kind);
+    expect(hook.pin, 'hook and server point at different massu payloads').toBe(srv.pin);
+    // Whatever they agreed on must be a mechanism massu actually emits.
+    expect(['npx', 'shim']).toContain(hook.kind);
+  });
+
+  it('npx mode (forced): both emitters emit the pinned npx form', () => {
+    process.env.MASSU_NO_NODE_DIRECT = '1';
+    const { hook, srv } = bothMechanisms();
+    expect(hook.kind).toBe('npx');
+    expect(srv.kind).toBe('npx');
+    expect(hook.pin).toBe(srv.pin);
+    expect(hook.pin).toMatch(/^@massu\/core@/);
   });
 
   it('the hook command differs from the server command ONLY by a trailing `hook-runner <name>`', () => {
+    process.env.MASSU_NO_NODE_DIRECT = '1'; // deterministic: compare like with like
     const hookCmd = firstHookCommand();
     const srv = serverCommand();
     const serverAsString = `${srv.command} ${srv.args.join(' ')}`;
@@ -79,38 +123,55 @@ describe('P4-004 installer launch-symmetry drift-guard (Layer 3, CR-70)', () => 
     expect(hookCmd.slice(serverAsString.length)).toMatch(/^\s+hook-runner\s+\S+$/);
   });
 
-  it('P4-004 (win32): the emitters stay `npx -y @massu/core@<v>` on win32 (platform-neutral, Layer 3-W)', () => {
-    // Fast local mirror of the windows-latest CI leg (P4-003): assert the two emitters are
-    // platform-NEUTRAL — with process.platform forced to win32 they still produce the SAME
-    // `npx -y @massu/core@<ver>` mechanism, never a hand-wrapped divergence.
+  it('P4-004 (win32): the emitters stay platform-NEUTRAL and still agree', () => {
+    process.env.MASSU_NO_NODE_DIRECT = '1';
     const orig = process.platform;
     try {
       Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
-      const hookMech = deriveMechanism(firstHookCommand());
-      const srv = serverCommand();
-      const srvMech = deriveMechanism(srv.command, srv.args);
-      expect(hookMech.binary).toBe('npx');
-      expect(srvMech.binary).toBe('npx');
-      expect(hookMech.pin).toBe(srvMech.pin);
-      expect(hookMech.pin).toMatch(/^-y @massu\/core@/);
+      const { hook, srv } = bothMechanisms();
+      expect(hook.kind).toBe(srv.kind);
+      expect(hook.pin).toBe(srv.pin);
+      expect(hook.kind).toBe('npx');
     } finally {
       Object.defineProperty(process, 'platform', { value: orig, configurable: true });
     }
   });
 
-  it('G-6 anti-vacuity: a `node@22`-wrapped hook command makes the symmetry check go RED', () => {
-    const srv = serverCommand();
-    const srvMech = deriveMechanism(srv.command, srv.args);
+  it('node-direct mode: the derived mechanism is `node` + an absolute cli path', () => {
+    // Exercises the phase-B branch WITHOUT requiring a materialised runtime on this machine,
+    // so the assertion is about the derivation contract both emitters share.
+    const hook = deriveMechanism('node "/Users/example/.massu/runtime/2.4.0/node_modules/@massu/core/dist/cli.js" hook-runner session-start');
+    const srv = deriveMechanism('node', ['/Users/example/.massu/runtime/2.4.0/node_modules/@massu/core/dist/cli.js']);
+    expect(hook.kind).toBe('node');
+    expect(srv.kind).toBe('node');
+    expect(hook.kind).toBe(srv.kind);
+    expect(hook.pin).toBe(srv.pin); // same resolved cli on both sides
+  });
 
-    // Simulate the exact drift the incident introduced: wrap the hook side in a Node pin.
-    const wrappedHook = `node@22 ${firstHookCommand()}`;
-    const wrappedMech = deriveMechanism(wrappedHook);
+  it('G-6 anti-vacuity: a hand-wrapped hook command makes the symmetry check go RED', () => {
+    process.env.MASSU_NO_NODE_DIRECT = '1';
+    const s = serverCommand();
+    const srvMech = deriveMechanism(s.command, s.args);
 
-    // The wrapped command's binary is `node@22`, NOT `npx` → NOT symmetric. The real
-    // symmetry assertion (binary equality) would therefore FAIL for this mutant, proving the
-    // guard is not vacuous.
-    expect(wrappedMech.binary).toBe('node@22');
-    expect(wrappedMech.binary).not.toBe(srvMech.binary);
-    expect(() => expect(wrappedMech.binary).toBe(srvMech.binary)).toThrow();
+    // The exact drift found LIVE in one workspace on 2026-08-01:
+    // server wrapped in `bash -c "export PATH=…node@22…; exec npx …"` vs bare-npx hooks.
+    const wrapped = deriveMechanism('node@22 npx -y @massu/core@2.4.0 hook-runner session-start');
+    expect(wrapped.kind).toBe('other');
+    expect(wrapped.kind).not.toBe(srvMech.kind);
+    expect(() => expect(wrapped.kind).toBe(srvMech.kind)).toThrow();
+
+    // And a bash-shim wrapper is equally detectable.
+    const shimmed = deriveMechanism('bash', ['-c', 'export PATH=/opt/homebrew/opt/node@22/bin:$PATH; exec npx -y @massu/core@2.0.0']);
+    expect(shimmed.kind).toBe('other');
+    expect(() => expect(shimmed.kind).toBe(srvMech.kind)).toThrow();
+  });
+
+  it('G-6 anti-vacuity: MIXED mechanisms (one npx, one node) go RED', () => {
+    // The failure this whole guard exists for, in its phase-B form: if only ONE emitter were
+    // migrated to node-direct, they would disagree and this must catch it.
+    const npxSide = deriveMechanism('npx -y @massu/core@2.4.0 hook-runner session-start');
+    const nodeSide = deriveMechanism('node', ['/Users/example/.massu/runtime/2.4.0/node_modules/@massu/core/dist/cli.js']);
+    expect(npxSide.kind).not.toBe(nodeSide.kind);
+    expect(() => expect(npxSide.kind).toBe(nodeSide.kind)).toThrow();
   });
 });

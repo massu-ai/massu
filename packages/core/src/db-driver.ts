@@ -68,6 +68,37 @@ export function resolveDbEngine(): DbEngine {
 }
 
 /**
+ * How long a writer waits for a competing writer's lock before giving up.
+ *
+ * WITHOUT this, SQLite's default is 0: a concurrent writer fails INSTANTLY with
+ * `SQLITE_BUSY` ("database is locked"). Every hook catches that, logs it, and exits 0 —
+ * so the observation/cost row is silently gone. Several Claude sessions routinely work
+ * one repo at a time, which makes contention the NORMAL state, not an edge case.
+ *
+ * `PRAGMA busy_timeout` (rather than a ctor `timeout` option) because it is
+ * engine-agnostic — identical on `node:sqlite` and better-sqlite3 — connection-local,
+ * and needs no lock of its own to set.
+ */
+export const DEFAULT_BUSY_TIMEOUT_MS = 5000;
+
+/** Env override for {@link DEFAULT_BUSY_TIMEOUT_MS}. `0` is legal: it restores the
+ *  fail-instantly behaviour, which is how the busy-timeout tests prove they can go RED. */
+export const DB_BUSY_TIMEOUT_ENV = 'MASSU_DB_BUSY_TIMEOUT_MS';
+
+/**
+ * Resolve the busy-timeout in ms. Unset, empty, non-finite, or negative all fall back to
+ * the default — a malformed knob must never silently disable the wait (fail-safe, not
+ * fail-open). The result is always a non-negative integer, so callers may interpolate it
+ * into a PRAGMA statement without an injection surface.
+ */
+export function resolveBusyTimeoutMs(): number {
+  const raw = process.env[DB_BUSY_TIMEOUT_ENV];
+  if (raw === undefined || raw === '') return DEFAULT_BUSY_TIMEOUT_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_BUSY_TIMEOUT_MS;
+}
+
+/**
  * The massu-facing DB surface. This IS the `better-sqlite3` `Database` interface
  * (what massu codes against today); the node-sqlite driver presents a
  * behaviorally-identical object, proven by the dual-engine parity test (M-006).
@@ -131,6 +162,11 @@ function openNodeSqlite(dbPath: string, opts: OpenDatabaseOptions): MassuDatabas
     enableForeignKeyConstraints: true,
     allowExtension: false,
   });
+
+  // FIRST statement on the connection, before any other pragma: a writer that has to
+  // wait for a lock must WAIT, not fail instantly and lose its row. See
+  // DEFAULT_BUSY_TIMEOUT_MS. `resolveBusyTimeoutMs()` returns a non-negative integer.
+  raw.exec(`PRAGMA busy_timeout = ${resolveBusyTimeoutMs()}`);
 
   let savepointSeq = 0;
 
@@ -250,7 +286,15 @@ function openNodeSqlite(dbPath: string, opts: OpenDatabaseOptions): MassuDatabas
 function openBetterSqlite3(dbPath: string, opts: OpenDatabaseOptions): MassuDatabase {
   // The Layer-1 native loader is the sole `better-sqlite3` value-importer (CR-65). A
   // real bs3 `Database` already satisfies the full massu surface natively.
-  return openBetterSqlite3Native(dbPath, opts);
+  const db = openBetterSqlite3Native(dbPath, opts);
+
+  // Set here rather than inside the loader so BOTH engines take their busy-timeout from
+  // THIS module — db-driver.ts is the sole open chokepoint, so every opener (hooks, MCP
+  // server, CLI) inherits it, and the ABI self-heal loader stays untouched (CR-65).
+  // The loader runs no pragmas of its own, so this is still the first one on the handle.
+  db.exec(`PRAGMA busy_timeout = ${resolveBusyTimeoutMs()}`);
+
+  return db;
 }
 
 // ============================================================

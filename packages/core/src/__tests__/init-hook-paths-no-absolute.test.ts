@@ -102,8 +102,24 @@ describe('P-003: hook commands contain no absolute paths', () => {
           // Every Massu canonical command must use `hook-runner` so the hook
           // file is resolved at fire-time rather than at install-time.
           expect(entry.command).toContain('hook-runner ');
-          // And must include the pinned-version reference (P-002 coupling).
-          expect(entry.command).toMatch(/@massu\/core@\d+\.\d+\.\d+/);
+          // And must PIN A VISIBLE VERSION (P-002 coupling).
+          //
+          // AMENDED by plan-2026-08-01 phase B. This asserted the literal `@massu/core@X.Y.Z`,
+          // which is the npx form's CORRELATE of the property, not the property itself (G28).
+          // The shim form `"<shim>" X.Y.Z hook-runner <name>` pins the version just as visibly
+          // — the command still states in plain sight which massu version this repo runs — so
+          // the assertion now tests THAT.
+          //
+          // P-003's substrate rule is UNCHANGED and still enforced by assertNoAbsolutePaths
+          // above. The shim path is deliberately not in the forbidden set because it is
+          // version-STABLE (a bump cannot invalidate it), rewritten on every `install-hooks`,
+          // and falls back to npx at FIRE time when the runtime is absent — so it cannot
+          // silently 404 the way `/.npm/_npx/<hash>/` could. Those volatile locations remain
+          // forbidden.
+          expect(
+            entry.command,
+            'hook command pins no visible version in either the npx or the shim form',
+          ).toMatch(/(@massu\/core@\d+\.\d+\.\d+|massu-hook"?\s+\d+\.\d+\.\d+)/);
         }
       }
     }

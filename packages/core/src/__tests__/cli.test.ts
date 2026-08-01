@@ -180,11 +180,22 @@ describe('CLI: MCP Registration', () => {
     const content = JSON.parse(readFileSync(resolve(TEST_DIR, '.mcp.json'), 'utf-8'));
     expect(content.mcpServers.massu).toBeDefined();
     expect(content.mcpServers.massu.type).toBe('stdio');
-    expect(content.mcpServers.massu.command).toBe('npx');
     // P-002: version-pinned to prevent customer drift onto unpinned @massu/core.
-    expect(content.mcpServers.massu.args).toHaveLength(2);
-    expect(content.mcpServers.massu.args[0]).toBe('-y');
-    expect(content.mcpServers.massu.args[1]).toMatch(/^@massu\/core@\d+\.\d+\.\d+/);
+    // AMENDED (plan-2026-08-01 phase B): massu emits either the npx form or the
+    // version-stable shim form. Both PIN THE VERSION — which is the property P-002 protects.
+    // Asserting the `npx` literal pinned the mechanism instead (G28).
+    const massu = content.mcpServers.massu as { command: string; args: string[] };
+    const isNpx = massu.command === 'npx';
+    const isShim = /massu-hook$/.test(massu.command);
+    expect(isNpx || isShim, `unknown MCP launch mechanism: ${massu.command}`).toBe(true);
+    if (isNpx) {
+      expect(massu.args).toHaveLength(2);
+      expect(massu.args[0]).toBe('-y');
+      expect(massu.args[1]).toMatch(/^@massu\/core@\d+\.\d+\.\d+/);
+    } else {
+      expect(massu.args).toHaveLength(1);
+      expect(massu.args[0]).toMatch(/^\d+\.\d+\.\d+/);
+    }
   });
 
   it('merges into existing .mcp.json without overwriting other servers', () => {

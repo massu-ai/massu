@@ -35,6 +35,10 @@ import { mkdtempSync, copyFileSync, rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
+// G29/CR-92 — `cwd:` does not scope git; GIT_DIR outranks it. See the helper for why.
+import { gitSafeEnv } from './helpers/git-safe-env.ts'
+
+
 const REPO_ROOT = resolve(__dirname, '../../../..')
 const LEAK_GUARD_SCRIPT = resolve(REPO_ROOT, 'scripts/massu-public-leak-guard.sh')
 const FIXTURES_DIR = resolve(__dirname, 'fixtures/leak-guard-commit-mode')
@@ -52,7 +56,7 @@ function runInTmp(cmd: string, env: Record<string, string> = {}): string {
   return execSync(cmd, {
     cwd: tmpRepo,
     encoding: 'utf-8',
-    env: { ...process.env, ...env },
+    env: gitSafeEnv(env),
     stdio: ['ignore', 'pipe', 'pipe'],
   })
 }
@@ -72,11 +76,10 @@ function runLeakGuardCommitMode(sha: string): CommitResult {
     const stdout = execSync(`bash "${LEAK_GUARD_SCRIPT}"`, {
       cwd: tmpRepo,
       encoding: 'utf-8',
-      env: {
-        ...process.env,
+      env: gitSafeEnv({
         MASSU_LEAK_GUARD_MODE: 'commit',
         MASSU_LEAK_GUARD_SHA: sha,
-      },
+      }),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     return { sha, exitCode: 0, stdout, stderr: '' }
@@ -152,7 +155,7 @@ describe('leak-guard commit-mode (plan-leak-guard-range-mode-verify P-B-002)', (
       execSync(`bash "${LEAK_GUARD_SCRIPT}"`, {
         cwd: tmpRepo,
         encoding: 'utf-8',
-        env: { ...process.env, MASSU_LEAK_GUARD_MODE: 'commit', MASSU_LEAK_GUARD_SHA: '' },
+        env: gitSafeEnv({ MASSU_LEAK_GUARD_MODE: 'commit', MASSU_LEAK_GUARD_SHA: '' }),
         stdio: ['ignore', 'pipe', 'pipe'],
       })
       throw new Error('expected scanner to exit non-zero without MASSU_LEAK_GUARD_SHA')

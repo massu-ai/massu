@@ -10,6 +10,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.5.1] - 2026-08-01
+
+### Added
+
+- **`scripts/ops/retag-release-to-npm-githead.sh`** — audits every release tag against the
+  commit npm actually published. A release tag is supposed to answer "which commit shipped as
+  X.Y.Z", and two things break that: the tag is created before the post-publish bookkeeping
+  commit and then moved forward, or it is never created at all. npm records `gitHead` with
+  every publish, so the answer is recoverable — this reads THAT and refuses anything else.
+
+  Dry-run by default; reports its denominator; FAILS CLOSED when the registry returns no
+  usable `gitHead` or names a commit absent from the repo, rather than guessing; never
+  force-pushes — it moves the local tag and prints the push command, so publishing a
+  rewritten ref stays deliberate.
+
+  First full audit: `50 tag(s) examined; 6 already correct, 34 drifted, 10 error(s)`. The 2.x
+  series is now 7/7 correct; 1.x is left as-is deliberately.
+
+### Fixed
+
+- **The documented Stage-D release ceremony had no legal ending.** It ordered
+  `bump -> tag -> publish -> .mcp.json pin refresh`, but the pin refresh is a COMMIT, so
+  following it always leaves commits on top of a published-and-tagged release — exactly what
+  CR-64 refuses. Measured during the 2.5.0 release: gate `[11/22]` returned
+  `versionIsPublished:true, tagSha 90c82344, headSha a74648ae`.
+
+  Corrected to **pin -> publish -> tag**, so the published tree, npm's `gitHead`, the tag and
+  HEAD are one commit by construction. Fixed at both sites that state the order. The repo's
+  own history already worked this way — `v2.3.1`, `v2.3.0` and `v2.1.0` each tag their pin
+  commit — so the prose was the outlier, not the practice.
+
+- **The same plan predicted a release does not touch `website/`.** The CHANGELOG is mirrored
+  into `website/`, so every release does; gate `[9/22]` failed on a 29h deploy lag. Replaced
+  the prediction with the measured fact and made `/massu-deploy` an explicit ceremony step.
+
+Incident: `docs/incidents/2026-08-01-release-ceremony-had-no-legal-ending.md`
+
 ## [2.5.0] - 2026-08-01
 
 ### Fixed

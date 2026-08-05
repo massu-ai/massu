@@ -34,6 +34,8 @@ import { execSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+// G29/CR-92 — `cwd:`/`-C` do not scope git; GIT_DIR outranks both. See the helper for why.
+import { gitSafeEnv } from './helpers/git-safe-env.ts';
 
 // __dirname is packages/core/src/__tests__; repo root is four levels up.
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
@@ -54,7 +56,7 @@ function runScript(scriptPath: string, env: NodeJS.ProcessEnv = {}): ExecResult 
   try {
     stdout = execSync(`bash ${scriptPath}`, {
       cwd: REPO_ROOT,
-      env: { ...process.env, ...env },
+      env: gitSafeEnv({ ...env }),
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -99,28 +101,27 @@ function makeFakeGitRepo(commitSubjects: string[], planBasenames: string[]): {
     writeFileSync(join(planDir, base), content);
   }
   // Initialize git, configure local identity, and create one commit per subject.
-  execSync(`git init -q -b main`, { cwd: repoDir });
-  execSync(`git config user.email test@massu.test`, { cwd: repoDir });
-  execSync(`git config user.name MassuTest`, { cwd: repoDir });
+  execSync(`git init -q -b main`, { cwd: repoDir, env: gitSafeEnv() });
+  execSync(`git config user.email test@massu.test`, { cwd: repoDir, env: gitSafeEnv() });
+  execSync(`git config user.name MassuTest`, { cwd: repoDir, env: gitSafeEnv() });
   // Stage fixture files so commits have content
-  execSync(`git add -A`, { cwd: repoDir });
+  execSync(`git add -A`, { cwd: repoDir, env: gitSafeEnv() });
   // First commit pinned to a date well after MASSU_DRIFT_SINCE default.
   execSync(`git commit -q --date=2026-04-15T12:00:00 -m "${commitSubjects[0]}"`, {
     cwd: repoDir,
-    env: { ...process.env, GIT_AUTHOR_DATE: '2026-04-15T12:00:00', GIT_COMMITTER_DATE: '2026-04-15T12:00:00' },
+    env: gitSafeEnv({ GIT_AUTHOR_DATE: '2026-04-15T12:00:00', GIT_COMMITTER_DATE: '2026-04-15T12:00:00' }),
   });
   for (let i = 1; i < commitSubjects.length; i++) {
     // Touch a tracked file so each commit has a delta
     const sentinel = join(planDir, '_sentinel.txt');
     writeFileSync(sentinel, `commit ${i}`);
-    execSync(`git add -A`, { cwd: repoDir });
+    execSync(`git add -A`, { cwd: repoDir, env: gitSafeEnv() });
     execSync(`git commit -q --date=2026-04-${15 + i}T12:00:00 -m "${commitSubjects[i]}"`, {
       cwd: repoDir,
-      env: {
-        ...process.env,
+      env: gitSafeEnv({
         GIT_AUTHOR_DATE: `2026-04-${15 + i}T12:00:00`,
         GIT_COMMITTER_DATE: `2026-04-${15 + i}T12:00:00`,
-      },
+      }),
     });
   }
   return { repoDir, planDir };

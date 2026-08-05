@@ -27,6 +27,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+// G29/CR-92 — `cwd:`/`-C` do not scope git; GIT_DIR outranks both. See the helper for why.
+import { gitSafeEnv } from './helpers/git-safe-env.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -105,7 +107,7 @@ describe('generalization scanner scripts/ scope (CR-62 drift-guard)', () => {
     const dir = mkdtempSync(resolve(tmpdir(), 'hpg-drift-'));
     try {
       const git = (args: string[]) =>
-        execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe' });
+        execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe', env: gitSafeEnv() });
       git(['init', '-q']);
       git(['config', 'user.email', 't@t']);
       git(['config', 'user.name', 't']);
@@ -114,7 +116,7 @@ describe('generalization scanner scripts/ scope (CR-62 drift-guard)', () => {
       git(['commit', '-qm', 'init']);
 
       // Placeholder-only tree passes.
-      const pass = execFileSync('bash', [GUARD, dir], { stdio: 'pipe' });
+      const pass = execFileSync('bash', [GUARD, dir], { stdio: 'pipe', env: gitSafeEnv() });
       expect(pass).toBeDefined();
 
       // A second operator identity (not in any $HOME-derived deny-list) is refused.
@@ -124,7 +126,7 @@ describe('generalization scanner scripts/ scope (CR-62 drift-guard)', () => {
       git(['add', '-A']);
       let refused = false;
       try {
-        execFileSync('bash', [GUARD, dir], { stdio: 'pipe' });
+        execFileSync('bash', [GUARD, dir], { stdio: 'pipe', env: gitSafeEnv() });
       } catch {
         refused = true;
       }
@@ -142,7 +144,7 @@ describe('generalization scanner scripts/ scope (CR-62 drift-guard)', () => {
     const dir = mkdtempSync(resolve(tmpdir(), 'hpg-ifs-'));
     try {
       const git = (args: string[]) =>
-        execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe' });
+        execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe', env: gitSafeEnv() });
       git(['init', '-q']);
       git(['config', 'user.email', 't@t']);
       git(['config', 'user.name', 't']);
@@ -152,7 +154,7 @@ describe('generalization scanner scripts/ scope (CR-62 drift-guard)', () => {
 
       // Source under a hostile IFS, then assert placeholders still PASS.
       const sourcedClean = `IFS=':'; . '${GUARD}'; home_path_guard '${dir}'`;
-      expect(() => execFileSync('bash', ['-c', sourcedClean], { stdio: 'pipe' })).not.toThrow();
+      expect(() => execFileSync('bash', ['-c', sourcedClean], { stdio: 'pipe', env: gitSafeEnv() })).not.toThrow();
 
       // And a real second-identity path still REFUSES under the same hostile IFS.
       // Path built by concatenation so THIS test file (which syncs public) carries no
@@ -161,7 +163,7 @@ describe('generalization scanner scripts/ scope (CR-62 drift-guard)', () => {
       git(['add', '-A']);
       let refused = false;
       try {
-        execFileSync('bash', ['-c', sourcedClean], { stdio: 'pipe' });
+        execFileSync('bash', ['-c', sourcedClean], { stdio: 'pipe', env: gitSafeEnv() });
       } catch {
         refused = true;
       }

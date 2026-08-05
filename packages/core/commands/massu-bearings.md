@@ -41,7 +41,7 @@ Read these in parallel where possible:
 | 10 | `.claude/metrics/command-invocations.jsonl` | Command usage frequency — top/least used in last 7 days |
 | 11 | `.claude/metrics/bearings-history.jsonl` | Previous bearings runs — show trends |
 | 12 | `.claude/commands/` (ls -d */`) | Detect folder-based skills (directories vs flat files) |
-| 13 | `bash scripts/memory-contradiction-check.sh` | Contradiction count, consolidation candidates |
+| 13 | `~/.claude/bin/memory-contradiction-check . --baseline .claude/memory-contradiction-baseline.json` | Unresolved pairs + denominator; exit 2 = could-not-look, a FINDING |
 | 14 | `massu_cost_session` + `massu_cost_trend` MCP tools | Token spend this session, cost trend over time |
 | 15 | `session-state/deferred-verifications.md` | Pending production verifications from previous deploys |
 

@@ -104,12 +104,15 @@ If no significant work: skip this section.
 Run the memory contradiction scanner:
 
 ```bash
-bash scripts/memory-contradiction-check.sh
+~/.claude/bin/memory-contradiction-check . --baseline .claude/memory-contradiction-baseline.json
 ```
 
-Parse the output:
-- **CONTRADICTION_COUNT: 0** — Memory is clean. Proceed.
-- **CONTRADICTION_COUNT: N** — Display each contradiction to the user:
+Read the EXIT CODE, and read the denominator it prints — a
+verdict with no `memory files read` line means it aborted before reporting:
+- **exit 0** — no unresolved contradictions. Quote `unresolved pairs : 0` as the evidence.
+- **exit 1** — unresolved pairs, or a STALE baseline entry. Display each to the user:
+- **exit 2** — it COULD NOT LOOK (missing corpus, unreadable file, bad baseline). This is
+  a FINDING, never a clean run. Report it as such and do not proceed as though clean.
 
 ```
 MEMORY HEALTH
@@ -122,7 +125,15 @@ MEMORY HEALTH
 
 **Do NOT auto-resolve contradictions.** Surface them so the user can decide which memory is stale.
 
-If the script is missing or fails, note: "Memory contradiction check unavailable — run `bash scripts/memory-contradiction-check.sh` manually."
+**If the checker is missing, report that as a FAILED check — never as a benign note.**
+This step was unrunnable in this repo from the day it was written until 2026-08-02: it
+named `scripts/memory-contradiction-check.sh`, which never existed here (0 tracked
+matches, 0 commits ever touching the path — it was copied from another repo's protocol).
+The instruction to "note it as unavailable" is what let a mandatory check report nothing
+for months, because "could not look" and "looked and found nothing" read identically.
+The checker is now version-controlled at `~/.claude/bin/memory-contradiction-check`, has a
+caller in `npm test` (`memory-contradiction-check-caller.test.ts`), a fixture suite, and a
+live-fire attack — so its absence is itself a red test.
 
 ### Step 3: Update Session State
 

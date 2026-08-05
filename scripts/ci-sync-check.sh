@@ -23,6 +23,19 @@
 #       grep -nE "(cd|rsync|cp).*~/massu(\b|/)" scripts/ci-sync-check.sh  # MUST return 0 lines
 
 set -euo pipefail
+
+# --- G29/CR-92: NEUTRALISE THE CALLER'S GIT ENVIRONMENT — DO NOT REMOVE -------
+# `cd` DOES NOT SCOPE GIT. GIT_DIR outranks the working directory, and git EXPORTS
+# GIT_DIR to every hook it runs. Without this, `cd "$TMP" && git init && git add -A
+# && git commit` does not touch the sandbox — it addresses the REAL repository and
+# records every other tracked file as DELETED.
+# 2026-08-04, a sibling repo on this machine: a harness like this one committed
+# 5,543 files touched, 1,388,627 lines deleted, 5,540 untracked — caught pre-push.
+# Incident #166. Unset, never override: a temp sandbox belongs to no repository.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+# -----------------------------------------------------------------------------
+
 IFS=$'\n\t'
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

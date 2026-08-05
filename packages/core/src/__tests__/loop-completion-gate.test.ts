@@ -25,6 +25,8 @@ import { readFileSync, writeFileSync, mkdtempSync, rmSync, mkdirSync, utimesSync
 import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
+// G29/CR-92 — `cwd:` does not scope git; GIT_DIR outranks it. See the helper for why.
+import { gitSafeEnv } from './helpers/git-safe-env.ts';
 
 const REPO_ROOT = resolve(__dirname, '../../../..');
 const GATE_SCRIPT_REAL = resolve(REPO_ROOT, 'scripts/massu-loop-completion-gate.sh');
@@ -69,7 +71,12 @@ function setupSandbox(): string {
 
   // Initialise as a minimal git repo so `git rev-parse --show-toplevel` resolves
   // to the sandbox (not the real repo).
-  spawnSync('git', ['init', '-q'], { cwd: sandbox });
+  //
+  // G29/CR-92 — `cwd:` alone does NOT achieve that. GIT_DIR outranks it and git
+  // exports GIT_DIR to every hook, so from a hook this `git init` re-inits the REAL
+  // repo and the gate's `--show-toplevel` resolves there too: the sandbox is written
+  // to the wrong tree AND adjudicated against the wrong tree. Incident #166.
+  spawnSync('git', ['init', '-q'], { cwd: sandbox, env: gitSafeEnv() });
 
   return sandbox;
 }
@@ -80,7 +87,8 @@ function runGate(sandbox: string, args: string[], env: Record<string, string> = 
     [join(sandbox, 'scripts', 'massu-loop-completion-gate.sh'), ...args],
     {
       cwd: sandbox,
-      env: { ...process.env, ...env },
+      // The gate script itself runs git; a leaked GIT_DIR points it at the real repo.
+      env: gitSafeEnv(env),
       encoding: 'utf-8',
     },
   );

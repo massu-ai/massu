@@ -16,6 +16,18 @@
 
 set -uo pipefail
 
+# --- G29/CR-92: NEUTRALISE THE CALLER'S GIT ENVIRONMENT — DO NOT REMOVE -------
+# `git -C` DOES NOT SCOPE GIT. GIT_DIR outranks `-C` exactly as it outranks `cd`,
+# and git EXPORTS GIT_DIR to every hook it runs — so this harness, invoked from a
+# hook, sends its sandbox `git add`/`git commit` at the REAL repository.
+# 2026-08-04, a sibling repo on this machine: a harness like this one committed
+# 5,543 files touched, 1,388,627 lines deleted, 5,540 untracked — caught pre-push.
+# Incident #166. Inline, NOT sourced: this script runs `set -uo pipefail` without
+# `-e`, so a failed `source` would continue silently and leave it unprotected.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+# -----------------------------------------------------------------------------
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GUARD="$REPO_ROOT/scripts/massu-public-leak-guard.sh"
 

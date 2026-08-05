@@ -24,13 +24,15 @@ import { join, resolve, dirname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { spawnSync } from 'child_process';
+// G29/CR-92 — `cwd:`/`-C` do not scope git; GIT_DIR outranks both. See the helper for why.
+import { gitSafeEnv } from './helpers/git-safe-env.ts';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const gatePath = join(repoRoot, 'scripts', 'massu-incident-coverage.sh');
 const inInternalRepo = existsSync(gatePath);
 
 function git(cwd: string, ...args: string[]) {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: gitSafeEnv() });
   if (r.status !== 0 && !args.includes('rev-list')) {
     throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
   }
@@ -71,6 +73,7 @@ function runGate(dir: string): { status: number; out: string } {
   const r = spawnSync('bash', ['scripts/massu-incident-coverage.sh', 'HEAD~1..HEAD'], {
     cwd: dir,
     encoding: 'utf8',
+    env: gitSafeEnv(),
   });
   return { status: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
 }

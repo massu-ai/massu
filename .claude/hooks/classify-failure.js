@@ -1339,6 +1339,16 @@ var init_memory_vector = __esm({
   }
 });
 
+// src/lib/timestamps.ts
+function nowIso() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+var init_timestamps = __esm({
+  "src/lib/timestamps.ts"() {
+    "use strict";
+  }
+});
+
 // src/db-backup.ts
 import { existsSync as existsSync5, mkdirSync as mkdirSync4, readdirSync, statSync, unlinkSync, copyFileSync, rmSync as rmSync4 } from "fs";
 import { resolve as resolve3, join as join3, basename, dirname as dirname4 } from "path";
@@ -3670,8 +3680,8 @@ function linkSessionToTask(db, sessionId, taskId) {
 }
 function addConversationTurn(db, sessionId, turnNumber, userPrompt, assistantResponse, toolCallsJson, toolCallCount, promptTokens, responseTokens) {
   const result = db.prepare(`
-    INSERT INTO conversation_turns (session_id, turn_number, user_prompt, assistant_response, tool_calls_json, tool_call_count, prompt_tokens, response_tokens)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO conversation_turns (session_id, turn_number, user_prompt, assistant_response, tool_calls_json, tool_call_count, prompt_tokens, response_tokens, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     sessionId,
     turnNumber,
@@ -3680,14 +3690,15 @@ function addConversationTurn(db, sessionId, turnNumber, userPrompt, assistantRes
     toolCallsJson,
     toolCallCount,
     promptTokens,
-    responseTokens
+    responseTokens,
+    nowIso()
   );
   return Number(result.lastInsertRowid);
 }
 function addToolCallDetail(db, sessionId, turnNumber, toolName, inputSummary, inputSize, outputSize, success, filesInvolved) {
   db.prepare(`
-    INSERT INTO tool_call_details (session_id, turn_number, tool_name, tool_input_summary, tool_input_size, tool_output_size, tool_success, files_involved)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tool_call_details (session_id, turn_number, tool_name, tool_input_summary, tool_input_size, tool_output_size, tool_success, files_involved, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     sessionId,
     turnNumber,
@@ -3696,7 +3707,8 @@ function addToolCallDetail(db, sessionId, turnNumber, toolName, inputSummary, in
     inputSize,
     outputSize,
     success ? 1 : 0,
-    filesInvolved ? JSON.stringify(filesInvolved) : null
+    filesInvolved ? JSON.stringify(filesInvolved) : null,
+    nowIso()
   );
 }
 function getLastProcessedLine(db, sessionId) {
@@ -3955,6 +3967,7 @@ var init_memory_db = __esm({
     init_db_driver();
     init_config();
     init_memory_vector();
+    init_timestamps();
     init_db_backup();
     init_rule_delivery();
     init_rule_candidate_store();

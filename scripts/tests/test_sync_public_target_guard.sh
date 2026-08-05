@@ -17,6 +17,17 @@
 
 set -uo pipefail
 
+# --- G29/CR-92: NEUTRALISE THE CALLER'S GIT ENVIRONMENT — DO NOT REMOVE -------
+# `cd` DOES NOT SCOPE GIT. GIT_DIR outranks cwd, and git EXPORTS GIT_DIR to every
+# hook it runs — so a git write aimed at a temp sandbox silently addresses the REAL
+# repository instead. 2026-08-04, a sibling repo on this machine: one such harness
+# committed 5,543 files touched, 1,388,627 lines deleted, `core.bare` flipped true.
+# Incident #166. Unset, never override: a sandbox belongs to no repository.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+# -----------------------------------------------------------------------------
+
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REAL_SYNC="$REPO_ROOT/scripts/sync-public.sh"
 

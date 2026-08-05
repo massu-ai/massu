@@ -707,7 +707,20 @@ print(g["defects"][int(sys.argv[3])].get("oracle",""))' "$REGISTRY" "$gid" "$idx
       echo "__V__ FAIL"; } > "$out"
     rm -rf "$work"; return
   fi
-  if ! ( cd "$work" && NODE_PATH="$REPO_ROOT/node_modules" bash -c "$oracle" >/dev/null 2>&1 ); then
+  # G29/CR-92 — NEUTRALISE THE CALLER'S GIT ENVIRONMENT FOR THE ORACLE SANDBOX.
+  # `cd "$work"` DOES NOT SCOPE GIT. GIT_DIR outranks the working directory, and git
+  # EXPORTS GIT_DIR to every hook it runs — and this sweep runs from pre-push [22/22]
+  # and from CI. An oracle is an ARBITRARY command string from the registry, and at
+  # least one of them runs `git init -q .` + `git add -N`: with GIT_DIR inherited that
+  # re-inits the REAL repo and stages into the REAL index, while the gate's verdict is
+  # simultaneously wrong (it adjudicates the wrong tree).
+  # Scoped to THIS subshell on purpose: the sweep's other steps operate on the real
+  # tree and must keep the caller's git context. Fixing the executor rather than the
+  # one registry string covers every oracle, present and future — the registry is data,
+  # this is the chokepoint. 2026-08-04, Incident #166.
+  if ! ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+               GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+         cd "$work" && NODE_PATH="$REPO_ROOT/node_modules" bash -c "$oracle" >/dev/null 2>&1 ); then
     { echo "   ${RED}FAIL${NC}  [$dname] ORACLE did not find the planted defect — the fixture is bogus.";
       echo "          oracle: $oracle";
       echo "__V__ FAIL"; } > "$out"

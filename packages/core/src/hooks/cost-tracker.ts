@@ -12,6 +12,7 @@
 import { getMemoryDb } from '../memory-db.ts';
 import { toolResponseText, type RawToolResponse } from './lib/tool-response.ts';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
+import { nowIso } from '../lib/timestamps.ts';
 
 interface HookInput {
   session_id: string;
@@ -50,9 +51,9 @@ async function main(): Promise<void> {
     const db = getMemoryDb();
     try {
       db.prepare(`
-        INSERT INTO tool_cost_events (session_id, tool_name, estimated_input_tokens, estimated_output_tokens, model)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(session_id, tool_name, estimatedInputTokens, estimatedOutputTokens, '');
+        INSERT INTO tool_cost_events (session_id, tool_name, estimated_input_tokens, estimated_output_tokens, model, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(session_id, tool_name, estimatedInputTokens, estimatedOutputTokens, '', nowIso());
     } finally {
       db.close();
     }

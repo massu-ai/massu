@@ -26,6 +26,8 @@ import { tmpdir } from 'os';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { MAX_FULL_DIFF_BYTES } from '../hooks/auto-learning-pipeline.ts';
+// G29/CR-92 — `cwd:` does not scope git; GIT_DIR outranks it. See the helper for why.
+import { gitSafeEnv } from './helpers/git-safe-env.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -81,15 +83,15 @@ function makeLargeDiff(repoPath: string, totalBytes: number): void {
 
 beforeAll(() => {
   testRepo = mkdtempSync(join(tmpdir(), 'massu-auto-learning-bound-'));
-  execFileSync('git', ['init', '--quiet'], { cwd: testRepo });
-  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: testRepo });
-  execFileSync('git', ['config', 'user.name', 'Test'], { cwd: testRepo });
+  execFileSync('git', ['init', '--quiet'], { cwd: testRepo, env: gitSafeEnv() });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: testRepo, env: gitSafeEnv() });
+  execFileSync('git', ['config', 'user.name', 'Test'], { cwd: testRepo, env: gitSafeEnv() });
   // Initial commit to establish HEAD — and COMMIT the bulk files, so the
   // rewrite below is a tracked modification that `git diff` actually reports.
   writeFileSync(join(testRepo, 'README.md'), '# test\n');
   seedBulkFiles(testRepo, 5 * 1024 * 1024);
-  execFileSync('git', ['add', '.'], { cwd: testRepo });
-  execFileSync('git', ['commit', '--quiet', '-m', 'init'], { cwd: testRepo });
+  execFileSync('git', ['add', '.'], { cwd: testRepo, env: gitSafeEnv() });
+  execFileSync('git', ['commit', '--quiet', '-m', 'init'], { cwd: testRepo, env: gitSafeEnv() });
   // Fabricate ~5MB of uncommitted changes against those committed files
   makeLargeDiff(testRepo, 5 * 1024 * 1024);
   // Ensure massu.config.yaml exists so getConfig() doesn't blow up
@@ -122,12 +124,12 @@ describe('auto-learning pipeline bounded-diff (DG-2)', () => {
     // at all (the defect this test carried until 2026-07-28). Only these two
     // assertions tell them apart.
     const changed = execFileSync('git', ['diff', '--name-only'], {
-      cwd: testRepo, encoding: 'utf-8',
+      cwd: testRepo, encoding: 'utf-8', env: gitSafeEnv(),
     }).trim().split('\n').filter(Boolean);
     expect(changed.length).toBeGreaterThan(0);
 
     const shortstat = execFileSync('git', ['diff', '--shortstat'], {
-      cwd: testRepo, encoding: 'utf-8',
+      cwd: testRepo, encoding: 'utf-8', env: gitSafeEnv(),
     });
     const insertions = parseInt(shortstat.match(/(\d+) insertion/)?.[1] ?? '0', 10);
     const deletions = parseInt(shortstat.match(/(\d+) deletion/)?.[1] ?? '0', 10);
@@ -147,7 +149,7 @@ describe('auto-learning pipeline bounded-diff (DG-2)', () => {
         }),
         timeout: 30_000,
         encoding: 'utf-8',
-        env: { ...process.env, MASSU_CONFIG_DIR: testRepo },
+        env: gitSafeEnv({ MASSU_CONFIG_DIR: testRepo }),
       },
     );
 
@@ -171,12 +173,12 @@ describe('auto-learning pipeline bounded-diff (DG-2)', () => {
     // Use a separate small-diff repo so we don't contaminate the 5MB fixture
     const smallRepo = mkdtempSync(join(tmpdir(), 'massu-auto-learning-small-'));
     try {
-      execFileSync('git', ['init', '--quiet'], { cwd: smallRepo });
-      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: smallRepo });
-      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: smallRepo });
+      execFileSync('git', ['init', '--quiet'], { cwd: smallRepo, env: gitSafeEnv() });
+      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: smallRepo, env: gitSafeEnv() });
+      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: smallRepo, env: gitSafeEnv() });
       writeFileSync(join(smallRepo, 'a.ts'), 'function x() { return 1; }\n');
-      execFileSync('git', ['add', '.'], { cwd: smallRepo });
-      execFileSync('git', ['commit', '--quiet', '-m', 'init'], { cwd: smallRepo });
+      execFileSync('git', ['add', '.'], { cwd: smallRepo, env: gitSafeEnv() });
+      execFileSync('git', ['commit', '--quiet', '-m', 'init'], { cwd: smallRepo, env: gitSafeEnv() });
       // Many fix-pattern lines so threshold triggers
       writeFileSync(
         join(smallRepo, 'a.ts'),
@@ -206,6 +208,10 @@ describe('auto-learning pipeline bounded-diff (DG-2)', () => {
           }),
           timeout: 30_000,
           encoding: 'utf-8',
+          // G29/CR-92 — this call carried NO `env:` at all, so it inherited the
+          // whole environment implicitly. That is the silent shape: nothing to
+          // grep for, and `cwd:` does not scope git.
+          env: gitSafeEnv(),
         },
       );
 

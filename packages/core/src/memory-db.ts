@@ -19,6 +19,7 @@ import { resolve, dirname, basename } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { getConfig, getResolvedPaths, getProjectRoot } from './config.ts';
 import { float32ToBlob } from './memory-vector.ts';
+import { nowIso } from './lib/timestamps.ts';
 import { backupBeforeSchemaChange } from './db-backup.ts';
 // Layer 2: the funnel-telemetry cap. Trims TELEMETRY only and announces the trim —
 // learned rules live under the lease/ack contract and are never dropped.
@@ -2626,12 +2627,12 @@ export function addConversationTurn(
   responseTokens: number
 ): number {
   const result = db.prepare(`
-    INSERT INTO conversation_turns (session_id, turn_number, user_prompt, assistant_response, tool_calls_json, tool_call_count, prompt_tokens, response_tokens)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO conversation_turns (session_id, turn_number, user_prompt, assistant_response, tool_calls_json, tool_call_count, prompt_tokens, response_tokens, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     sessionId, turnNumber, userPrompt,
     assistantResponse ? assistantResponse.slice(0, 10000) : null,
-    toolCallsJson, toolCallCount, promptTokens, responseTokens
+    toolCallsJson, toolCallCount, promptTokens, responseTokens, nowIso()
   );
   return Number(result.lastInsertRowid);
 }
@@ -2651,13 +2652,14 @@ export function addToolCallDetail(
   filesInvolved?: string[]
 ): void {
   db.prepare(`
-    INSERT INTO tool_call_details (session_id, turn_number, tool_name, tool_input_summary, tool_input_size, tool_output_size, tool_success, files_involved)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tool_call_details (session_id, turn_number, tool_name, tool_input_summary, tool_input_size, tool_output_size, tool_success, files_involved, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     sessionId, turnNumber, toolName,
     inputSummary ? inputSummary.slice(0, 500) : null,
     inputSize, outputSize, success ? 1 : 0,
-    filesInvolved ? JSON.stringify(filesInvolved) : null
+    filesInvolved ? JSON.stringify(filesInvolved) : null,
+    nowIso()
   );
 }
 

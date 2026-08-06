@@ -18,15 +18,22 @@
 set -uo pipefail
 
 # --- G29/CR-92: NEUTRALISE THE CALLER'S GIT ENVIRONMENT — DO NOT REMOVE -------
-# `git -C` DOES NOT SCOPE GIT. GIT_DIR outranks `-C` exactly as it outranks `cd`,
-# and git EXPORTS GIT_DIR to every hook it runs — so this harness, invoked from a
-# hook, sends its sandbox `git add`/`git commit` at the REAL repository.
+# `git -C` DOES NOT SCOPE GIT. GIT_DIR outranks `-C` exactly as it outranks `cd` and
+# `cwd:`, and is inherited from any CALLER that sets it — a nested git invocation, a
+# wrapper, a harness, a tool — so this harness sends its sandbox `git add`/`git commit`
+# at the REAL repository. (Git does NOT hand GIT_DIR to the hooks it runs; measured,
+# scripts/ops/probe-git-hook-env.sh. A commit-stage hook DOES inherit GIT_INDEX_FILE,
+# which redirects the index by itself — a second, independent carrier.)
 # 2026-08-04, a sibling repo on this machine: a harness like this one committed
 # 5,543 files touched, 1,388,627 lines deleted, 5,540 untracked — caught pre-push.
 # Incident #166. Inline, NOT sourced: this script runs `set -uo pipefail` without
 # `-e`, so a failed `source` would continue silently and leave it unprotected.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
       GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+# ...and a machine-global `init.templateDir` pre-populates .git/hooks in EVERY `git init`,
+# so a sandbox is NOT pristine just because it is new. GIT_TEMPLATE_DIR outranks the
+# config; empty means "no template". Exported so child processes inherit it.
+export GIT_TEMPLATE_DIR=""
 # -----------------------------------------------------------------------------
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

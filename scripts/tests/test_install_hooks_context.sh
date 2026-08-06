@@ -24,13 +24,21 @@
 set -uo pipefail
 
 # --- G29/CR-92: NEUTRALISE THE CALLER'S GIT ENVIRONMENT — DO NOT REMOVE -------
-# `cd` DOES NOT SCOPE GIT. GIT_DIR outranks cwd, and git EXPORTS GIT_DIR to every
-# hook it runs — so a git write aimed at a temp sandbox silently addresses the REAL
-# repository instead. 2026-08-04, a sibling repo on this machine: one such harness
+# `cd` DOES NOT SCOPE GIT. GIT_DIR outranks cwd, `git -C` and `cwd:`, and is inherited
+# from any CALLER that sets it — a nested git invocation, a wrapper, a harness, a tool
+# — so a git write aimed at a temp sandbox silently addresses the REAL repository
+# instead. (Git does NOT hand GIT_DIR to the hooks it runs; measured,
+# scripts/ops/probe-git-hook-env.sh. A commit-stage hook DOES inherit GIT_INDEX_FILE,
+# which redirects the index by itself — a second, independent carrier.)
+# 2026-08-04, a sibling repo on this machine: one such harness
 # committed 5,543 files touched, 1,388,627 lines deleted, `core.bare` flipped true.
 # Incident #166. Unset, never override: a sandbox belongs to no repository.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
       GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+# ...and a machine-global `init.templateDir` pre-populates .git/hooks in EVERY `git init`,
+# so a sandbox is NOT pristine just because it is new. GIT_TEMPLATE_DIR outranks the
+# config; empty means "no template". Exported so child processes inherit it.
+export GIT_TEMPLATE_DIR=""
 # -----------------------------------------------------------------------------
 
 

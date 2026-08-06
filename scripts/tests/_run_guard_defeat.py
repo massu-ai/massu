@@ -32,6 +32,10 @@ Usage: python3 scripts/tests/_run_guard_defeat.py --registry R --repo-root ROOT 
 """
 from __future__ import annotations
 import argparse, json, os, re, shutil, subprocess, sys, tempfile
+from pathlib import Path as _P
+
+sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "lib"))
+from git_safe_env import git_safe_env  # noqa: E402  (G29/CR-92 - see module docstring)
 
 def sh(cmd, cwd, env=None, timeout=1200):
     e = dict(os.environ); e.setdefault("NODE_PATH", os.path.join(cwd, "node_modules"))
@@ -41,8 +45,12 @@ def sh(cmd, cwd, env=None, timeout=1200):
 
 def porcelain(repo, paths):
     if not paths: return ""
+    # G29/CR-92 - `-C` does not scope git; GIT_DIR outranks it. Without git_safe_env()
+    # this reports the status of the CALLER's repo, so the snapshot/restore verification
+    # would silently vouch for the wrong tree. Incident #166.
     r = subprocess.run(["git", "-C", repo, "status", "--porcelain", "--"] + list(paths),
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                       env=git_safe_env())
     return r.stdout.decode("utf-8", "replace").strip()
 
 class Snap:

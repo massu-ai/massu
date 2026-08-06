@@ -135,7 +135,7 @@ describe('PRAGMA busy_timeout (P1 — silent telemetry loss)', () => {
    * early, nothing ever contended) that a timing bound was only approximating.
    */
   it('converts an instant SQLITE_BUSY failure into a successful wait', async () => {
-    const { dbPath } = await withHeldLock();
+    const { dbPath, worker } = await withHeldLock();
 
     const unarmed = attemptInsert(dbPath, '0', 'probe-unarmed');
     expect(
@@ -150,6 +150,31 @@ describe('PRAGMA busy_timeout (P1 — silent telemetry loss)', () => {
       armed.threw,
       `INSERT threw with busy_timeout=2000 while the lock was held: ${armed.message}`,
     ).toBe(false);
+
+    // WAIT FOR THE WORKER'S OWN 'released' SIGNAL BEFORE READING.
+    //
+    // A successful armed INSERT proves the lock was RELEASED — it does NOT prove the worker
+    // COMMITTED. A rolled-back worker transaction (interrupted thread, throwing COMMIT) also
+    // releases the lock, and then `from-worker` never existed. Reading straight after the
+    // armed insert therefore raced the worker's COMMIT, and the loss surfaced as a bare
+    // row-set mismatch — `['from-main'] !== ['from-main','from-worker']` — which names
+    // neither the worker nor the rollback. Observed 2026-08-05 in the pre-push [14/22]
+    // sync-check mirror under load; passes 3/3 in isolation, i.e. exactly the load-sensitive
+    // shape a row assertion cannot attribute.
+    //
+    // The worker already posts 'released' after COMMIT + close; the test simply never awaited
+    // it. Awaiting it makes the ordering explicit rather than inferred, and lets an 'error'
+    // reject with the worker's REAL cause instead of a downstream symptom.
+    await new Promise<void>((resolve, reject) => {
+      worker.once('message', (m) =>
+        m === 'released'
+          ? resolve()
+          : reject(new Error(`worker sent ${JSON.stringify(m)}, expected 'released'`)),
+      );
+      worker.once('error', (err) =>
+        reject(new Error(`worker died before COMMIT — its transaction rolled back: ${err.message}`)),
+      );
+    });
 
     const verify = openDatabase(dbPath);
     const rows = verify.prepare('SELECT v FROM t ORDER BY v').all() as Array<{ v: string }>;

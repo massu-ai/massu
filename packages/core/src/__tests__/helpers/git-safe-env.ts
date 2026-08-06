@@ -2,8 +2,11 @@
  * G29/CR-92 — the ONE definition of "a child process that cannot address the real repo".
  *
  * `cwd:` scopes a child process no better than `cd` scopes a shell. Git reads `GIT_DIR`
- * from the environment and it OUTRANKS both `cwd:` and `git -C`; git also EXPORTS
- * `GIT_DIR` to every hook it runs, so any harness invoked from a git hook inherits it.
+ * from the environment and it OUTRANKS both `cwd:` and `git -C`. It is inherited from any
+ * CALLER that sets it — a nested git invocation, a wrapper, a test harness, a tool.
+ * (Git does NOT hand `GIT_DIR` to the hooks it runs; measured, `scripts/ops/probe-git-hook-env.sh`.
+ * Hooks do inherit `GIT_INDEX_FILE`, which redirects the index by itself — so a sandbox
+ * `git add` under a pre-commit hook writes the REAL index with no `GIT_DIR` anywhere.)
  * `execSync` / `execFileSync` / `spawnSync` inherit `process.env` by default, so a test
  * that builds a sandbox repo and runs `git init` / `git add` / `git commit` against it
  * silently addresses the REAL repository instead — staging the sandbox's handful of

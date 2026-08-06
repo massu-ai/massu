@@ -131,8 +131,8 @@
   "provenance": {
     "_doc": "Written by scripts/ops/probe-gate-requires.sh. `requires` above is meaningless without it: an annotation set with no record of WHEN it was adjudicated, over HOW MANY gates, is a claim rather than a measurement. `unadjudicated` is reported by the drift-guard, never silently tolerated.",
     "probed": true,
-    "probed_at_head": "362bf60ae3ba30e11b7d86e7b694ee9341e24e93",
-    "probed_at_utc": "2026-08-02T21:42:38Z",
+    "probed_at_head": "62a9e3c94981304255baabdb82417abea102934e",
+    "probed_at_utc": "2026-08-05T15:28:51Z",
     "registry_gates_at_probe": 421,
     "gates_probed": 1,
     "probe_version": 1,
@@ -426,6 +426,7 @@
       "vitest-guard::packages/core/src/__tests__/rule-pack-enforcement-bridge.test.ts",
       "vitest-guard::packages/core/src/__tests__/rule-promotion-effectiveness.test.ts",
       "vitest-guard::packages/core/src/__tests__/sample-files-coverage.test.ts",
+      "vitest-guard::packages/core/src/__tests__/sandbox-git-env-neutralisation-drift-guard.test.ts",
       "vitest-guard::packages/core/src/__tests__/security-schema-printable-ascii-drift.test.ts",
       "vitest-guard::packages/core/src/__tests__/security/command-exec.test.ts",
       "vitest-guard::packages/core/src/__tests__/security/lsp-ipc.test.ts",

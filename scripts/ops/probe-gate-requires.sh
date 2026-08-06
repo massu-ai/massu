@@ -30,6 +30,27 @@
 # ─────────────────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
+# --- G29/CR-92: NEUTRALISE THE CALLER'S GIT ENVIRONMENT - DO NOT REMOVE -------
+# `git -C <dir>` DOES NOT SCOPE GIT. GIT_DIR outranks `-C` exactly as it outranks
+# `cd` and `cwd:`, and is inherited from any CALLER that sets it — a nested git
+# invocation, a wrapper, a harness, a tool. (Git does NOT hand GIT_DIR to the hooks
+# it runs; measured, scripts/ops/probe-git-hook-env.sh. Hooks DO inherit
+# GIT_INDEX_FILE, which redirects the index by itself.) This script addresses
+# repositories BY PATH, so an inherited GIT_DIR makes every one of those reads
+# answer about the CALLER's repo instead - silently, with a confident wrong value
+# rather than an error. Incident #166.
+# Inline, NOT sourced: this script runs without `set -e`, so a failed `source`
+# would continue and leave it unprotected. Executed, never sourced, so `unset`
+# here cannot mutate a caller's environment.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+# ...and a machine-global `init.templateDir` pre-populates .git/hooks in EVERY `git init`,
+# so a sandbox is NOT pristine just because it is new. GIT_TEMPLATE_DIR outranks the
+# config; empty means "no template". Exported so child processes inherit it.
+export GIT_TEMPLATE_DIR=""
+# -----------------------------------------------------------------------------
+
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT" || { echo "FATAL: cannot cd to repo root" >&2; exit 2; }
 

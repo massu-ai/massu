@@ -38,6 +38,29 @@
 # this set is treated as a generic example, not a real home path.
 HOME_PATH_PLACEHOLDERS_DEFAULT="dev foo bar baz qux test tests example examples someone user users you youruser username me my myuser myproject john jane doe alice bob home Shared probe name path project sample demo placeholder"
 
+# G29/CR-92 — git, with the caller's repo-redirecting environment REMOVED.
+#
+# `git -C <dir>` DOES NOT SCOPE GIT: `GIT_DIR` outranks `-C`, and is inherited from any
+# CALLER that sets it — a nested git invocation, a wrapper, a harness, a tool. (Git does
+# NOT hand `GIT_DIR` to the hooks it runs; measured, `scripts/ops/probe-git-hook-env.sh`.
+# Hooks DO inherit `GIT_INDEX_FILE`, which redirects the index by itself.) This guard is
+# invoked from `sync-public.sh`, itself reachable from a hook path — so without this, under
+# any leaked `GIT_DIR`, a bare `git -C "$root" rev-parse --git-dir` SUCCEEDS for ANY
+# `$root`, including an extracted npm tarball that is not a repository at all. The auto
+# mode below would then pick `tree` and enumerate the REAL repo's tracked files instead
+# of walking the tarball, and THE TARBALL CHANNEL WOULD GO UNSCANNED — silently, with a
+# confident PASS. That is precisely the deny-list-independent coverage this guard exists
+# to provide. Incident #166.
+#
+# `env -u` rather than a bare `unset`: this file is SOURCED (sync-public.sh:541), so an
+# unset here would mutate the CALLER's environment. The neutralisation must be local to
+# each git invocation.
+_hpg_git() {
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY \
+      -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_COMMON_DIR -u GIT_PREFIX \
+      git "$@"
+}
+
 home_path_guard() {
   local root="${1:?home_path_guard: <repo-root> required}"
   local mode="${2:-auto}"
@@ -54,7 +77,7 @@ home_path_guard() {
   # tree = git-tracked set (what is about to be committed).
   # dir  = plain filesystem walk (an extracted tarball, a staging directory).
   if [ "$mode" = "auto" ]; then
-    if [ -d "$root/.git" ] || git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+    if [ -d "$root/.git" ] || _hpg_git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
       mode="tree"
     else
       mode="dir"
@@ -63,7 +86,7 @@ home_path_guard() {
 
   case "$mode" in
     tree)
-      if [ ! -d "$root/.git" ] && ! git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+      if [ ! -d "$root/.git" ] && ! _hpg_git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
         echo "home_path_guard: --tree requested but '$root' is not a git repo." >&2
         return 2
       fi
@@ -86,7 +109,7 @@ home_path_guard() {
   # end, and "no hits" is indistinguishable from "no files" without this.
   local scanned=0
   if [ "$mode" = "tree" ]; then
-    scanned="$(git -C "$root" ls-files | wc -l | tr -d ' ')"
+    scanned="$(_hpg_git -C "$root" ls-files | wc -l | tr -d ' ')"
   else
     scanned="$(find "$root" -type f -not -path '*/.git/*' -not -path '*/node_modules/*' | wc -l | tr -d ' ')"
   fi
@@ -101,7 +124,7 @@ home_path_guard() {
   # placeholders like `/Users/<user>/` never match.
   local raw
   if [ "$mode" = "tree" ]; then
-    raw="$(git -C "$root" grep -nEI "/Users/[A-Za-z0-9_][A-Za-z0-9._-]*" -- . 2>/dev/null || true)"
+    raw="$(_hpg_git -C "$root" grep -nEI "/Users/[A-Za-z0-9_][A-Za-z0-9._-]*" -- . 2>/dev/null || true)"
   else
     # Paths are printed relative to $root so `dir` and `tree` output read alike.
     raw="$(cd "$root" && grep -rnEI \

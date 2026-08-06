@@ -708,9 +708,14 @@ print(g["defects"][int(sys.argv[3])].get("oracle",""))' "$REGISTRY" "$gid" "$idx
     rm -rf "$work"; return
   fi
   # G29/CR-92 — NEUTRALISE THE CALLER'S GIT ENVIRONMENT FOR THE ORACLE SANDBOX.
-  # `cd "$work"` DOES NOT SCOPE GIT. GIT_DIR outranks the working directory, and git
-  # EXPORTS GIT_DIR to every hook it runs — and this sweep runs from pre-push [22/22]
-  # and from CI. An oracle is an ARBITRARY command string from the registry, and at
+  # `cd "$work"` DOES NOT SCOPE GIT. GIT_DIR outranks the working directory, `git -C`
+  # and `cwd:`, and is inherited from any CALLER that sets it — a nested git invocation,
+  # a wrapper, a harness, a tool. (Git does NOT hand GIT_DIR to the hooks it runs;
+  # measured, scripts/ops/probe-git-hook-env.sh. Under pre-push git supplies only
+  # GIT_PREFIX; at commit stage it also supplies GIT_INDEX_FILE, which redirects the
+  # index by itself.) This sweep runs from pre-push [22/22] and from CI, so it inherits
+  # whatever environment those callers hand it.
+  # An oracle is an ARBITRARY command string from the registry, and at
   # least one of them runs `git init -q .` + `git add -N`: with GIT_DIR inherited that
   # re-inits the REAL repo and stages into the REAL index, while the gate's verdict is
   # simultaneously wrong (it adjudicates the wrong tree).

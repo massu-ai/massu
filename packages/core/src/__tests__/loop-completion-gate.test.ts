@@ -72,10 +72,12 @@ function setupSandbox(): string {
   // Initialise as a minimal git repo so `git rev-parse --show-toplevel` resolves
   // to the sandbox (not the real repo).
   //
-  // G29/CR-92 — `cwd:` alone does NOT achieve that. GIT_DIR outranks it and git
-  // exports GIT_DIR to every hook, so from a hook this `git init` re-inits the REAL
-  // repo and the gate's `--show-toplevel` resolves there too: the sandbox is written
-  // to the wrong tree AND adjudicated against the wrong tree. Incident #166.
+  // G29/CR-92 — `cwd:` alone does NOT achieve that. GIT_DIR outranks it, and it is
+  // inherited from any CALLER that sets it (git does NOT hand GIT_DIR to hooks —
+  // measured, scripts/ops/probe-git-hook-env.sh). Under a leaked GIT_DIR this
+  // `git init` re-inits the REAL repo and the gate's `--show-toplevel` resolves there
+  // too: the sandbox is written to the wrong tree AND adjudicated against the wrong
+  // tree. Incident #166.
   spawnSync('git', ['init', '-q'], { cwd: sandbox, env: gitSafeEnv() });
 
   return sandbox;

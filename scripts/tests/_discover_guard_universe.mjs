@@ -98,11 +98,28 @@ function parseArgs(argv) {
   return a;
 }
 
-// ── git-tracked membership (the SoT for "committed first-party", never a hardcoded root list) ──
+// G29/CR-92 - git, with the caller's repo-redirecting environment REMOVED.
+// `-C <dir>` DOES NOT SCOPE GIT: GIT_DIR outranks it (and `cd`, and `cwd:`), and is
+// inherited from any CALLER that sets it - a nested git invocation, a wrapper, a
+// harness, a tool. (Git does NOT hand GIT_DIR to the hooks it runs; measured,
+// scripts/ops/probe-git-hook-env.sh. A commit-stage hook DOES inherit GIT_INDEX_FILE,
+// which redirects the index by itself.)
+// Without this, `git -C repoRoot ls-files` enumerates the CALLER's repo
+// instead of repoRoot - so a discovery run pointed at any other tree silently returns
+// the wrong universe, and every gate verdict derived from it is wrong. Incident #166.
+const GIT_ENV_LEAKS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_PREFIX'];
+function gitSafeEnv() {
+  const e = { ...process.env };
+  for (const k of GIT_ENV_LEAKS) delete e[k];
+  return e;
+}
+
+// -- git-tracked membership (the SoT for "committed first-party", never a hardcoded root list) ──
 function gitTracked(repoRoot) {
   let out;
   try {
-    out = execFileSync('git', ['-C', repoRoot, 'ls-files', '-z'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    out = execFileSync('git', ['-C', repoRoot, 'ls-files', '-z'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: gitSafeEnv() });
   } catch (e) {
     fatal(`git ls-files failed in ${repoRoot}: ${e.message} — cannot see the committed tree (M2: cannot-look is not nothing-found).`);
   }
@@ -113,7 +130,7 @@ function gitTracked(repoRoot) {
 
 function lsFilesGlob(repoRoot, pattern) {
   try {
-    const out = execFileSync('git', ['-C', repoRoot, 'ls-files', '-z', pattern], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+    const out = execFileSync('git', ['-C', repoRoot, 'ls-files', '-z', pattern], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, env: gitSafeEnv() });
     return out.split('\0').filter(Boolean);
   } catch (e) {
     fatal(`git ls-files '${pattern}' failed: ${e.message}`);

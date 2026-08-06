@@ -21,6 +21,24 @@
 
 set -uo pipefail
 
+# --- G29/CR-92: NEUTRALISE THE CALLER'S GIT ENVIRONMENT - DO NOT REMOVE -------
+# `git -C <dir>` DOES NOT SCOPE GIT. GIT_DIR outranks `-C`, and is inherited from any
+# CALLER that sets it — a nested git invocation, a wrapper, a harness, a tool. (Git does
+# NOT hand GIT_DIR to the hooks it runs; measured, scripts/ops/probe-git-hook-env.sh.
+# Hooks DO inherit GIT_INDEX_FILE, which redirects the index by itself.)
+# DRIFT_REPO is overridable (MASSU_DRIFT_REPO), and that
+# override exists precisely so this can adjudicate ANOTHER repo - which is exactly
+# the case an inherited GIT_DIR breaks, silently reporting on the caller's repo
+# instead. Incident #166. Executed, never sourced, so `unset` cannot leak upward.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+# ...and a machine-global `init.templateDir` pre-populates .git/hooks in EVERY `git init`,
+# so a sandbox is NOT pristine just because it is new. GIT_TEMPLATE_DIR outranks the
+# config; empty means "no template". Exported so child processes inherit it.
+export GIT_TEMPLATE_DIR=""
+# -----------------------------------------------------------------------------
+
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Source the shared plan-token regex SoT (plan-1.9.0-plan-token-aware-changelog-batcher P-A-002).

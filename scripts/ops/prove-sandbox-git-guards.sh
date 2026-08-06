@@ -2,9 +2,13 @@
 # prove-sandbox-git-guards.sh — CR-72 live-fire proof for G29/CR-92 (Incident #166).
 #
 # THE PROPERTY: no test harness in this repo can write to the REAL repository when
-# `GIT_DIR` is set in its environment — which is the state git itself creates for
-# every hook it runs, so it is the state these harnesses ACTUALLY run in from
-# pre-commit / pre-push.
+# `GIT_DIR` is set in its environment. That state is NOT created by git for its hooks
+# (measured — scripts/ops/probe-git-hook-env.sh: pre-commit/commit-msg get
+# GIT_INDEX_FILE + GIT_PREFIX, pre-push gets GIT_PREFIX, and GIT_DIR is absent from all
+# three). It arrives from a CALLER that sets it — a nested git invocation, a wrapper, a
+# harness, a tool. `GIT_DIR` ALONE is the destructive shape, so it is what this proof
+# injects; note that a hook-inherited GIT_INDEX_FILE redirects the index by itself and
+# is a second, independent carrier of the same hazard.
 #
 # THE PROOF (four observables, recorded before and after, asserted UNCHANGED):
 #     tracked count · staged count · core.bare · HEAD
@@ -22,6 +26,27 @@
 # Usage:  bash scripts/ops/prove-sandbox-git-guards.sh [--list] [--dry-run]
 
 set -uo pipefail
+
+# --- G29/CR-92: NEUTRALISE THE CALLER'S GIT ENVIRONMENT - DO NOT REMOVE -------
+# `git -C <dir>` DOES NOT SCOPE GIT. GIT_DIR outranks `-C` exactly as it outranks
+# `cd` and `cwd:`, and is inherited from any CALLER that sets it — a nested git
+# invocation, a wrapper, a harness, a tool. (Git does NOT hand GIT_DIR to the hooks
+# it runs; measured, scripts/ops/probe-git-hook-env.sh. Hooks DO inherit
+# GIT_INDEX_FILE, which redirects the index by itself.) This script addresses
+# repositories BY PATH, so an inherited GIT_DIR makes every one of those reads
+# answer about the CALLER's repo instead - silently, with a confident wrong value
+# rather than an error. Incident #166.
+# Inline, NOT sourced: this script runs without `set -e`, so a failed `source`
+# would continue and leave it unprotected. Executed, never sourced, so `unset`
+# here cannot mutate a caller's environment.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+# ...and a machine-global `init.templateDir` pre-populates .git/hooks in EVERY `git init`,
+# so a sandbox is NOT pristine just because it is new. GIT_TEMPLATE_DIR outranks the
+# config; empty means "no template". Exported so child processes inherit it.
+export GIT_TEMPLATE_DIR=""
+# -----------------------------------------------------------------------------
+
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT" || { echo "FATAL: cannot cd to repo root"; exit 2; }
@@ -121,7 +146,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 # --------------------------------------------------------------------------------
-# RUN EVERY HARNESS WITH GIT_DIR SET — the state a git hook creates.
+# RUN EVERY HARNESS WITH GIT_DIR SET — the state a LEAKING CALLER creates. (Not a hook:
+# git does not hand GIT_DIR to hooks — measured, scripts/ops/probe-git-hook-env.sh.)
 # --------------------------------------------------------------------------------
 REAL_GIT_DIR="$(git rev-parse --git-dir)"
 case "$REAL_GIT_DIR" in

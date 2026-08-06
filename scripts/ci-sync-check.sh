@@ -25,8 +25,11 @@
 set -euo pipefail
 
 # --- G29/CR-92: NEUTRALISE THE CALLER'S GIT ENVIRONMENT — DO NOT REMOVE -------
-# `cd` DOES NOT SCOPE GIT. GIT_DIR outranks the working directory, and git EXPORTS
-# GIT_DIR to every hook it runs. Without this, `cd "$TMP" && git init && git add -A
+# `cd` DOES NOT SCOPE GIT. GIT_DIR outranks the working directory, `git -C` and `cwd:`,
+# and is inherited from any CALLER that sets it — a nested git invocation, a wrapper, a
+# harness, a tool. (Git does NOT hand GIT_DIR to the hooks it runs; measured,
+# scripts/ops/probe-git-hook-env.sh. Hooks DO inherit GIT_INDEX_FILE, which redirects the
+# index by itself.) Without this, `cd "$TMP" && git init && git add -A
 # && git commit` does not touch the sandbox — it addresses the REAL repository and
 # records every other tracked file as DELETED.
 # 2026-08-04, a sibling repo on this machine: a harness like this one committed

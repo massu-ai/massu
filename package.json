@@ -15,14 +15,14 @@
     "start": "npm start --workspace=packages/core"
   },
   "optionalDependencies": {
-    "@rollup/rollup-darwin-arm64": "4.59.0",
-    "@rollup/rollup-darwin-x64": "4.59.0",
-    "@rollup/rollup-linux-arm64-gnu": "4.59.0",
-    "@rollup/rollup-linux-arm64-musl": "4.59.0",
-    "@rollup/rollup-linux-x64-gnu": "4.59.0",
-    "@rollup/rollup-linux-x64-musl": "4.59.0",
-    "@rollup/rollup-win32-arm64-msvc": "4.59.0",
-    "@rollup/rollup-win32-x64-msvc": "4.59.0"
+    "@rollup/rollup-darwin-arm64": "4.62.4",
+    "@rollup/rollup-darwin-x64": "4.62.4",
+    "@rollup/rollup-linux-arm64-gnu": "4.62.4",
+    "@rollup/rollup-linux-arm64-musl": "4.62.4",
+    "@rollup/rollup-linux-x64-gnu": "4.62.4",
+    "@rollup/rollup-linux-x64-musl": "4.62.4",
+    "@rollup/rollup-win32-arm64-msvc": "4.62.4",
+    "@rollup/rollup-win32-x64-msvc": "4.62.4"
   },
   "author": "Massu Contributors",
   "license": "SEE LICENSE IN LICENSE",

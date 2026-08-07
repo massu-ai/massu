@@ -35,7 +35,7 @@
     "build:owned-sidecars": "node scripts/gen-owned-sidecars.mjs"
   },
   "dependencies": {
-    "@clack/prompts": "^0.9.1",
+    "@clack/prompts": "^0.11.0",
     "@massu/adapter-rails": "^1.0.0",
     "@massu/adapter-spring": "^1.0.0",
     "@massu/types": "1.12.0",
@@ -44,21 +44,21 @@
     "fast-glob": "^3.3.0",
     "onnxruntime-web": "^1.27.0",
     "proper-lockfile": "^4.1.2",
-    "smol-toml": "^1.3.0",
+    "smol-toml": "^1.7.1",
     "tar": "^7.4.3",
     "tweetnacl": "^1.0.3",
-    "vscode-languageserver-protocol": "^3.17.5",
-    "web-tree-sitter": "~0.25.10",
-    "yaml": "^2.4.0",
+    "vscode-languageserver-protocol": "^3.18.2",
+    "web-tree-sitter": "~0.26.11",
+    "yaml": "^2.9.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/proper-lockfile": "^4.1.4",
-    "@vitest/coverage-v8": "^4.1.8",
+    "@vitest/coverage-v8": "^4.1.10",
     "esbuild": "^0.28.1",
-    "semver": "^7.5.0",
-    "tsx": "^4.23.0",
+    "semver": "^7.8.5",
+    "tsx": "^4.23.5",
     "typescript": "^5.4.0",
     "vitest": "^4.1.8"
   },

@@ -52,7 +52,7 @@ jobs:
     if: github.repository == 'massu-ai/massu'
     steps:
       - name: Checkout (full history for commit-range scan)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

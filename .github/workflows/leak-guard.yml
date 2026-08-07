@@ -40,7 +40,7 @@ jobs:
     if: github.repository == 'massu-ai/massu'
     steps:
       - name: Checkout (full history for diff range)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Need at least 2 commits so we can diff push payload.
           fetch-depth: 0

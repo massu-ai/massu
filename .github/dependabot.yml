@@ -1,0 +1,61 @@
+# Dependabot for the PUBLIC mirror (massu-ai/massu).
+#
+# SOURCE OF TRUTH. This file is authored HERE, in massu-internal, and copied by
+# scripts/sync-public.sh to the public repo as `.github/dependabot.yml` — the
+# same `*.public.*` pattern as ci.public.yml and main-branch.public.json.
+#
+# IT CANNOT BE HAND-PLACED IN THE PUBLIC REPO. sync-public.sh's first act
+# against its target is `git rm -rf . && git clean -fd`, so anything the sync
+# does not re-create is deleted on the next run. A dependabot.yml committed
+# directly to massu-ai/massu would survive exactly until the next sync and then
+# vanish silently — the config would stop existing while everyone assumed it was
+# watching.
+#
+# WHY IT DIFFERS FROM THE INTERNAL CONFIG. The public mirror has NO `website/`
+# (0 tracked files) and its workspaces are `packages/core` + `packages/adapter-*`
+# — `packages/types` is not published. So there is exactly ONE real lockfile
+# here (`/package-lock.json`), versus two internally. Directory scope avoids the
+# fixture `package.json` files for the same reason it does internally: they are
+# detection-test INPUT, not dependencies.
+version: 2
+updates:
+  # ---------------------------------------------------------------- npm: root
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Los_Angeles
+    open-pull-requests-limit: 10
+    labels: [dependencies, security]
+    commit-message:
+      prefix: "fix(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: scope
+    groups:
+      # Security updates are NOT grouped — Dependabot raises those immediately
+      # and individually, which is correct: a CVE must not wait for a batch.
+      non-major:
+        update-types: [minor, patch]
+    ignore:
+      # Majors are deliberate migrations; this repo publishes @massu/core, so a
+      # major bump can change consumer-visible behaviour. Dependabot exempts
+      # security advisories from `ignore`, so a major-only security fix is still
+      # raised.
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
+
+  # -------------------------------------------------------- github-actions: /
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Los_Angeles
+    open-pull-requests-limit: 5
+    labels: [dependencies, ci]
+    commit-message:
+      prefix: "chore(ci)"
+      include: scope

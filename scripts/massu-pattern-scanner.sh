@@ -977,9 +977,33 @@ for workflow in $CI_SURFACE_FILES; do
   # Match all YAML block-scalar variants: `run: |`, `run: |-`, `run: |+`, `run: >`,
   # `run: >-`, `run: >+`. A previous regex (`run: |` only) missed `|-` chomping
   # variants — would silently bypass Check 26 (HIGH arch finding 2026-05-18).
+  # BLOCK TERMINATOR — the key character class MUST admit DIGITS and uppercase.
+  # It was `[a-z_-]+` until 2026-08-07, which cannot match a YAML key containing a
+  # digit. Measured: the job key `tarball-e2e:` (the `2` in `e2e`) was invisible as a
+  # terminator, so a 2-line `run: |` block above it kept counting through the blank
+  # line, through the job key, and through 18 lines of the NEXT job's comments until
+  # it reached `name:` — reporting `ci.yml:299:+21` for a block whose real content is
+  # two lines. A FALSE FAIL, and the direction matters: a too-narrow terminator only
+  # ever OVER-counts, so it cries wolf rather than going blind (a real >5 offender is
+  # still caught, because its own `run: |` resets the counter).
+  #
+  # It must ALSO admit the LIST-ITEM form `- name:`, because every workflow step is one.
+  # Without it the same over-count recurred one step later: the planted-offender fixture
+  # reported +9 for an 8-line block, having run through `- name: after` before stopping
+  # at the following `run:`. A 5-line block followed by a step header would therefore
+  # have counted 6 and failed for a reason that is not in the file.
+  #
+  # This is CR-50's two implementations having DRIFTED. The vitest mirror
+  # (ci-prepush-parity.test.ts) parses the YAML and counts `step.run`'s own lines, so
+  # it was correct and green while this one failed on the same file. When a hand-rolled
+  # regex and a real parser disagree, the parser is the oracle. The residual exposure is
+  # named rather than hidden: a shell line that is itself `word:` at block indentation
+  # would terminate early and UNDER-count — the blind direction. No such line exists in
+  # any current block (verified by agreement with the YAML-parsing mirror on every
+  # scanned surface), and the mirror is what would catch it.
   OFFENDER=$(awk -v file="$base" '
     /^[[:space:]]+run:[[:space:]]*[|>][+-]?[[:space:]]*$/ { in_block=1; line_count=0; first_line=NR; found_script=0; next }
-    in_block && /^[[:space:]]+[a-z_-]+:/ { if (line_count > 5 && !found_script) print file ":" first_line ":+" line_count; in_block=0; found_script=0; next }
+    in_block && /^[[:space:]]*(-[[:space:]]+)?[A-Za-z0-9_.-]+:/ { if (line_count > 5 && !found_script) print file ":" first_line ":+" line_count; in_block=0; found_script=0; next }
     in_block { line_count++; if ($0 ~ /bash scripts\/ci-/) found_script=1 }
     END { if (in_block && line_count > 5 && !found_script) print file ":" first_line ":+" line_count }
   ' "$workflow")

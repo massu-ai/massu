@@ -101,5 +101,12 @@ jobs:
       - run: npm ci
       - name: Build Hooks (Core)
         run: cd packages/core && npm run build:hooks
-      - name: Security Audit
-        run: npm audit --audit-level=high || true
+      - name: Security Audit — fail on ANY severity
+        # `|| true` removed 2026-08-07. With it, this step could not fail on
+        # ANYTHING — not a high, not a critical — so it reported exactly what a
+        # healthy gate reports while enforcing nothing (CR-72: a gate you have
+        # not attacked is decoration). `--audit-level=info` is the lowest level,
+        # so any finding fails (Rule 16, all-severity closure). Level semantics
+        # measured against a deliberately vulnerable tree — see the matching
+        # step in ci.yml for the per-level exit codes.
+        run: npm audit --audit-level=info

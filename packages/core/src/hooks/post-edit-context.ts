@@ -14,7 +14,12 @@ import { openDatabase } from '../db-driver.ts';
 import { matchRules } from '../rules.ts';
 import { isInMiddlewareTree } from '../middleware-tree.ts';
 import { getResolvedPaths, getProjectRoot } from '../config.ts';
-import { writeHookMessage } from './lib/write-hook-message.ts';
+import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
+
+/** Registered on PostToolUse. Asserted against `.claude/settings.json` by
+ *  `hook-context-delivery-drift-guard.test.ts`, so this constant cannot drift
+ *  from the event the hook is actually wired to. */
+const HOOK_EVENT: HookEvent = 'PostToolUse';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
@@ -72,7 +77,7 @@ async function main(): Promise<void> {
 
     // 3. Output warnings if any
     if (warnings.length > 0) {
-      writeHookMessage(`[Massu] ${warnings.join(' | ')}`);
+      writeHookContext(HOOK_EVENT, `[Massu] ${warnings.join(' | ')}`);
     }
   } catch (err) {
     // G-2: a hook may fail; it may not fail SILENTLY. Exit stays 0 (a Massu

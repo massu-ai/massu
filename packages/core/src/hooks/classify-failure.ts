@@ -25,7 +25,12 @@ import { tmpdir } from 'os';
 import { join, basename } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
 import { getMemoryDb, scoreFailureClasses } from '../memory-db.ts';
-import { writeHookMessage } from './lib/write-hook-message.ts';
+import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
+
+/** Registered on PostToolUse. Asserted against `.claude/settings.json` by
+ *  `hook-context-delivery-drift-guard.test.ts`, so this constant cannot drift
+ *  from the event the hook is actually wired to. */
+const HOOK_EVENT: HookEvent = 'PostToolUse';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
@@ -214,7 +219,7 @@ function outputKnownPattern(match: FailureClassMatch): void {
     lines.push(`  Covered by: ${match.rules.join(', ')}`);
   }
   lines.push('  No new rules needed. Reference existing incident if logging.');
-  writeHookMessage(lines.join('\n'));
+  writeHookContext(HOOK_EVENT, lines.join('\n'));
 }
 
 function outputSimilarPattern(match: FailureClassMatch): void {
@@ -225,7 +230,7 @@ function outputSimilarPattern(match: FailureClassMatch): void {
     lines.push(`  Check if existing rules cover this case: ${match.rules.join(', ')}`);
   }
   lines.push('  If genuinely new: create incident + prevention rule + enforcement.');
-  writeHookMessage(lines.join('\n'));
+  writeHookContext(HOOK_EVENT, lines.join('\n'));
 }
 
 function outputNewPattern(fileName: string, match: FailureClassMatch | null): void {
@@ -240,7 +245,7 @@ function outputNewPattern(fileName: string, match: FailureClassMatch | null): vo
   lines.push('    1. INCIDENT REPORT');
   lines.push('    2. PREVENTION RULE (if new failure pattern)');
   lines.push('    3. ENFORCEMENT (hook or static check)');
-  writeHookMessage(lines.join('\n'));
+  writeHookContext(HOOK_EVENT, lines.join('\n'));
 }
 
 interface FailureClassMatch {

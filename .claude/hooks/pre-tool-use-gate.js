@@ -3986,12 +3986,43 @@ var init_hook_failure_signal = __esm({
 });
 
 // src/hooks/lib/write-hook-message.ts
-function writeHookMessage(message) {
-  process.stdout.write(JSON.stringify({ message }) + "\n");
+var HOOK_EVENTS = [
+  "UserPromptSubmit",
+  "UserPromptExpansion",
+  "SessionStart",
+  "PreToolUse",
+  "PostToolUse",
+  "Stop",
+  "SubagentStop",
+  "PreCompact"
+];
+var ADDITIONAL_CONTEXT_MAX_CHARS = 1e4;
+function isHookEvent(value) {
+  return typeof value === "string" && HOOK_EVENTS.includes(value);
+}
+function writeHookContext(hookEventName, message) {
+  if (!isHookEvent(hookEventName)) {
+    process.stderr.write(
+      `[massu] writeHookContext: refusing to emit \u2014 unrecognised hook event ${JSON.stringify(hookEventName)}. Known: ${HOOK_EVENTS.join(", ")}.
+`
+    );
+    return;
+  }
+  if (typeof message !== "string" || message.length === 0) return;
+  let additionalContext = message;
+  if (additionalContext.length > ADDITIONAL_CONTEXT_MAX_CHARS) {
+    const marker = `
+[massu] \u2026truncated at ${ADDITIONAL_CONTEXT_MAX_CHARS} chars (spec cap).`;
+    additionalContext = additionalContext.slice(0, ADDITIONAL_CONTEXT_MAX_CHARS - marker.length) + marker;
+  }
+  process.stdout.write(
+    JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext } }) + "\n"
+  );
 }
 
 // src/hooks/security-gate.ts
 init_hook_failure_signal();
+var HOOK_EVENT = "PreToolUse";
 var DANGEROUS_BASH_PATTERNS = [
   // BLOCK — destructive and irreversible, or arbitrary remote code execution.
   { pattern: /rm\s+-[a-z]*r[a-z]*f[a-z]*\s+\/(?:\s|$)/, label: "rm -rf /", severity: "block" },
@@ -4111,7 +4142,7 @@ async function main() {
     const input = await readStdin();
     const hookInput = JSON.parse(input);
     const messages = runSecurityGateChecks(hookInput);
-    for (const msg of messages) writeHookMessage(msg);
+    for (const msg of messages) writeHookContext(HOOK_EVENT, msg);
   } catch (err) {
     recordHookFailure("security-gate", err);
     process.stderr.write("MASSU SECURITY GATE \u2014 BLOCKED (gate could not evaluate this call)\n");
@@ -4233,6 +4264,7 @@ function getFeatureImpact(db, filePaths) {
 // src/hooks/pre-delete-check.ts
 init_config();
 init_hook_failure_signal();
+var HOOK_EVENT2 = "PreToolUse";
 var PROJECT_ROOT2 = getProjectRoot();
 var KNOWLEDGE_PROTECTED_FILES = [
   "knowledge-db.ts",
@@ -4376,7 +4408,7 @@ async function main2() {
     const input = await readStdin2();
     const hookInput = JSON.parse(input);
     const messages = runPreDeleteChecks(hookInput);
-    for (const msg of messages) writeHookMessage(msg);
+    for (const msg of messages) writeHookContext(HOOK_EVENT2, msg);
   } catch (err) {
     recordHookFailure("pre-delete-check", err);
     process.stderr.write("MASSU SECURITY GATE \u2014 BLOCKED (gate could not evaluate this call)\n");
@@ -4436,6 +4468,7 @@ function readStdinToEof(deadlineMs = 4e3) {
 
 // src/hooks/pre-tool-use-gate.ts
 init_hook_failure_signal();
+var HOOK_EVENT3 = "PreToolUse";
 var EXIT_DENY = 2;
 var EXIT_ALLOW = 0;
 function deny(reason, detail) {
@@ -4485,7 +4518,7 @@ async function main3() {
   }
   const blocking = findings.filter((f) => f.severity === "block");
   for (const f of findings.filter((x) => x.severity === "warn")) {
-    writeHookMessage(f.message);
+    writeHookContext(HOOK_EVENT3, f.message);
   }
   if (blocking.length > 0) {
     deny(blocking.map((f) => f.message).join("\n\n"));

@@ -3999,12 +3999,43 @@ import { tmpdir as tmpdir2 } from "os";
 import { join as join6 } from "path";
 
 // src/hooks/lib/write-hook-message.ts
-function writeHookMessage(message) {
-  process.stdout.write(JSON.stringify({ message }) + "\n");
+var HOOK_EVENTS = [
+  "UserPromptSubmit",
+  "UserPromptExpansion",
+  "SessionStart",
+  "PreToolUse",
+  "PostToolUse",
+  "Stop",
+  "SubagentStop",
+  "PreCompact"
+];
+var ADDITIONAL_CONTEXT_MAX_CHARS = 1e4;
+function isHookEvent(value) {
+  return typeof value === "string" && HOOK_EVENTS.includes(value);
+}
+function writeHookContext(hookEventName, message) {
+  if (!isHookEvent(hookEventName)) {
+    process.stderr.write(
+      `[massu] writeHookContext: refusing to emit \u2014 unrecognised hook event ${JSON.stringify(hookEventName)}. Known: ${HOOK_EVENTS.join(", ")}.
+`
+    );
+    return;
+  }
+  if (typeof message !== "string" || message.length === 0) return;
+  let additionalContext = message;
+  if (additionalContext.length > ADDITIONAL_CONTEXT_MAX_CHARS) {
+    const marker = `
+[massu] \u2026truncated at ${ADDITIONAL_CONTEXT_MAX_CHARS} chars (spec cap).`;
+    additionalContext = additionalContext.slice(0, ADDITIONAL_CONTEXT_MAX_CHARS - marker.length) + marker;
+  }
+  process.stdout.write(
+    JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext } }) + "\n"
+  );
 }
 
 // src/hooks/fix-detector.ts
 init_hook_failure_signal();
+var HOOK_EVENT = "PostToolUse";
 var FIX_HEURISTICS = [
   {
     name: "removed_broken_code",
@@ -4179,7 +4210,8 @@ async function main() {
     appendFileSync3(flagPath, JSON.stringify(signal) + "\n");
     const lines = readFileSync6(flagPath, "utf-8").split("\n").filter(Boolean);
     if (lines.length === 1) {
-      writeHookMessage(
+      writeHookContext(
+        HOOK_EVENT,
         `[Massu Auto-Learning] Bug fix detected in ${filePath} (signals: ${detected.join(", ")}). The auto-learning pipeline will prompt you at session end to create an incident report, derive a prevention rule, and add enforcement.`
       );
     }

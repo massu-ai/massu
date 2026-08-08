@@ -25,7 +25,12 @@
 
 import { runSecurityGateFindings } from './security-gate.ts';
 import { runPreDeleteChecks } from './pre-delete-check.ts';
-import { writeHookMessage } from './lib/write-hook-message.ts';
+import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
+
+/** Registered on PreToolUse. Asserted against `.claude/settings.json` by
+ *  `hook-context-delivery-drift-guard.test.ts`, so this constant cannot drift
+ *  from the event the hook is actually wired to. */
+const HOOK_EVENT: HookEvent = 'PreToolUse';
 import { readStdinToEof } from './lib/read-stdin.ts';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
@@ -113,7 +118,7 @@ async function main(): Promise<void> {
 
   // Advisory findings still surface to the user, exactly as before.
   for (const f of findings.filter((x) => x.severity === 'warn')) {
-    writeHookMessage(f.message);
+    writeHookContext(HOOK_EVENT, f.message);
   }
 
   if (blocking.length > 0) {

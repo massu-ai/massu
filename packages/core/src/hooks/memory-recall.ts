@@ -24,7 +24,12 @@ import {
   pendingPointer,
 } from '../shared-memory-recall.ts';
 import { embed, getActiveEmbedModel } from '../memory-embedder.ts';
-import { writeHookMessage } from './lib/write-hook-message.ts';
+import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
+
+/** Registered on UserPromptSubmit. Asserted against `.claude/settings.json` by
+ *  `hook-context-delivery-drift-guard.test.ts`, so this constant cannot drift
+ *  from the event the hook is actually wired to. */
+const HOOK_EVENT: HookEvent = 'UserPromptSubmit';
 import { existsSync } from 'fs';
 import type Database from 'better-sqlite3';
 import { openDatabase } from '../db-driver.ts';
@@ -119,7 +124,7 @@ async function main(): Promise<void> {
     if (block && block.trim()) {
       // Emit via the standard hook-message helper (P-M-004 stdout convention);
       // session-start is the sole raw-stdout hook.
-      writeHookMessage(block);
+      writeHookContext(HOOK_EVENT, block);
     }
   } catch {
     // Fail-open: write nothing.

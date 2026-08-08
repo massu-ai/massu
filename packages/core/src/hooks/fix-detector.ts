@@ -19,7 +19,12 @@ import { existsSync, appendFileSync, mkdirSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
-import { writeHookMessage } from './lib/write-hook-message.ts';
+import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
+
+/** Registered on PostToolUse. Asserted against `.claude/settings.json` by
+ *  `hook-context-delivery-drift-guard.test.ts`, so this constant cannot drift
+ *  from the event the hook is actually wired to. */
+const HOOK_EVENT: HookEvent = 'PostToolUse';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
@@ -244,7 +249,7 @@ async function main(): Promise<void> {
     const lines = readFileSync(flagPath, 'utf-8').split('\n').filter(Boolean);
     if (lines.length === 1) {
       // First fix detected — output advisory
-      writeHookMessage(
+      writeHookContext(HOOK_EVENT, 
         `[Massu Auto-Learning] Bug fix detected in ${filePath} (signals: ${detected.join(', ')}). ` +
         `The auto-learning pipeline will prompt you at session end to create an incident report, ` +
         `derive a prevention rule, and add enforcement.`

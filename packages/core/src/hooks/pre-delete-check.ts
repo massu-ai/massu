@@ -17,7 +17,12 @@ import { existsSync } from 'fs';
 import { getFeatureImpact } from '../sentinel-db.ts';
 import { getProjectRoot, getResolvedPaths } from '../config.ts';
 import { t } from '../lib/sql-table-names.ts';
-import { writeHookMessage } from './lib/write-hook-message.ts';
+import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
+
+/** Registered on PreToolUse. Asserted against `.claude/settings.json` by
+ *  `hook-context-delivery-drift-guard.test.ts`, so this constant cannot drift
+ *  from the event the hook is actually wired to. */
+const HOOK_EVENT: HookEvent = 'PreToolUse';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
@@ -127,7 +132,7 @@ function extractDeletedFiles(input: HookInput): string[] {
  * `pre-tool-use-gate.ts` can compose the security-gate + pre-delete-check
  * pair into ONE spawned node process instead of two. Returns the list of
  * messages to emit; caller is responsible for actually writing them via
- * `writeHookMessage()`.
+ * `writeHookContext(HOOK_EVENT, )`.
  */
 export function runPreDeleteChecks(hookInput: HookInput): string[] {
   const messages: string[] = [];
@@ -215,7 +220,7 @@ async function main(): Promise<void> {
     const input = await readStdin();
     const hookInput = JSON.parse(input) as HookInput;
     const messages = runPreDeleteChecks(hookInput);
-    for (const msg of messages) writeHookMessage(msg);
+    for (const msg of messages) writeHookContext(HOOK_EVENT, msg);
   } catch (err) {
     // G-2 + S-3: a SECURITY hook that cannot evaluate must not permit.
     // Was: swallow -> exit 0 -> ALLOW. Now: loud + FAIL CLOSED.

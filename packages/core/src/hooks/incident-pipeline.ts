@@ -18,7 +18,12 @@ import { existsSync, readFileSync, readdirSync } from 'fs';
 import { basename, dirname, resolve } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
 import { getMemoryDb, scoreFailureClasses, appendIncidentToFailureClass, addFailureClass } from '../memory-db.ts';
-import { writeHookMessage } from './lib/write-hook-message.ts';
+import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
+
+/** Registered on PostToolUse. Asserted against `.claude/settings.json` by
+ *  `hook-context-delivery-drift-guard.test.ts`, so this constant cannot drift
+ *  from the event the hook is actually wired to. */
+const HOOK_EVENT: HookEvent = 'PostToolUse';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
@@ -131,7 +136,7 @@ async function main(): Promise<void> {
     lines.push('============================================================================');
     lines.push('');
 
-    writeHookMessage(lines.join('\n'));
+    writeHookContext(HOOK_EVENT, lines.join('\n'));
 
     // ============================================================
     // Taxonomy Update: Score incident against failure classes

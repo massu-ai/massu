@@ -58,9 +58,20 @@ function collectTsFiles(dir: string): string[] {
 function isAllowedUsage(line: string): boolean {
   const trimmed = line.trim();
 
-  // Comment lines
+  // Comment lines.
+  //
+  // `/**` and `/*` OPENERS were missing until 2026-08-08, so a JSDoc block whose
+  // FIRST line mentioned `.claude/settings.json` was read as a hardcoded path —
+  // 11 false positives in one commit, every one a doc comment. `//` and the `*`
+  // continuation were handled; the opener was not. Same prose-as-code class as the
+  // G29 guard fixed the same day.
+  //
+  // Safe by construction: a line is treated as a comment ONLY if it opens one and
+  // does not close it with executable code following, so `/* x */ realCode()`
+  // still reaches the checks below.
   if (trimmed.startsWith('//')) return true;
   if (trimmed.startsWith('*')) return true;
+  if (/^\/\*(?!.*\*\/\s*\S)/.test(trimmed)) return true;
 
   // Config-driven usage
   if (trimmed.includes('getConfig()') || trimmed.includes('getConfig(')) return true;

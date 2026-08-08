@@ -3992,12 +3992,43 @@ import { existsSync as existsSync9, readFileSync as readFileSync6, readdirSync a
 import { basename as basename3, resolve as resolve5 } from "path";
 
 // src/hooks/lib/write-hook-message.ts
-function writeHookMessage(message) {
-  process.stdout.write(JSON.stringify({ message }) + "\n");
+var HOOK_EVENTS = [
+  "UserPromptSubmit",
+  "UserPromptExpansion",
+  "SessionStart",
+  "PreToolUse",
+  "PostToolUse",
+  "Stop",
+  "SubagentStop",
+  "PreCompact"
+];
+var ADDITIONAL_CONTEXT_MAX_CHARS = 1e4;
+function isHookEvent(value) {
+  return typeof value === "string" && HOOK_EVENTS.includes(value);
+}
+function writeHookContext(hookEventName, message) {
+  if (!isHookEvent(hookEventName)) {
+    process.stderr.write(
+      `[massu] writeHookContext: refusing to emit \u2014 unrecognised hook event ${JSON.stringify(hookEventName)}. Known: ${HOOK_EVENTS.join(", ")}.
+`
+    );
+    return;
+  }
+  if (typeof message !== "string" || message.length === 0) return;
+  let additionalContext = message;
+  if (additionalContext.length > ADDITIONAL_CONTEXT_MAX_CHARS) {
+    const marker = `
+[massu] \u2026truncated at ${ADDITIONAL_CONTEXT_MAX_CHARS} chars (spec cap).`;
+    additionalContext = additionalContext.slice(0, ADDITIONAL_CONTEXT_MAX_CHARS - marker.length) + marker;
+  }
+  process.stdout.write(
+    JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext } }) + "\n"
+  );
 }
 
 // src/hooks/incident-pipeline.ts
 init_hook_failure_signal();
+var HOOK_EVENT = "PostToolUse";
 async function main() {
   try {
     const input = await readStdin();
@@ -4080,7 +4111,7 @@ async function main() {
     lines.push("  This step is MANDATORY per the auto-learning pipeline.");
     lines.push("============================================================================");
     lines.push("");
-    writeHookMessage(lines.join("\n"));
+    writeHookContext(HOOK_EVENT, lines.join("\n"));
     try {
       const taxonomyConfig = config.autoLearning?.failureClassification;
       if (taxonomyConfig?.enabled !== false) {

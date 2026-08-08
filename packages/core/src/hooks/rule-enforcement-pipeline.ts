@@ -17,7 +17,12 @@
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { basename, resolve } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
-import { writeHookMessage } from './lib/write-hook-message.ts';
+import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
+
+/** Registered on PostToolUse. Asserted against `.claude/settings.json` by
+ *  `hook-context-delivery-drift-guard.test.ts`, so this constant cannot drift
+ *  from the event the hook is actually wired to. */
+const HOOK_EVENT: HookEvent = 'PostToolUse';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 interface HookInput {
@@ -141,7 +146,7 @@ async function main(): Promise<void> {
     lines.push('============================================================================');
     lines.push('');
 
-    writeHookMessage(lines.join('\n'));
+    writeHookContext(HOOK_EVENT, lines.join('\n'));
   } catch (err) {
     // G-2: a hook may fail; it may not fail SILENTLY. Exit stays 0 (a Massu
     // bug must never block the user's session) but the failure now leaves a

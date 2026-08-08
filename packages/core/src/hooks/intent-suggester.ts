@@ -8,7 +8,12 @@
 // surfaces suggestions to the user as a non-blocking hint.
 // ============================================================
 
-import { writeHookMessage } from './lib/write-hook-message.ts';
+import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
+
+/** Registered on UserPromptSubmit. Asserted against `.claude/settings.json` by
+ *  `hook-context-delivery-drift-guard.test.ts`, so this constant cannot drift
+ *  from the event the hook is actually wired to. */
+const HOOK_EVENT: HookEvent = 'UserPromptSubmit';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 // Force module mode for TypeScript (no external deps needed)
@@ -112,7 +117,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    writeHookMessage(`Tip: Use ${match.command} to ${match.description}.`);
+    writeHookContext(HOOK_EVENT, `Tip: Use ${match.command} to ${match.description}.`);
   } catch (err) {
     // G-2: a hook may fail; it may not fail SILENTLY. Exit stays 0 (a Massu
     // bug must never block the user's session) but the failure now leaves a

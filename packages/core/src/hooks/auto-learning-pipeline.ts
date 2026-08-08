@@ -21,7 +21,12 @@ import { existsSync, readFileSync, unlinkSync, readdirSync, statSync } from 'fs'
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
-import { writeHookMessage } from './lib/write-hook-message.ts';
+import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
+
+/** Registered on Stop. Asserted against `.claude/settings.json` by
+ *  `hook-context-delivery-drift-guard.test.ts`, so this constant cannot drift
+ *  from the event the hook is actually wired to. */
+const HOOK_EVENT: HookEvent = 'Stop';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 // P-H002 (plan-stage-c-high-batch): bound git-diff reads so monorepos with
@@ -189,7 +194,7 @@ async function main(): Promise<void> {
     lines.push('============================================================================');
     lines.push('');
 
-    writeHookMessage(lines.join('\n'));
+    writeHookContext(HOOK_EVENT, lines.join('\n'));
 
     // Clean up flag file
     cleanup(flagPath);

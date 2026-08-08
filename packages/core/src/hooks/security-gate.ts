@@ -10,7 +10,12 @@
 // Must complete in <500ms.
 // ============================================================
 
-import { writeHookMessage } from './lib/write-hook-message.ts';
+import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
+
+/** Registered on PreToolUse. Asserted against `.claude/settings.json` by
+ *  `hook-context-delivery-drift-guard.test.ts`, so this constant cannot drift
+ *  from the event the hook is actually wired to. */
+const HOOK_EVENT: HookEvent = 'PreToolUse';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
 
 // Force module mode for TypeScript (no external deps needed)
@@ -203,7 +208,7 @@ async function main(): Promise<void> {
     const input = await readStdin();
     const hookInput = JSON.parse(input) as HookInput;
     const messages = runSecurityGateChecks(hookInput);
-    for (const msg of messages) writeHookMessage(msg);
+    for (const msg of messages) writeHookContext(HOOK_EVENT, msg);
   } catch (err) {
     // G-2 + S-3: a SECURITY hook that cannot evaluate must not permit.
     // Was: swallow -> exit 0 -> ALLOW. Now: loud + FAIL CLOSED.

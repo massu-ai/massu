@@ -3993,12 +3993,43 @@ import { tmpdir as tmpdir2 } from "os";
 import { join as join6 } from "path";
 
 // src/hooks/lib/write-hook-message.ts
-function writeHookMessage(message) {
-  process.stdout.write(JSON.stringify({ message }) + "\n");
+var HOOK_EVENTS = [
+  "UserPromptSubmit",
+  "UserPromptExpansion",
+  "SessionStart",
+  "PreToolUse",
+  "PostToolUse",
+  "Stop",
+  "SubagentStop",
+  "PreCompact"
+];
+var ADDITIONAL_CONTEXT_MAX_CHARS = 1e4;
+function isHookEvent(value) {
+  return typeof value === "string" && HOOK_EVENTS.includes(value);
+}
+function writeHookContext(hookEventName, message) {
+  if (!isHookEvent(hookEventName)) {
+    process.stderr.write(
+      `[massu] writeHookContext: refusing to emit \u2014 unrecognised hook event ${JSON.stringify(hookEventName)}. Known: ${HOOK_EVENTS.join(", ")}.
+`
+    );
+    return;
+  }
+  if (typeof message !== "string" || message.length === 0) return;
+  let additionalContext = message;
+  if (additionalContext.length > ADDITIONAL_CONTEXT_MAX_CHARS) {
+    const marker = `
+[massu] \u2026truncated at ${ADDITIONAL_CONTEXT_MAX_CHARS} chars (spec cap).`;
+    additionalContext = additionalContext.slice(0, ADDITIONAL_CONTEXT_MAX_CHARS - marker.length) + marker;
+  }
+  process.stdout.write(
+    JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext } }) + "\n"
+  );
 }
 
 // src/hooks/auto-learning-pipeline.ts
 init_hook_failure_signal();
+var HOOK_EVENT = "Stop";
 var MAX_FULL_DIFF_BYTES = 2 * 1024 * 1024;
 function getSessionFlagPath(sessionId) {
   return join6(tmpdir2(), "massu-auto-learning", `fixes-${sessionId.slice(0, 12)}.jsonl`);
@@ -4117,7 +4148,7 @@ async function main() {
     lines.push("");
     lines.push("============================================================================");
     lines.push("");
-    writeHookMessage(lines.join("\n"));
+    writeHookContext(HOOK_EVENT, lines.join("\n"));
     cleanup(flagPath);
   } catch (err) {
     recordHookFailure("auto-learning-pipeline", err);

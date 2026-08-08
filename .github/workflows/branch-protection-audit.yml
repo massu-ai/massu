@@ -27,7 +27,7 @@ jobs:
     name: Branch Protection Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Generate App token (primary path)
         id: app-token
@@ -35,7 +35,7 @@ jobs:
         # Pinned to v1.12.0 SHA per security-review LOW-2. Resolved via
         # `gh api repos/actions/create-github-app-token/git/refs/tags/v1`.
         # Bump SHA + version comment together when updating.
-        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ secrets.RULESET_APPLY_APP_ID }}
           private-key: ${{ secrets.RULESET_APPLY_APP_PRIVATE_KEY }}

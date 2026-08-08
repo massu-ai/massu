@@ -40,7 +40,7 @@ jobs:
     if: github.repository == 'massu-ai/massu'
     steps:
       - name: Checkout (full history for diff range)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Need at least 2 commits so we can diff push payload.
           fetch-depth: 0
@@ -92,7 +92,7 @@ jobs:
             # Use commit-mode (added 2026-05-10): the guard's file-list +
             # content readers query $sha vs its parent directly. Replaces
             # the prior `git read-tree $sha` + staged-mode pattern, which
-            # silently returned empty diff when actions/checkout@v4's PR
+            # silently returned empty diff when actions/checkout@v7's PR
             # merge commit equaled $sha (synthetic-leak-test PR
             # massu-ai/massu#2 / run 25621197800 false-PASS 2026-05-09).
             if ! MASSU_LEAK_GUARD_MODE=commit MASSU_LEAK_GUARD_SHA="$sha" \

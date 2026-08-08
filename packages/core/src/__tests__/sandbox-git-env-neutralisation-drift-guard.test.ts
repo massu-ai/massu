@@ -120,6 +120,40 @@ function readOrThrow(rel: string): string {
   }
 }
 
+/**
+ * A line that is ENTIRELY a comment, in any of the five scanned languages.
+ *
+ * WHY (2026-08-08): this guard reported `scripts/tests/test-memory-integrity-check.sh`
+ * as an unguarded sandbox harness. That file runs no git at all — what matched was its
+ * COMMENT saying so: *"No `git init` anywhere in this file: the hook is given its root
+ * by env…"*. The guard read prose as code, and it punished a file for DOCUMENTING its
+ * own G29 compliance. A detector that fires on the retro explaining the bug teaches
+ * people to stop writing the explanation, so the RULE is fixed here rather than the
+ * comment reworded.
+ *
+ * SAFE BY CONSTRUCTION — nothing executable can hide behind this. Only a line whose
+ * FIRST non-whitespace characters open a comment is skipped; a `#` appearing mid-line
+ * (`X=$(git init) # set up`) leaves the code before it intact and still matches.
+ *
+ * KNOWN LIMIT, stated rather than buried (G20): a whole-line `#` inside a heredoc that
+ * is written out and later executed would be skipped here. That generated script is
+ * itself a `git init` site, and is covered when it is tracked.
+ */
+const FULL_LINE_COMMENT = /^[ \t]*(#|\/\/|\*|<!--)/;
+
+/**
+ * Does this file create a repo in EXECUTABLE code?
+ *
+ * Matching is per line, which is not a change in reach: `CREATES_A_REPO` excludes `\n`,
+ * so it never spanned lines in the first place. The only difference is that full-line
+ * comments no longer count.
+ */
+function createsARepo(text: string): boolean {
+  return text
+    .split('\n')
+    .some((line) => !FULL_LINE_COMMENT.test(line) && CREATES_A_REPO.test(line));
+}
+
 interface Scan {
   scanned: number;
   creators: string[];
@@ -134,7 +168,7 @@ function scan(): Scan {
     // This guard describes the patterns it hunts, so it would flag itself.
     if (rel.endsWith('sandbox-git-env-neutralisation-drift-guard.test.ts')) continue;
     const text = readOrThrow(rel);
-    if (!CREATES_A_REPO.test(text)) continue;
+    if (!createsARepo(text)) continue;
     creators.push(rel);
     if (ALLOWLIST.has(rel)) continue;
     if (!NEUTRALISED.test(text)) unguarded.push(rel);
@@ -221,6 +255,38 @@ describe('G29/CR-92 — sandbox git-env neutralisation (Incident #166)', () => {
     ];
     for (const [label, src] of mustNotMatch) {
       expect(CREATES_A_REPO.test(src), `false positive on "${label}": ${src}`).toBe(false);
+    }
+  });
+
+  // ── Regression pins for the 2026-08-08 prose false positive ────────────────
+  it('does NOT read a COMMENT as a git-init site', () => {
+    const proseOnly: Array<[string, string]> = [
+      // The exact shape that fired, from scripts/tests/test-memory-integrity-check.sh.
+      [
+        'shell comment declaring compliance',
+        '# No `git init` anywhere in this file: the hook is given its root by env, so\n' +
+          '# the harness never needs a repo.\nSANDBOX="$(mktemp -d)"',
+      ],
+      ['ts line comment', '// a harness must neutralise before git init\nconst x = 1;'],
+      ['jsdoc continuation', ' * builds a sandbox with git init, so it must scrub GIT_DIR'],
+      ['python comment', '# git init is deliberately not used here\nimport os'],
+      ['markdown-ish html comment', '<!-- git init in a doc block -->'],
+    ];
+    for (const [label, src] of proseOnly) {
+      expect(createsARepo(src), `false positive on prose "${label}"`).toBe(false);
+    }
+  });
+
+  it('a comment CANNOT hide an executable git init (the fix must not weaken the gate)', () => {
+    const stillHazardous: Array<[string, string]> = [
+      ['code with a trailing comment', 'git init -q "$SANDBOX"   # set up the fixture'],
+      ['code then comment line', 'git init -q .\n# explained above'],
+      ['comment line then code', '# about to build a sandbox\ngit -C "$D" init -q'],
+      ['indented code after comments', '  # note\n  git init -q'],
+      ['assignment with inline comment', 'OUT=$(git init -q "$D") # capture'],
+    ];
+    for (const [label, src] of stillHazardous) {
+      expect(createsARepo(src), `MISSED a real hazard: "${label}"`).toBe(true);
     }
   });
 

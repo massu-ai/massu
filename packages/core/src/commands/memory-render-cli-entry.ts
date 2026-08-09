@@ -49,7 +49,7 @@ export async function runMemoryRenderCli(sub: string, args: string[]): Promise<C
         }
 
         const cfg = resolveMemoryFilesConfig();
-        const candidates = loadRenderCandidates(db);
+        const { candidates, ledger } = loadRenderCandidates(db);
         const result = renderMemoryFiles(db, candidates, {
           memoryDir,
           dryRun: true,
@@ -66,6 +66,34 @@ export async function runMemoryRenderCli(sub: string, args: string[]): Promise<C
 
         lines.push(`Massu would write ${result.written.length} file(s):`);
         for (const f of result.written) lines.push(`  ${f}`);
+
+        // ── THE DENOMINATOR (2026-08-09) ────────────────────────────────────────
+        // `Massu would write 0 file(s)` alone is what an EMPTY corpus prints, what a
+        // correctly-IDLE pipeline prints, what a pipeline that CRASHED after the query
+        // prints, and what a BROKEN one prints. Four states, one string, and it is the
+        // reassuring one — which on 2026-08-08 produced a high-severity incident for a
+        // defect that did not exist.
+        //
+        // Three of the drops happen in the candidate LOADER, upstream of `refusals`, so
+        // the ledger is printed FIRST and separately: a denominator taken from the
+        // renderer alone would read "considered 0" and hide everything that mattered.
+        lines.push('', 'Where every row went:');
+        lines.push(`  candidate population (type+importance+expiry) : ${ledger.population}`);
+        if (ledger.truncatedByWindow > 0) {
+          lines.push(`    truncated by the row window                : ${ledger.truncatedByWindow}`);
+        }
+        for (const e of ledger.excluded) {
+          lines.push(`    excluded: ${e.reason.padEnd(30)} : ${e.count}`);
+        }
+        lines.push(`    -> reached the renderer                    : ${ledger.returned}`);
+        lines.push(
+          `  renderer: considered ${result.considered} = written ${result.written.length}` +
+            ` + refused ${result.refusals.length} + unchanged ${result.unchanged}` +
+            ` + capped ${result.capped}`
+        );
+        // NEVER swallowed. Every reason but `no_memory_dir` used to vanish here, so a
+        // busy lock and a clean idle run printed the same line.
+        lines.push(`  skipped: ${result.skippedReason ?? '(none)'}`);
 
         if (result.indexLines.length > 0) {
           lines.push('', 'MEMORY.md — inside the massu:learned region only:');

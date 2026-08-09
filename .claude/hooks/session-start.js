@@ -4998,6 +4998,7 @@ var init_memory_files_config = __esm({
 // src/memory-renderer.ts
 var memory_renderer_exports = {};
 __export(memory_renderer_exports, {
+  RenderAccountingLeak: () => RenderAccountingLeak,
   composeFile: () => composeFile,
   renderMemoryFiles: () => renderMemoryFiles,
   stripFrontmatter: () => stripFrontmatter
@@ -5009,7 +5010,7 @@ import { createHash as createHash5 } from "crypto";
 function renderMemoryFiles(db, candidates, opts) {
   const config = opts.config ?? resolveMemoryFilesConfig();
   if (!config.renderEnabled) {
-    return EMPTY("render_disabled");
+    return EMPTY("render_disabled", candidates.length);
   }
   const dryRun = opts.dryRun === true;
   const now = opts.now ?? Date.now();
@@ -5018,7 +5019,7 @@ function renderMemoryFiles(db, candidates, opts) {
   });
   const { memoryDir } = opts;
   if (!existsSync19(memoryDir)) {
-    return EMPTY("no_memory_dir");
+    return EMPTY("no_memory_dir", candidates.length);
   }
   try {
     return withMemoryIndexLock(
@@ -5027,10 +5028,10 @@ function renderMemoryFiles(db, candidates, opts) {
     );
   } catch (err) {
     if (err instanceof MemoryIndexLockBusy) {
-      return EMPTY("lock_busy");
+      return EMPTY("lock_busy", candidates.length);
     }
     audit("memory_file_render_refused", { reason: "unexpected_error", error: String(err) });
-    return EMPTY("error");
+    return EMPTY("error", candidates.length);
   }
 }
 function renderLocked(db, candidates, o) {
@@ -5040,11 +5041,14 @@ function renderLocked(db, candidates, o) {
   try {
     tombstones = readTombstones(memoryDir);
   } catch {
-    return EMPTY("tombstone_ledger_unreadable");
+    return EMPTY("tombstone_ledger_unreadable", candidates.length);
   }
   const ownerOf = relPathOwnerLookup(db);
   const planned = [];
-  for (const c of candidates) {
+  let unchanged = 0;
+  let capped = 0;
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
     if (!isLocalOrigin(c.origin)) {
       refusals.push({ name: c.name, reason: "non_local_origin", detail: c.origin || "unknown" });
       audit("memory_file_render_refused", { name: c.name, reason: "non_local_origin" });
@@ -5100,7 +5104,10 @@ function renderLocked(db, candidates, o) {
         continue;
       }
       const next = composeFile(c, home);
-      if (next !== null && next === existing) continue;
+      if (next !== null && next === existing) {
+        unchanged++;
+        continue;
+      }
     }
     const content = composeFile(c, home);
     if (content === null) {
@@ -5108,9 +5115,24 @@ function renderLocked(db, candidates, o) {
       continue;
     }
     planned.push({ c, relPath, absPath, content });
-    if (planned.length >= config.renderMaxFilesPerSession) break;
+    if (planned.length >= config.renderMaxFilesPerSession) {
+      capped = candidates.length - (i + 1);
+      break;
+    }
+  }
+  const accounted = planned.length + refusals.length + unchanged + capped;
+  if (accounted !== candidates.length) {
+    audit("memory_file_render_refused", {
+      reason: "accounting_leak",
+      considered: candidates.length,
+      accounted
+    });
+    throw new RenderAccountingLeak(
+      `render did not account for every candidate: considered=${candidates.length} but accounted=${accounted} (planned=${planned.length} refused=${refusals.length} unchanged=${unchanged} capped=${capped}). A candidate was dropped without a bucket.`
+    );
   }
   const indexLines = buildIndexLines(db, memoryDir, planned, config);
+  const books = { considered: candidates.length, unchanged, capped };
   if (dryRun) {
     return {
       enabled: true,
@@ -5118,11 +5140,20 @@ function renderLocked(db, candidates, o) {
       written: planned.map((p) => p.relPath),
       refusals,
       indexLines,
-      bytesWritten: 0
+      bytesWritten: 0,
+      ...books
     };
   }
   if (planned.length === 0 && indexLines.length === 0) {
-    return { enabled: true, dryRun: false, written: [], refusals, indexLines: [], bytesWritten: 0 };
+    return {
+      enabled: true,
+      dryRun: false,
+      written: [],
+      refusals,
+      indexLines: [],
+      bytesWritten: 0,
+      ...books
+    };
   }
   if (!hasFreshBackup(memoryDir, home)) {
     try {
@@ -5132,7 +5163,7 @@ function renderLocked(db, candidates, o) {
         reason: "backup_failed",
         error: err instanceof BackupError ? err.message : String(err)
       });
-      return EMPTY("backup_failed");
+      return EMPTY("backup_failed", candidates.length);
     }
   }
   const indexPath = o.indexPath ?? join13(memoryDir, "MEMORY.md");
@@ -5200,7 +5231,10 @@ function renderLocked(db, candidates, o) {
         errors: restored.errors
       });
       return {
-        ...EMPTY("rollback_incomplete"),
+        ...EMPTY("rollback_incomplete", candidates.length),
+        // The books were balanced before the write began; keep them rather than zeroing.
+        unchanged,
+        capped,
         enabled: true,
         refusals: [
           ...refusals,
@@ -5209,9 +5243,9 @@ function renderLocked(db, candidates, o) {
       };
     }
     audit("memory_file_render_refused", { reason: "write_failed", error: String(err) });
-    return { ...EMPTY("write_failed"), enabled: true, refusals };
+    return { ...EMPTY("write_failed", candidates.length), enabled: true, refusals, unchanged, capped };
   }
-  return { enabled: true, dryRun: false, written, refusals, indexLines, bytesWritten };
+  return { enabled: true, dryRun: false, written, refusals, indexLines, bytesWritten, ...books };
 }
 function sha256(s) {
   return createHash5("sha256").update(s, "utf8").digest("hex");
@@ -5280,7 +5314,7 @@ function buildIndexLines(db, memoryDir, planned, config) {
 function oneLine(s) {
   return s.replace(/[\r\n]+/g, " ").slice(0, 120);
 }
-var EMPTY;
+var RenderAccountingLeak, EMPTY;
 var init_memory_renderer = __esm({
   "src/memory-renderer.ts"() {
     "use strict";
@@ -5295,14 +5329,22 @@ var init_memory_renderer = __esm({
     init_memory_index_region();
     init_memory_files_config();
     init_memory_file_ingest();
-    EMPTY = (reason) => ({
+    RenderAccountingLeak = class extends Error {
+    };
+    EMPTY = (reason, considered = 0) => ({
       enabled: false,
       dryRun: false,
       written: [],
       refusals: [],
       indexLines: [],
       bytesWritten: 0,
-      skippedReason: reason
+      skippedReason: reason,
+      // An early gate refused, so every candidate was dropped — by that ONE named reason.
+      // Reporting `considered` here is what distinguishes "nothing to do" from "walked away
+      // from 59 rows because the lock was busy".
+      considered,
+      unchanged: 0,
+      capped: 0
     });
   }
 });
@@ -5310,31 +5352,54 @@ var init_memory_renderer = __esm({
 // src/memory-render-candidates.ts
 var memory_render_candidates_exports = {};
 __export(memory_render_candidates_exports, {
+  CandidateAccountingLeak: () => CandidateAccountingLeak,
+  EXCLUSION_MEMORY_FILE_REINGEST: () => EXCLUSION_MEMORY_FILE_REINGEST,
   RENDERABLE_MEMORY_TYPES: () => RENDERABLE_MEMORY_TYPES,
   loadRenderCandidates: () => loadRenderCandidates
 });
 function loadRenderCandidates(db) {
   const cfg = resolveMemoryFilesConfig();
   const typePlaceholders = RENDERABLE_MEMORY_TYPES.map(() => "?").join(", ");
+  const WHERE = `WHERE importance >= ?
+       AND COALESCE(expired_at_epoch, 0) = 0
+       AND type IN (${typePlaceholders})`;
+  const { population } = db.prepare(`SELECT COUNT(*) AS population FROM observations ${WHERE}`).get(cfg.renderMinImportance, ...RENDERABLE_MEMORY_TYPES);
   const rows = db.prepare(
     `SELECT id, title, detail, importance, COALESCE(origin, 'local') AS origin
          FROM observations
-        WHERE importance >= ?
-          AND COALESCE(expired_at_epoch, 0) = 0
-          AND type IN (${typePlaceholders})
+         ${WHERE}
         ORDER BY importance DESC, created_at_epoch DESC
-        LIMIT 50`
+        LIMIT ${CANDIDATE_WINDOW}`
   ).all(cfg.renderMinImportance, ...RENDERABLE_MEMORY_TYPES);
-  return rows.filter((r) => !r.title.startsWith("[memory-file]")).map((r) => ({
-    observationId: r.id,
-    name: r.title,
-    title: r.title,
-    body: r.detail ?? "",
-    importance: r.importance,
-    origin: r.origin
-  }));
+  const reingest = rows.filter((r) => r.title.startsWith("[memory-file]"));
+  const kept = rows.filter((r) => !r.title.startsWith("[memory-file]"));
+  const excluded = reingest.length ? [{ reason: EXCLUSION_MEMORY_FILE_REINGEST, count: reingest.length }] : [];
+  const ledger = {
+    population,
+    windowed: rows.length,
+    truncatedByWindow: Math.max(0, population - rows.length),
+    excluded,
+    returned: kept.length
+  };
+  const accounted = ledger.returned + ledger.truncatedByWindow + excluded.reduce((n, e) => n + e.count, 0);
+  if (accounted !== population) {
+    throw new CandidateAccountingLeak(
+      `candidate ledger does not balance: population=${population} but accounted=${accounted} (returned=${ledger.returned} truncated=${ledger.truncatedByWindow} excluded=${JSON.stringify(excluded)}). A row was dropped without a bucket.`
+    );
+  }
+  return {
+    ledger,
+    candidates: kept.map((r) => ({
+      observationId: r.id,
+      name: r.title,
+      title: r.title,
+      body: r.detail ?? "",
+      importance: r.importance,
+      origin: r.origin
+    }))
+  };
 }
-var RENDERABLE_MEMORY_TYPES;
+var RENDERABLE_MEMORY_TYPES, CANDIDATE_WINDOW, EXCLUSION_MEMORY_FILE_REINGEST, CandidateAccountingLeak;
 var init_memory_render_candidates = __esm({
   "src/memory-render-candidates.ts"() {
     "use strict";
@@ -5345,6 +5410,10 @@ var init_memory_render_candidates = __esm({
       "incident_near_miss",
       "cr_violation"
     ];
+    CANDIDATE_WINDOW = 50;
+    EXCLUSION_MEMORY_FILE_REINGEST = "memory_file_reingest";
+    CandidateAccountingLeak = class extends Error {
+    };
   }
 });
 
@@ -14162,7 +14231,8 @@ Session memory, code intelligence, and governance are now active.
         if (memoryDir) {
           const { renderMemoryFiles: renderMemoryFiles2 } = await Promise.resolve().then(() => (init_memory_renderer(), memory_renderer_exports));
           const { loadRenderCandidates: loadRenderCandidates2 } = await Promise.resolve().then(() => (init_memory_render_candidates(), memory_render_candidates_exports));
-          renderMemoryFiles2(db, loadRenderCandidates2(db), { memoryDir });
+          const { candidates } = loadRenderCandidates2(db);
+          renderMemoryFiles2(db, candidates, { memoryDir });
         }
       } catch (_renderErr) {
       }

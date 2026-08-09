@@ -137,7 +137,11 @@ async function main(): Promise<void> {
         if (memoryDir) {
           const { renderMemoryFiles } = await import('../memory-renderer.ts');
           const { loadRenderCandidates } = await import('../memory-render-candidates.ts');
-          renderMemoryFiles(db, loadRenderCandidates(db), { memoryDir });
+          // The ledger is deliberately unused on the hook path — session start writes no
+          // report — but the loader RETURNS it rather than logging it, so the CLI path
+          // cannot forget to ask. Destructured here so a future reader sees it exists.
+          const { candidates } = loadRenderCandidates(db);
+          renderMemoryFiles(db, candidates, { memoryDir });
         }
       } catch (_renderErr) {
         // Non-blocking, always. A renderer failure must never block session start.

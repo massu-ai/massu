@@ -34,7 +34,7 @@ describe('D-D — render candidates are memory-worthy types only', () => {
     addObservation(db, 's1', 'file_change', 'Edited: a.ts', 'x', { importance: 5 });
     addObservation(db, 's1', 'discovery', 'Found a thing', 'x', { importance: 5 });
 
-    expect(loadRenderCandidates(db)).toEqual([]);
+    expect(loadRenderCandidates(db).candidates).toEqual([]);
   });
 
   it('includes genuine lesson/knowledge memories', () => {
@@ -43,7 +43,7 @@ describe('D-D — render candidates are memory-worthy types only', () => {
     addObservation(db, 's1', 'incident_near_miss', 'Almost pushed a RED gate', 'caught', { importance: 4 });
     addObservation(db, 's1', 'cr_violation', 'CR-63 uncovered claim', 'fixed', { importance: 4 });
 
-    const titles = loadRenderCandidates(db).map((c) => c.title).sort();
+    const titles = loadRenderCandidates(db).candidates.map((c) => c.title).sort();
     expect(titles).toEqual(
       ['CR-63 uncovered claim', 'Almost pushed a RED gate', 'Do not rebuild --build-from-source', 'We chose X over Y for latency'].sort(),
     );
@@ -54,7 +54,7 @@ describe('D-D — render candidates are memory-worthy types only', () => {
       addObservation(db, 's1', t, `title-${t}`, 'd', { importance: 5 });
     }
     // (We assert via titles since RenderCandidate doesn't carry type; the query filters it.)
-    const titles = new Set(loadRenderCandidates(db).map((c) => c.title));
+    const titles = new Set(loadRenderCandidates(db).candidates.map((c) => c.title));
     for (const t of RENDERABLE_MEMORY_TYPES) expect(titles.has(`title-${t}`), `${t} should be a candidate`).toBe(true);
     for (const t of ['vr_check', 'feature', 'file_change']) expect(titles.has(`title-${t}`), `${t} must be excluded`).toBe(false);
   });

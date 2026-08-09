@@ -91,9 +91,24 @@ export interface RenderResult {
   /** Bytes actually written. A dry run MUST report 0. */
   bytesWritten: number;
   skippedReason?: string;
+
+  // ── CONSERVATION (2026-08-09) ───────────────────────────────────────────────
+  // Two of this file's drops were invisible: the idempotent `continue` and the
+  // per-session cap's `break`, which silently discards the ENTIRE remainder. Neither
+  // pushed a refusal, so `written 0, refusals 0` was reported for a run that walked
+  // candidates and dropped every one. These three fields close the books.
+  /** Candidates this call RECEIVED. An early gate reports what it walked away from. */
+  considered: number;
+  /** Dropped because the bytes on disk already equal the bytes we would write (B-07). */
+  unchanged: number;
+  /** Dropped by `renderMaxFilesPerSession` — the remainder after the cap was reached. */
+  capped: number;
 }
 
-const EMPTY = (reason: string): RenderResult => ({
+/** Thrown when a render does not account for every candidate it received. */
+export class RenderAccountingLeak extends Error {}
+
+const EMPTY = (reason: string, considered = 0): RenderResult => ({
   enabled: false,
   dryRun: false,
   written: [],
@@ -101,6 +116,12 @@ const EMPTY = (reason: string): RenderResult => ({
   indexLines: [],
   bytesWritten: 0,
   skippedReason: reason,
+  // An early gate refused, so every candidate was dropped — by that ONE named reason.
+  // Reporting `considered` here is what distinguishes "nothing to do" from "walked away
+  // from 59 rows because the lock was busy".
+  considered,
+  unchanged: 0,
+  capped: 0,
 });
 
 export interface RenderOptions {
@@ -130,7 +151,7 @@ export function renderMemoryFiles(
   // credential minted, no snapshot, no backup, no I/O of any kind.
   const config = opts.config ?? resolveMemoryFilesConfig();
   if (!config.renderEnabled) {
-    return EMPTY('render_disabled');
+    return EMPTY('render_disabled', candidates.length);
   }
 
   const dryRun = opts.dryRun === true;
@@ -144,7 +165,7 @@ export function renderMemoryFiles(
   // all. Inert: no error, no mkdir, no write. Directory creation belongs to `massu init`,
   // never to a hook. (Law 4: absence of evidence is not evidence of absence.)
   if (!existsSync(memoryDir)) {
-    return EMPTY('no_memory_dir');
+    return EMPTY('no_memory_dir', candidates.length);
   }
 
   // ── GATE 3 (B-08) ─────────────────────────────────────────────────────────────
@@ -157,11 +178,11 @@ export function renderMemoryFiles(
     );
   } catch (err) {
     if (err instanceof MemoryIndexLockBusy) {
-      return EMPTY('lock_busy');
+      return EMPTY('lock_busy', candidates.length);
     }
     // Any other escape is still not allowed to crash session start. Refuse and log.
     audit('memory_file_render_refused', { reason: 'unexpected_error', error: String(err) });
-    return EMPTY('error');
+    return EMPTY('error', candidates.length);
   }
 }
 
@@ -188,14 +209,22 @@ function renderLocked(
   try {
     tombstones = readTombstones(memoryDir);
   } catch {
-    return EMPTY('tombstone_ledger_unreadable');
+    return EMPTY('tombstone_ledger_unreadable', candidates.length);
   }
 
   const ownerOf = relPathOwnerLookup(db);
   const planned: Array<{ c: RenderCandidate; relPath: string; absPath: string; content: string }> =
     [];
 
-  for (const c of candidates) {
+  // The two buckets for this loop's non-refusal drops (sites 5 and 6). Both used to be a
+  // bare `continue`/`break`, invisible to every caller.
+  let unchanged = 0;
+  let capped = 0;
+
+  // INDEXED on purpose: `capped` is the size of the remainder the `break` discards, which
+  // a for-of cannot name.
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
     // ── GATE 5 (B-10) — ON THE SOURCE ROW, BEFORE ANY PATH IS COMPUTED ───────────
     // The draft put `origin` on `memory_files` — the OUTPUT projection, where a row
     // exists only for a file ALREADY rendered. A memory synced from another repo
@@ -280,8 +309,14 @@ function renderLocked(
       // Idempotence (B-07): if the bytes we would write are the bytes already there,
       // write nothing. This is what makes the cycle reach a FIXED POINT, and it is keyed
       // on the CONTENT read inside the lock — never on a DB flag.
+      //
+      // COUNTED (site 5). A bare `continue` here made "already up to date" and "never
+      // looked at" report the same numbers.
       const next = composeFile(c, home);
-      if (next !== null && next === existing) continue;
+      if (next !== null && next === existing) {
+        unchanged++;
+        continue;
+      }
     }
 
     const content = composeFile(c, home);
@@ -293,11 +328,43 @@ function renderLocked(
     }
 
     planned.push({ c, relPath, absPath, content });
-    if (planned.length >= config.renderMaxFilesPerSession) break;
+    // COUNTED (site 6). This `break` discards the ENTIRE remainder of the candidate list,
+    // and did so without a trace: a 59-candidate run that wrote 3 reported nothing about
+    // the other 56. `capped` is that remainder, and it is what tells an operator the cap
+    // is the binding constraint rather than the corpus.
+    if (planned.length >= config.renderMaxFilesPerSession) {
+      capped = candidates.length - (i + 1);
+      break;
+    }
+  }
+
+  // ── CONSERVATION (2026-08-09) ─────────────────────────────────────────────────
+  // Every candidate this call received landed in exactly one bucket: planned, refused,
+  // unchanged, or capped. Asserted rather than printed, because a printed number makes
+  // the NEXT silent drop visible while an invariant makes it unrepresentable — a
+  // contributor who adds a seventh `continue` without a bucket breaks the build.
+  //
+  // It throws to its CALLER, which for the session-start path is the renderer's own outer
+  // catch (renderMemoryFiles GATE 3) — so an accounting bug can never crash session start,
+  // it degrades to EMPTY('error') and an audit row.
+  const accounted = planned.length + refusals.length + unchanged + capped;
+  if (accounted !== candidates.length) {
+    audit('memory_file_render_refused', {
+      reason: 'accounting_leak',
+      considered: candidates.length,
+      accounted,
+    });
+    throw new RenderAccountingLeak(
+      `render did not account for every candidate: considered=${candidates.length} but ` +
+        `accounted=${accounted} (planned=${planned.length} refused=${refusals.length} ` +
+        `unchanged=${unchanged} capped=${capped}). A candidate was dropped without a bucket.`
+    );
   }
 
   // The index lines Massu would maintain, one per rendered file.
   const indexLines = buildIndexLines(db, memoryDir, planned, config);
+
+  const books = { considered: candidates.length, unchanged, capped };
 
   // ── DRY RUN (B-13) — writes ZERO BYTES. Asserted, not asserted-about. ──────────
   if (dryRun) {
@@ -308,11 +375,20 @@ function renderLocked(
       refusals,
       indexLines,
       bytesWritten: 0,
+      ...books,
     };
   }
 
   if (planned.length === 0 && indexLines.length === 0) {
-    return { enabled: true, dryRun: false, written: [], refusals, indexLines: [], bytesWritten: 0 };
+    return {
+      enabled: true,
+      dryRun: false,
+      written: [],
+      refusals,
+      indexLines: [],
+      bytesWritten: 0,
+      ...books,
+    };
   }
 
   // ── GATE 10 (B-11) — a FRESH backup, taken only now that we know we will write ──
@@ -325,7 +401,7 @@ function renderLocked(
         reason: 'backup_failed',
         error: err instanceof BackupError ? err.message : String(err),
       });
-      return EMPTY('backup_failed');
+      return EMPTY('backup_failed', candidates.length);
     }
   }
 
@@ -418,7 +494,10 @@ function renderLocked(
         errors: restored.errors,
       });
       return {
-        ...EMPTY('rollback_incomplete'),
+        ...EMPTY('rollback_incomplete', candidates.length),
+        // The books were balanced before the write began; keep them rather than zeroing.
+        unchanged,
+        capped,
         enabled: true,
         refusals: [
           ...refusals,
@@ -427,10 +506,10 @@ function renderLocked(
       };
     }
     audit('memory_file_render_refused', { reason: 'write_failed', error: String(err) });
-    return { ...EMPTY('write_failed'), enabled: true, refusals };
+    return { ...EMPTY('write_failed', candidates.length), enabled: true, refusals, unchanged, capped };
   }
 
-  return { enabled: true, dryRun: false, written, refusals, indexLines, bytesWritten };
+  return { enabled: true, dryRun: false, written, refusals, indexLines, bytesWritten, ...books };
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────────

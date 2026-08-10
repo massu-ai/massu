@@ -3991,6 +3991,7 @@ import { execFileSync } from "child_process";
 import { existsSync as existsSync9, readFileSync as readFileSync6, unlinkSync as unlinkSync2, readdirSync as readdirSync2, statSync as statSync2 } from "fs";
 import { tmpdir as tmpdir2 } from "os";
 import { join as join6 } from "path";
+import { pathToFileURL } from "url";
 
 // src/hooks/lib/write-hook-message.ts
 var HOOK_EVENTS = [
@@ -4186,7 +4187,9 @@ function readStdin() {
     setTimeout(() => resolve5(data), 5e3);
   });
 }
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}
 export {
   MAX_FULL_DIFF_BYTES
 };

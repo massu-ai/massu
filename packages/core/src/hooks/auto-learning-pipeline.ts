@@ -20,6 +20,7 @@ import { execFileSync } from 'child_process';
 import { existsSync, readFileSync, unlinkSync, readdirSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { pathToFileURL } from 'url';
 import { getProjectRoot, getConfig } from '../config.ts';
 import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
 
@@ -237,4 +238,21 @@ function readStdin(): Promise<string> {
   });
 }
 
-main();
+// ── RUN ONLY AS THE ENTRY POINT (2026-08-10) ─────────────────────────────────
+// `main()` used to be called unconditionally at module scope, so merely IMPORTING
+// this file executed the hook: it waited up to 5s on stdin, failed to parse the
+// empty input, and called process.exit(0).
+//
+// `auto-learning-bounded-diff.test.ts` imports MAX_FULL_DIFF_BYTES from here, so
+// every run of that suite silently ran the hook. Under vitest, process.exit is
+// intercepted and throws — landing as an "Unhandled Rejection" AFTER the test file
+// finished, which turned a fully-passing suite (3704 passed, 0 failed) into
+// `Errors 1 error` and exit 1. It blocked pre-push [6/22] twice in a row, and it
+// is the source of the `HOOK FAILURE ... Unexpected end of JSON input` noise in
+// the test log.
+//
+// A module whose IMPORT has side effects cannot be imported for a constant. Guard
+// the invocation instead of asking every future caller to remember.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}

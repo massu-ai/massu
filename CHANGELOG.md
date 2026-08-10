@@ -10,7 +10,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
-## [2.5.1] - 2026-08-01
+## [2.5.2] - 2026-08-10
+
+### Fixed
+
+- **The release verifier reported FAIL on a publish that had fully succeeded.** It slept two
+  seconds, read the npm registry once, and treated "the replica has not caught up" and "the
+  publish did not land" as the same answer. npm is read-after-write eventually consistent, so
+  both states produce the identical value.
+
+  This is the blind-gate law with the polarity flipped: usually absence reads as PASS, here it
+  read as FAIL — the same defect, a check that cannot distinguish *not yet* from *not ever*.
+  The flipped polarity is what makes it dangerous, because a false FAIL on a release tool
+  invites a re-publish or a version bump against a registry where versions are immutable.
+
+  Replaced with a deadline-bounded poll (90s, 3s interval, overridable) that reports how long
+  it waited and, on failure, states plainly that the absence is not propagation lag. The
+  demand itself was correct and is unchanged — `+ @massu/core@x.y.z` on stdout is not a
+  receipt; only the timeout was wrong.
+
+  Not a package change: `scripts/` is not in the published `files` array.
+
+## [2.5.1] - 2026-08-09
+
+### Fixed
+
+- **Hooks emitted an output field that does not exist, so no hook message ever reached
+  Claude.** Eleven hooks wrote `{"message": …}` to stdout. `message` is not in Claude Code's
+  hook output schema at all — it appears only in `Notification`/`FileChanged` *input* — so
+  every advisory string those hooks produced was discarded. The failure was self-inflicted in
+  an exact way: because `{"message": …}` is valid JSON, `UserPromptSubmit` parsed it as JSON
+  instead of treating it as plain text, so the one event that would have delivered the string
+  as stdout is precisely the event that dropped it. A slightly malformed string would have
+  arrived.
+
+  Replaced by a single chokepoint emitting the documented shape,
+  `{"hookSpecificOutput": {"hookEventName", "additionalContext"}}`. `hookEventName` is
+  REQUIRED, so the helper takes the event as a typed, required argument and the old
+  one-argument form is DELETED rather than deprecated — a regression to the silent shape is
+  now a compile error, not a silent no-op. An unrecognised event emits nothing and says why
+  on stderr. Output is truncated at the spec's 10,000-char cap by us rather than by the
+  runtime.
+
+  **Blocking behaviour is unchanged.** The `PreToolUse` gates deny via `process.exit(2)` plus
+  stderr, which never depended on this path; what was lost was their *advisory* (warn-level)
+  messages, and everything `rule-enforcement-pipeline` emits, since that hook only ever
+  advises.
 
 ### Added
 

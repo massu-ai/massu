@@ -4022,6 +4022,20 @@ function writeHookContext(hookEventName, message) {
 
 // src/hooks/security-gate.ts
 init_hook_failure_signal();
+
+// src/hooks/lib/is-direct-invocation.ts
+import { pathToFileURL } from "url";
+function isDirectInvocation(moduleUrl) {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return moduleUrl === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
+}
+
+// src/hooks/security-gate.ts
 var HOOK_EVENT = "PreToolUse";
 var DANGEROUS_BASH_PATTERNS = [
   // BLOCK — destructive and irreversible, or arbitrary remote code execution.
@@ -4161,7 +4175,7 @@ function readStdin() {
     setTimeout(() => resolve5(data), 400);
   });
 }
-if (process.argv[1]?.endsWith("security-gate.js") || process.argv[1]?.endsWith("security-gate")) {
+if (isDirectInvocation(import.meta.url)) {
   main();
 }
 
@@ -4427,7 +4441,7 @@ function readStdin2() {
     setTimeout(() => resolve5(data), 400);
   });
 }
-if (process.argv[1]?.endsWith("pre-delete-check.js") || process.argv[1]?.endsWith("pre-delete-check")) {
+if (isDirectInvocation(import.meta.url)) {
   main2();
 }
 
@@ -4525,4 +4539,6 @@ async function main3() {
   }
   process.exit(EXIT_ALLOW);
 }
-main3();
+if (isDirectInvocation(import.meta.url)) {
+  main3();
+}

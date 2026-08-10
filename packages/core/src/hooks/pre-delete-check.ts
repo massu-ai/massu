@@ -24,6 +24,7 @@ import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
  *  from the event the hook is actually wired to. */
 const HOOK_EVENT: HookEvent = 'PreToolUse';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
+import { isDirectInvocation } from './lib/is-direct-invocation.ts';
 
 interface HookInput {
   session_id: string;
@@ -242,11 +243,9 @@ function readStdin(): Promise<string> {
   });
 }
 
-// Run main() only when invoked as a standalone hook (esbuild bundle entry).
-// Importing this module for `runPreDeleteChecks` does NOT trigger main().
-if (
-  process.argv[1]?.endsWith('pre-delete-check.js') ||
-  process.argv[1]?.endsWith('pre-delete-check')
-) {
+// Run main() only when this file IS the process entry point. Written bare,
+// `main()` at module scope means IMPORTING this module RUNS the hook: it reads
+// stdin, does its work, and exits the host process.
+if (isDirectInvocation(import.meta.url)) {
   main();
 }

@@ -4086,6 +4086,20 @@ function toolResponseText(raw) {
 // src/hooks/quality-event.ts
 init_hook_failure_signal();
 init_timestamps();
+
+// src/hooks/lib/is-direct-invocation.ts
+import { pathToFileURL } from "url";
+function isDirectInvocation(moduleUrl) {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return moduleUrl === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
+}
+
+// src/hooks/quality-event.ts
 var TEST_FAILURE_PATTERNS = [
   /\bFAIL\b/,
   /✗/,
@@ -4174,4 +4188,6 @@ function readStdin() {
     setTimeout(() => resolve5(data), 3e3);
   });
 }
-main();
+if (isDirectInvocation(import.meta.url)) {
+  main();
+}

@@ -4029,6 +4029,20 @@ function writeHookContext(hookEventName, message) {
 
 // src/hooks/classify-failure.ts
 init_hook_failure_signal();
+
+// src/hooks/lib/is-direct-invocation.ts
+import { pathToFileURL } from "url";
+function isDirectInvocation(moduleUrl) {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return moduleUrl === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
+}
+
+// src/hooks/classify-failure.ts
 var HOOK_EVENT = "PostToolUse";
 var BUG_FIX_INDICATORS = [
   /\b(catch|error|throw|fail|fix|bug|broken|missing|crash|wrong|typo|incorrect)\b/i
@@ -4208,4 +4222,6 @@ function readStdin() {
     setTimeout(() => resolve5(data), 3e3);
   });
 }
-main();
+if (isDirectInvocation(import.meta.url)) {
+  main();
+}

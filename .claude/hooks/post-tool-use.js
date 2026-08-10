@@ -5046,6 +5046,18 @@ function mapMemoryTypeToObservationType(memoryType) {
   }
 }
 
+// src/hooks/lib/is-direct-invocation.ts
+import { pathToFileURL } from "url";
+function isDirectInvocation(moduleUrl) {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return moduleUrl === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
+}
+
 // src/hooks/post-tool-use.ts
 var _yamlParser = null;
 var parseYaml3 = (content) => {
@@ -5384,4 +5396,6 @@ function checkMemoryFileIntegrity(filePath) {
   }
   return issues;
 }
-main();
+if (isDirectInvocation(import.meta.url)) {
+  main();
+}

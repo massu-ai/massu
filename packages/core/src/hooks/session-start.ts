@@ -34,6 +34,7 @@ type DetectionMod = typeof import('../detect/index.ts');
 type DriftMod = typeof import('../detect/drift.ts');
 import { isPidAlive } from '../lib/pidLiveness.ts';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
+import { isDirectInvocation } from './lib/is-direct-invocation.ts';
 
 interface HookInput {
   session_id: string;
@@ -616,4 +617,9 @@ function formatAge(ms: number): string {
   return `${hr}h`;
 }
 
-main();
+// Run main() only when this file IS the process entry point. Written bare,
+// `main()` at module scope means IMPORTING this module RUNS the hook: it reads
+// stdin, does its work, and exits the host process.
+if (isDirectInvocation(import.meta.url)) {
+  main();
+}

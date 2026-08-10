@@ -42,6 +42,7 @@ const parseYaml: (content: string) => unknown = (content) => {
   return _yamlParser(content);
 };
 import { ingestMemoryFile } from '../memory-file-ingest.ts';
+import { isDirectInvocation } from './lib/is-direct-invocation.ts';
 
 interface HookInput {
   session_id: string;
@@ -545,4 +546,9 @@ function checkMemoryFileIntegrity(filePath: string): string[] {
   return issues;
 }
 
-main();
+// Run main() only when this file IS the process entry point. Written bare,
+// `main()` at module scope means IMPORTING this module RUNS the hook: it reads
+// stdin, does its work, and exits the host process.
+if (isDirectInvocation(import.meta.url)) {
+  main();
+}

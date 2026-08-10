@@ -106,6 +106,9 @@
     "shell-gate-script::scripts/tests/test-release-integrity-mutation.sh": [
       "full-git-history"
     ],
+    "shell-gate-script::scripts/tests/test-require-ts-specifier-guard-mutation.sh": [
+      "full-git-history"
+    ],
     "shell-gate-script::scripts/tests/test_home_path_guard_tarball_mode.sh": [
       "full-git-history"
     ],
@@ -131,10 +134,10 @@
   "provenance": {
     "_doc": "Written by scripts/ops/probe-gate-requires.sh. `requires` above is meaningless without it: an annotation set with no record of WHEN it was adjudicated, over HOW MANY gates, is a claim rather than a measurement. `unadjudicated` is reported by the drift-guard, never silently tolerated.",
     "probed": true,
-    "probed_at_head": "ff28e7f7ff963ac2e02c9cfb89e6bb88fbd5365c",
-    "probed_at_utc": "2026-08-09T22:05:36Z",
-    "registry_gates_at_probe": 424,
-    "gates_probed": 1,
+    "probed_at_head": "e2425e2d53091b0dbf0f51eb10c6ccb98230b3df",
+    "probed_at_utc": "2026-08-10T21:10:10Z",
+    "registry_gates_at_probe": 426,
+    "gates_probed": 2,
     "probe_version": 1,
     "requirements_selected": 6,
     "requirements_adjudicated": 6,
@@ -291,6 +294,7 @@
       "shell-gate-script::scripts/tests/test-probe-diff-verdicts-mutation.sh",
       "shell-gate-script::scripts/tests/test-probe-gate-requires-mutation.sh",
       "shell-gate-script::scripts/tests/test-release-integrity-mutation.sh",
+      "shell-gate-script::scripts/tests/test-require-ts-specifier-guard-mutation.sh",
       "shell-gate-script::scripts/tests/test_boundary_guard_goes_red.sh",
       "shell-gate-script::scripts/tests/test_empty_path_component_guard.sh",
       "shell-gate-script::scripts/tests/test_home_path_guard_tarball_mode.sh",
@@ -421,6 +425,7 @@
       "vitest-guard::packages/core/src/__tests__/promotion-pull-skeleton-parity.test.ts",
       "vitest-guard::packages/core/src/__tests__/public-sync-no-operational-logs.test.ts",
       "vitest-guard::packages/core/src/__tests__/release-integrity-check.test.ts",
+      "vitest-guard::packages/core/src/__tests__/require-ts-specifier-drift-guard.test.ts",
       "vitest-guard::packages/core/src/__tests__/rule-candidate-applier-team-shared.test.ts",
       "vitest-guard::packages/core/src/__tests__/rule-candidate-applier.test.ts",
       "vitest-guard::packages/core/src/__tests__/rule-candidate-detector.test.ts",

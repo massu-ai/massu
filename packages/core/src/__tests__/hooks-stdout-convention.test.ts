@@ -1,6 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
+// STATIC ESM import, never `require('…​.ts')`. A runtime `require()` of a TypeScript
+// specifier only works on Node >= 22.18 (where require-of-ESM + type-stripping are on by
+// default). CI pins the real floor, Node 22.16.0, where the CJS loader hands the raw `.ts`
+// to the ESM parser and dies on the first type annotation:
+//   SyntaxError: Unexpected identifier 'as'   <- from `as const` in HOOK_EVENTS
+// That made this file pass on a dev machine (Node 26) and fail on every CI runner for two
+// days. Enforced by `require-ts-specifier-drift-guard.test.ts`, which is a static property
+// of the source and so goes red on any Node version.
+import {
+  HOOK_EVENTS,
+  writeHookContext,
+  ADDITIONAL_CONTEXT_MAX_CHARS,
+  type HookEvent,
+} from '../hooks/lib/write-hook-message.ts';
 
 const HOOKS_DIR = join(__dirname, '..', 'hooks');
 
@@ -93,9 +107,6 @@ describe('P-M-004 hooks stdout convention drift-guard', () => {
   });
 
   it('every hook that emits context declares a VALID event (closed vocabulary)', () => {
-    const { HOOK_EVENTS } = require('../hooks/lib/write-hook-message.ts') as {
-      HOOK_EVENTS: readonly string[];
-    };
     let declarations = 0;
     const bad: string[] = [];
     for (const file of hookFiles()) {
@@ -107,7 +118,8 @@ describe('P-M-004 hooks stdout convention drift-guard', () => {
         continue;
       }
       declarations += 1;
-      if (!HOOK_EVENTS.includes(m[1])) bad.push(`${file}: unknown event '${m[1]}'`);
+      if (!(HOOK_EVENTS as readonly string[]).includes(m[1]))
+        bad.push(`${file}: unknown event '${m[1]}'`);
     }
     // M1 — "scanned 0, found 0" is never a pass.
     expect(declarations, 'hooks declaring HOOK_EVENT — zero means this test is dead').toBeGreaterThan(
@@ -117,11 +129,6 @@ describe('P-M-004 hooks stdout convention drift-guard', () => {
   });
 
   it('the spec cap is a MEASURED constant, and output is truncated to it', () => {
-    const { writeHookContext, ADDITIONAL_CONTEXT_MAX_CHARS } =
-      require('../hooks/lib/write-hook-message.ts') as {
-        writeHookContext: (e: string, m: string) => void;
-        ADDITIONAL_CONTEXT_MAX_CHARS: number;
-      };
     expect(ADDITIONAL_CONTEXT_MAX_CHARS).toBe(10_000);
 
     const chunks: string[] = [];
@@ -148,9 +155,6 @@ describe('P-M-004 hooks stdout convention drift-guard', () => {
   });
 
   it('an unrecognised event emits NOTHING on stdout and says why on stderr', () => {
-    const { writeHookContext } = require('../hooks/lib/write-hook-message.ts') as {
-      writeHookContext: (e: string, m: string) => void;
-    };
     const out: string[] = [];
     const err: string[] = [];
     const realOut = process.stdout.write.bind(process.stdout);
@@ -164,7 +168,9 @@ describe('P-M-004 hooks stdout convention drift-guard', () => {
       return true;
     };
     try {
-      writeHookContext('NotAnEvent', 'should not be emitted');
+      // Deliberately invalid — the cast is the point of the test: the closed vocabulary
+      // must be enforced at RUNTIME, not only by the type system.
+      writeHookContext('NotAnEvent' as HookEvent, 'should not be emitted');
     } finally {
       (process.stdout as unknown as { write: typeof realOut }).write = realOut;
       (process.stderr as unknown as { write: typeof realErr }).write = realErr;

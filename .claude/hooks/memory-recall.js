@@ -4571,6 +4571,20 @@ function writeHookContext(hookEventName, message) {
 init_db_driver();
 init_hook_failure_signal();
 import { existsSync as existsSync9 } from "fs";
+
+// src/hooks/lib/is-direct-invocation.ts
+import { pathToFileURL } from "url";
+function isDirectInvocation(moduleUrl) {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return moduleUrl === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
+}
+
+// src/hooks/memory-recall.ts
 var HOOK_EVENT = "UserPromptSubmit";
 var DEFAULTS = {
   enabled: true,
@@ -4723,4 +4737,6 @@ function readStdin() {
     setTimeout(() => resolve5(data), 3e3);
   });
 }
-main();
+if (isDirectInvocation(import.meta.url)) {
+  main();
+}

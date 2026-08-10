@@ -4121,6 +4121,20 @@ function writeHookContext(hookEventName, message) {
 
 // src/hooks/pre-delete-check.ts
 init_hook_failure_signal();
+
+// src/hooks/lib/is-direct-invocation.ts
+import { pathToFileURL } from "url";
+function isDirectInvocation(moduleUrl) {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return moduleUrl === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
+}
+
+// src/hooks/pre-delete-check.ts
 var HOOK_EVENT = "PreToolUse";
 var PROJECT_ROOT2 = getProjectRoot();
 var KNOWLEDGE_PROTECTED_FILES = [
@@ -4284,7 +4298,7 @@ function readStdin() {
     setTimeout(() => resolve5(data), 400);
   });
 }
-if (process.argv[1]?.endsWith("pre-delete-check.js") || process.argv[1]?.endsWith("pre-delete-check")) {
+if (isDirectInvocation(import.meta.url)) {
   main();
 }
 export {

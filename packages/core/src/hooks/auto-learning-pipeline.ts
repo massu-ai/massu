@@ -20,7 +20,6 @@ import { execFileSync } from 'child_process';
 import { existsSync, readFileSync, unlinkSync, readdirSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { pathToFileURL } from 'url';
 import { getProjectRoot, getConfig } from '../config.ts';
 import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
 
@@ -29,6 +28,7 @@ import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
  *  from the event the hook is actually wired to. */
 const HOOK_EVENT: HookEvent = 'Stop';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
+import { isDirectInvocation } from './lib/is-direct-invocation.ts';
 
 // P-H002 (plan-stage-c-high-batch): bound git-diff reads so monorepos with
 // 10MB+ working trees don't trigger Stop-hook timeout. Short-stat first,
@@ -253,6 +253,9 @@ function readStdin(): Promise<string> {
 //
 // A module whose IMPORT has side effects cannot be imported for a constant. Guard
 // the invocation instead of asking every future caller to remember.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Run main() only when this file IS the process entry point. Written bare,
+// `main()` at module scope means IMPORTING this module RUNS the hook: it reads
+// stdin, does its work, and exits the host process.
+if (isDirectInvocation(import.meta.url)) {
   main();
 }

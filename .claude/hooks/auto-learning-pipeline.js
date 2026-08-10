@@ -3991,7 +3991,6 @@ import { execFileSync } from "child_process";
 import { existsSync as existsSync9, readFileSync as readFileSync6, unlinkSync as unlinkSync2, readdirSync as readdirSync2, statSync as statSync2 } from "fs";
 import { tmpdir as tmpdir2 } from "os";
 import { join as join6 } from "path";
-import { pathToFileURL } from "url";
 
 // src/hooks/lib/write-hook-message.ts
 var HOOK_EVENTS = [
@@ -4030,6 +4029,20 @@ function writeHookContext(hookEventName, message) {
 
 // src/hooks/auto-learning-pipeline.ts
 init_hook_failure_signal();
+
+// src/hooks/lib/is-direct-invocation.ts
+import { pathToFileURL } from "url";
+function isDirectInvocation(moduleUrl) {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return moduleUrl === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
+}
+
+// src/hooks/auto-learning-pipeline.ts
 var HOOK_EVENT = "Stop";
 var MAX_FULL_DIFF_BYTES = 2 * 1024 * 1024;
 function getSessionFlagPath(sessionId) {
@@ -4187,7 +4200,7 @@ function readStdin() {
     setTimeout(() => resolve5(data), 5e3);
   });
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isDirectInvocation(import.meta.url)) {
   main();
 }
 export {

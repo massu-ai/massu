@@ -4022,6 +4022,20 @@ function writeHookContext(hookEventName, message) {
 
 // src/hooks/intent-suggester.ts
 init_hook_failure_signal();
+
+// src/hooks/lib/is-direct-invocation.ts
+import { pathToFileURL } from "url";
+function isDirectInvocation(moduleUrl) {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return moduleUrl === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
+}
+
+// src/hooks/intent-suggester.ts
 var HOOK_EVENT = "UserPromptSubmit";
 var COMMAND_MAPPINGS = [
   {
@@ -4117,4 +4131,6 @@ function readStdin() {
     setTimeout(() => resolve5(data), 3e3);
   });
 }
-main();
+if (isDirectInvocation(import.meta.url)) {
+  main();
+}

@@ -14188,6 +14188,20 @@ function checkWindows(pid) {
 
 // src/hooks/session-start.ts
 init_hook_failure_signal();
+
+// src/hooks/lib/is-direct-invocation.ts
+import { pathToFileURL } from "url";
+function isDirectInvocation(moduleUrl) {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return moduleUrl === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
+}
+
+// src/hooks/session-start.ts
 async function main() {
   try {
     const input = await readStdin();
@@ -14546,7 +14560,9 @@ function formatAge(ms) {
   const hr = Math.round(min / 60);
   return `${hr}h`;
 }
-main();
+if (isDirectInvocation(import.meta.url)) {
+  main();
+}
 /*! Bundled license information:
 
 is-extglob/index.js:

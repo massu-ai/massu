@@ -30,7 +30,17 @@
 # ============================================================
 set -uo pipefail
 
-HOOK="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/hooks/memory-integrity-check.sh"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+HOOK="$REPO_ROOT/scripts/hooks/memory-integrity-check.sh"
+
+# Destructive paths in this harness go through the chokepoint, never through a
+# bare `rm` on an interpolated path. Note `set -uo pipefail` above has no `-e`:
+# `X="$(cmd)"` therefore SWALLOWS a non-zero exit and leaves X empty, and `-u`
+# does not fire on a variable that is set-but-empty. Those two together are how an
+# empty component reaches an `rm` and widens it to the parent (G17 / CR-77).
+# shellcheck source=scripts/lib/safe-sandbox-paths.sh
+. "$REPO_ROOT/scripts/lib/safe-sandbox-paths.sh"
+
 PASS=0
 FAIL=0
 
@@ -123,8 +133,11 @@ check "absent store still exits 0 (deliberate: never brick SessionStart)" \
 printf -- '\n--- 4. absent MEMORY.md ---\n'
 S3="$SANDBOX/absent-index"
 mkdir -p "$S3"
-M3="$(build_sandbox "$S3")"
-rm -f "$M3/MEMORY.md"
+M3="$(capture_required_output 'build_sandbox for absent-index' build_sandbox "$S3")" || exit 2
+# ${VAR:?} is the ONLY plain-shell form that aborts on EMPTY as well as unset — `set -u`
+# does not fire on a set-but-empty variable, and there is no `set -e` here, so the
+# assignment above would otherwise leave M3="" and widen this to the filesystem root.
+rm -f "${M3:?build_sandbox produced no path for absent-index}/MEMORY.md"
 IDX_OUT="$(CLAUDE_PROJECT_DIR="$S3" bash "$HOOK" </dev/null 2>&1)"
 check "absent MEMORY.md is UNCHECKABLE"     "$([ "$(verdict "$IDX_OUT")" = "UNCHECKABLE" ] && echo yes || echo no)"
 check "absent MEMORY.md is named"           "$(printf '%s' "$IDX_OUT" | grep -q 'MEMORY.md ABSENT' && echo yes || echo no)"
@@ -134,7 +147,7 @@ printf -- '\n--- 5. absent memory.db ---\n'
 S4="$SANDBOX/absent-db"
 mkdir -p "$S4"
 build_sandbox "$S4" >/dev/null
-rm -f "$S4/.massu/memory.db"
+rm -f "${S4:?absent-db sandbox path is empty}/.massu/memory.db"
 DBA_OUT="$(CLAUDE_PROJECT_DIR="$S4" bash "$HOOK" </dev/null 2>&1)"
 check "absent DB is UNCHECKABLE"            "$([ "$(verdict "$DBA_OUT")" = "UNCHECKABLE" ] && echo yes || echo no)"
 check "absent DB is named"                  "$(printf '%s' "$DBA_OUT" | grep -q 'database ABSENT' && echo yes || echo no)"
@@ -188,10 +201,21 @@ check "real MEMORY.md still exists"         "$([ -f "$REAL_INDEX" ] && echo yes 
 
 # Sandbox memory dirs live under ~/.claude/projects/ (the encoder puts them
 # there), so remove them explicitly — the EXIT trap only covers $SANDBOX.
+# The `case` below matched a COMPOSED path, which is always non-empty because of
+# its literal prefix — it could not see a hole in $HOME or in the encoded segment.
+# The chokepoint validates each COMPONENT before assembly and refuses anything that
+# is not strictly inside the projects root, so the widened form is unrepresentable.
+PROJECTS_ROOT="$HOME/.claude/projects"
+require_path_component 'HOME' "${HOME-}" || exit 2
 for s in "$S1" "$S3" "$S5" "$S6"; do
-  d="$(sandbox_memdir_for "$s")"
+  d="$(capture_required_output "sandbox memdir for $s" sandbox_memdir_for "$s")" || exit 2
   case "$d" in
-    "$HOME/.claude/projects/"*"/memory") [ -d "$d" ] && rm -rf "$(dirname "$d")" ;;
+    "$PROJECTS_ROOT/"*"/memory")
+      # Remove the per-project directory, i.e. the PARENT of .../memory — which is
+      # exactly one level below the projects root, and nothing shallower.
+      SSP_MIN_DEPTH=1 rm_under_root_safely "$PROJECTS_ROOT" "${d%/memory}" \
+        || { printf '  WARN  chokepoint refused: %s\n' "$d"; }
+      ;;
     *) printf '  WARN  refusing to remove unexpected path: %s\n' "$d" ;;
   esac
 done

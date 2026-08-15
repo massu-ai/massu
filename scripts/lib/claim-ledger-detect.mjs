@@ -224,6 +224,9 @@ export function parseLedger(text) {
   const startIx = lines.findIndex((l) => /^##+[ \t]*CLAIM LEDGER[ \t]*\r?$/i.test(l));
   if (startIx === -1) return rows;
 
+  /** Column roles, adopted from the header row. Null until a header is seen. */
+  let colIx = null;
+
   let endIx = lines.length;
   for (let i = startIx + 1; i < lines.length; i++) {
     if (/^##[ \t]/.test(lines[i])) {
@@ -245,11 +248,86 @@ export function parseLedger(text) {
       .map((c) => c.trim().replace(/\\\|/g, '|'))
       .filter((c, ix, a) => !(ix === 0 || ix === a.length - 1));
     if (cells.length < 4) continue;
-    const [claim, command, output, verdict] = cells;
-    if (/^-+$/.test(claim) || /^claim/i.test(claim)) continue; // separator / header
-    rows.push({ claim, command, output, verdict });
+
+    // THE TABLE DECLARES ITS OWN SCHEMA; THE PARSER ASKS (2026-08-11).
+    //
+    // This used to be `const [claim, command, output, verdict] = cells` — a POSITIONAL
+    // destructure behind a length FLOOR. Any table with an extra column (`#`, `Type`)
+    // shifted every field one place: `verdict` read the OUTPUT cell, `command` read the
+    // header text, and the header row itself was no longer recognised (the header check
+    // tested cell[0], which was now `#` rather than `Claim`). MEASURED across the repo
+    // before this fix: 99 of 490 parsed rows in 5 tracked plans were mis-mapped, and
+    // `docs/plans/2026-07-22-windows-node-bootstrap-layer2.md` scored 0 of 22 rows
+    // substantive — a full ledger of evidenced claims that validated NOTHING while
+    // looking complete.
+    //
+    // Binding by HEADER NAME instead makes the extra column a non-event and makes a
+    // genuinely malformed table LOUD (see below) rather than silently reinterpreted.
+    // Written up 2026-08-11 in the internal incident log under the slug
+    // `claim-ledger-parser-silently-mis-mapped-a-five-column-table`. No internal doc PATH is
+    // cited here on purpose: this file is mirrored to the PUBLIC repo, where such a citation
+    // leaks an internal filename and resolves to nothing.
+    if (isSeparatorRow(cells)) continue;
+
+    const asHeader = headerIndexes(cells);
+    if (asHeader) {
+      colIx = asHeader; // this row IS the header — adopt its mapping, emit nothing
+      continue;
+    }
+    // NO HEADER SEEN YET. Fall back to the historical POSITIONAL reading, but ONLY for an
+    // exactly-4-cell row — which is precisely the shape the positional form was always
+    // correct for. This is deliberate: a header-only parser SILENTLY returned 0 rows for
+    // two tracked plans whose header says "Verbatim output" (caught by re-measuring, not
+    // by reading the diff — G10, a fix is a new instance of the defect until proven
+    // otherwise). Dropping rows silently is the exact failure being repaired, so the
+    // fallback guarantees this change can only ever ADD correctly-mapped rows.
+    if (!colIx) {
+      if (cells.length !== 4) continue; // unmappable: no header, non-canonical arity
+      const [claim, command, output, verdict] = cells;
+      if (/^claim/i.test(claim)) continue;
+      rows.push({ claim, command, output, verdict });
+      continue;
+    }
+
+    rows.push({
+      claim: cells[colIx.claim] ?? '',
+      command: cells[colIx.command] ?? '',
+      output: cells[colIx.output] ?? '',
+      verdict: cells[colIx.verdict] ?? '',
+    });
   }
   return rows;
+}
+
+/** `|---|---|` and friends. */
+function isSeparatorRow(cells) {
+  return cells.every((c) => /^:?-{2,}:?$/.test(c) || c === '');
+}
+
+/**
+ * Map a candidate header row to column indexes, or `null` if it is not a header.
+ *
+ * Synonyms are taken from the shapes ALREADY IN USE in tracked plans (measured, not
+ * imagined): "Claim (verbatim)", "Verification command", "Pasted output", "Verdict".
+ * A row is only treated as a header when ALL FOUR required roles resolve — a partial
+ * match is not a header, which keeps an ordinary data row from being swallowed.
+ */
+function headerIndexes(cells) {
+  const norm = cells.map((c) => c.toLowerCase().replace(/\*\*/g, '').trim());
+  const find = (re) => {
+    const ix = norm.findIndex((c) => re.test(c));
+    return ix === -1 ? null : ix;
+  };
+  // CONTAINS, not prefix. Measured shapes in tracked plans include "Claim (verbatim)",
+  // "Verification command", "Pasted output" AND "Verbatim output" — a prefix match missed
+  // the last one and silently yielded 0 rows for two plans.
+  const claim = find(/\bclaim\b/);
+  const command = find(/\bcommand\b|\bprobe\b/);
+  const output = find(/\boutput\b|\bresult\b/);
+  const verdict = find(/\bverdict\b/);
+  if (claim === null || command === null || output === null || verdict === null) return null;
+  if (new Set([claim, command, output, verdict]).size !== 4) return null; // ambiguous
+  return { claim, command, output, verdict };
 }
 
 /** A ledger row is VALID only with a command, non-empty output, and a verdict. */

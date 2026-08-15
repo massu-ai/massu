@@ -4,6 +4,12 @@ var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
 var __esm = (fn, res, err) => function __init() {
   if (err) throw err[0];
   try {
@@ -697,6 +703,13 @@ var init_config = __esm({
     });
     LanguageFrameworkEntrySchema = z2.object({
       framework: z2.string().optional(),
+      // `source_dirs` is emitted by `init` (commands/init.ts:417) and existence-checked
+      // by config validation (init.ts:868-876), but until 2026-08-14 it survived only via
+      // `.passthrough()` — declared in the file, untyped in the schema. `lib/source-layout.ts`
+      // derives the index builders' candidate set from it, so it is typed here rather than
+      // read as an unknown: a consumer that has to shape-check its own SoT is one branch away
+      // from silently contributing `undefined` to a path predicate.
+      source_dirs: z2.array(z2.string()).optional(),
       test_framework: z2.string().optional(),
       test: z2.string().optional(),
       runtime: z2.string().optional(),
@@ -1814,8 +1827,8 @@ function resolveModelDir() {
 function resolveWasmDir() {
   try {
     const req3 = createRequire3(import.meta.url);
-    const main2 = req3.resolve(ORT_PKG);
-    return dirname6(main2);
+    const main3 = req3.resolve(ORT_PKG);
+    return dirname6(main3);
   } catch {
     return null;
   }
@@ -3988,9 +4001,16 @@ var init_memory_db = __esm({
 // src/hooks/classify-failure.ts
 init_config();
 init_memory_db();
-import { existsSync as existsSync9, readFileSync as readFileSync6, readdirSync as readdirSync2, unlinkSync as unlinkSync2, writeFileSync as writeFileSync3 } from "fs";
+import { existsSync as existsSync10, readFileSync as readFileSync7, readdirSync as readdirSync2, unlinkSync as unlinkSync2, writeFileSync as writeFileSync3 } from "fs";
+import { tmpdir as tmpdir3 } from "os";
+import { join as join7, basename as basename3 } from "path";
+
+// src/hooks/fix-detector.ts
+init_config();
+import { execFileSync } from "child_process";
+import { existsSync as existsSync9, appendFileSync as appendFileSync3, mkdirSync as mkdirSync7, readFileSync as readFileSync6 } from "fs";
 import { tmpdir as tmpdir2 } from "os";
-import { join as join6, basename as basename3 } from "path";
+import { join as join6 } from "path";
 
 // src/hooks/lib/write-hook-message.ts
 var HOOK_EVENTS = [
@@ -4027,7 +4047,7 @@ function writeHookContext(hookEventName, message) {
   );
 }
 
-// src/hooks/classify-failure.ts
+// src/hooks/fix-detector.ts
 init_hook_failure_signal();
 
 // src/hooks/lib/is-direct-invocation.ts
@@ -4042,8 +4062,222 @@ function isDirectInvocation(moduleUrl) {
   }
 }
 
-// src/hooks/classify-failure.ts
+// src/hooks/fix-detector.ts
 var HOOK_EVENT = "PostToolUse";
+var TEST_OR_FIXTURE_PATH_PATTERNS = [
+  /(^|\/)(__tests__|__fixtures__|tests?|fixtures?|spec)\//,
+  /\.(test|spec)\.[cm]?[jt]sx?$/,
+  /(^|\/)(test_[^/]+|[^/]+_test)\.py$/
+];
+function isTestOrFixturePath(filePath) {
+  return TEST_OR_FIXTURE_PATH_PATTERNS.some((re) => re.test(filePath));
+}
+var FIX_HEURISTICS = [
+  {
+    name: "removed_broken_code",
+    test: (diff) => /^-.*\b(bug|broken|wrong|incorrect|typo|crash|error|fail|miss|stale)\b/m.test(diff)
+  },
+  {
+    name: "added_error_handling",
+    test: (diff) => {
+      const added = (diff.match(/^\+.*(try|except|catch|guard|if.*nil|if.*None|validate|assert|raise|throw)/gm) || []).length;
+      return added > 2;
+    }
+  },
+  {
+    name: "method_name_correction",
+    test: (diff) => {
+      const removed = diff.match(/^-.*\.([a-z_]+)\(/m);
+      const added = diff.match(/^\+.*\.([a-z_]+)\(/m);
+      return !!(removed && added && removed[1] !== added[1]);
+    }
+  },
+  {
+    name: "auth_fix",
+    test: (diff) => /^\+.*(token|auth|header|X-Service|Bearer|credential)/im.test(diff)
+  },
+  {
+    name: "nil_handling_fix",
+    test: (diff) => /^\+.*(= nil|= None|\.isNil|is None|!= nil|is not None|guard let|if let|optional)/m.test(diff) && /^-/m.test(diff)
+  },
+  {
+    name: "concurrency_fix",
+    test: (diff) => /^\+.*(timeout|semaphore|lock|mutex|throttle|rate.limit|max_conn)/im.test(diff)
+  },
+  {
+    name: "async_pattern_fix",
+    test: (diff) => /^\+.*(@MainActor|async with|asyncio\.timeout|\.await)/.test(diff) && /^-/m.test(diff)
+  },
+  {
+    name: "added_missing_import",
+    test: (diff) => /^\+.*(import|from.*import|require)/.test(diff) && !/^-.*(import|from.*import|require)/m.test(diff)
+  }
+];
+function getSessionFlagPath(sessionId) {
+  const dir = join6(tmpdir2(), "massu-auto-learning");
+  if (!existsSync9(dir)) {
+    mkdirSync7(dir, { recursive: true });
+  }
+  return join6(dir, `fixes-${sessionId.slice(0, 12)}.jsonl`);
+}
+function _stateDir() {
+  const dir = join6(tmpdir2(), "massu-fix-detector-state");
+  if (!existsSync9(dir)) {
+    mkdirSync7(dir, { recursive: true });
+  }
+  return dir;
+}
+function _cwdHash(cwd) {
+  let h = 5381;
+  for (let i = 0; i < cwd.length; i++) {
+    h = (h << 5) + h + cwd.charCodeAt(i) | 0;
+  }
+  return Math.abs(h).toString(36);
+}
+function isGitWorkTreeFast(cwd) {
+  try {
+    const cachePath = join6(_stateDir(), `worktree-${_cwdHash(cwd)}.json`);
+    if (existsSync9(cachePath)) {
+      const cached = JSON.parse(readFileSync6(cachePath, "utf-8"));
+      const ageMs = Date.now() - cached.ts;
+      if (ageMs < 36e5) return cached.isWorkTree;
+    }
+    let isWorkTree = false;
+    try {
+      execFileSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd, timeout: 500, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
+      isWorkTree = true;
+    } catch {
+      isWorkTree = false;
+    }
+    try {
+      appendFileSync3(cachePath, "");
+      const fs = __require("fs");
+      fs.writeFileSync(cachePath, JSON.stringify({ isWorkTree, ts: Date.now() }));
+    } catch {
+    }
+    return isWorkTree;
+  } catch {
+    return false;
+  }
+}
+function _disabledFlagPath(sessionId) {
+  return join6(_stateDir(), `disabled-${sessionId.slice(0, 12)}.flag`);
+}
+function isSessionAutoDisabled(sessionId) {
+  try {
+    return existsSync9(_disabledFlagPath(sessionId));
+  } catch {
+    return false;
+  }
+}
+function markSessionAutoDisabled(sessionId, elapsedMs) {
+  try {
+    const fs = __require("fs");
+    fs.writeFileSync(_disabledFlagPath(sessionId), `disabled: previous git diff took ${elapsedMs}ms
+`);
+  } catch {
+  }
+}
+async function main() {
+  try {
+    const input = await readStdin();
+    const hookInput = JSON.parse(input);
+    const filePath = hookInput.tool_input?.file_path;
+    if (!filePath || !existsSync9(filePath)) {
+      process.exit(0);
+      return;
+    }
+    if (!/\.(py|swift|ts|tsx|js|jsx|rs|go|rb|sh)$/.test(filePath)) {
+      process.exit(0);
+      return;
+    }
+    const config = getConfig();
+    const incidentDir = config.autoLearning?.incidentDir ?? "docs/incidents";
+    const memoryDir = config.autoLearning?.memoryDir ?? "memory";
+    if (filePath.includes(incidentDir) || filePath.includes(memoryDir) || filePath.includes("MEMORY.md")) {
+      process.exit(0);
+      return;
+    }
+    if (isTestOrFixturePath(filePath)) {
+      process.exit(0);
+      return;
+    }
+    if (config.autoLearning?.enabled === false || config.autoLearning?.fixDetection?.enabled === false) {
+      process.exit(0);
+      return;
+    }
+    const root = getProjectRoot();
+    if (!isGitWorkTreeFast(root) || isSessionAutoDisabled(hookInput.session_id)) {
+      process.exit(0);
+      return;
+    }
+    let diff = "";
+    try {
+      const startMs = Date.now();
+      diff = execFileSync("git", ["diff", "--", filePath], { cwd: root, timeout: 3e3, encoding: "utf-8" });
+      if (!diff) {
+        diff = execFileSync("git", ["diff", "HEAD", "--", filePath], { cwd: root, timeout: 3e3, encoding: "utf-8" });
+      }
+      const elapsedMs = Date.now() - startMs;
+      if (elapsedMs > 2e3) {
+        markSessionAutoDisabled(hookInput.session_id, elapsedMs);
+      }
+    } catch {
+      process.exit(0);
+      return;
+    }
+    if (!diff) {
+      process.exit(0);
+      return;
+    }
+    const enabledSignals = new Set(config.autoLearning?.fixDetection?.signals ?? FIX_HEURISTICS.map((h) => h.name));
+    const detected = [];
+    for (const heuristic of FIX_HEURISTICS) {
+      if (enabledSignals.has(heuristic.name) && heuristic.test(diff)) {
+        detected.push(heuristic.name);
+      }
+    }
+    if (detected.length === 0) {
+      process.exit(0);
+      return;
+    }
+    const signal = {
+      file: filePath,
+      signals: detected,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    const flagPath = getSessionFlagPath(hookInput.session_id);
+    appendFileSync3(flagPath, JSON.stringify(signal) + "\n");
+    const lines = readFileSync6(flagPath, "utf-8").split("\n").filter(Boolean);
+    if (lines.length === 1) {
+      writeHookContext(
+        HOOK_EVENT,
+        `[Massu Auto-Learning] Bug fix detected in ${filePath} (signals: ${detected.join(", ")}). The auto-learning pipeline will prompt you at session end to create an incident report, derive a prevention rule, and add enforcement.`
+      );
+    }
+  } catch (err) {
+    recordHookFailure("fix-detector", err);
+  }
+  process.exit(0);
+}
+function readStdin() {
+  return new Promise((resolve5) => {
+    let data = "";
+    process.stdin.setEncoding("utf-8");
+    process.stdin.on("data", (chunk) => {
+      data += chunk;
+    });
+    process.stdin.on("end", () => resolve5(data));
+    setTimeout(() => resolve5(data), 3e3);
+  });
+}
+if (isDirectInvocation(import.meta.url)) {
+  main();
+}
+
+// src/hooks/classify-failure.ts
+init_hook_failure_signal();
+var HOOK_EVENT2 = "PostToolUse";
 var BUG_FIX_INDICATORS = [
   /\b(catch|error|throw|fail|fix|bug|broken|missing|crash|wrong|typo|incorrect)\b/i
 ];
@@ -4051,7 +4285,7 @@ var CODE_EXTENSIONS = /\.(ts|tsx|js|jsx|py|swift|rs|go|rb|sh)$/;
 function getDedupeMarkerPath(sessionId, filePath) {
   const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const hash = simpleHash(filePath);
-  return join6(tmpdir2(), `massu-classify-${day}-${sessionId.slice(0, 8)}-${hash}`);
+  return join7(tmpdir3(), `massu-classify-${day}-${sessionId.slice(0, 8)}-${hash}`);
 }
 function simpleHash(str) {
   let h = 0;
@@ -4061,13 +4295,13 @@ function simpleHash(str) {
   return Math.abs(h).toString(36);
 }
 function readFailureContextFiles() {
-  const dir = tmpdir2();
+  const dir = tmpdir3();
   let context = "";
   try {
     const files = readdirSync2(dir).filter((f) => f.startsWith("massu-failure-context-"));
     for (const file of files) {
       try {
-        context += " " + readFileSync6(join6(dir, file), "utf-8");
+        context += " " + readFileSync7(join7(dir, file), "utf-8");
       } catch {
       }
     }
@@ -4076,21 +4310,21 @@ function readFailureContextFiles() {
   return context.trim();
 }
 function cleanupFailureContextFiles() {
-  const dir = tmpdir2();
+  const dir = tmpdir3();
   try {
     const files = readdirSync2(dir).filter((f) => f.startsWith("massu-failure-context-"));
     for (const file of files) {
       try {
-        unlinkSync2(join6(dir, file));
+        unlinkSync2(join7(dir, file));
       } catch {
       }
     }
   } catch {
   }
 }
-async function main() {
+async function main2() {
   try {
-    const input = await readStdin();
+    const input = await readStdin2();
     const hookInput = JSON.parse(input);
     const filePath = hookInput.tool_input?.file_path;
     if (!filePath) {
@@ -4111,6 +4345,10 @@ async function main() {
     const memoryDir = config.autoLearning?.memoryDir ?? "memory";
     const relPath = filePath.startsWith(root + "/") ? filePath.slice(root.length + 1) : filePath;
     if (relPath.startsWith(incidentDir) || relPath.includes(memoryDir) || relPath.includes("MEMORY.md")) {
+      process.exit(0);
+      return;
+    }
+    if (isTestOrFixturePath(relPath) || isTestOrFixturePath(filePath)) {
       process.exit(0);
       return;
     }
@@ -4143,7 +4381,7 @@ async function main() {
       return;
     }
     const dedupeMarker = getDedupeMarkerPath(hookInput.session_id, filePath);
-    if (existsSync9(dedupeMarker)) {
+    if (existsSync10(dedupeMarker)) {
       process.exit(0);
       return;
     }
@@ -4185,7 +4423,7 @@ function outputKnownPattern(match) {
     lines.push(`  Covered by: ${match.rules.join(", ")}`);
   }
   lines.push("  No new rules needed. Reference existing incident if logging.");
-  writeHookContext(HOOK_EVENT, lines.join("\n"));
+  writeHookContext(HOOK_EVENT2, lines.join("\n"));
 }
 function outputSimilarPattern(match) {
   const lines = [];
@@ -4195,7 +4433,7 @@ function outputSimilarPattern(match) {
     lines.push(`  Check if existing rules cover this case: ${match.rules.join(", ")}`);
   }
   lines.push("  If genuinely new: create incident + prevention rule + enforcement.");
-  writeHookContext(HOOK_EVENT, lines.join("\n"));
+  writeHookContext(HOOK_EVENT2, lines.join("\n"));
 }
 function outputNewPattern(fileName, match) {
   const lines = [];
@@ -4209,9 +4447,9 @@ function outputNewPattern(fileName, match) {
   lines.push("    1. INCIDENT REPORT");
   lines.push("    2. PREVENTION RULE (if new failure pattern)");
   lines.push("    3. ENFORCEMENT (hook or static check)");
-  writeHookContext(HOOK_EVENT, lines.join("\n"));
+  writeHookContext(HOOK_EVENT2, lines.join("\n"));
 }
-function readStdin() {
+function readStdin2() {
   return new Promise((resolve5) => {
     let data = "";
     process.stdin.setEncoding("utf-8");
@@ -4223,5 +4461,5 @@ function readStdin() {
   });
 }
 if (isDirectInvocation(import.meta.url)) {
-  main();
+  main2();
 }

@@ -172,10 +172,19 @@ main() {
     done < <(
       { git -C "$REPO_ROOT" diff --name-only origin/main -- '.claude/session-state/RECAP-*.md' '.claude/session-state/HANDOFF-*.md' 2>/dev/null
         git -C "$REPO_ROOT" diff --name-only            -- '.claude/session-state/RECAP-*.md' '.claude/session-state/HANDOFF-*.md' 2>/dev/null
-      } | sort -u
+        # UNTRACKED files. `git diff` NEVER lists them, so without this line a brand-new
+        # handoff — the most common case, and the exact file this rule binds — is invisible
+        # to `--changed`, and the empty candidate set prints PASS. Measured 2026-08-12: a
+        # new handoff returned "PASS: no new/changed handoff docs to check" having examined
+        # NOTHING; staged, the identical file failed on three incomplete runbook items.
+        # "Could not look" and "looked and found nothing" produced the same green.
+        git -C "$REPO_ROOT" ls-files --others --exclude-standard -- '.claude/session-state/RECAP-*.md' '.claude/session-state/HANDOFF-*.md' 2>/dev/null
+      } | LC_ALL=C sort -u
     )
     if [ "${#files[@]}" -eq 0 ]; then
-      echo "${GREEN}PASS${NC}: no new/changed handoff docs to check."
+      # M1: say WHAT was searched, so a zero denominator is legible as "nothing matched
+      # these three sources" rather than as an unqualified pass.
+      echo "${GREEN}PASS${NC}: 0 handoff doc(s) to check (searched: committed diff vs origin/main, unstaged edits, untracked)."
       exit 0
     fi
   elif [ "$#" -gt 0 ]; then

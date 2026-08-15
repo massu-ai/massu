@@ -477,6 +477,143 @@ for plan_file in "${PLAN_FILES[@]}"; do
 done
 
 # ------------------------------------------------------------------
+# Phase -> rollback coverage (2026-08-12)
+#
+# Every phase a plan DECLARES must carry a rollback: either a `**Rollback**:`
+# line inside the phase's own block, or an entry naming it in the plan's
+# rollback section. Only plans that HAVE a rollback section are in scope — the
+# property being enforced is "this plan's rollback story covers every phase it
+# declares", and a plan with no rollback section makes no such claim.
+#
+# docs/plans/2026-07-23-hook-latency-and-silent-loss-fixes.md silently missed a
+# phase TWICE (P7, found by an audit; P6, found 2026-08-12) — each added to the
+# implementation section hundreds of lines from a rollback section written once
+# and never revisited. Two misses is a class.
+#
+# Pre-gate violations are grandfathered by an explicit, shrink-only baseline.
+# Injection points (a guard you cannot inject a failure into is decoration):
+#   MASSU_PHASE_ROLLBACK_BASELINE  path to the baseline file
+#   MASSU_PHASE_ROLLBACK_AWK       path to the parser
+# ------------------------------------------------------------------
+PHASE_RB_AWK="${MASSU_PHASE_ROLLBACK_AWK:-$REPO_ROOT/scripts/lib/plan-phase-rollback.awk}"
+PHASE_RB_BASELINE="${MASSU_PHASE_ROLLBACK_BASELINE:-$REPO_ROOT/scripts/lib/plan-phase-rollback-baseline.txt}"
+
+phase_rb_msg() {
+  # $1 = level (FAIL|WARN)  $2 = rel path  $3 = message
+  if [ "$JSON_MODE" = "1" ]; then
+    json_record "$2" "$1" "$3"
+  elif [ "$1" = "FAIL" ]; then
+    fail_msg "$3"
+  else
+    warn_msg "$3"
+  fi
+}
+
+# M2 FAIL CLOSED: an unreadable parser is an ERROR, never an empty finding set.
+if [ ! -r "$PHASE_RB_AWK" ]; then
+  phase_rb_msg "FAIL" "scripts/lib/plan-phase-rollback.awk" \
+    "phase-rollback parser missing or unreadable at $PHASE_RB_AWK — refusing to report coverage"
+else
+  PHASE_RB_INSCOPE=0
+  PHASE_RB_PHASES=0
+  PHASE_RB_UNCOVERED=0
+  PHASE_RB_GRANDFATHERED=0
+  PHASE_RB_USED_KEYS=""
+
+  # Baseline is optional (absence = STRICTER, never quieter) but a present-and-
+  # unreadable one is an error.
+  PHASE_RB_BASE_KEYS=""
+  PHASE_RB_BASE_MAX=""
+  if [ -e "$PHASE_RB_BASELINE" ]; then
+    if [ ! -r "$PHASE_RB_BASELINE" ]; then
+      phase_rb_msg "FAIL" "${PHASE_RB_BASELINE#"$REPO_ROOT/"}" \
+        "phase-rollback baseline exists but is unreadable — refusing to grandfather anything"
+    else
+      PHASE_RB_BASE_KEYS=$(LC_ALL=C grep -v '^[[:space:]]*#' "$PHASE_RB_BASELINE" | LC_ALL=C grep -v '^[[:space:]]*$')
+      PHASE_RB_BASE_MAX=$(LC_ALL=C sed -n 's/^#[[:space:]]*MAX:[[:space:]]*\([0-9][0-9]*\).*$/\1/p' "$PHASE_RB_BASELINE" | head -n 1)
+      PHASE_RB_BASE_N=$(printf '%s' "$PHASE_RB_BASE_KEYS" | LC_ALL=C grep -c '.' || true)
+      if [ -z "$PHASE_RB_BASE_MAX" ]; then
+        phase_rb_msg "FAIL" "${PHASE_RB_BASELINE#"$REPO_ROOT/"}" \
+          "phase-rollback baseline has no '# MAX: <n>' ratchet header — a suppression list with no ceiling only grows"
+      elif [ "$PHASE_RB_BASE_N" -gt "$PHASE_RB_BASE_MAX" ]; then
+        phase_rb_msg "FAIL" "${PHASE_RB_BASELINE#"$REPO_ROOT/"}" \
+          "phase-rollback baseline GREW ($PHASE_RB_BASE_N > max $PHASE_RB_BASE_MAX). It is a ratchet: it may only shrink. Give the new phase a rollback instead."
+      fi
+    fi
+  fi
+
+  for plan_file in "${PLAN_FILES[@]}"; do
+    rel_path="${plan_file#"$REPO_ROOT/"}"
+    plan_base=$(basename "$plan_file")
+    if ! phase_rb_out=$(awk -f "$PHASE_RB_AWK" "$plan_file" 2>&1); then
+      phase_rb_msg "FAIL" "$rel_path" \
+        "$rel_path: phase-rollback parser failed — refusing to report it clean (${phase_rb_out})"
+      continue
+    fi
+    # A plan is IN SCOPE once it makes a per-phase rollback claim in EITHER form: a
+    # rollback SECTION, or a co-located `**Rollback**:` line in any phase block. Keying
+    # scope on the section alone would exempt exactly the plans that adopt the better
+    # shape — and the plan template now emits the co-located line, so that exemption
+    # would have grown with every new plan. Measured 2026-08-12: 0 plans in the corpus
+    # use the co-located form today, so widening scope costs nothing retroactively.
+    phase_rb_own_any=$(printf '%s\n' "$phase_rb_out" | awk -F'\t' '$1=="PHASE" && $4=="own"' | head -n 1)
+    case "$phase_rb_out" in
+      RBSEC*) ;;
+      *) [ -n "$phase_rb_own_any" ] || continue ;;
+    esac
+    phase_rb_n=$(printf '%s\n' "$phase_rb_out" | awk -F'\t' '$1=="SUMMARY"{print $2}')
+    [ "${phase_rb_n:-0}" -gt 0 ] || continue
+    PHASE_RB_INSCOPE=$((PHASE_RB_INSCOPE + 1))
+    PHASE_RB_PHASES=$((PHASE_RB_PHASES + phase_rb_n))
+
+    while IFS=$'\t' read -r _tag phase_id phase_line _how; do
+      [ -n "$phase_id" ] || continue
+      key="$plan_base::$phase_id"
+      PHASE_RB_USED_KEYS="$PHASE_RB_USED_KEYS
+$key"
+      if printf '%s\n' "$PHASE_RB_BASE_KEYS" | LC_ALL=C grep -qxF "$key"; then
+        PHASE_RB_GRANDFATHERED=$((PHASE_RB_GRANDFATHERED + 1))
+        continue
+      fi
+      PHASE_RB_UNCOVERED=$((PHASE_RB_UNCOVERED + 1))
+      phase_rb_msg "FAIL" "$rel_path" \
+        "$rel_path:$phase_line: Phase $phase_id has no rollback. Add a '**Rollback**:' line inside the phase's own block (preferred), or name Phase $phase_id in the plan's rollback section."
+    done <<EOF
+$(printf '%s\n' "$phase_rb_out" | awk -F'\t' '$1=="PHASE" && $4=="NO"')
+EOF
+  done
+
+  # A STALE baseline line is a failure, not a no-op: it is how a ratchet stops
+  # ratcheting. Scoped to plans PRESENT in this run, so a curated fixture dir
+  # never reports the whole corpus stale.
+  if [ -n "$PHASE_RB_BASE_KEYS" ]; then
+    while IFS= read -r base_key; do
+      [ -n "$base_key" ] || continue
+      base_plan="${base_key%%::*}"
+      [ -f "$PLAN_DIR/$base_plan" ] || continue
+      if ! printf '%s\n' "$PHASE_RB_USED_KEYS" | LC_ALL=C grep -qxF "$base_key"; then
+        phase_rb_msg "FAIL" "${PHASE_RB_BASELINE#"$REPO_ROOT/"}" \
+          "phase-rollback baseline line '$base_key' is STALE (that phase is covered now, or no longer declared). Delete the line and lower '# MAX:'."
+      fi
+    done <<EOF
+$PHASE_RB_BASE_KEYS
+EOF
+  fi
+
+  # M1 PROVE IT LOOKED. Against the real corpus, zero in-scope plans means the
+  # parser stopped seeing rollback sections — "scanned 0, found 0" is a loud
+  # error, never a pass.
+  if [ "$PLAN_DIR" = "$REPO_ROOT/docs/plans" ] && [ "$PHASE_RB_INSCOPE" -eq 0 ]; then
+    phase_rb_msg "FAIL" "docs/plans" \
+      "phase-rollback check found 0 plans with a rollback section in the real corpus — refusing to report clean"
+  fi
+
+  if [ "$JSON_MODE" != "1" ]; then
+    echo "  Phase-rollback coverage: $PHASE_RB_PHASES phase(s) across $PHASE_RB_INSCOPE plan(s) declaring a rollback; grandfathered ${PHASE_RB_GRANDFATHERED}/${PHASE_RB_BASE_MAX:-0}; uncovered $PHASE_RB_UNCOVERED"
+  fi
+fi
+
+# ------------------------------------------------------------------
 # Summary
 # ------------------------------------------------------------------
 if [ "$JSON_MODE" = "1" ]; then

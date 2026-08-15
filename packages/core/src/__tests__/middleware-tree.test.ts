@@ -18,6 +18,10 @@ vi.mock('../config.ts', () => ({
     domains: [],
   }),
   getProjectRoot: () => '/test/project',
+  // `lib/source-layout.ts` reads the parseable extensions from here (the tree
+  // walk now shares ONE definition of "a local source file" with the import
+  // index that produced its edges).
+  getResolvedPaths: () => ({ extensions: ['.ts', '.tsx', '.js', '.jsx'] }),
 }));
 
 function createTestDb(): Database.Database {

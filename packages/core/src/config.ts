@@ -308,6 +308,13 @@ const PathsConfigSchema = z.object({
 // `framework.languages`.
 const LanguageFrameworkEntrySchema = z.object({
   framework: z.string().optional(),
+  // `source_dirs` is emitted by `init` (commands/init.ts:417) and existence-checked
+  // by config validation (init.ts:868-876), but until 2026-08-14 it survived only via
+  // `.passthrough()` — declared in the file, untyped in the schema. `lib/source-layout.ts`
+  // derives the index builders' candidate set from it, so it is typed here rather than
+  // read as an unknown: a consumer that has to shape-check its own SoT is one branch away
+  // from silently contributing `undefined` to a path predicate.
+  source_dirs: z.array(z.string()).optional(),
   test_framework: z.string().optional(),
   test: z.string().optional(),
   runtime: z.string().optional(),

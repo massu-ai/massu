@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import Database from 'better-sqlite3';
 import { resolve, dirname } from 'path';
 import { tmpdir } from 'os';
@@ -63,7 +63,7 @@ describe('getKnowledgeToolDefinitions', () => {
 
 describe('massu_knowledge_search', () => {
   it('finds results for build-related queries', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_search', { query: 'build' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_search', { query: 'build' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Knowledge Search');
     // Should find something -- build is mentioned extensively
@@ -71,12 +71,12 @@ describe('massu_knowledge_search', () => {
   });
 
   it('returns error for missing query', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_search', {}, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_search', {}, db, 'ensure-fresh');
     expect(result.content[0].text).toContain('Error');
   });
 
   it('respects limit parameter', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_search', { query: 'build', limit: 2 }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_search', { query: 'build', limit: 2 }, db, 'ensure-fresh');
     const text = result.content[0].text;
     // Count the number of result headers (### ...)
     const headings = text.match(/^### /gm);
@@ -88,39 +88,39 @@ describe('massu_knowledge_search', () => {
 
 describe('massu_knowledge_rule', () => {
   it('looks up CR-1 with verification', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_rule', { rule_id: 'CR-1' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_rule', { rule_id: 'CR-1' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('CR-1');
   });
 
   it('searches rules by keyword', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_rule', { keyword: 'test' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_rule', { keyword: 'test' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Rules matching');
   });
 
   it('lists all rules when no params', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_rule', {}, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_rule', {}, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('All Canonical Rules');
     expect(text).toContain('CR-1');
   });
 
   it('handles unknown rule gracefully', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_rule', { rule_id: 'CR-999' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_rule', { rule_id: 'CR-999' }, db, 'ensure-fresh');
     expect(result.content[0].text).toContain('not found');
   });
 });
 
 describe('massu_knowledge_incident', () => {
   it('lists incidents when no filter', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_incident', {}, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_incident', {}, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Incidents');
   });
 
   it('searches incidents by keyword', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_incident', { keyword: 'test' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_incident', { keyword: 'test' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Incidents');
   });
@@ -128,13 +128,13 @@ describe('massu_knowledge_incident', () => {
 
 describe('massu_knowledge_schema_check', () => {
   it('returns no mismatches for unknown table', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_schema_check', { table: 'nonexistent_table_xyz' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_schema_check', { table: 'nonexistent_table_xyz' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('No known schema mismatches');
   });
 
   it('lists all mismatches when no params', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_schema_check', {}, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_schema_check', {}, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Schema Mismatches');
   });
@@ -142,33 +142,33 @@ describe('massu_knowledge_schema_check', () => {
 
 describe('massu_knowledge_pattern', () => {
   it('returns pattern guidance for a domain keyword', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_pattern', { domain: 'config' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_pattern', { domain: 'config' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Pattern Guidance');
   });
 
   it('requires domain parameter', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_pattern', {}, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_pattern', {}, db, 'ensure-fresh');
     expect(result.content[0].text).toContain('Error');
   });
 });
 
 describe('massu_knowledge_verification', () => {
   it('looks up VR-BUILD', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_verification', { vr_type: 'VR-BUILD' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_verification', { vr_type: 'VR-BUILD' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('VR-BUILD');
     expect(text).toContain('npm run build');
   });
 
   it('searches by situation', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_verification', { situation: 'test' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_verification', { situation: 'test' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Verification');
   });
 
   it('lists all verifications when no params', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_verification', {}, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_verification', {}, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('All Verification Types');
   });
@@ -176,27 +176,27 @@ describe('massu_knowledge_verification', () => {
 
 describe('massu_knowledge_graph', () => {
   it('traverses from CR-1', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_graph', { entity_type: 'cr', entity_id: 'CR-1' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_graph', { entity_type: 'cr', entity_id: 'CR-1' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Knowledge Graph');
     expect(text).toContain('CR-1');
   });
 
   it('requires entity_type and entity_id', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_graph', {}, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_graph', {}, db, 'ensure-fresh');
     expect(result.content[0].text).toContain('Error');
   });
 });
 
 describe('massu_knowledge_command', () => {
   it('lists all commands when no params', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_command', {}, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_command', {}, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('All Commands');
   });
 
   it('searches commands by keyword', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_command', { keyword: 'audit' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_command', { keyword: 'audit' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Commands matching');
   });
@@ -217,6 +217,33 @@ describe('massu_knowledge_correct', () => {
     }
   });
 
+  // STATE THE PRECONDITION THESE TESTS ALREADY ASSUME, INSTEAD OF PAYING FOR IT ON A CLOCK.
+  //
+  // `handleKnowledgeToolCall` opens with `ensureKnowledgeIndexed(db)` -> `indexIfStale(db)`,
+  // and `isKnowledgeStale` stats every markdown file under .claude/, docs/, plans/ AND the
+  // memory dir, returning true if any mtime is newer than `last_index_epoch`. These tests
+  // WRITE `corrections.md` into that same memory dir — so the very next dispatch re-indexed
+  // the entire corpus INSIDE the test body.
+  //
+  // Measured 2026-08-13 (`indexAllKnowledge` into a scratch db): 677 documents / 11,954
+  // chunks / 9.2 MB of chunk text, 1,223ms per re-index in isolation. 29 of the 30 tests in
+  // this file run in 2-35ms; the one that tripped this ran 6,123ms, and under the pre-push
+  // battery's 16-way fork parallelism it blew a 30,000ms budget outright — the failure that
+  // blocked this push. With the precondition stated below, that test runs in 8ms.
+  //
+  // The budget was NOT the bug and widening it again would not have been a fix: the work is
+  // O(the repo's whole markdown corpus) and grows every day, so any constant is only a date
+  // at which it starts failing. That is G27 — a wall-clock budget asserts the MACHINE, not
+  // the code — and this file already carried one widened comment claiming the opposite.
+  //
+  // Nothing here is about lazy re-indexing; `knowledge-e2e` owns that. So declare the
+  // precondition ("the index is current") explicitly and let the assertions be about
+  // `handleCorrect`. The cost leaves the test entirely rather than being budgeted for.
+  beforeEach(() => {
+    db.prepare("INSERT OR REPLACE INTO knowledge_meta (key, value) VALUES ('last_index_epoch', ?)")
+      .run(String(Date.now()));
+  });
+
   afterAll(() => {
     // Clean up corrections.md created by tests
     try { if (existsSync(correctionsPath)) unlinkSync(correctionsPath); } catch { /* ignore */ }
@@ -227,7 +254,7 @@ describe('massu_knowledge_correct', () => {
   });
 
   it('requires wrong, correction, and rule', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_correct', { wrong: 'test' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_correct', { wrong: 'test' }, db, 'ensure-fresh');
     expect(result.content[0].text).toContain('Error');
   });
 
@@ -237,7 +264,7 @@ describe('massu_knowledge_correct', () => {
       correction: 'Test correct behavior',
       rule: 'Test prevention rule',
       cr_rule: 'CR-9',
-    }, db);
+    }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Correction recorded');
     expect(text).toContain('Test wrong behavior');
@@ -263,7 +290,7 @@ describe('massu_knowledge_correct', () => {
       correction: 'DB verify correct',
       rule: 'DB verify rule',
       cr_rule: 'CR-99',
-    }, db);
+    }, db, 'ensure-fresh');
     const chunk = db.prepare(
       "SELECT heading, content, metadata FROM knowledge_chunks WHERE heading LIKE '%DB verify%' AND metadata LIKE '%is_correction%'"
     ).get() as { heading: string; content: string; metadata: string } | undefined;
@@ -272,19 +299,20 @@ describe('massu_knowledge_correct', () => {
     const meta = JSON.parse(chunk!.metadata);
     expect(meta.is_correction).toBe(true);
     expect(meta.cr_rule).toBe('CR-99');
-  }, 30000); // handleKnowledgeToolCall(correct) re-indexes on disk; the 5s default
-             // flakes under full-suite parallel CPU contention (passes in isolation).
+  }); // Runs in ~8ms against the default 5s budget now that the beforeEach above states
+      // the index-current precondition. The former 30000ms override — and its comment
+      // claiming this dispatch "re-indexes on disk" — described the cause that is now gone.
 });
 
 describe('massu_knowledge_plan', () => {
   it('lists all plans when no args', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_plan', {}, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_plan', {}, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('All Plans');
   });
 
   it('finds plans by keyword', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_plan', { keyword: 'massu' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_plan', { keyword: 'massu' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Plans matching');
   });
@@ -292,7 +320,7 @@ describe('massu_knowledge_plan', () => {
 
 describe('massu_knowledge_gaps', () => {
   it('returns gap analysis for features', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_gaps', {}, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_gaps', {}, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Knowledge Gap Analysis');
   });
@@ -300,13 +328,13 @@ describe('massu_knowledge_gaps', () => {
 
 describe('massu_knowledge_effectiveness', () => {
   it('returns ranked rule list', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_effectiveness', {}, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_effectiveness', {}, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Most Violated Rules');
   });
 
   it('returns detail for a specific rule', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_effectiveness', { rule_id: 'CR-9', mode: 'detail' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_effectiveness', { rule_id: 'CR-9', mode: 'detail' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Rule Effectiveness');
     expect(text).toContain('CR-9');
@@ -315,7 +343,7 @@ describe('massu_knowledge_effectiveness', () => {
 
 describe('handleKnowledgeToolCall routing', () => {
   it('handles unknown tool name', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_unknown', {}, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_unknown', {}, db, 'ensure-fresh');
     expect(result.content[0].text).toContain('Unknown knowledge tool');
   });
 });

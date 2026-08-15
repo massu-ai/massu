@@ -223,10 +223,27 @@ describe('rule-pack enforcement bridge drift-guard (P2-004)', () => {
       'edge fn (installed-rules) passes pack rules through with the destination bridge field',
       () => {
         const edgeSrc = readFileSync(EDGE_FN_SRC, 'utf-8');
-        // The edge fn projects `rules` verbatim and documents the `destination`
-        // bridge field travels on each rule (migration 048 reseed).
-        expect(edgeSrc).toContain('destination');
-        expect(edgeSrc).toMatch(/rules/);
+        // ASSERT THE PROJECTION, NOT THE WORD. This used to be
+        // `expect(edgeSrc).toContain('destination')` — and all SEVEN occurrences of
+        // `destination` in that file are COMMENTS (:9, :19, :312, :314, :317), so the
+        // assertion was discharged entirely by documentation. Found 2026-08-12 by
+        // scripts/ops/probe-comment-satisfiable-assertions.py, which strips comments from
+        // the guarded file and re-evaluates.
+        //
+        // The edge fn has no reason to name `destination` in code: it selects the whole
+        // `rules` JSONB and projects it verbatim, so every rule body travels WITH its
+        // bridge field. What can regress — and what this now asserts — is the SELECT being
+        // narrowed to drop `rules` from the embedded `rule_packs` group, which would strand
+        // the rule bodies while every other assertion here stayed green.
+        //
+        // The pattern requires `slug` as well, because `rule_packs (` alone also appears in
+        // a comment at :327 — the same defect one step over.
+        expect(
+          edgeSrc,
+          'the installed_packs select no longer projects the embedded rule_packs `rules` ' +
+            'JSONB — the rule bodies (and the destination bridge field they carry) never ' +
+            'reach the client',
+        ).toMatch(/rule_packs\s*\(\s*slug[^)]*\brules\b/);
         // It enforces the SAME Team-gate posture the client tier-gates on.
         expect(edgeSrc).toContain('cloud_team');
       },

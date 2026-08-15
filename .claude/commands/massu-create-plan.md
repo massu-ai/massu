@@ -659,6 +659,10 @@ Update coverage map: mark D6, D7, D8, D10 as `done`.
 
 ## Phase 1: Core Implementation
 
+- **Rollback**: [how this phase is backed out — the commit to revert, plus any step a
+  revert does NOT undo (a rebuild, a drain, a migration). MANDATORY: every phase carries
+  one, and `massu-plan-status-validator.sh` fails the plan without it (CR-40).]
+
 ### P1-001: [Module Name]
 - **Type**: MODULE_CREATE / MODULE_MODIFY
 - **File**: packages/core/src/[module].ts
@@ -687,6 +691,8 @@ Update coverage map: mark D6, D7, D8, D10 as `done`.
 
 ## Phase 2: Tests
 
+- **Rollback**: [how this phase is backed out]
+
 ### P2-001: [Test Module]
 - **Type**: TEST
 - **File**: packages/core/src/__tests__/[module].test.ts
@@ -697,6 +703,8 @@ Update coverage map: mark D6, D7, D8, D10 as `done`.
 ---
 
 ## Phase 3: Config & Documentation (if applicable)
+
+- **Rollback**: [how this phase is backed out]
 
 ### P3-001: [Config Update]
 - **Type**: CONFIG

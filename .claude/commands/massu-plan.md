@@ -288,6 +288,49 @@ If plan adds MCP tools:
 grep "getToolDefinitions\|isXTool\|handleToolCall" [plan_file]
 ```
 
+### Check 5: ENFORCEMENT PROBE — every "this is enforced" claim must be EXECUTED
+
+**Reading a claim cannot distinguish a real guarantee from an unevaluated one.** Verifying a
+citation answers *"does `file:line` say what the plan claims"* — a TEXT check. It does not answer
+*"does anything FAIL when this is violated"*, which is a CAPABILITY claim and needs a PROBE.
+CR-63 already draws that line: universals get an ENUMERATION, capabilities get a PROBE. An
+enforcement claim that received an enumeration has not been verified.
+
+**Find every claim of this shape** — the plan asserts something is prevented, not merely true:
+
+```
+"makes this class of bug IMPOSSIBLE"   "the type system rejects"   "a mechanism rather than a hope"
+"X enforces Y"   "cannot be written without failing"   "a compile error"   "the gate blocks this"
+"structural drift-prevention"   "would go red"
+```
+
+**For each one, run the THREE CONTROLS and paste all three exit codes:**
+
+| control | what it runs | proves |
+|---|---|---|
+| **(a) the real gate** | the command CI/pre-push/`npm test` actually runs, over a VIOLATING input | the claim, or its absence |
+| **(b) positive control** | the same check invoked directly on the same input | the error EXISTS when something asks |
+| **(c) negative control** | the same check over a COMPLIANT input | the check is not simply always-red |
+
+**(b) passing while (a) passes is the failure mode.** It means the error is real and *nothing
+evaluates it* — the gate's scope excludes the path. Measured 2026-08-13: a plan claimed
+`string | null` under `"strict": true` made its acceptance "a mechanism rather than a hope";
+`packages/core/tsconfig.json:16` excludes `src/__tests__`, where every caller lived, so
+`tsc --noEmit` exited 0 over a caller that ignored the null while the same file checked directly
+returned `TS18047`. **Eight audit passes read that row and none probed it.** It surfaced only when
+the plan was implemented.
+
+**Scope traps to check explicitly**, because each one silently shrinks what a gate sees:
+`tsconfig.json` `exclude`/`include`, per-workspace configs, `skipLibCheck`, test-tree exclusions,
+`.eslintignore`, a CI job that runs a different command from the local one, and a gate whose
+default argument narrows its candidate set (`${1:-...}` with an argument-free caller).
+
+**A claim true in one workspace and false in another is TWO claims.** State which is which.
+
+**If a claim cannot be probed, it is not an enforcement claim — rewrite it as an intention, or
+give it a mechanism that can be.** "We will be careful" and "the reviewer will catch it" are not
+mechanisms.
+
 ### Feasibility Gate Decision
 
 | Check | Status |
@@ -297,6 +340,7 @@ grep "getToolDefinitions\|isXTool\|handleToolCall" [plan_file]
 | Dependencies | PASS/FAIL |
 | Patterns | PASS/FAIL |
 | Tool Registration | PASS/FAIL |
+| **Enforcement Probe (Check 5)** | **PASS/FAIL/N-A — every enforcement claim probed with 3 controls** |
 
 **If ANY check fails: BLOCK plan until resolved. Do NOT proceed.**
 

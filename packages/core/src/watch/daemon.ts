@@ -12,7 +12,19 @@
  */
 
 import * as chokidar from 'chokidar';
+import { mkdirSync } from 'fs';
+import { resolve } from 'path';
 import { resetConfig, getConfig } from '../config.ts';
+import {
+  CANARY_DEAD_LOG,
+  CANARY_DEAD_STRIKES_BEFORE_REBUILD,
+  CANARY_REBUILD_LOG,
+  CANARY_RECOVERED_LOG,
+  CANARY_UNWRITABLE_LOG,
+  canaryAwareIgnore,
+  createWatcherCanary,
+  type WatcherCanary,
+} from './canary.ts';
 import { gitMidOperation, lockfileMidWrite } from './lockfile-detector.ts';
 import { deriveWatchGlobs, enforceWatchSurfaceCap, WatchSurfaceTooLargeError } from './paths.ts';
 import { updateState } from './state.ts';
@@ -24,6 +36,17 @@ export const DEEP_STORM_WAIT_MS = 120_000;
 export const TICK_INTERVAL_MS = 10_000;
 export const TICK_GAP_THRESHOLD_MS = 30_000;
 
+/**
+ * chokidar event types that can actually change stack detection.
+ *
+ * Detection reads file CONTENTS, so a directory appearing or disappearing
+ * cannot alter its result — and the files inside one arrive as their own
+ * `add`/`unlink` events, so nothing is lost by excluding the directory events.
+ * Deliberately an ALLOWLIST: an event type nobody anticipated should not
+ * silently acquire the power to refresh a user's project.
+ */
+export const STACK_RELEVANT_EVENTS = new Set(['add', 'change', 'unlink']);
+
 export interface DaemonHooks {
   /** Called after quiescence + hard-stops pass. Implementations refresh + install. */
   onQuiescent: () => Promise<void> | void;
@@ -33,6 +56,12 @@ export interface DaemonHooks {
   writeStderr?: (s: string) => void;
   /** When true, skip the chokidar setup (used by tests that drive events manually). */
   noWatcher?: boolean;
+  /**
+   * Tick period override, defaulting to TICK_INTERVAL_MS. The watcher-liveness
+   * canary resolves on the tick, so tests that need a liveness verdict without
+   * waiting two real 10s intervals shorten this.
+   */
+  tickIntervalMs?: number;
 }
 
 export interface DaemonHandle {
@@ -112,6 +141,50 @@ export async function startDaemon(projectRoot: string, hooks: DaemonHooks): Prom
   let stopped = false;
   // Mutex to prevent overlapping reruns of the quiescence callback.
   let runningRefresh = false;
+
+  // Watcher-liveness canary (plan-2026-08-12-watch-daemon-silent-dead-watcher,
+  // D-2/D-3). Null when `noWatcher` is set — with no watcher there is nothing
+  // whose liveness could be judged, and arming anyway would report DEAD every
+  // tick for every test that drives pushEvent by hand.
+  let canary: WatcherCanary | null = null;
+  /** Captured at startup so a rebuild re-watches exactly the same surface. */
+  let watchSpec: { watch: string[]; ignored: (string | ((p: string) => boolean))[] } | null = null;
+  /** Mutex: a rebuild is in flight, so skip liveness judgements this tick. */
+  let rebuilding = false;
+  /**
+   * Set by chokidar's `ready`. The canary is only armed after it, because a
+   * watcher that has not finished its initial scan has not yet claimed to be
+   * watching anything — arming earlier would manufacture a DEAD verdict on a
+   * healthy watcher over any tree big enough for the scan to outlast a tick
+   * (the surface-cap notes measure 30s+ on a 62K-file tree). `ready` is also
+   * precisely the signal this defect abuses: it fires, and nothing follows.
+   *
+   * READY IS THE PERMISSION TO ARM, NOT THE MOMENT TO ARM. Measured on Linux
+   * (Docker node:22, kernel 6.12.76, load 0.16/24): a sentinel written from
+   * inside the `ready` handler is NEVER echoed, while every later arm is echoed
+   * in 1-2 ms — so the daemon convicted a watcher that was demonstrably
+   * delivering (`firedDelta=2` in the same run) and CI's anti-vacuity job went
+   * red on it. Two candidate causes were separated by experiment, because they
+   * need different fixes:
+   *
+   *   pre-create the sentinel file before `chokidar.watch()`  -> STILL 1 dead
+   *   leave it absent, arm one tick later instead             -> 0 dead
+   *
+   * So it is not that the sentinel's `add` is lost for being a new file; the
+   * directory watch is not yet EFFECTIVE when `ready` fires. `ready` fires SIX
+   * times within 5 ms here and arming on every one of them still loses the
+   * write, so "the last ready" is not the moment either. `getWatched()` cannot
+   * stand in for it: it already lists `.massu/watch-canary` (with `liveness` in
+   * it) 26 ms after ready, while that arm's write is being lost — chokidar's
+   * bookkeeping tracks ATTACHED, and the property is EFFECTIVE.
+   *
+   * The arm therefore happens on the daemon's own tick, one interval later.
+   * Nothing about the verdict logic changes: a watcher that delivers nothing
+   * still fails to echo, still accrues the same streak, and is still rebuilt at
+   * CANARY_DEAD_STRIKES_BEFORE_REBUILD. Detection is one tick later; the false
+   * conviction is gone.
+   */
+  let watcherReady = false;
 
   function clearDebounce(): void {
     if (ctx.debounceTimer) {
@@ -267,6 +340,10 @@ export async function startDaemon(projectRoot: string, hooks: DaemonHooks): Prom
       await watcher.close();
       watcher = null;
     }
+    if (canary) {
+      canary.cleanup();
+      canary = null;
+    }
     // Iter-6 SIGINT graceful-shutdown: ideally we would `await` an in-flight
     // fireRefresh here so SIGINT/SIGTERM doesn't cut a refresh mid-write.
     // However, three forces work in the OPPOSITE direction:
@@ -294,6 +371,159 @@ export async function startDaemon(projectRoot: string, hooks: DaemonHooks): Prom
     // shutdown, which is the leak-prevention concern that IS reachable.
   }
 
+  /**
+   * Build a chokidar instance over the captured watch spec and wire its
+   * handlers. Used at startup AND by the D-3 rebuild, so the two can never
+   * drift into watching different surfaces.
+   */
+  function createWatcherInstance(): chokidar.FSWatcher {
+    const spec = watchSpec;
+    if (!spec) throw new Error('watch spec not derived before createWatcherInstance()');
+    const w = chokidar.watch(spec.watch, {
+      cwd: cfg.projectRoot,
+      ignored: spec.ignored,
+      ignoreInitial: true,
+      persistent: true,
+      awaitWriteFinish: false,
+    });
+    w.on('ready', () => {
+      // Permission to arm, not the moment to arm — see `watcherReady` above for
+      // the measurement. The first arm is issued by the next tick, by which time
+      // the directory watch is effective.
+      watcherReady = true;
+    });
+    w.on('all', (event: string, path: string) => {
+      // The canary's own writes prove the watcher is delivering; they must
+      // never reach the quiescence FSM, or the daemon would refresh the user's
+      // project on its own heartbeat every tick.
+      if (canary?.observe(path)) return;
+      // Only FILE events can change stack detection. A bare directory cannot:
+      // detection reads file CONTENTS, and files appearing inside a new
+      // directory arrive as their own `add` events, so nothing is missed by
+      // dropping `addDir`/`unlinkDir` here.
+      //
+      // This is not a cosmetic filter. `ignoreInitial: true` suppresses events
+      // only until `ready`, and chokidar's initial-scan directory emissions
+      // RACE that event — measured: watching `src/**` alone delivered
+      // `addDir: src` (and every nested dir) AFTER ready, while the same watch
+      // plus a `package.json` entry delivered nothing, because the longer scan
+      // let ready win. So `massu watch` ran a phantom refresh at startup on a
+      // timing coin-flip. Filtering by relevance is race-immune; filtering by
+      // "did this directory pre-exist" would just be a patch on the race.
+      if (!STACK_RELEVANT_EVENTS.has(event)) return;
+      pushEvent(path);
+    });
+    w.on('error', (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      writeStderr(`[massu] chokidar error: ${msg}\n`);
+      // Persist so `massu watch --status` surfaces it; never let a state
+      // write throw out of the error handler (best-effort).
+      try {
+        updateState(cfg.projectRoot, { lastError: `chokidar: ${msg}` });
+      } catch {
+        // best-effort
+      }
+    });
+    return w;
+  }
+
+  function armCanary(): void {
+    if (!canary || stopped) return;
+    if (canary.arm() === 'unwritable') {
+      // An unwritable .massu/ is a DIFFERENT failure from a dead watcher, and
+      // louder. Reporting it as "dead" would be the same predicate/property
+      // confusion the canary exists to correct.
+      writeStderr(
+        `${CANARY_UNWRITABLE_LOG} (${canary.filePath}); watcher liveness is UNKNOWN for this interval\n`,
+      );
+    }
+  }
+
+  /** Powers of two drive the dead-watcher escalation backoff. */
+  function isPowerOfTwo(n: number): boolean {
+    return n > 0 && (n & (n - 1)) === 0;
+  }
+
+  async function rebuildWatcher(): Promise<void> {
+    if (rebuilding || stopped || !watchSpec) return;
+    rebuilding = true;
+    try {
+      const old = watcher;
+      watcher = null;
+      if (old) {
+        try {
+          await old.close();
+        } catch {
+          // A close failure must not strand the daemon without a watcher.
+        }
+      }
+      if (stopped) return;
+      // The replacement instance is armed by the first tick AFTER its own
+      // `ready`; arming here would race its initial scan and manufacture the
+      // next dead verdict.
+      watcherReady = false;
+      watcher = createWatcherInstance();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      writeStderr(`[massu] watcher rebuild FAILED: ${msg}\n`);
+    } finally {
+      rebuilding = false;
+    }
+  }
+
+  /**
+   * D-2/D-3: judge the watcher's liveness from its own canary echo, and escalate.
+   *
+   * Escalation is on POWERS OF TWO of the consecutive-dead streak (1, 2, 4, 8…)
+   * rather than on every tick. A watcher that is permanently dead — fsevents
+   * unavailable, say — would otherwise force a full refresh AND a watcher
+   * rebuild every single tick forever, trading a silent-staleness bug for a
+   * sustained-CPU bug. §3 of the plan rejects polling on exactly that ground,
+   * and this path deserves the same treatment.
+   */
+  function checkWatcherLiveness(): void {
+    if (!canary || !watcher || rebuilding || !watcherReady) return;
+    const priorDead = canary.consecutiveDead;
+    const verdict = canary.evaluate();
+
+    if (verdict === 'dead') {
+      const streak = canary.consecutiveDead;
+      if (!isPowerOfTwo(streak)) return armCanary();
+      writeStderr(
+        `${CANARY_DEAD_LOG} after ${streak} consecutive interval(s): the watcher ` +
+        `reported ready and emitted no error, but did not deliver its own canary ` +
+        `write (${canary.filePath}). Treating it as DEAD and reconciling so changes ` +
+        `are not silently missed.\n`,
+      );
+      try {
+        updateState(cfg.projectRoot, {
+          lastError: `watcher liveness canary not echoed for ${streak} consecutive interval(s)`,
+        });
+      } catch {
+        // best-effort
+      }
+      void forceReconciliation();
+      if (streak >= CANARY_DEAD_STRIKES_BEFORE_REBUILD) {
+        writeStderr(`${CANARY_REBUILD_LOG} after ${streak} dead interval(s) (close + re-watch)\n`);
+        void rebuildWatcher();
+        // rebuildWatcher() intentionally leaves the canary unarmed for one
+        // interval; arming here would race the new instance's initial scan.
+        return;
+      }
+      return armCanary();
+    }
+
+    if (verdict === 'alive' && priorDead > 0) {
+      writeStderr(`${CANARY_RECOVERED_LOG} after ${priorDead} dead interval(s)\n`);
+      try {
+        updateState(cfg.projectRoot, { lastError: null });
+      } catch {
+        // best-effort
+      }
+    }
+    armCanary();
+  }
+
   function tick(): void {
     if (stopped) return;
     const t = now();
@@ -309,6 +539,9 @@ export async function startDaemon(projectRoot: string, hooks: DaemonHooks): Prom
       writeStderr(`[massu] tick gap detected (${gap}ms, likely sleep/wake); reconciling\n`);
       void forceReconciliation();
     }
+    // SUBSUMES the gap heuristic above rather than replacing it: a clock jump
+    // remains one reason to reconcile, and a dead watcher becomes another.
+    checkWatcherLiveness();
   }
 
   if (!hooks.noWatcher) {
@@ -341,25 +574,24 @@ export async function startDaemon(projectRoot: string, hooks: DaemonHooks): Prom
       `opted-in: ${optedIn}, scan ${surfaceMs}ms, scope: ${globs.effectiveScope})\n`
     );
 
-    watcher = chokidar.watch(globs.watch, {
-      cwd: cfg.projectRoot,
-      ignored: globs.ignore,
-      ignoreInitial: true,
-      persistent: true,
-      awaitWriteFinish: false,
-    });
-    watcher.on('all', (_event: string, path: string) => pushEvent(path));
-    watcher.on('error', (err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      writeStderr(`[massu] chokidar error: ${msg}\n`);
-      // Persist so `massu watch --status` surfaces it; never let a state
-      // write throw out of the error handler (best-effort).
-      try {
-        updateState(cfg.projectRoot, { lastError: `chokidar: ${msg}` });
-      } catch {
-        // best-effort
-      }
-    });
+    // The canary directory joins the watch list, and `.massu/**` stops being a
+    // blanket exclusion for it alone. MEASURED: with the shipped
+    // DEFAULT_EXCLUSIONS a canary under `.massu/` is never delivered even after
+    // an explicit `watcher.add()` — so the naive version would have reported a
+    // healthy watcher DEAD on every tick. See canary.ts for the probe.
+    canary = createWatcherCanary({ projectRoot: cfg.projectRoot, now });
+    try {
+      mkdirSync(resolve(cfg.projectRoot, canary.dirRel), { recursive: true });
+    } catch {
+      // Non-fatal: arm() reports `unwritable` and liveness stays UNKNOWN
+      // rather than being silently reported as healthy.
+    }
+    watchSpec = {
+      watch: [...globs.watch, canary.dirRel],
+      ignored: canaryAwareIgnore(globs.ignore, cfg.projectRoot),
+    };
+    // Armed by the watcher's own `ready` handler, not here.
+    watcher = createWatcherInstance();
   }
 
   // Reset cached config so Layer-B picks up watch.* tunables changed at runtime.
@@ -377,7 +609,7 @@ export async function startDaemon(projectRoot: string, hooks: DaemonHooks): Prom
     // best-effort
   }
 
-  tickTimer = setInterval(tick, TICK_INTERVAL_MS);
+  tickTimer = setInterval(tick, hooks.tickIntervalMs ?? TICK_INTERVAL_MS);
   // Don't keep the event loop alive solely for this timer.
   if (typeof tickTimer.unref === 'function') tickTimer.unref();
 

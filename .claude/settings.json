@@ -64,7 +64,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CMD=$(jq -r '.tool_input.command // empty'); printf '%s' \"$CMD\" | grep -qE '^[[:space:]]*git[[:space:]]' && exit 0; printf '%s' \"$CMD\" | sed -E 's/\\.env\\.(example|template|sample|defaults)/<DOTENV_TEMPLATE>/g' | grep -qE '\\.(env|pem|key|secret)' && { echo '[SECURITY] Detected secret file in command!' >&2; exit 2; } || exit 0"
+            "command": "CMD=$(jq -r '.tool_input.command // empty'); printf '%s' \"$CMD\" | grep -qE '^[[:space:]]*git[[:space:]]' && exit 0; printf '%s' \"$CMD\" | sed -E 's/\\.env\\.(example|template|sample|defaults)/<DOTENV_TEMPLATE>/g' | grep -qE '\\.(env|pem|key|secret)([^[:alnum:]_]|$)' && { echo '[SECURITY] Detected secret file in command!' >&2; exit 2; } || exit 0"
           }
         ]
       },

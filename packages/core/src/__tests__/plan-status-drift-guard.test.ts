@@ -31,7 +31,16 @@
 
 import { describe, expect, it } from 'vitest';
 import { execSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  mkdirSync,
+  existsSync,
+  readdirSync,
+  copyFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 // G29/CR-92 — `cwd:`/`-C` do not scope git; GIT_DIR outranks both. See the helper for why.
@@ -285,4 +294,196 @@ describe('plan-status-drift-guard (Plan 1.5.8 P2-002)', () => {
     expect(v.exitCode).toBe(0);
     expect(s.exitCode).toBe(0);
   });
+
+  // ----- Phase -> rollback coverage (2026-08-12) -----
+  //
+  // `2026-07-23-hook-latency-and-silent-loss-fixes.md` silently shipped a phase with no
+  // rollback TWICE — P7 (found by an audit) and P6 (found 2026-08-12). Each landed in the
+  // implementation section hundreds of lines from a rollback section that was written once
+  // and never revisited. These cases are the gate for that class; case 22 plants the ORIGINAL
+  // defect back into a copy of the REAL corpus and demands RED (CR-72 — a fixture-only
+  // mutation test is a regression test in disguise).
+
+  it('case 14: validator passes when every declared phase is named in the rollback section', () => {
+    const tmp = makeCuratedFixtureDir(['phase-rollback-covered.md']);
+    try {
+      const r = runScript(VALIDATOR_PATH, { MASSU_PLAN_DIR: tmp });
+      if (r.exitCode !== 0) {
+        throw new Error(`Expected exit 0; got ${r.exitCode}.\nstdout:\n${r.stdout}`);
+      }
+      // M1 — the check must report what it looked at, not merely stay quiet.
+      expect(r.stdout).toMatch(/Phase-rollback coverage: 3 phase\(s\) across 1 plan\(s\)/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('case 15: validator FAILS on a phase declared after the rollback section was written', () => {
+    const tmp = makeCuratedFixtureDir(['phase-rollback-missing.md']);
+    try {
+      const r = runScript(VALIDATOR_PATH, { MASSU_PLAN_DIR: tmp });
+      expect(r.exitCode).toBe(1);
+      expect(r.stdout).toMatch(/Phase 6 has no rollback/);
+      // P1 and P2 ARE covered by that fixture's rollback section: a gate that flagged them
+      // too would be reporting the whole plan, not the phase that actually drifted.
+      expect(r.stdout).not.toMatch(/Phase 1 has no rollback/);
+      expect(r.stdout).not.toMatch(/Phase 2 has no rollback/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('case 16: a co-located **Rollback**: line inside the phase block discharges the phase', () => {
+    const tmp = makeCuratedFixtureDir(['phase-rollback-own-block.md']);
+    try {
+      const r = runScript(VALIDATOR_PATH, { MASSU_PLAN_DIR: tmp });
+      if (r.exitCode !== 0) {
+        throw new Error(`Expected exit 0; got ${r.exitCode}.\nstdout:\n${r.stdout}`);
+      }
+      expect(r.exitCode).toBe(0);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('case 17: a plan with phases but NO rollback section is out of scope', () => {
+    const tmp = makeCuratedFixtureDir(['phase-rollback-no-section.md']);
+    try {
+      const r = runScript(VALIDATOR_PATH, { MASSU_PLAN_DIR: tmp });
+      if (r.exitCode !== 0) {
+        throw new Error(`Expected exit 0; got ${r.exitCode}.\nstdout:\n${r.stdout}`);
+      }
+      expect(r.stdout).toMatch(/Phase-rollback coverage: 0 phase\(s\) across 0 plan\(s\)/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('case 18: headings that only LOOK like phase declarations are not phases', () => {
+    // "Phase Shippability" parsed as phase "S" and "(Phase 4.8)" as a declaration in the
+    // first draft of this parser — both measured against the real corpus. A gate that reads
+    // prose as code is one people learn to ignore.
+    const tmp = makeCuratedFixtureDir(['phase-rollback-not-a-phase.md']);
+    try {
+      const r = runScript(VALIDATOR_PATH, { MASSU_PLAN_DIR: tmp });
+      if (r.exitCode !== 0) {
+        throw new Error(`Expected exit 0; got ${r.exitCode}.\nstdout:\n${r.stdout}`);
+      }
+      expect(r.stdout).toMatch(/Phase-rollback coverage: 1 phase\(s\)/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('case 18b: version strings and item ids in rollback prose create NO coverage', () => {
+    // The first range expander accepted a bare `<a>-<b>`, so "1.1.0 - 1.2.0" and "P5-007"
+    // in prose invented phase ranges — and invented DIFFERENT ones under mawk than under
+    // BWK awk (macOS {5,6,7,103,104} vs Linux {1,2,3,5,6,7,103,104} on one real plan).
+    // A gate whose verdict depends on which awk ran it is not a gate. Both endpoints of a
+    // range must now be explicit (`P1-P5`, or a "Phase(s)" prefix on the pair).
+    const tmp = makeCuratedFixtureDir(['phase-rollback-prose-ranges.md']);
+    try {
+      const r = runScript(VALIDATOR_PATH, { MASSU_PLAN_DIR: tmp });
+      expect(r.exitCode).toBe(1);
+      expect(r.stdout).toMatch(/Phase 2 has no rollback/);
+      expect(r.stdout).toMatch(/Phase 3 has no rollback/);
+      // P1 IS named explicitly in that fixture's rollback section.
+      expect(r.stdout).not.toMatch(/Phase 1 has no rollback/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('case 19: an unreadable parser FAILS the validator — it never reports coverage clean', () => {
+    // M2 — the dependency is injectable precisely so this failure can be forced. A guard you
+    // cannot inject a failure into is decoration.
+    const tmp = makeCuratedFixtureDir(['phase-rollback-covered.md']);
+    try {
+      const r = runScript(VALIDATOR_PATH, {
+        MASSU_PLAN_DIR: tmp,
+        MASSU_PHASE_ROLLBACK_AWK: join(tmpdir(), 'massu-no-such-parser.awk'),
+      });
+      expect(r.exitCode).toBe(1);
+      expect(r.stdout).toMatch(/refusing to report coverage/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('case 20: the baseline is a ratchet — exceeding its own MAX fails', () => {
+    const tmp = makeCuratedFixtureDir(['phase-rollback-missing.md']);
+    const baseline = join(tmp, 'baseline.txt');
+    writeFileSync(baseline, '# MAX: 0\nphase-rollback-missing.md::6\n');
+    try {
+      const r = runScript(VALIDATOR_PATH, {
+        MASSU_PLAN_DIR: tmp,
+        MASSU_PHASE_ROLLBACK_BASELINE: baseline,
+      });
+      expect(r.exitCode).toBe(1);
+      expect(r.stdout).toMatch(/baseline GREW \(1 > max 0\)/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('case 21: a STALE baseline line fails — that is how a ratchet stops ratcheting', () => {
+    const tmp = makeCuratedFixtureDir(['phase-rollback-covered.md']);
+    const baseline = join(tmp, 'baseline.txt');
+    // Phase 1 of that fixture IS covered, so grandfathering it is stale.
+    writeFileSync(baseline, '# MAX: 5\nphase-rollback-covered.md::1\n');
+    try {
+      const r = runScript(VALIDATOR_PATH, {
+        MASSU_PLAN_DIR: tmp,
+        MASSU_PHASE_ROLLBACK_BASELINE: baseline,
+      });
+      expect(r.exitCode).toBe(1);
+      expect(r.stdout).toMatch(/is STALE/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // The public mirror carries this validator but NOT the private plan corpus, so the
+  // condition is known at collection time and `skipIf` reports it as SKIPPED. Never a bare
+  // `return` inside the body — a silently skipped it() is reported as PASSED.
+  const REAL_PLANS = resolve(REPO_ROOT, 'docs', 'plans');
+  const SUBJECT_PLAN = '2026-07-23-hook-latency-and-silent-loss-fixes.md';
+
+  it.skipIf(!existsSync(join(REAL_PLANS, SUBJECT_PLAN)))(
+    'case 22: REAL corpus — re-planting the P6 rollback omission makes the validator RED',
+    { timeout: 180_000 },
+    () => {
+      const SUBJECT = SUBJECT_PLAN;
+      const tmp = mkdtempSync(join(tmpdir(), 'massu-plan-real-'));
+      try {
+        for (const base of readdirSync(REAL_PLANS)) {
+          if (base.endsWith('.md')) copyFileSync(join(REAL_PLANS, base), join(tmp, base));
+        }
+        // NEGATIVE CONTROL. Without it, "the gate went red" and "the copy was broken" are
+        // the same observation.
+        const before = runScript(VALIDATOR_PATH, { MASSU_PLAN_DIR: tmp });
+        if (before.exitCode !== 0) {
+          throw new Error(
+            `The unplanted copy of the real corpus must PASS; got ${before.exitCode}.\n${before.stdout.split('\n').slice(-20).join('\n')}`,
+          );
+        }
+
+        // Plant the ORIGINAL defect: delete the P6 rollback paragraph that b7cd39bd added.
+        const subject = join(tmp, SUBJECT);
+        const text = readFileSync(subject, 'utf-8');
+        const start = text.indexOf('**P6 (added 2026-08-12');
+        expect(start).toBeGreaterThan(-1);
+        const end = text.indexOf('**P7 (added by audit-2', start);
+        expect(end).toBeGreaterThan(start);
+        writeFileSync(subject, text.slice(0, start) + text.slice(end));
+        expect(readFileSync(subject, 'utf-8')).not.toMatch(/\*\*P6 \(added 2026-08-12/);
+
+        const after = runScript(VALIDATOR_PATH, { MASSU_PLAN_DIR: tmp });
+        expect(after.exitCode).toBe(1);
+        expect(after.stdout).toMatch(/Phase 6 has no rollback/);
+      } finally {
+        rmSync(tmp, { recursive: true, force: true });
+      }
+    },
+  );
 });

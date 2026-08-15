@@ -31,6 +31,13 @@ paths:
     "@": src
   monorepo_roots:
     - packages
+  # Declared 2026-08-14 (plan-2026-08-13-index-builder-input-contracts, Q4).
+  # Both keys already existed in the schema and were unset, so the index builders
+  # fell back to `<paths.source>/app` = `website/app`, which is not where this
+  # repo's pages live — buildPageDeps indexed 0 of 69. The layout declares itself
+  # here; `lib/source-layout.ts` is the only thing that asks.
+  pages: website/src/app
+  components: website/src/components
 toolPrefix: massu
 domains: []
 rules:

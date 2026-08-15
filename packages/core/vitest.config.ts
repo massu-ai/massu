@@ -4,6 +4,15 @@ export default defineConfig({
   test: {
     include: ['src/__tests__/**/*.test.ts'],
     globals: true,
+    // F2 (CR-71): the `MASSU_HOOK_FAILURE_LOG` seam had ZERO callers, so every test that
+    // reached `recordHookFailure()` appended to the operator's live `.massu/hook-failures.jsonl`
+    // — incident evidence, not scratch space. Declared ONCE here rather than exported in each
+    // hook-executing test: the per-site scope (`grep -rln 'dist/hooks/'`) returns 9 files of
+    // which only 3 execute a hook, and misses `memory-db.ts`'s in-process caller entirely.
+    setupFiles: ['src/__tests__/setup/hook-failure-isolation.ts'],
+    // …and this asserts the PROPERTY itself — the real log is byte-identical across the whole
+    // run — so a route the declaration above does not cover still fails the suite.
+    globalSetup: ['src/__tests__/setup/hook-log-untouched.ts'],
     // Iter-6 fix: tests that call `process.chdir` (watch/, run-on-quiescent,
     // real-chokidar, config-paths, etc.) cannot share a process with other
     // tests that read `process.cwd()` — vitest's default thread pool shares

@@ -22,6 +22,7 @@ import { getConfig, getResolvedPaths } from './config.ts';
 import { getDataDb } from './db.ts';
 import { getMemoryDb, sanitizeFts5Query } from './memory-db.ts';
 import { t } from './lib/sql-table-names.ts';
+import { recordHookFailure } from './hooks/lib/hook-failure-signal.ts';
 
 // ============================================================
 // Massu Knowledge: MCP Tool Definitions & Handlers
@@ -46,16 +47,70 @@ function text(content: string): ToolResult {
 }
 
 /**
+ * Whether a knowledge dispatch wants the markdown corpus re-indexed first.
+ *
+ * P3 of `plan-2026-08-13-implicit-reindex-inside-tool-dispatch`. The rebuild used to be an
+ * unconditional side effect of dispatching: 677 documents / 11,954 chunks / **1,223 ms**,
+ * triggered by an mtime under any of four roots — including the memory dir that massu's own
+ * governance writes to every substantive turn. So the expensive path was the NORMAL one, and
+ * no caller had said it wanted it.
+ *
+ * There is deliberately NO DEFAULT. A default is what made this implicit in the first place,
+ * and a caller that omits the declaration must fail to compile rather than quietly inherit
+ * the expensive branch.
+ */
+export type KnowledgeIndexFreshness =
+  /** Re-index if stale before answering. The pre-P3 behaviour, now stated by the caller. */
+  | 'ensure-fresh'
+  /** Answer from the index as it stands. No FS scan, no rebuild. */
+  | 'use-existing';
+
+/**
  * Ensure knowledge DB is indexed before queries (P4-002: lazy re-index).
- * Non-fatal: returns false if indexing fails, tools should degrade gracefully.
+ * Non-fatal: returns false if indexing fails, and the caller MUST act on that — see
+ * {@link handleKnowledgeToolCall}, which prepends a staleness banner to the response.
+ *
+ * P2 of plan-2026-08-13-implicit-reindex-inside-tool-dispatch. This used to be a bare
+ * `catch` returning `false` to a call site that discarded it, so a corrupt DB, a
+ * permissions error and an FTS5 failure all produced exactly the observable behaviour of
+ * a successful rebuild: the dispatch proceeded and answered from whatever the index held
+ * before. "I could not index" and "the index is current" collapsed into one value, and
+ * that value was the passing one.
+ *
+ * LOUD IS NOT FATAL. The error is bound and recorded, and the caller is told the answer
+ * may be stale — but the tool still answers from the index it has. Throwing would turn a
+ * degradation into an outage for all twelve knowledge tools whenever the index is corrupt,
+ * which is the failure the docstring's "degrade gracefully" contract exists to avoid.
  */
 function ensureKnowledgeIndexed(db: Database.Database): boolean {
   try {
     indexIfStale(db);
     return true;
-  } catch {
+  } catch (err) {
+    // Reuse the existing durable failure channel rather than adding a second one — same
+    // sink `memory-db.ts` writes to, so an operator has ONE place to look.
+    recordHookFailure('knowledge-tools:ensure-indexed', err, {
+      note: 'knowledge index refresh failed; dispatch continued against the existing index',
+    });
     return false;
   }
+}
+
+/**
+ * Prepend the staleness banner to a tool response.
+ *
+ * The banner goes FIRST because the consumer of a knowledge answer is an agent that acts
+ * on it, and a caveat after several hundred lines of search results is one it may never
+ * reach.
+ */
+function withStaleIndexWarning(result: ToolResult): ToolResult {
+  const banner =
+    '⚠️ KNOWLEDGE INDEX NOT REFRESHED — the re-index for this call FAILED, so the results ' +
+    'below come from the last successfully built index and may be out of date. The error ' +
+    'was recorded to the hook-failure log under `knowledge-tools:ensure-indexed`.';
+  return {
+    content: [{ type: 'text', text: banner }, ...result.content],
+  };
 }
 
 function hasData(db: Database.Database): boolean {
@@ -271,11 +326,35 @@ export function isKnowledgeTool(name: string): boolean {
 export function handleKnowledgeToolCall(
   name: string,
   args: Record<string, unknown>,
+  db: Database.Database,
+  freshness: KnowledgeIndexFreshness,
+): ToolResult {
+  // P3: the rebuild is no longer a side effect of dispatching. `freshness` has NO DEFAULT
+  // on purpose — a caller that says nothing does not compile, so an unrequested full
+  // rebuild of the corpus is impossible rather than merely detectable (G21).
+  if (freshness === 'use-existing') {
+    return dispatchKnowledgeTool(name, args, db);
+  }
+
+  // P4-002: Lazy re-index before any query.
+  // P2: the boolean is BOUND and acted on. Discarding it is what made an indexing failure
+  // indistinguishable from a successful rebuild at the only site that called this.
+  const indexed = ensureKnowledgeIndexed(db);
+  const result = dispatchKnowledgeTool(name, args, db);
+  return indexed ? result : withStaleIndexWarning(result);
+}
+
+/**
+ * Route a knowledge tool call to its handler. Split out of
+ * {@link handleKnowledgeToolCall} so the index-freshness outcome can decorate EVERY
+ * response — including the early `hasData` return and the unknown-tool default, which a
+ * per-case edit would have missed (CR-74: a fix is a set of sites).
+ */
+function dispatchKnowledgeTool(
+  name: string,
+  args: Record<string, unknown>,
   db: Database.Database
 ): ToolResult {
-  // P4-002: Lazy re-index before any query
-  ensureKnowledgeIndexed(db);
-
   if (!hasData(db)) {
     return text('No knowledge indexed yet. The knowledge DB will be populated automatically on next MCP server restart.');
   }

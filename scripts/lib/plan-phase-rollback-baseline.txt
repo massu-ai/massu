@@ -1,0 +1,52 @@
+# Phase-rollback coverage ratchet — plans that predate the gate.
+#
+# Every line is one DECLARED PHASE that has no rollback entry, keyed
+# <plan-basename>::<phase-id>. The key is line-independent on purpose: editing a
+# plan moves its headings, and a key that moved with them would need re-stamping
+# on every edit.
+#
+# THIS LIST MAY ONLY SHRINK. MAX is the ratchet: exceed it and the gate fails.
+# To remove a line: give the phase a rollback — a `**Rollback**:` line inside
+# the phase's own block (preferred; nothing can drift) or an entry naming it in
+# the plan's rollback section — then delete the line here and lower MAX.
+#
+# There is deliberately NO per-plan exempt flag. A valve is how a gate rots
+# (same doctrine as scripts/lib/claim-ledger-baseline.json).
+#
+# A STALE line — one naming a phase that is now covered, or that no longer
+# exists — is a FAILURE, not a no-op: it is how the ratchet quietly stops
+# ratcheting.
+#
+# MAX: 32
+2026-02-13-massu-rename.md::1
+2026-02-13-massu-rename.md::2
+2026-02-13-massu-rename.md::3
+2026-02-13-massu-rename.md::4
+2026-02-13-massu-rename.md::5
+2026-02-13-massu-rename.md::6
+2026-02-13-massu-rename.md::7
+2026-04-19-autodetect-zero-config.md::0
+2026-04-19-autodetect-zero-config.md::1
+2026-04-19-autodetect-zero-config.md::10
+2026-04-19-autodetect-zero-config.md::2
+2026-04-19-autodetect-zero-config.md::3
+2026-04-19-autodetect-zero-config.md::5
+2026-04-19-autodetect-zero-config.md::6
+2026-04-19-autodetect-zero-config.md::7
+2026-04-19-autodetect-zero-config.md::8
+2026-04-19-autodetect-zero-config.md::9
+2026-04-19-config-migration.md::0
+2026-04-19-config-migration.md::2
+2026-04-19-config-migration.md::3
+2026-04-19-config-migration.md::4
+2026-04-20-config-upgrade-passthrough-fix.md::1
+2026-04-20-config-upgrade-passthrough-fix.md::2
+2026-04-20-config-upgrade-passthrough-fix.md::3
+2026-04-20-config-upgrade-passthrough-fix.md::3.5
+2026-04-20-config-upgrade-passthrough-fix.md::4
+2026-04-20-config-upgrade-passthrough-fix.md::4.8
+2026-04-20-fresh-install-monorepo-paths.md::4.8
+2026-04-20-migration-followups.md::4.7
+2026-04-20-migration-followups.md::4.8
+2026-05-18-security-medium-sweep.md::8
+2026-05-18-security-medium-sweep.md::8.5

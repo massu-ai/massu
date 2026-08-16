@@ -83,6 +83,17 @@
 #            A throwaway sandbox belongs to no repository and no index; absence
 #            is the only safe value.
 #
+#   Operating on a REAL repository you NAME by path — not the one you are in,
+#   and not a throwaway?
+#     -> git_target_repo <path>     Neutralise, then ASSERT the named path is a
+#        repository. Added 2026-08-15 because the vocabulary could not express
+#        this, which left two files UNTIERABLE: neutralisation is REQUIRED (a
+#        leaked GIT_DIR outranks their own `git -C <path>` and silently
+#        redirects it), yet the do-not-scrub rule forbade exactly that for
+#        anything reading a staged index. A closed vocabulary that cannot state
+#        a true thing is a gate people eventually route around, so the term was
+#        added rather than the two files exempted.
+#
 #   Creating a throwaway repo?
 #     -> mk_git_sandbox             isolate + mktemp + init. Callers never write
 #        `git init` themselves, so the unsafe form becomes UNEXPRESSIBLE rather
@@ -309,6 +320,79 @@ git_isolated() {
 }
 
 # ---------------------------------------------------------------------------
+# git_target_repo <path> — I operate on a repository I NAME, not the one I am in
+# ---------------------------------------------------------------------------
+# THE THIRD TIER, added 2026-08-15 because the vocabulary had two words for three
+# situations and the missing one was UNSAYABLE.
+#
+# A script that manages some OTHER repository by path — `git -C "$CLAUDE_DIR" …`, a
+# clone repairer, a proof harness that builds a victim repo — sits in a gap:
+#
+#   it MUST neutralise, because GIT_DIR outranks `-C`. A leaked binding silently
+#   redirects every one of those calls to the leaking repository, with PLENTY of
+#   output rather than none, so no non-empty check can see it; and
+#
+#   the do-not-scrub rule forbids neutralising for anything that reads a staged
+#   index — correctly, because on the hook path GIT_INDEX_FILE is the contract.
+#
+# Both rules are right, and together they left two real files with NO LEGAL EDIT:
+# declaring the honest primitive flipped them straight into the disarm list. An
+# exemption per site would have "fixed" it while teaching the vocabulary nothing,
+# so the term was added instead. The distinction it draws is the one that actually
+# matters: WHOSE index is being read — the caller's (bind) or a repository the
+# script names (neutralise, then assert).
+#
+# It ASSERTS rather than trusts, for the same reason git_bind_or_die does: a path
+# that is not a repository must fail LOUDLY here, not produce a confusing git error
+# five lines later, and never be silently created.
+#
+# --create-ok: the caller CREATES the target (an initialiser). Neutralisation still
+# happens unconditionally — that is the part that must never be conditional — but a
+# path that does not exist yet is accepted instead of refused. A path that EXISTS and
+# is not a repository still fails: "I will create it" is not "anything goes". The flag
+# exists so an initialiser never has to call `git_sandbox_isolate` directly, which
+# would put a bare scrub back into a file that reads a staged index and re-open the
+# very contradiction this tier was added to close.
+git_target_repo() {
+  local target="" gitdir create_ok=0
+
+  while [ $# -gt 0 ]; do
+    case "${1}" in
+      --create-ok) create_ok=1; shift ;;
+      -*) echo "git-env: FATAL — git_target_repo: unknown flag '${1}'" >&2; return 2 ;;
+      *)  target="${1}"; shift ;;
+    esac
+  done
+
+  # M2 — an empty argument is the G17 shape: `git -C "" …` silently means the CWD,
+  # which is the caller's own repo, which is precisely what this primitive exists to
+  # avoid addressing by accident.
+  if [ -z "${target}" ]; then
+    echo "git-env: FATAL — git_target_repo requires a path; got none." >&2
+    echo "git-env: an empty target resolves to the CURRENT directory, which is the" >&2
+    echo "git-env: repository this primitive exists to NOT touch." >&2
+    return 2
+  fi
+
+  git_sandbox_isolate || return 2      # neutralise FIRST, so the assert below is honest
+
+  if [ ! -d "${target}" ]; then
+    # UNCONDITIONALLY neutralised above; only the ASSERTION is relaxed here.
+    [ "${create_ok}" -eq 1 ] && return 0
+    echo "git-env: FATAL — git_target_repo target is not a directory: ${target}" >&2
+    echo "git-env: pass --create-ok if this script is the one that creates it." >&2
+    return 2
+  fi
+  if ! gitdir="$(_git_env_enclosing_gitdir "${target}")"; then
+    echo "git-env: FATAL — git_target_repo target is not inside a git repository:" >&2
+    echo "git-env:   ${target}" >&2
+    echo "git-env: refusing — a caller that names a repository must name one that exists." >&2
+    return 2
+  fi
+  printf '%s\n' "${gitdir}"
+}
+
+# ---------------------------------------------------------------------------
 # mk_git_sandbox [--keep-template] [name_hint] — the unsafe form, made unexpressible
 # ---------------------------------------------------------------------------
 # isolate -> mktemp -d -> git init -> print the path. Callers never write `git init`
@@ -508,6 +592,69 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     say FAIL "mk_git_sandbox resolved an unrecognised flag instead of refusing (R-011)"; fail=1
   else
     say PASS "mk_git_sandbox refuses an unrecognised flag"
+  fi
+
+  # ── git_target_repo — the third tier ────────────────────────────────────────────────
+  # Its whole purpose is that a NAMED repository survives a poisoned environment, so the
+  # assertion is exactly that: point GIT_DIR at a decoy, ask about ${victim}, and require
+  # the answer to be ${victim} rather than the decoy. Without the neutralisation this is
+  # the one that would come back wrong, and it would come back wrong QUIETLY.
+  decoy="${probe}/decoy"; mkdir -p "${decoy}"
+  ( cd "${decoy}" && git_isolated init -q . ) >/dev/null 2>&1
+  # ABSOLUTE path, resolved BEFORE the subshell cds away. `bash git-env-scrub.sh
+  # --self-test` leaves BASH_SOURCE[0] relative, so passing it into a subshell that
+  # `cd`s first made the source fail — and the check reported an empty answer, which
+  # reads exactly like the primitive returning the wrong repo. A control that cannot
+  # run must not be mistaken for a control that failed.
+  self_abs="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
+  answer="$( cd "${work}" && GIT_DIR="${decoy}/.git" bash -c '
+      . "$1" || exit 3
+      git_target_repo "$2" >/dev/null || exit 4
+      git -C "$2" rev-parse --absolute-git-dir
+    ' _ "${self_abs}" "${victim}" 2>/dev/null || true )"
+  if [ "${answer}" = "${victim}/.git" ]; then
+    say PASS "git_target_repo addresses the NAMED repo under a poisoned GIT_DIR"
+  else
+    say FAIL "git_target_repo answered '${answer}', expected '${victim}/.git'"; fail=1
+  fi
+
+  # An empty target is the G17 shape — `git -C "" …` silently means the CWD.
+  if git_target_repo "" >/dev/null 2>&1; then
+    say FAIL "git_target_repo accepted an EMPTY path (it would address the CWD)"; fail=1
+  else
+    say PASS "git_target_repo refuses an empty path"
+  fi
+
+  # A path that is not a repository must fail LOUDLY, never be created.
+  notrepo="${probe}/not-a-repo"; mkdir -p "${notrepo}"
+  if git_target_repo "${notrepo}" >/dev/null 2>&1; then
+    say FAIL "git_target_repo accepted a non-repository path"; fail=1
+  else
+    say PASS "git_target_repo refuses a path that is not a repository"
+  fi
+  if [ -e "${notrepo}/.git" ]; then
+    say FAIL "git_target_repo CREATED a repository at a path it was asked to verify"; fail=1
+  else
+    say PASS "git_target_repo created nothing at the rejected path"
+  fi
+
+  # --create-ok relaxes the EXISTENCE assertion only. Neutralisation is unconditional,
+  # and a path that exists but is not a repository must STILL be refused — otherwise the
+  # flag would mean "anything goes" rather than "I am the one who creates it".
+  if git_target_repo --create-ok "${probe}/not-yet-created" >/dev/null 2>&1; then
+    say PASS "git_target_repo --create-ok accepts a path that does not exist yet"
+  else
+    say FAIL "git_target_repo --create-ok rejected a not-yet-created path"; fail=1
+  fi
+  if git_target_repo --create-ok "${notrepo}" >/dev/null 2>&1; then
+    say FAIL "--create-ok accepted an EXISTING non-repository (it means create, not anything)"; fail=1
+  else
+    say PASS "git_target_repo --create-ok still refuses an existing non-repository"
+  fi
+  if git_target_repo --no-such-flag "${victim}" >/dev/null 2>&1; then
+    say FAIL "git_target_repo resolved an unrecognised flag instead of refusing (R-011)"; fail=1
+  else
+    say PASS "git_target_repo refuses an unrecognised flag"
   fi
 
   rm -rf "${probe}"

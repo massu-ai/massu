@@ -53,7 +53,7 @@ Submit a PR for risk scoring directly via the API:
 
 ```bash
 curl -X POST https://massu.ai/api/v1/risk \
-  -H "Authorization: Bearer ms_live_XXXXXXXX_your_key" \
+  -H "Authorization: Bearer $MASSU_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "repo": "org/repo",

@@ -13,9 +13,9 @@
 | Gate | Command | Expected |
 |------|---------|----------|
 | 1. Pattern Scanner | `bash scripts/massu-pattern-scanner.sh` | Exit 0 |
-| 2. Type Safety (VR-TYPE) | `cd packages/core && npx tsc --noEmit` | 0 errors |
-| 3. Build (VR-BUILD) | `npm run build` | Exit 0 |
-| 4. Tests (VR-TEST) | `npm test` | ALL pass |
+| 2. Type Safety (VR-TYPE) | `{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}` | 0 errors |
+| 3. Build (VR-BUILD) | `{{verify.build | default("(this stack declares no build step)")}}` | Exit 0 |
+| 4. Tests (VR-TEST) | `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}` | ALL pass |
 | 5. Hook Compilation (VR-HOOK-BUILD) | `cd packages/core && npm run build:hooks` | Exit 0 |
 | 6. Generalization (VR-GENERIC) | `bash scripts/massu-generalization-scanner.sh` | Exit 0 |
 | 7. Security Scanner | `bash scripts/massu-security-scanner.sh` | Exit 0 |

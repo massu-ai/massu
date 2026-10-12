@@ -16,5 +16,5 @@ First publish of `@massu/adapter-rails` as a standalone npm package — see Plan
 ### Verification
 
 - npm tarball shasum: `1944b1a4568b5c9f07a457a93050a926f78ac76f`
-- signing key id: `3b6226d036c472e533110d11a7d0cd2773ce1d7d4f1003517d5bd69c5418ed4c`
+- signing key id: `3b6226d036c472e533110d11a7d0cd2773ce1d7d4f1003517d5bd69c5418ed4c` <!-- gitleaks:allow — PUBLIC-key fingerprint: sha256 of packages/core/security/registry-pubkey.b64, not a secret -->
 - Cross-reference: see [root `CHANGELOG.md`](../../CHANGELOG.md) `[1.6.0]` entry for the cross-package release notes.

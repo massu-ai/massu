@@ -40,7 +40,7 @@ it('should serialize BigInt fields to Number', () => {
 Run the test and confirm it fails for the expected reason:
 
 ```bash
-npm test -- -t "should serialize BigInt"
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} -- -t "should serialize BigInt"
 # Expected: FAIL with the specific assertion error
 # Note: This project uses Vitest. Use -t (--testNamePattern) for filtering, NOT --grep.
 ```
@@ -57,14 +57,14 @@ Now fix the source code. The fix should be minimal and targeted.
 ### Step 4: Verify Test Passes
 
 ```bash
-npm test -- -t "should serialize BigInt"
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} -- -t "should serialize BigInt"
 # Expected: PASS
 ```
 
 Run the full test suite to check for regressions:
 
 ```bash
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 # Expected: ALL pass
 ```
 
@@ -77,7 +77,7 @@ TEST-FIRST PROTOCOL for: [finding description]
   Step 1: Test written → [file:line]
   Step 2: Test fails → [error message confirming the bug]
   Step 3: Fix applied → [file:line, description]
-  Step 4: Test passes → [npm test output showing pass]
+  Step 4: Test passes → [{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} output showing pass]
   TEST_FIRST_GATE: PASS
 ```
 

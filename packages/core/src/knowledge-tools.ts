@@ -13,7 +13,7 @@
 // the sub-module split — there is no alternative escape path.
 
 import type Database from 'better-sqlite3';
-import { formatCorrectionEntry } from './lib/corrections-md.ts';
+import { correctionsPath, insertCorrectionEntry } from './lib/corrections-md.ts';
 import type { ToolDefinition, ToolResult } from './tools.ts';
 import { indexIfStale } from './knowledge-indexer.ts';
 import { readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync } from 'fs';
@@ -1114,32 +1114,27 @@ function handleCorrect(db: Database.Database, args: Record<string, unknown>): To
   }
 
   // 1. Append to corrections.md
-  const correctionsPath = resolve(getResolvedPaths().memoryDir, 'corrections.md');
+  const correctionsFile = correctionsPath(getResolvedPaths().memoryDir);
   const today = new Date().toISOString().split('T')[0];
   const title = rule.slice(0, 60);
 
   // A-09 — ONE formatter, shared with the reader and the applier (lib/corrections-md.ts).
-  const entry = formatCorrectionEntry({
+  const correctionEntry = {
     date: today,
     title,
     wrong,
     correction,
     rule,
     ...(crRule ? { extra: { CR: crRule } } : {}),
-  });
+  };
 
   // Read existing content, find insertion point (before ## Archived if present, else append)
   let existing = '';
-  try { existing = readFileSync(correctionsPath, 'utf-8'); } catch { /* new file */ }
+  try { existing = readFileSync(correctionsFile, 'utf-8'); } catch { /* new file */ }
 
-  const archiveIdx = existing.indexOf('## Archived');
-  if (archiveIdx > 0) {
-    const before = existing.slice(0, archiveIdx);
-    const after = existing.slice(archiveIdx);
-    writeFileSync(correctionsPath, before + entry + after);
-  } else {
-    appendFileSync(correctionsPath, entry);
-  }
+  // Placement is decided by lib/corrections-md.ts, not here: the two writers used to
+  // disagree, and an entry appended after `## Archived` reads as archived.
+  writeFileSync(correctionsFile, insertCorrectionEntry(existing, correctionEntry));
 
   // 2. Index into knowledge DB immediately (insert chunk + edge)
   const doc = db.prepare('SELECT id FROM knowledge_documents WHERE file_path LIKE ?').get('%corrections.md') as { id: number } | undefined;

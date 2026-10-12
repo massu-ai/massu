@@ -453,7 +453,7 @@ it('should update order', () => {
 {
   "lint-staged": {
     "*.{ts,tsx}": [
-      "npm run test -- --related --run",
+      "{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} -- --related --run",
       "npm run type-check",
       "npm run lint --fix"
     ]
@@ -465,16 +465,16 @@ it('should update order', () => {
 
 ```bash
 # Before starting work
-git pull origin main && npm install && npm run test
+git pull origin main && npm install && {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 
 # During development
-npm run test -- --watch
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} -- --watch
 
 # Before committing
-npm run test && npm run type-check && npm run lint
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} && npm run type-check && npm run lint
 
 # Before pushing
-npm run build
+{{verify.build | default("(this stack declares no build step)")}}
 ```
 
 ---
@@ -558,11 +558,11 @@ it('should submit form', async () => {
 | Payment processing | E2E | `tests/e2e/critical/` |
 
 ```bash
-npm run test              # All unit + integration tests
-npm run test -- --watch   # Watch mode
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}              # All unit + integration tests
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} -- --watch   # Watch mode
 npm run test:e2e          # E2E tests
 npm run type-check        # TypeScript validation
-npm run build             # Verify production build
+{{verify.build | default("(this stack declares no build step)")}}             # Verify production build
 ```
 
 ---

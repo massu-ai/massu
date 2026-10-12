@@ -24,7 +24,15 @@ set -uo pipefail
 
 # === Config ===
 MAX_LAG_SECS="${MASSU_MAX_DEPLOY_LAG_SECS:-86400}"   # default 24h
-VERCEL_PROJECT="${MASSU_VERCEL_PROJECT:-massu}"
+# ⛔ NO `VERCEL_PROJECT` KNOB. There used to be `VERCEL_PROJECT="${MASSU_VERCEL_PROJECT:-massu}"`
+# here and nothing read it -- a vestige of the pre-2026-07-23 invocation `vercel ls <project>`,
+# which CLI >= 50.x rejects. After that incident the subject became the LINKED DIRECTORY
+# (website/.vercel/project.json), so the name-shaped variable was a SECOND source of truth for
+# "which project is this gate about" (Rule 25 / G32), and an operator exporting
+# MASSU_VERCEL_PROJECT got no effect and no warning -- a config field is a CLAIM that something
+# reads it (G19). It cannot be revived as an assertion either: the link file carries only opaque
+# `projectId` / `orgId`, never a project NAME, so there is nothing local to compare a name
+# against. The knob is gone and the link is asserted instead, below.
 VERCEL_ORG="${MASSU_VERCEL_ORG:-ethans-projects-22aee2ce}"
 
 # === Optional bypass (logged) ===
@@ -106,6 +114,27 @@ fi
 # exists to prevent). Run from the linked dir; treat an unparseable listing as a HARD
 # FAILURE, never a skip (see §fail-loud below).
 _REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+
+# PRECONDITION, with its OWN reason. `vercel ls` from website/ reads that directory's
+# .vercel/project.json to decide WHICH project to list. If the link is missing the command still
+# runs and the listing is about something else (or an error), the Production parse finds nothing,
+# and the failure below blames a CLI contract change -- a confident, specific, wrong diagnosis
+# pointing away from the real cause (the same conflation as the 2026-07-23 incident, one layer
+# out). Assert the link, and say so when it is absent.
+_VLINK="$_REPO_ROOT/website/.vercel/project.json"
+if [ ! -f "$_VLINK" ]; then
+  echo "FAIL: $_VLINK is missing, so \`vercel ls\` has no linked project to list." >&2
+  echo "      This gate's subject IS that link. Re-link with \`vercel link\` from website/," >&2
+  echo "      or bypass EXPLICITLY with MASSU_SKIP_DEPLOY_STALENESS_CHECK=1." >&2
+  exit 1
+fi
+if ! python3 -c 'import json,io,sys; d=json.load(io.open(sys.argv[1])); sys.exit(0 if d.get("projectId") else 1)' "$_VLINK" 2>/dev/null; then
+  echo "FAIL: $_VLINK does not parse as JSON with a projectId." >&2
+  echo "      Refusing to report a deploy age for an unidentified project." >&2
+  exit 1
+fi
+echo "[deploy-staleness] subject: website/ linked to projectId $(python3 -c 'import json,io,sys; print(json.load(io.open(sys.argv[1]))["projectId"])' "$_VLINK")" >&2
+
 DEPLOY_LISTING=$(cd "$_REPO_ROOT/website" 2>/dev/null && $VERCEL_CMD ls 2>&1)
 DEPLOY_EPOCH_SECS=""
 

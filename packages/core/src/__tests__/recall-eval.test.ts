@@ -36,6 +36,8 @@ import {
 } from '../memory-db.ts';
 import { hybridSearch } from '../memory-hybrid-search.ts';
 import { embed, getActiveEmbedModel } from '../memory-embedder.ts';
+// Aliased: this file already binds `report` to the rendered report text.
+import { report as reportLine } from './helpers/report.ts';
 
 interface CorpusRow {
   id: number;
@@ -259,8 +261,7 @@ describe('recall eval (BM25 vs hybrid FTS-only vs hybrid semantic)', () => {
     lines.push('');
 
     const report = lines.join('\n');
-    // eslint-disable-next-line no-console
-    console.log('\n' + report + '\n');
+    reportLine('\n' + report + '\n');
 
     if (process.env.MASSU_WRITE_EVAL_REPORT === '1') {
       const outDir = resolve(__dirname, '..', '..', '..', '..', 'docs', 'reports');

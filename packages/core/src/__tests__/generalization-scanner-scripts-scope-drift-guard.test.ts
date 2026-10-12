@@ -28,7 +28,7 @@ import { dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 // G29/CR-92 — `cwd:`/`-C` do not scope git; GIT_DIR outranks both. See the helper for why.
-import { gitSafeEnv } from './helpers/git-safe-env.ts';
+import { gitSafeEnv, gitSafeEnvForNewRepo } from './helpers/git-safe-env.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -107,7 +107,7 @@ describe('generalization scanner scripts/ scope (CR-62 drift-guard)', () => {
     const dir = mkdtempSync(resolve(tmpdir(), 'hpg-drift-'));
     try {
       const git = (args: string[]) =>
-        execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe', env: gitSafeEnv() });
+        execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe', env: gitSafeEnvForNewRepo() });
       git(['init', '-q']);
       git(['config', 'user.email', 't@t']);
       git(['config', 'user.name', 't']);
@@ -144,7 +144,7 @@ describe('generalization scanner scripts/ scope (CR-62 drift-guard)', () => {
     const dir = mkdtempSync(resolve(tmpdir(), 'hpg-ifs-'));
     try {
       const git = (args: string[]) =>
-        execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe', env: gitSafeEnv() });
+        execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe', env: gitSafeEnvForNewRepo() });
       git(['init', '-q']);
       git(['config', 'user.email', 't@t']);
       git(['config', 'user.name', 't']);

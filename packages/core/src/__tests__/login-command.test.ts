@@ -96,7 +96,7 @@ function expectedPath(): string {
 
 describe('runLogin() with a valid key', () => {
   it('writes a credentials file containing the key under $HOME/.massu', async () => {
-    await runLogin(['--key', 'ms_live_abc123def456', '--no-verify']);
+    await runLogin(['--key', 'ms_live_abc123def456', '--no-verify']); // gitleaks:allow — fake fixture key; a real key is ms_live_{8hex}_{64hex} (81 chars)
 
     const p = expectedPath();
     expect(existsSync(p)).toBe(true);
@@ -106,19 +106,19 @@ describe('runLogin() with a valid key', () => {
   });
 
   it('writes the credentials file with 0600 permissions and dir with 0700', async () => {
-    await runLogin(['--key', 'ms_live_abc123def456', '--no-verify']);
+    await runLogin(['--key', 'ms_live_abc123def456', '--no-verify']); // gitleaks:allow — fake fixture key; a real key is ms_live_{8hex}_{64hex} (81 chars)
 
     expect(statSync(expectedPath()).mode & 0o777).toBe(0o600);
     expect(statSync(credentialsDir()).mode & 0o777).toBe(0o700);
   });
 
   it('does not exit the process on the happy path', async () => {
-    await runLogin(['--key', 'ms_live_abc123def456', '--no-verify']);
+    await runLogin(['--key', 'ms_live_abc123def456', '--no-verify']); // gitleaks:allow — fake fixture key; a real key is ms_live_{8hex}_{64hex} (81 chars)
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
   it('prints a confirmation that mentions the written path', async () => {
-    await runLogin(['--key', 'ms_live_abc123def456', '--no-verify']);
+    await runLogin(['--key', 'ms_live_abc123def456', '--no-verify']); // gitleaks:allow — fake fixture key; a real key is ms_live_{8hex}_{64hex} (81 chars)
     const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
     expect(output).toContain(expectedPath());
     expect(output).toContain('0600');
@@ -136,7 +136,7 @@ describe('runLogin() online-verify messaging (P2-003)', () => {
 
   it('paid tier → "Verified: <Tier> tier"', async () => {
     mocks.result = { tier: 'enterprise', validUntil: '2027-01-01', features: [], outcome: 'validated' };
-    await runLogin(['--key', 'ms_live_paid_key_123']);
+    await runLogin(['--key', 'ms_live_paid_key_123']); // gitleaks:allow — fake fixture key; a real key is ms_live_{8hex}_{64hex} (81 chars)
     expect(loggedOutput()).toContain('Verified: Enterprise tier');
   });
 

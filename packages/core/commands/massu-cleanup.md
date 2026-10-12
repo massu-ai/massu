@@ -48,7 +48,7 @@ Capture the behavioral baseline BEFORE making any changes:
 ### 1a. Test Baseline
 
 ```bash
-npm test 2>&1
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} 2>&1
 ```
 
 Record:
@@ -64,7 +64,7 @@ Record:
 ### 1b. Type Check Baseline
 
 ```bash
-cd packages/core && npx tsc --noEmit 2>&1
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} 2>&1
 ```
 
 Record:
@@ -90,20 +90,20 @@ Scan all categories in parallel. Do NOT remove anything yet.
 
 ```bash
 # TypeScript unused imports (ts error 6133)
-cd packages/core && npx tsc --noEmit 2>&1 | grep "is declared but"
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} 2>&1 | grep "is declared but"
 
 # ESLint-style: imports never referenced in file body
-grep -rn "^import" packages/core/src/ --include="*.ts" | head -50
+grep -rn "^import" {{paths.source}}/ --include="*.ts" | head -50
 ```
 
 ### 2b. Dead Exports
 
 ```bash
 # Exported symbols with zero external references
-grep -rn "^export " packages/core/src/ --include="*.ts" | grep -v "__tests__" | while IFS=: read file line content; do
+grep -rn "^export " {{paths.source}}/ --include="*.ts" | grep -v "__tests__" | while IFS=: read file line content; do
   name=$(echo "$content" | grep -oP '(?<=export (function|const|class|type|interface|enum) )\w+' | head -1)
   if [ -n "$name" ]; then
-    count=$(grep -rn "$name" packages/core/src/ --include="*.ts" | grep -v "^$file:" | grep -v "__tests__" | wc -l)
+    count=$(grep -rn "$name" {{paths.source}}/ --include="*.ts" | grep -v "^$file:" | grep -v "__tests__" | wc -l)
     if [ "$count" -eq 0 ]; then
       echo "DEAD EXPORT: $name in $file"
     fi
@@ -121,7 +121,7 @@ for f in packages/core/src/*.ts; do
   if [[ "$base" == "server" || "$base" == "index" || "$f" == *"__tests__"* ]]; then
     continue
   fi
-  count=$(grep -rn "from.*['\"]\./${base}" packages/core/src/ --include="*.ts" | grep -v "__tests__" | wc -l)
+  count=$(grep -rn "from.*['\"]\./${base}" {{paths.source}}/ --include="*.ts" | grep -v "__tests__" | wc -l)
   if [ "$count" -eq 0 ]; then
     echo "POSSIBLY ORPHANED: $f"
   fi
@@ -135,15 +135,15 @@ done
 cat packages/core/package.json | grep -A 50 '"dependencies"'
 
 # Check each dependency usage
-grep -rn "from.*'better-sqlite3'\|require.*better-sqlite3" packages/core/src/ --include="*.ts" | wc -l
-grep -rn "from.*'yaml'\|require.*yaml" packages/core/src/ --include="*.ts" | wc -l
+grep -rn "from.*'better-sqlite3'\|require.*better-sqlite3" {{paths.source}}/ --include="*.ts" | wc -l
+grep -rn "from.*'yaml'\|require.*yaml" {{paths.source}}/ --include="*.ts" | wc -l
 ```
 
 ### 2e. TODO/FIXME/HACK Comments
 
 ```bash
 # Enumerate all stale markers — informational only (no auto-removal)
-grep -rn "TODO\|FIXME\|HACK\|XXX\|DEPRECATED" packages/core/src/ --include="*.ts" | grep -v "__tests__"
+grep -rn "TODO\|FIXME\|HACK\|XXX\|DEPRECATED" {{paths.source}}/ --include="*.ts" | grep -v "__tests__"
 ```
 
 ---
@@ -180,9 +180,9 @@ CLEANUP LOOP:
     1. Select all REMOVE items in this category
     2. Apply removals
     3. Run type check:
-         cd packages/core && npx tsc --noEmit 2>&1
+         {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} 2>&1
     4. Run tests:
-         npm test 2>&1
+         {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} 2>&1
     5. Compare against baseline:
          - Type errors must be <= baseline
          - Passing tests must be >= baseline
@@ -218,11 +218,11 @@ For every removed item, confirm it is gone:
 
 ```bash
 # Unused import removed
-grep -rn "[import_name]" packages/core/src/ --include="*.ts"
+grep -rn "[import_name]" {{paths.source}}/ --include="*.ts"
 # MUST return 0 matches (or only in unrelated contexts)
 
 # Dead export removed
-grep -rn "export.*[export_name]" packages/core/src/ --include="*.ts"
+grep -rn "export.*[export_name]" {{paths.source}}/ --include="*.ts"
 # MUST return 0 matches
 
 # Orphaned file removed
@@ -253,13 +253,13 @@ bash scripts/massu-pattern-scanner.sh
 
 ### Gate 2: Type Check (VR-TYPE)
 ```bash
-cd packages/core && npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 # MUST show 0 errors (or <= baseline)
 ```
 
 ### Gate 3: All Tests (VR-TEST)
 ```bash
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 # MUST exit 0, all tests pass
 ```
 

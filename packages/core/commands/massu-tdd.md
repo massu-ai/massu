@@ -108,7 +108,7 @@ If more scenarios needed (edge cases, error handling, additional features):
 If complete:
 ```bash
 # Run full test suite to confirm no regressions
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 ```
 
 **VR-TEST proof**: Full suite passes.
@@ -144,7 +144,7 @@ npm test
      +--------v----------------+
      |   Step 4: COMPLETE       |
      |   Full suite passes      |
-     |   VR-TEST: npm test      |
+     |   VR-TEST: {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}      |
      +-------------------------+
 ```
 

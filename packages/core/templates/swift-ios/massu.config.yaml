@@ -20,6 +20,8 @@ framework:
 
 paths:
   source: Sources
+  # SwiftPM reserves Tests/ and `swift test` requires it
+  tests: Tests
   aliases:
     "@": Sources
 
@@ -33,5 +35,5 @@ verification:
   swift:
     test: swift test
     type: swift build
-    build: xcodebuild build
+    build: swift build -c release
     lint: swiftlint

@@ -22,6 +22,8 @@ framework:
 
 paths:
   source: src
+  # the convention create-next-app documents for colocated tests
+  tests: __tests__
   aliases:
     "@": src
 

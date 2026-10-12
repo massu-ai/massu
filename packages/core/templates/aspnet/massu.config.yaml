@@ -31,6 +31,8 @@ paths:
   # — projects opt into it explicitly. Default to `.` so fresh `npx
   # massu init` doesn't fail on `paths.source 'src' does not exist`.
   source: .
+  # the .NET convention is a sibling test project; `dotnet test` discovers it
+  tests: Tests
   aliases: {}
 
 toolPrefix: massu

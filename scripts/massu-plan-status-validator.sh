@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# massu-plan-gate: corpus | plan-status-validator
 #
 # massu-plan-status-validator.sh - Plan-file Schema Validator
 #

@@ -45,6 +45,7 @@ echo "── [provision-public-mirror] cloning massu-ai/massu -> $PUBLIC_REPO �
 if [ -d "$PUBLIC_REPO/.git" ]; then
   echo "── [provision-public-mirror] $PUBLIC_REPO already present — reusing (idempotent no-op) ──"
 else
+  # git-template-exempt: this provisions the REAL public-mirror clone, not a fixture; its hooks are the subject of this script, not noise
   git clone --depth 1 https://github.com/massu-ai/massu.git "$PUBLIC_REPO"
 fi
 

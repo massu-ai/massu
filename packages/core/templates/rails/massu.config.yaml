@@ -25,6 +25,8 @@ framework:
 
 paths:
   source: app
+  # Minitest is the Rails default and `bin/rails test` reads test/
+  tests: test
   aliases: {}
 
 toolPrefix: massu
@@ -35,9 +37,9 @@ rules: []
 
 verification:
   ruby:
-    test: bundle exec rspec
+    test: bin/rails test
     type: bundle exec sorbet tc
-    syntax: bundle exec ruby -c
+    syntax: find app lib -name '*.rb' -print0 | xargs -0 -n1 ruby -c > /dev/null
     lint: bundle exec rubocop
 
 ruby:

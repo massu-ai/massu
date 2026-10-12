@@ -128,7 +128,7 @@ ORDER BY ordinal_position;
 ```bash
 # VR-CONFIG: Verify config values match code expectations
 cat massu.config.yaml
-grep -rn "getConfig()" packages/core/src/ | head -10
+grep -rn "getConfig()" {{paths.source}}/ | head -10
 ```
 
 ---
@@ -226,8 +226,8 @@ git checkout -b hotfix/[issue-name]
 ### 3.3 Verify Fix Locally
 ```bash
 # Quick verification
-npx tsc --noEmit
-npm run build
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
+{{verify.build | default("(this stack declares no build step)")}}
 
 # Pattern check
 bash scripts/massu-pattern-scanner.sh
@@ -240,16 +240,16 @@ bash scripts/massu-pattern-scanner.sh
 ### 4.1 Essential Checks Only
 ```bash
 # Type safety
-npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 
 # Build integrity
-npm run build
+{{verify.build | default("(this stack declares no build step)")}}
 
 # Pattern scanner
 bash scripts/massu-pattern-scanner.sh
 
 # Tests
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 
 # Security check
 git diff --cached --name-only | grep -E '\.(env|pem|key)' && echo "FAIL" || echo "PASS"
@@ -261,10 +261,10 @@ git diff --cached --name-only | grep -E '\.(env|pem|key)' && echo "FAIL" || echo
 
 | Check | Command | Result | Status |
 |-------|---------|--------|--------|
-| Types | npx tsc --noEmit | 0 errors | PASS |
-| Build | npm run build | Exit 0 | PASS |
+| Types | {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} | 0 errors | PASS |
+| Build | {{verify.build | default("(this stack declares no build step)")}} | Exit 0 | PASS |
 | Patterns | massu-pattern-scanner.sh | Exit 0 | PASS |
-| Tests | npm test | All pass | PASS |
+| Tests | {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} | All pass | PASS |
 | Secrets | git diff check | 0 files | PASS |
 
 **ALL CRITICAL CHECKS: PASS/FAIL**
@@ -351,7 +351,7 @@ git push origin main
 ```bash
 # Check for new errors in output/logs
 # Run tests again post-deploy
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 ```
 
 ---
@@ -448,7 +448,7 @@ After hotfix, update `session-state/CURRENT.md`:
 ## Verification Evidence
 
 ### Hotfix: [Name]
-- Command: `npm run build && npm test`
+- Command: `{{verify.build | default("(this stack declares no build step)")}} && {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}`
 - Result: Exit 0
 - Status: VERIFIED COMPLETE
 ```
@@ -469,8 +469,8 @@ git push origin main
 ### Verify Rollback
 ```bash
 # Confirm no new issues from hotfix revert
-npm test
-npx tsc --noEmit
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 ```
 
 ---
@@ -551,7 +551,7 @@ This ensures that if the session compacts, the recovery protocol knows only `/ma
 1. **Ingest into massu memory**: Use `mcp__massu-codegraph__massu_memory_ingest` with type="bugfix", importance=5 (hotfixes are always high importance), description of root cause + fix
 2. **Record in session state**: Add the wrong pattern and correct pattern to `.claude/session-state/CURRENT.md`
 3. **Add to pattern scanner**: If the bad pattern is grep-able, add detection to `scripts/massu-pattern-scanner.sh`
-4. **Search codebase-wide**: `grep -rn "[bad_pattern]" packages/core/src/` and fix ALL instances (CR-9)
+4. **Search codebase-wide**: `grep -rn "[bad_pattern]" {{paths.source}}/` and fix ALL instances (CR-9)
 5. **Consider new CR rule**: If this is a class of bug (not one-off), propose a new CR rule for CLAUDE.md
 
 **Hotfixes without learning are wasted crises. Every outage teaches something -- capture it.**

@@ -13,7 +13,7 @@ import {
 } from './transcript-parser.ts';
 import type { AddObservationOpts } from './memory-db.ts';
 import { assignImportance } from './memory-db.ts';
-import { getProjectRoot, getConfig, getResolvedPaths } from './config.ts';
+import { getProjectRoot, getConfig, getResolvedPaths, DEFAULT_KNOWLEDGE_SOURCE_FILES } from './config.ts';
 import { homedir } from 'os';
 import { normalizeToolResponse, type RawToolResponse } from './hooks/lib/tool-response.ts';
 
@@ -214,7 +214,8 @@ function classifyToolCall(tc: ParsedToolCall): ExtractedObservation | null {
     case 'Read': {
       const filePath = tc.input.file_path as string ?? 'unknown';
       // Only keep reads of interesting files (plan files, knowledge source files, etc.)
-      const knowledgeSourceFiles = getConfig().conventions?.knowledgeSourceFiles ?? ['CLAUDE.md', 'MEMORY.md', 'corrections.md'];
+      const knowledgeSourceFiles =
+        getConfig().conventions?.knowledgeSourceFiles ?? DEFAULT_KNOWLEDGE_SOURCE_FILES;
       const plansDir = getResolvedPaths().plansDir;
       if (filePath.includes(plansDir) || knowledgeSourceFiles.some(f => filePath.includes(f))) {
         const title = `Read: ${shortenPath(filePath)}`;

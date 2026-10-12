@@ -36,6 +36,15 @@ var init_memory_path = __esm({
   }
 });
 
+// src/lib/corrections-md.ts
+var CORRECTIONS_FILENAME;
+var init_corrections_md = __esm({
+  "src/lib/corrections-md.ts"() {
+    "use strict";
+    CORRECTIONS_FILENAME = "corrections.md";
+  }
+});
+
 // src/credentials.ts
 import { homedir } from "os";
 import { resolve } from "path";
@@ -443,13 +452,19 @@ function getResolvedPaths() {
     settingsLocalPath: resolve2(root, claudeDirName, "settings.local.json")
   };
 }
-var DomainConfigSchema, PatternRuleConfigSchema, CostModelSchema, AnalyticsConfigSchema, CustomPatternSchema, GovernanceConfigSchema, SecurityPatternSchema, SecurityConfigSchema, TeamConfigSchema, RegressionConfigSchema, AutoLearningConfigSchema, CloudConfigSchema, ConventionsConfigSchema, PythonDomainConfigSchema, PythonConfigSchema, PathsConfigSchema, LanguageFrameworkEntrySchema, FrameworkConfigSchema, DetectedConfigSchema, VerificationEntrySchema, VerificationConfigSchema, CanonicalPathsSchema, VerificationTypesSchema, DetectionRuleEntrySchema, DetectionConfigSchema, WatchConfigSchema, AdapterLocalPathSchema, AdaptersConfigSchema, TelemetryConfigSchema, LSPConfigSchema, RawConfigSchema, _config, _resolvedApiKeySource, _projectRoot;
+var DEFAULT_KNOWLEDGE_SOURCE_FILES, DomainConfigSchema, PatternRuleConfigSchema, CostModelSchema, AnalyticsConfigSchema, CustomPatternSchema, GovernanceConfigSchema, SecurityPatternSchema, SecurityConfigSchema, TeamConfigSchema, RegressionConfigSchema, AutoLearningConfigSchema, CloudConfigSchema, ConventionsConfigSchema, PythonDomainConfigSchema, PythonConfigSchema, PathsConfigSchema, LanguageFrameworkEntrySchema, FrameworkConfigSchema, DetectedConfigSchema, VerificationEntrySchema, VerificationConfigSchema, CanonicalPathsSchema, VerificationTypesSchema, DetectionRuleEntrySchema, DetectionConfigSchema, WatchConfigSchema, AdapterLocalPathSchema, AdaptersConfigSchema, TelemetryConfigSchema, LSPConfigSchema, RawConfigSchema, _config, _resolvedApiKeySource, _projectRoot;
 var init_config = __esm({
   "src/config.ts"() {
     "use strict";
     init_memory_path();
+    init_corrections_md();
     init_credentials();
     init_config_memory_schema();
+    DEFAULT_KNOWLEDGE_SOURCE_FILES = [
+      "CLAUDE.md",
+      "MEMORY.md",
+      CORRECTIONS_FILENAME
+    ];
     DomainConfigSchema = z2.object({
       name: z2.string().default("Unknown"),
       routers: z2.array(z2.string()).default([]),
@@ -578,16 +593,22 @@ var init_config = __esm({
       fixDetection: z2.object({
         enabled: z2.boolean().default(true),
         lookbackDays: z2.number().default(7),
-        signals: z2.array(z2.string()).default([
-          "removed_broken_code",
-          "added_error_handling",
-          "method_name_correction",
-          "auth_fix",
-          "nil_handling_fix",
-          "concurrency_fix",
-          "async_pattern_fix",
-          "added_missing_import"
-        ])
+        // ⛔ NO DEFAULT LIST HERE, DELIBERATELY — the heuristics are the SSOT.
+        //
+        // This carried a hand-typed copy of all eight signal names while
+        // `fix-detector.ts` already read `config…signals ?? FIX_HEURISTICS.map(h => h.name)`.
+        // Because zod ALWAYS materialised the default, that fallback — the correct expression
+        // — was unreachable, and the duplicate was the only thing in effect. Two authoring
+        // sites for one vocabulary, and the drift is SILENT: a name listed here that no longer
+        // exists simply never matches `enabledSignals.has(...)`, so a retired heuristic lingers
+        // as a dead entry with no error. Retiring `method_name_correction` would have landed at
+        // one site of two (CR-74).
+        //
+        // Optional, so an ABSENT value reaches the `??` and the heuristic list defines itself
+        // (Rule 25). An explicit list in massu.config.yaml still overrides, which is the only
+        // behaviour anyone actually configured — measured: `fix-detector.ts:267` is the sole
+        // consumer and no config file in the repo sets it.
+        signals: z2.array(z2.string()).optional()
       }).default({}),
       failureClassification: z2.object({
         enabled: z2.boolean().default(true),
@@ -669,7 +690,7 @@ var init_config = __esm({
         "session-state",
         "agents"
       ]),
-      knowledgeSourceFiles: z2.array(z2.string()).default(["CLAUDE.md", "MEMORY.md", "corrections.md"]),
+      knowledgeSourceFiles: z2.array(z2.string()).default([...DEFAULT_KNOWLEDGE_SOURCE_FILES]),
       excludePatterns: z2.array(z2.string()).default(["/ARCHIVE/", "/SESSION-HISTORY/"])
     }).optional();
     PythonDomainConfigSchema = z2.object({
@@ -685,6 +706,23 @@ var init_config = __esm({
     }).optional();
     PathsConfigSchema = z2.object({
       source: z2.string().default("src"),
+      /**
+       * Where this stack's tests live, relative to the project root.
+       *
+       * Added 2026-09-20 for P4.3 of docs/plans/2026-09-20-stack-conformant-asset-rendering.md.
+       * ~25 shipped assets told every customer their tests belong in
+       * `packages/core/src/__tests__/` — massu's OWN layout — and no vocabulary could express
+       * the alternative because none existed. A test directory is a first-class property of
+       * every stack (`tests/` on FastAPI, `test/` on Rails, `src/test/java` on Spring,
+       * `Tests/` on SwiftPM, and Go keeps `_test.go` beside the source), so it belongs here
+       * rather than in prose.
+       *
+       * OPTIONAL, so every config written before this key existed keeps loading unchanged; an
+       * asset that needs it uses `{{paths.tests | default("...")}}`. All 13 shipped templates
+       * declare it, each with the convention it follows recorded at the site (G32 option 2),
+       * and `stack-template-conformance.test.ts` asserts that.
+       */
+      tests: z2.string().optional(),
       aliases: z2.record(z2.string(), z2.string()).default({ "@": "src" }),
       monorepo_roots: z2.array(z2.string()).optional(),
       routers: z2.string().optional(),
@@ -4239,6 +4277,24 @@ function scanUncommittedForFix(opts) {
     return { uncommittedFix: false, reason: "git-unavailable", filesScanned: 0 };
   }
 }
+function formatFixSummary(sessionFixes) {
+  if (sessionFixes.length === 0) return [];
+  const byFile = /* @__PURE__ */ new Map();
+  for (const fix of sessionFixes) {
+    const existing = byFile.get(fix.file) ?? [];
+    existing.push(...fix.signals);
+    byFile.set(fix.file, [...new Set(existing)]);
+  }
+  const lines = [
+    "",
+    `  ${sessionFixes.length} fix signal(s) across ${byFile.size} file(s) detected during this session:`,
+    ""
+  ];
+  for (const [file, signals] of byFile) {
+    lines.push(`    - ${file} (${signals.join(", ")})`);
+  }
+  return lines;
+}
 async function main() {
   try {
     const input = await readStdin();
@@ -4278,20 +4334,7 @@ async function main() {
     lines.push("============================================================================");
     lines.push(" MASSU AUTO-LEARNING PIPELINE \u2014 ACTION REQUIRED BEFORE SESSION END");
     lines.push("============================================================================");
-    if (sessionFixes.length > 0) {
-      lines.push("");
-      lines.push(`  ${sessionFixes.length} bug fix(es) detected during this session:`);
-      lines.push("");
-      const byFile = /* @__PURE__ */ new Map();
-      for (const fix of sessionFixes) {
-        const existing = byFile.get(fix.file) ?? [];
-        existing.push(...fix.signals);
-        byFile.set(fix.file, [...new Set(existing)]);
-      }
-      for (const [file, signals] of byFile) {
-        lines.push(`    - ${file} (${signals.join(", ")})`);
-      }
-    }
+    lines.push(...formatFixSummary(sessionFixes));
     if (uncommittedFix) {
       lines.push("");
       lines.push("  Additional uncommitted fix patterns detected in git diff.");
@@ -4384,6 +4427,7 @@ export {
   MAX_SESSION_PATHSPEC_FILES,
   RECENT_INCIDENT_WINDOW_MS,
   REMOVED_BROKEN_RE,
+  formatFixSummary,
   recentIncidentFiles,
   scanUncommittedForFix
 };

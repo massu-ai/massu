@@ -60,6 +60,86 @@ START_TIME=$(date +%s)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# ── HOST-CAPACITY PREFLIGHT ───────────────────────────────────────────────────────────────────
+# Gates that DECLARE themselves host-sensitive (marker: `# host-sensitive:`) get a third verdict.
+# The reading is taken HERE, ONCE, BEFORE any gate runs — so the verdict is decided by a
+# measurement rather than by how a gate happened to end. A timeout on a host this probe called
+# quiet remains a hard FAIL; only a MEASURED capacity shortfall reads as could-not-measure.
+# See scripts/lib/host-capacity.sh for why a probe and not load average, and why the tolerance
+# is absent-by-default and fails closed (CR-68).
+# shellcheck source=lib/host-capacity.sh
+. "$SCRIPT_DIR/lib/host-capacity.sh"
+HC_DECLARED=$(grep -c '^# host-sensitive:' "$SCRIPT_DIR/pre-push-light.sh")
+HC_LINE="$(hc_verdict)"; HC_RC=$?
+HC_STATE="${HC_LINE%% *}"
+# ⛔ THE NUMERIC STATUS IS THE AUTHORITY; THE TEXT IS FOR THE HUMAN LINE. This used to capture
+# HC_RC and then branch on HC_STATE — a parse of the printed verdict's first word — which made
+# the PERMISSIVE path the default: `hc_gate_guard` ran the gate unless HC_STATE was exactly
+# "DEGRADED", so a reworded verdict, or an empty first word, read as "the host is fine". "Could
+# not determine the state" and "the host is fine" produced the same value, and it was the passing
+# one. Found by shellcheck SC2034 reporting HC_RC as unused — the captured-and-ignored status is
+# the same defect as printing a gate's exit code without branching on it (memory
+# printing-a-gates-exit-code-is-not-gating-on-it), this time in code rather than in a command.
+#
+# The two signals must AGREE. hc_verdict returns 0/3/2 and prints OK/DEGRADED/UNMEASURABLE; if the
+# pairing ever breaks, that is a defect in the helper and must be LOUD, not silently permissive.
+case "${HC_RC}:${HC_STATE}" in
+  0:OK|3:DEGRADED|2:UNMEASURABLE) : ;;
+  *)
+    echo "[0/22] Host capacity... FAIL: hc_verdict returned rc=${HC_RC} with state '${HC_STATE}'."
+    echo "        Those disagree, so neither can be trusted. The closed vocabulary is"
+    echo "        0:OK, 3:DEGRADED, 2:UNMEASURABLE. Refusing to guess a host verdict."
+    FAILED=1
+    ;;
+esac
+echo "[0/22] Host capacity... $HC_LINE  (${HC_DECLARED} gate(s) declared host-sensitive)"
+# M1 — a DENOMINATOR of zero means the marker was renamed and no gate is protected any more.
+if [ "$HC_DECLARED" -eq 0 ]; then
+  echo "  FAIL: 0 gates carry a '# host-sensitive:' marker, so this preflight protects NOTHING."
+  echo "        That is indistinguishable from a healthy host. Restore the markers."
+  FAILED=1
+fi
+
+# ⚠️ THREE STATES, NOT TWO — and conflating the first two would make this gate a BRICK.
+#   OK            -> run the gate normally.
+#   DEGRADED      -> a MEASURED capacity shortfall. UNMEASURED, and it BLOCKS the push.
+#   UNMEASURABLE  -> NOT YET ARMED (no baseline, or no measured tolerance). WARN LOUDLY and run
+#                    the gate exactly as before.
+# The third case is load-bearing. An UNCALIBRATED precondition must never be MORE restrictive
+# than no precondition at all: with no baseline, blocking would block the very push that adds the
+# baseline — a gate with no legal ordering from a reachable state, which is a brick, and a brick
+# gets bypassed (CR-72, G26; memory a-whole-tree-precondition-makes-registering-a-new-gate-unreachable).
+# It is not silent either: the preflight prints the state every run, so "not yet armed" is a
+# PRESENCE signal rather than an absence (G24 — prefer presence as the stop condition).
+case "$HC_RC" in
+  0)            : ;;
+  3)            echo "  NOTE: host-sensitive gates below will report UNMEASURED and BLOCK this push." ;;
+  2)            echo "  NOTE: the capacity precondition is NOT ARMED and CANNOT BE by any existing"
+                echo "        tool — host-sensitive gates run exactly as before. --calibrate records"
+                echo "        min_ms only; nothing in this tree writes max_ratio (measured 2026-09-24),"
+                echo "        so this NOTE is permanent until a derivation procedure is decided."
+                echo "        Do NOT type a value: a tolerance is measured, never asserted (CR-68)." ;;
+  *)            echo "  FAIL: unrecognised host-capacity status rc=${HC_RC} — failing closed."; FAILED=1 ;;
+esac
+
+# hc_gate_guard <label> — returns 0 to RUN the gate, 1 to refuse it as UNMEASURED.
+# ⛔ UNMEASURED BLOCKS THE PUSH. It is a failure of the RUN, never a bypass: a verdict that let a
+# push through on a starved host would be the laundering this whole mechanism exists to avoid.
+# What it buys is a TRUE reason in the log instead of a false one about the code.
+hc_gate_guard() {
+  # Keyed on the NUMERIC status (3 = DEGRADED), so a reworded verdict line cannot turn this
+  # guard permissive. rc=0 (OK) and rc=2 (not yet armed) both RUN the gate, by design.
+  [ "${HC_RC}" != "3" ] && return 0
+  echo "UNMEASURED"
+  echo "  Host capacity: $HC_LINE"
+  echo "  $1 was NOT RUN, so this is NOT evidence about the code — it is a refusal to produce a"
+  echo "  verdict this host cannot support. REMEDY: re-push when the host is quiet; identify the"
+  echo "  consumer with: ps -Ao pcpu,pid,ppid,comm -r | head -8"
+  FAILED=1
+  return 1
+}
+
+
 # --- Bypass env-var audit-trail markers (plan-2026-05-18-pre-push-ci-parity §2.1) ---
 # Mirrors CR-48 `[deploy-staleness] BYPASS via ...` format so audit-log scrapers
 # can detect bypass usage uniformly.
@@ -174,7 +254,7 @@ fi
 # parity with ci.yml's new "Type Check (Website)" step) — a website type error
 # used to be invisible to pre-push and caught only by CI.
 echo -n "[5/22] TypeScript (core)... "
-if TSC_OUTPUT=$((cd "$PROJECT_ROOT/packages/core" && npx tsc --noEmit) 2>&1); then
+if TSC_OUTPUT=$( (cd "$PROJECT_ROOT/packages/core" && npx tsc --noEmit) 2>&1); then
   echo "PASS"
 else
   echo "FAIL"
@@ -182,7 +262,7 @@ else
   FAILED=1
 fi
 echo -n "[5/22] TypeScript (website)... "
-if TSC_WEB_OUTPUT=$((cd "$PROJECT_ROOT/website" && npx tsc --noEmit) 2>&1); then
+if TSC_WEB_OUTPUT=$( (cd "$PROJECT_ROOT/website" && npx tsc --noEmit) 2>&1); then
   echo "PASS"
 else
   echo "FAIL"
@@ -190,9 +270,23 @@ else
   FAILED=1
 fi
 
-# [6/22] Tests (~50s)
+# [6/22] Tests (~50s) — the SINGLE instrumented run of BOTH suites.
+# plan-required-checks / i-suite-twice: this used to be a PLAIN `npm test`, and gate [18/22]
+# then ran the same suites AGAIN under v8 instrumentation. Two consequences, both measured:
+#   * packages/core executed TWICE per push, so twice the exposure to load-induced timeouts,
+#     and the second run landed at the most loaded moment the battery ever has;
+#   * `npm test` is `npm test --workspace=packages/core`, so gate 6 NEVER RAN THE WEBSITE
+#     SUITE AT ALL — a website test failure surfaced only as gate 18's "coverage …
+#     unmeasured", pointing at coverage rather than at the failing test.
+# Now ONE instrumented run of each suite writes coverage/coverage-summary.json, and [18/22]
+# CONSUMES it (MASSU_COVERAGE_SKIP_RUN=1). The two gates can no longer disagree about which
+# tests passed — that is impossible rather than merely detectable.
+# host-sensitive: the suites do real SQLite/FTS5 work under a 20s testTimeout (vitest.config.ts:31);
+# measured 2026-09-23 at 473ms for 30 tests quiet vs one test exceeding 20s under ~16-of-28-core
+# contention. The ceiling is a hang detector, not an assertion, so it cannot be made deterministic.
 echo -n "[6/22] Tests... "
-if (cd "$PROJECT_ROOT" && npm test) > /tmp/massu-tests.log 2>&1; then
+if ! hc_gate_guard "[6/22] Tests"; then :
+elif (cd "$PROJECT_ROOT" && npm run test:instrumented) > /tmp/massu-tests.log 2>&1; then
   echo "PASS"
 else
   echo "FAIL"
@@ -398,7 +492,12 @@ else
        packages/ scripts/ eslint-rules/ examples/
        .github/workflows/ .github/rulesets/
        website/content/docs/
-       .gitignore.public package.public.json README.public.md
+       .gitignore.public README.public.md
+       # package.json is here because the mirror's manifest is DERIVED from it
+       # (scripts/lib/derive-public-manifest.py). Before 2026-09-21 only the
+       # hand-written package.public.json affected the mirror, so a bare package.json
+       # edit did not need to trigger a sync check. It does now.
+       package.json
        .claude/CLAUDE.public.md .claude/settings.json .claude/hooks/ .claude/commands/
        package-lock.json massu.config.yaml CHANGELOG.md LICENSE CLA.md CONTRIBUTING.md
   )
@@ -494,8 +593,12 @@ fi
 # [18/22] Coverage Gate real v8 line% (~40s) — plan-2026-06-03-website-lib-test-coverage P0-006
 # Mirrors CI's `Coverage Gate` step (CR-50 / VR-CI-PARITY) — same scripts/ci-coverage.sh.
 # Real instrumented line coverage vs coverage-floors.json; retires the filename heuristic.
+# host-sensitive: it CONSUMES the report gate [6/22] produces, so a host that cannot run the
+# suites cannot produce a coverage verdict either — it would report `unmeasured` for a missing
+# summary and point at coverage rather than at the host.
 echo -n "[18/22] Coverage Gate... "
-if bash "$SCRIPT_DIR/ci-coverage.sh" > /tmp/massu-coverage-gate.log 2>&1; then
+if ! hc_gate_guard "[18/22] Coverage Gate"; then :
+elif bash "$SCRIPT_DIR/ci-coverage.sh" > /tmp/massu-coverage-gate.log 2>&1; then
   echo "PASS"
 else
   echo "FAIL"

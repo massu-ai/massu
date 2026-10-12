@@ -22,7 +22,7 @@ import {
   atomicWriteFileSync,
   deriveSlug as sharedDeriveSlug,
 } from './lib/safe-write.ts';
-import { formatCorrectionEntry } from './lib/corrections-md.ts';
+import { correctionsPath, insertCorrectionEntry } from './lib/corrections-md.ts';
 import { mintAuthorship, RENDER_MAC_KEY } from './memory-authorship.ts';
 import {
   readMemoryIndex,
@@ -424,7 +424,7 @@ interface CorrectionsMdPaths {
 function correctionsMdTargets(slug: string, projectRoot: string, home: string): CorrectionsMdPaths {
   const dir = resolveMemoryDir(projectRoot, home);
   return {
-    correctionsMd: join(dir, 'corrections.md'),
+    correctionsMd: correctionsPath(dir),
     feedbackMd: join(dir, `feedback_${slug}.md`),
     memoryIndex: join(dir, 'MEMORY.md'),
   };
@@ -964,7 +964,7 @@ function writeCorrectionsMd(
   // (knowledge-tools). This used to emit `## date: slug` while the reader parsed a
   // 4-column TABLE, so every rule it wrote was invisible to the injection that exists
   // to surface them. The provenance bullets are preserved as `extra`.
-  const correctionsEntry = formatCorrectionEntry({
+  const correctionsEntryData = {
     date: dateIso,
     title: slug,
     rule: opts.draftText,
@@ -973,10 +973,12 @@ function writeCorrectionsMd(
       score: candidate.score,
       audit_log_id: auditRowId,
     },
-  });
+  };
   if (!existsSync(dirname(correctionsMd))) mkdirSync(dirname(correctionsMd), { recursive: true });
-  const correctionsPre = existsSync(correctionsMd) ? readFileSync(correctionsMd, 'utf-8') : '# Corrections\n';
-  writeFileSync(correctionsMd, correctionsPre + correctionsEntry, 'utf-8');
+  const correctionsPre = existsSync(correctionsMd) ? readFileSync(correctionsMd, 'utf-8') : '';
+  // Placement via the shared module: this writer used to append unconditionally, which
+  // put a live correction AFTER `## Archived` whenever that section existed.
+  writeFileSync(correctionsMd, insertCorrectionEntry(correctionsPre, correctionsEntryData), 'utf-8');
 
   // B-16 — THE APPLIER IS THE THIRD WRITER, AND IT NOW USES THE RENDERER'S CONVENTION.
   //

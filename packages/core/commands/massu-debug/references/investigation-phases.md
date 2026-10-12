@@ -66,10 +66,10 @@ git log --oneline -10
 git diff HEAD~5 --name-only | grep -E "(component|router|page)"
 
 # Check build status
-npm run build 2>&1 | tail -20
+{{verify.build | default("(this stack declares no build step)")}} 2>&1 | tail -20
 
 # Check for type errors
-npx tsc --noEmit 2>&1 | head -30
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} 2>&1 | head -30
 ```
 
 ---
@@ -253,10 +253,10 @@ grep -n "[correct_pattern]" [file]
 # Expected: Match found
 
 # VR-BUILD: Build passes
-npm run build
+{{verify.build | default("(this stack declares no build step)")}}
 
 # VR-TYPE: Types pass
-npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 
 # Pattern scanner
 ./scripts/pattern-scanner.sh

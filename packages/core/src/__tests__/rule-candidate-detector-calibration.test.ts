@@ -14,6 +14,7 @@ import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { tmpdir, homedir } from 'os';
 import { scoreCorrectionPrompt, RULE_CANDIDATE_THRESHOLD } from '../rule-candidate-detector.ts';
+import { report } from './helpers/report.ts';
 
 const PRIOR_EDIT = { priorAssistantTurn: { hadEditOrWrite: true } };
 
@@ -208,8 +209,7 @@ body`;
       }
       const precision = tp / Math.max(1, tp + fp);
       const recall = tp / Math.max(1, tp + fn);
-      // eslint-disable-next-line no-console
-      console.log(`[calibration] positives=${HARDCODED_POSITIVES.length} negatives=${HARDCODED_NEGATIVES.length} tp=${tp} fp=${fp} tn=${tn} fn=${fn} precision=${precision.toFixed(3)} recall=${recall.toFixed(3)}`);
+      report(`[calibration] positives=${HARDCODED_POSITIVES.length} negatives=${HARDCODED_NEGATIVES.length} tp=${tp} fp=${fp} tn=${tn} fn=${fn} precision=${precision.toFixed(3)} recall=${recall.toFixed(3)}`);
       expect(HARDCODED_POSITIVES.length).toBeGreaterThanOrEqual(30);
       expect(HARDCODED_NEGATIVES.length).toBeGreaterThanOrEqual(100);
       expect(precision).toBeGreaterThanOrEqual(0.7);

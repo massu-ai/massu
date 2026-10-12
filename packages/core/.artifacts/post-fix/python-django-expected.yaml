@@ -30,7 +30,7 @@ verification:
   python:
     test: cd app && python3 -m pytest -q
     type: cd app && python3 -m mypy .
-    syntax: cd app && python3 -m py_compile
+    syntax: cd app && python3 -m compileall -q .
     lint: cd app && python3 -m ruff check .
 python:
   root: app

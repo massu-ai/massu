@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// massu-plan-gate: corpus | claim-ledger (CR-63)
 // CLAIM LEDGER GATE (CR-63).
 //
 // An audit that reads a plan can confirm that every file:line it CITES exists. It

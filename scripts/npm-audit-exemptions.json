@@ -1,0 +1,40 @@
+{
+  "_doc": [
+    "npm advisory exemptions, read by scripts/npm-audit-gate.mjs. One row = one advisory, one package, ONE lockfile surface ('.' or 'website').",
+    "THIS FILE IS AN ORACLE AND IS HAND-MAINTAINED ON PURPOSE: the gate reads it as its own expectation of the answer. Deriving it from the advisories being judged would make both sides agree by construction and the gate would pass forever.",
+    "Exempt ONLY when no fix exists upstream ('the fix is inconvenient' is not a reason — fix it). Every row needs advisory, package, surface, severity, reason (why no fix), reachability (what loads it, on what input; verify with `npm ls <pkg>` and `npm ls <pkg> --omit=dev`), added and expires (YYYY-MM-DD).",
+    "The gate FAILS on an expired row (it stops suppressing) and on a stale row (it matches no live advisory on an audited surface) — so the day a patched release ships, the gate goes red and the upgrade cannot be forgotten. Keep expiries short."
+  ],
+  "exemptions": [
+    {
+      "advisory": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "surface": ".",
+      "severity": "high",
+      "reason": "No patched release exists: advisory range <= 3.0.3, first_patched_version null, and 3.0.3 (2024-05-21) is the newest braces on npm (checked 2026-10-11 with `npm view braces time` and the GitHub advisory API). Its consumers here, chokidar 3.6.0 and micromatch 4.0.8 (via fast-glob 3.3.3), offer no braces-free version in their current major lines.",
+      "reachability": "RUNTIME dependency of the published @massu/core, not dev-only: `npm ls braces --omit=dev` shows @massu/core -> chokidar@3.6.0 -> braces and @massu/core -> fast-glob@3.3.3 -> micromatch@4.0.8 -> braces. braces only expands GLOB PATTERNS, never file contents: chokidar expands the watch globs (src/watch/daemon.ts, derived from the project's own massu.config.yaml by src/watch/paths.ts), and fast-glob expands built-in constant patterns (src/detect/source-dir-detector.ts) and the same config-derived watch globs. The stack-exhaustion trigger is a deeply nested brace pattern, which only the repo owner's own config can supply.",
+      "added": "2026-10-11",
+      "expires": "2027-01-11"
+    },
+    {
+      "advisory": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "surface": "website",
+      "severity": "high",
+      "reason": "No patched release exists: advisory range <= 3.0.3, first_patched_version null, and 3.0.3 is the newest braces on npm. npm's only offered 'fix' is a DOWNGRADE of eslint-config-next to 14.2.35, which is not a fix.",
+      "reachability": "Dev/lint tooling only: `npm ls braces` = eslint-config-next@16.1.6 -> @next/eslint-plugin-next@16.1.6 -> fast-glob@3.3.1 -> micromatch@4.0.8 -> braces@3.0.3, and `npm ls braces --omit=dev` is EMPTY. Runs at lint time over glob patterns in the plugin's own source; nothing ships to the browser or the Next.js server.",
+      "added": "2026-10-11",
+      "expires": "2027-01-11"
+    },
+    {
+      "advisory": "GHSA-hp3w-g68c-fv3c",
+      "package": "sprintf-js",
+      "surface": "website",
+      "severity": "moderate",
+      "reason": "No patched release exists: advisory range <= 1.1.3, first_patched_version null, and 1.1.3 is the newest sprintf-js on npm (checked 2026-10-11, GitHub advisory API). npm's only offered 'fix' is a DOWNGRADE of gray-matter to 2.0.1; gray-matter 4.0.3 is the latest and pins js-yaml ^3.13.1 -> argparse 1.0.10 -> sprintf-js.",
+      "reachability": "Installed as a production dependency (`npm ls sprintf-js --omit=dev`: gray-matter@4.0.3 -> js-yaml@3.15.2 -> argparse@1.0.10 -> sprintf-js@1.0.3) but NEVER LOADED at runtime: argparse is required only by js-yaml's CLI (bin/js-yaml.js), not by the js-yaml library that gray-matter imports (src/lib/mdx.ts, src/lib/releases.ts), and sprintf-js is required only by argparse. The input gray-matter parses is the repo's own MDX front matter.",
+      "added": "2026-10-11",
+      "expires": "2027-01-11"
+    }
+  ]
+}

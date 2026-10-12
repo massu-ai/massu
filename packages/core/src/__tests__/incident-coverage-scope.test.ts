@@ -25,14 +25,14 @@ import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { spawnSync } from 'child_process';
 // G29/CR-92 — `cwd:`/`-C` do not scope git; GIT_DIR outranks both. See the helper for why.
-import { gitSafeEnv } from './helpers/git-safe-env.ts';
+import { gitSafeEnv, gitSafeEnvForNewRepo } from './helpers/git-safe-env.ts';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const gatePath = join(repoRoot, 'scripts', 'massu-incident-coverage.sh');
 const inInternalRepo = existsSync(gatePath);
 
 function git(cwd: string, ...args: string[]) {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: gitSafeEnv() });
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: gitSafeEnvForNewRepo() });
   if (r.status !== 0 && !args.includes('rev-list')) {
     throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
   }
@@ -51,6 +51,24 @@ function makeRepo(gateBody?: string) {
   } else {
     writeFileSync(join(dir, 'scripts', 'massu-incident-coverage.sh'), gateBody);
   }
+
+  /**
+   * STAGE THE GATE'S DEPENDENCIES, NOT JUST THE GATE.
+   *
+   * The gate resolves the pushed range through `scripts/lib/pushed-range.sh` and exits 2
+   * when it cannot source it — deliberately, because the alternative is to fall back to a
+   * guessed range, which is the defect that resolver exists to remove. A fixture that
+   * stages the gate alone therefore gets a correct exit 2 from every case, which reads as
+   * five broken assertions rather than as one missing file.
+   *
+   * Copied rather than stubbed: these cases assert what the REAL gate does, and a stub
+   * would let the two drift while the suite stayed green.
+   */
+  mkdirSync(join(dir, 'scripts', 'lib'), { recursive: true });
+  copyFileSync(
+    join(repoRoot, 'scripts', 'lib', 'pushed-range.sh'),
+    join(dir, 'scripts', 'lib', 'pushed-range.sh'),
+  );
   writeFileSync(join(dir, 'README.md'), 'base\n');
   git(dir, 'add', '-A');
   git(dir, 'commit', '-qm', 'base');

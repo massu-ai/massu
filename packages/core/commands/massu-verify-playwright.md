@@ -517,7 +517,7 @@ Update session state with the WRONG vs CORRECT pattern discovered.
 If the bad pattern is detectable by grep, add check to `scripts/massu-pattern-scanner.sh`.
 
 ### Step 4: Search Codebase-Wide (CR-9)
-`grep -rn "[bad_pattern]" packages/core/src/ src/` - fix ALL instances of the same issue.
+`grep -rn "[bad_pattern]" {{paths.source}}/ src/` - fix ALL instances of the same issue.
 
 ---
 

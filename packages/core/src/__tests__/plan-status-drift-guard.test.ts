@@ -44,7 +44,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 // G29/CR-92 — `cwd:`/`-C` do not scope git; GIT_DIR outranks both. See the helper for why.
-import { gitSafeEnv } from './helpers/git-safe-env.ts';
+import { gitSafeEnv, gitSafeEnvForNewRepo } from './helpers/git-safe-env.ts';
 
 // __dirname is packages/core/src/__tests__; repo root is four levels up.
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
@@ -110,7 +110,7 @@ function makeFakeGitRepo(commitSubjects: string[], planBasenames: string[]): {
     writeFileSync(join(planDir, base), content);
   }
   // Initialize git, configure local identity, and create one commit per subject.
-  execSync(`git init -q -b main`, { cwd: repoDir, env: gitSafeEnv() });
+  execSync(`git init -q -b main`, { cwd: repoDir, env: gitSafeEnvForNewRepo() });
   execSync(`git config user.email test@massu.test`, { cwd: repoDir, env: gitSafeEnv() });
   execSync(`git config user.name MassuTest`, { cwd: repoDir, env: gitSafeEnv() });
   // Stage fixture files so commits have content

@@ -105,7 +105,7 @@ export default function Error({ error, reset }: { error: Error; reset: () => voi
 ### Verification
 
 ```bash
-npm run build 2>&1 | tail -20   # or pnpm/yarn equivalent
+{{verify.build | default("(this stack declares no build step)")}} 2>&1 | tail -20   # or pnpm/yarn equivalent
 ```
 
 ---

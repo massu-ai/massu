@@ -16,4 +16,13 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-exec bash "$SCRIPT_DIR/massu-test-coverage.sh"
+# CONSUME the reports the Tests gate's instrumented run already produced — never re-run the
+# suites. `MASSU_COVERAGE_SKIP_RUN` is the comparator's own documented switch
+# (massu-test-coverage.sh:19), so this is wiring, not new logic, and the floors + the
+# single-comparator contract are untouched.
+#
+# FAILS CLOSED on a missing report: massu-test-coverage.sh fails the package with
+# "coverage-summary.json not generated" rather than passing, and `npm run test:instrumented`
+# deletes the coverage directories BEFORE running, so a stale summary from an earlier push
+# can never be consumed as if this run had produced it.
+exec env MASSU_COVERAGE_SKIP_RUN=1 bash "$SCRIPT_DIR/massu-test-coverage.sh"

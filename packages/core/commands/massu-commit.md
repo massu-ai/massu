@@ -64,7 +64,7 @@ grep -n "name:" packages/core/src/[module]-tools.ts
 grep -n "case " packages/core/src/[module]-tools.ts
 
 # Verify config keys match getConfig() usage
-grep -rn "getConfig()" packages/core/src/ | head -20
+grep -rn "getConfig()" {{paths.source}}/ | head -20
 ```
 
 ---
@@ -276,13 +276,13 @@ bash scripts/massu-pattern-scanner.sh
 
 ### Gate 2: Type Safety (VR-TYPE)
 ```bash
-cd packages/core && npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 # MUST show 0 errors
 ```
 
 ### Gate 3: All Tests Pass (VR-TEST)
 ```bash
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 # MUST exit 0, all vitest tests pass
 ```
 
@@ -306,9 +306,9 @@ echo "PASS: No secrets staged"
 
 ### Gate 7: Security - No Credentials in Code
 ```bash
-# Check packages/core/src/ for hardcoded credentials
+# Check {{paths.source}}/ for hardcoded credentials
 grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|password.*=.*["\x27][^"\x27]\{8,\}' --include="*.ts" --include="*.tsx" \
-  packages/core/src/ 2>/dev/null \
+  {{paths.source}}/ 2>/dev/null \
   | grep -v "process.env" \
   | grep -v 'RegExp\|regex\|REDACT\|redact\|sanitize\|mask' \
   | grep -v '\.test\.ts:' \
@@ -355,7 +355,7 @@ npm audit --audit-level=high  # 0 high/critical vulnerabilities
 |------|---------|--------|--------|
 | 1. Pattern Scanner | massu-pattern-scanner.sh | Exit [X] | PASS/FAIL |
 | 2. Type Safety | tsc --noEmit | [X] errors | PASS/FAIL |
-| 3. Tests | npm test | [X] pass, [X] fail | PASS/FAIL |
+| 3. Tests | {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} | [X] pass, [X] fail | PASS/FAIL |
 | 4. Hook Build | build:hooks | Exit [X] | PASS/FAIL |
 | 5. Generalization | massu-generalization-scanner.sh | Exit [X] | PASS/FAIL |
 | 6. No Secrets Staged | git diff --cached check | [result] | PASS/FAIL |
@@ -465,7 +465,7 @@ Analyze `git diff --cached --name-only` to determine scope:
 
 | Changed Files Location | Suggested Scope |
 |------------------------|-----------------|
-| All in `packages/core/src/` | `core` |
+| All in `{{paths.source}}/` | `core` |
 | All in `website/` | `website` |
 | All in `.claude/commands/` | `commands` |
 | All in `scripts/` | `tooling` |

@@ -211,8 +211,13 @@ describe('B-12 — ONE writer to the memory directory', () => {
       if (assigned && /memoryDir/.test(assigned[1])) {
         expect(
           assigned[1],
-          `knowledge-tools.ts writes ${target} into the memory dir, and it is not corrections.md`
-        ).toMatch(/corrections\.md/);
+          `knowledge-tools.ts writes ${target} into the memory dir, and it is not the ` +
+            `corrections file. Obtain the path from lib/corrections-md.ts.`
+          // A-09 amendment 2026-09-20: the filename literal now lives ONLY in
+          // lib/corrections-md.ts, so a writer names the module accessor rather than the
+          // string. Matching the literal here would force a second holder back into
+          // existence — the exact drift the consolidation removed.
+        ).toMatch(/correctionsPath\s*\(|corrections\.md/);
       }
     }
   });

@@ -141,7 +141,7 @@ grep -rn "take:\s*[0-9]\{3,\}" src/
 ### 2.1 Bundle Analysis
 ```bash
 # Analyze bundle size
-npm run build 2>&1 | grep -A 50 "Route\|Size"
+{{verify.build | default("(this stack declares no build step)")}} 2>&1 | grep -A 50 "Route\|Size"
 
 # Check for large dependencies
 npm ls --depth=0 | head -30

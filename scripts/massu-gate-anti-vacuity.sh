@@ -97,7 +97,10 @@ ABSENT_GATES=""
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 PRISTINE="$TMP/pristine"
-WORK="$TMP/work"
+# (No global WORK. There used to be `WORK="$TMP/work"` here, read by nothing: the sweep moved to
+# a PER-DELIVERABLE scratch tree -- `copy_tree "$PRISTINE" "$work"` with a function-local
+# lowercase `work` -- and the global was left behind. A shared mutable work path in a harness
+# that plants defects is exactly the variable you do not want lying around unowned.)
 
 RSYNC_EXCLUDES=(
   --exclude node_modules --exclude .git --exclude dist --exclude coverage
@@ -814,6 +817,13 @@ done < "$GATE_ORDER"
 # only ONE plant is live on the real tree at a time (parallel real-tree plants would collide). The
 # executor exits 2 (FATAL) on a dirty tree or a leaked restore — PROVE BEFORE YOU DESTROY.
 GUARD_EXEC="$REPO_ROOT/scripts/tests/_run_guard_defeat.py"
+# The phrase this loop discriminates on is read from the EMITTER's own definition rather
+# than typed here, so rewording the executor's message cannot silently turn the
+# could-not-measure branch below into an unreachable case. FAILS CLOSED: an empty value
+# would make the `*"$AV_S_ABSENT"*` pattern match everything.
+AV_S_ABSENT="$(python3 "$REPO_ROOT/scripts/lib/gate_sentinels.py" --print plant-target-absent)" || {
+  echo "${RED}FATAL${NC}: could not read the 'plant-target-absent' gate sentinel." >&2; exit 2; }
+[ -n "$AV_S_ABSENT" ] || { echo "${RED}FATAL${NC}: 'plant-target-absent' sentinel is EMPTY." >&2; exit 2; }
 if [ -n "$GUARD_GATE_IDS" ]; then
   echo
   echo "════ GUARD DEFEAT — real-tree can-fail proofs (vitest-guard / shell-gate-script / eslint) ════"
@@ -854,7 +864,7 @@ if [ -n "$GUARD_GATE_IDS" ]; then
       PROVEN=$((PROVEN + 1))
     elif [ "$gec" -eq 2 ]; then
       case "$gout" in
-        *"PLANT TARGET ABSENT"*)
+        *"$AV_S_ABSENT"*)
           # REPORTED, NOT ABORTING — same treatment as the dirty case above, and for
           # the same reason: one gate's unavailable input says nothing about the other
           # 400, so aborting made it un-provable-by-proxy for the entire registry.

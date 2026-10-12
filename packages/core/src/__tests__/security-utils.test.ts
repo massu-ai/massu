@@ -112,8 +112,8 @@ describe('globToSafeRegex', () => {
 
 describe('redactSensitiveContent', () => {
   it('redacts API keys', () => {
-    expect(redactSensitiveContent('key: sk-abc123def456ghij')).toContain('[REDACTED_KEY]');
-    expect(redactSensitiveContent('token: ghp_1234567890abcdef')).toContain('[REDACTED_KEY]');
+    expect(redactSensitiveContent('key: sk-abc123def456ghij')).toContain('[REDACTED_KEY]'); // gitleaks:allow — deliberately secret-SHAPED, obviously fake fixture: this test exercises a secret detector
+    expect(redactSensitiveContent('token: ghp_1234567890abcdef')).toContain('[REDACTED_KEY]'); // gitleaks:allow — deliberately secret-SHAPED, obviously fake fixture: this test exercises a secret detector
   });
 
   it('redacts email addresses', () => {

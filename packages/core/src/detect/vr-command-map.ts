@@ -65,7 +65,11 @@ function defaultsFor(
             : prefix(dir, 'python3 -m pytest -q'),
         type: prefix(dir, 'python3 -m mypy .'),
         build: null,
-        syntax: prefix(dir, 'python3 -m py_compile'),
+        // `python3 -m py_compile` with NO filenames exits 2 ('the following arguments are
+        // required: filenames') — a check that can never pass, i.e. a brick, and a brick
+        // gets bypassed. `compileall -q .` measured exit 1 on a tree with a syntax error
+        // and exit 0 on a clean tree (2026-09-20).
+        syntax: prefix(dir, 'python3 -m compileall -q .'),
         lint: prefix(dir, 'python3 -m ruff check .'),
       };
     }
@@ -107,7 +111,12 @@ function defaultsFor(
       return {
         test: prefix(dir, 'swift test'),
         type: prefix(dir, 'swift build'),
-        build: prefix(dir, 'xcodebuild build'),
+        // `xcodebuild build` requires an .xcodeproj/.xcworkspace, but this block's other
+        // commands (`swift test`, `swift build`) and the swift-ios template's declared
+        // layout (Sources/) are SwiftPM. One stack cannot be SwiftPM for two keys and
+        // Xcode for a third. Operator-approved 2026-09-20; the three anti-vacuity plants
+        // that target this literal were re-pointed in the same change.
+        build: prefix(dir, 'swift build -c release'),
         syntax: null,
         lint: prefix(dir, 'swiftlint'),
       };
@@ -132,10 +141,17 @@ function defaultsFor(
     }
     case 'ruby': {
       return {
-        test: prefix(dir, 'bundle exec rspec'),
+        // Minitest is Rails' default; `bin/rails test` works on a fresh `rails new`.
+        // `bundle exec rspec` requires adding rspec-rails to the Gemfile first.
+        // https://guides.rubyonrails.org/testing.html
+        test: prefix(dir, 'bin/rails test'),
         type: null,
         build: null,
-        syntax: prefix(dir, 'ruby -c'),
+        // `ruby -c` with NO file argument reads STDIN: on empty stdin it prints
+        // 'Syntax OK' and exits 0 without inspecting one project file, and it BLOCKS on a
+        // TTY. A check that cannot fail is a blind gate. Measured 2026-09-20; the
+        // replacement exits 1 on a tree with a syntax error and 0 on a clean one.
+        syntax: prefix(dir, "find app lib -name '*.rb' -print0 | xargs -0 -n1 ruby -c > /dev/null"),
         lint: prefix(dir, 'bundle exec rubocop'),
       };
     }

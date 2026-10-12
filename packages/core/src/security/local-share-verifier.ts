@@ -57,7 +57,7 @@ export function verifyLocalShareEnvelope(
   pinnedFingerprint: string,
   home: string = homedir(),
 ): Ed25519VerificationResult {
-  let key: Ed25519VerifierKey;
+  let key: Ed25519VerifierKey; // gitleaks:allow — Ed25519VerifierKey is a TYPE name, not a value
   try {
     const pubkeyBytes = readLocalSharePublicKeyRaw(home);
     key = {

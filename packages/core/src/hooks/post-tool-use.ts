@@ -10,6 +10,7 @@
 
 import { getMemoryDb, addObservation, createSession, deduplicateFailedAttempt, addSummary } from '../memory-db.ts';
 import { classifyRealTimeToolCall, detectPlanProgress } from '../observation-extractor.ts';
+import { DEFAULT_KNOWLEDGE_SOURCE_FILES } from '../config.ts';
 import { logAuditEntry } from '../audit-trail.ts';
 import { trackModification, recordTestResult } from '../regression-detector.ts';
 import { validateFile, storeValidationResult } from '../validation-engine.ts';
@@ -438,7 +439,7 @@ let _cachedConventionsPath: string | null = null;
 let _cachedConventionsMtimeMs = 0;
 
 const _conventionDefaults: Conventions = {
-  knowledgeSourceFiles: ['CLAUDE.md', 'MEMORY.md', 'corrections.md'],
+  knowledgeSourceFiles: [...DEFAULT_KNOWLEDGE_SOURCE_FILES],
   claudeDirName: '.claude',
 };
 

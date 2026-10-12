@@ -1,0 +1,176 @@
+{
+  "version": 1,
+  "adjudicated_on": "2026-09-20",
+  "plan": "docs/plans/2026-09-20-stack-conformant-asset-rendering.md",
+  "principle": "A shipped template's verification command must WORK ON THAT STACK'S DEFAULT SCAFFOLD, and must be able to both PASS and FAIL. A command that cannot fail is a blind gate; a command that cannot pass is a brick. Where a command depends on a tool the default scaffold lacks, that dependency is recorded explicitly rather than left implicit.",
+  "note": "One entry per stack, so an UNCHANGED stack is ADJUDICATED rather than absent. `after` equals `before` where the existing value was already correct. `corrections` lists every key changed for that stack, including keys other than `test`.",
+  "entries": [
+    {
+      "stack": "aspnet",
+      "key": "test",
+      "before": "dotnet test",
+      "after": "dotnet test",
+      "canonical_source": "https://learn.microsoft.com/dotnet/core/tools/dotnet-test",
+      "justification": "`dotnet test` is the first-party test driver and ships with the SDK. Correct as-is.",
+      "corrections": []
+    },
+    {
+      "stack": "go-chi",
+      "key": "test",
+      "before": "go test ./...",
+      "after": "go test ./...",
+      "canonical_source": "https://pkg.go.dev/cmd/go#hdr-Test_packages",
+      "justification": "`go test ./...` is the toolchain's own runner and needs no dependency. Correct as-is.",
+      "corrections": []
+    },
+    {
+      "stack": "multi-runtime",
+      "key": "test",
+      "before": "cd apps/api && python3 -m pytest -q",
+      "after": "cd apps/api && python3 -m pytest -q",
+      "canonical_source": "https://docs.pytest.org/en/stable/how-to/usage.html",
+      "justification": "Primary language is python (framework.primary: python, measured — NOT typescript). pytest is the de facto runner. Test command correct as-is; the `syntax` key was a brick and is corrected below.",
+      "corrections": [
+        {
+          "key": "syntax",
+          "before": "cd apps/api && python3 -m py_compile",
+          "after": "cd apps/api && python3 -m compileall -q .",
+          "defect": "BRICK — a check that can never pass",
+          "evidence": "`python3 -m py_compile` with no arguments exits 2: 'the following arguments are required: filenames'. Measured 2026-09-20. `compileall -q .` measured exit 1 on a tree containing a syntax error and exit 0 on a clean tree."
+        }
+      ]
+    },
+    {
+      "stack": "phoenix",
+      "key": "test",
+      "before": "mix test",
+      "after": "mix test",
+      "canonical_source": "https://hexdocs.pm/mix/Mix.Tasks.Test.html",
+      "justification": "`mix test` ships with Elixir and a generated Phoenix app includes ExUnit. Correct as-is. DEPENDENCY RECORDED: `type` (mix dialyzer) requires the `dialyxir` dep and `lint` (mix credo) requires `credo`; neither is in a default `mix phx.new`. Kept because both are the ecosystem's standard choices, but a customer without them gets a failing command.",
+      "corrections": []
+    },
+    {
+      "stack": "python-django",
+      "key": "test",
+      "before": "cd src && python3 -m pytest -q",
+      "after": "cd src && python3 -m pytest -q",
+      "canonical_source": "https://docs.pytest.org/en/stable/how-to/usage.html",
+      "justification": "Django's own built-in runner is `python manage.py test` (unittest); pytest requires pytest-django. Kept as pytest because the template also declares pytest as the language test_framework, and changing one without the other would split the SSOT. DEPENDENCY RECORDED: requires pytest-django on a default `django-admin startproject`.",
+      "corrections": [
+        {
+          "key": "syntax",
+          "before": "cd src && python3 -m py_compile",
+          "after": "cd src && python3 -m compileall -q .",
+          "defect": "BRICK — a check that can never pass",
+          "evidence": "`python3 -m py_compile` with no arguments exits 2 (usage error). Measured 2026-09-20."
+        }
+      ]
+    },
+    {
+      "stack": "python-fastapi",
+      "key": "test",
+      "before": "cd app && python3 -m pytest -q",
+      "after": "cd app && python3 -m pytest -q",
+      "canonical_source": "https://fastapi.tiangolo.com/tutorial/testing/",
+      "justification": "FastAPI ships no runner of its own and its documentation tests with pytest. Correct as-is.",
+      "corrections": [
+        {
+          "key": "syntax",
+          "before": "cd app && python3 -m py_compile",
+          "after": "cd app && python3 -m compileall -q .",
+          "defect": "BRICK — a check that can never pass",
+          "evidence": "`python3 -m py_compile` with no arguments exits 2 (usage error). Measured 2026-09-20."
+        }
+      ]
+    },
+    {
+      "stack": "python-flask",
+      "key": "test",
+      "before": "cd app && python3 -m pytest -q",
+      "after": "cd app && python3 -m pytest -q",
+      "canonical_source": "https://flask.palletsprojects.com/en/stable/testing/",
+      "justification": "Flask's own testing documentation uses pytest. Correct as-is.",
+      "corrections": [
+        {
+          "key": "syntax",
+          "before": "cd app && python3 -m py_compile",
+          "after": "cd app && python3 -m compileall -q .",
+          "defect": "BRICK — a check that can never pass",
+          "evidence": "`python3 -m py_compile` with no arguments exits 2 (usage error). Measured 2026-09-20."
+        }
+      ]
+    },
+    {
+      "stack": "rails",
+      "key": "test",
+      "before": "bundle exec rspec",
+      "after": "bin/rails test",
+      "canonical_source": "https://guides.rubyonrails.org/testing.html",
+      "justification": "CHANGED. Minitest is Rails' default test framework and `bin/rails test` works on a fresh `rails new` with no added gems. `bundle exec rspec` requires adding rspec-rails to the Gemfile, so the shipped command FAILED on a default Rails app. DEPENDENCY RECORDED: `type` (bundle exec sorbet tc) requires the sorbet gem; Ruby has no default static type checker, so this key cannot be satisfied by a default scaffold at all.",
+      "corrections": [
+        {
+          "key": "syntax",
+          "before": "bundle exec ruby -c",
+          "after": "find app lib -name '*.rb' -print0 | xargs -0 -n1 ruby -c > /dev/null",
+          "defect": "BLIND GATE — a check that can never fail",
+          "evidence": "`ruby -c` with no file argument reads STDIN: on empty stdin it printed 'Syntax OK' and exited 0 without inspecting a single project file (and blocks on a TTY). Measured 2026-09-20. The replacement measured exit 1 on a tree containing a syntax error and exit 0 on a clean tree."
+        }
+      ]
+    },
+    {
+      "stack": "rust-actix",
+      "key": "test",
+      "before": "cargo test",
+      "after": "cargo test",
+      "canonical_source": "https://doc.rust-lang.org/cargo/commands/cargo-test.html",
+      "justification": "`cargo test` ships with the Rust toolchain. Correct as-is.",
+      "corrections": []
+    },
+    {
+      "stack": "spring",
+      "key": "test",
+      "before": "./mvnw test",
+      "after": "./mvnw test",
+      "canonical_source": "https://maven.apache.org/surefire/maven-surefire-plugin/",
+      "justification": "The template declares a Maven project, and Spring Initializr emits the `mvnw` wrapper, so `./mvnw test` runs without a global Maven install. A Gradle project would use `./gradlew test`, which is why this is recorded rather than assumed. DEPENDENCY RECORDED: `lint` (./mvnw checkstyle:check) requires the checkstyle plugin configured in pom.xml; it is not in a default Initializr project.",
+      "corrections": []
+    },
+    {
+      "stack": "swift-ios",
+      "key": "test",
+      "before": "swift test",
+      "after": "swift test",
+      "canonical_source": "https://www.swift.org/documentation/package-manager/",
+      "justification": "The template declares a SwiftPM layout (paths.source: Sources, source_dirs: [Sources]), for which `swift test` is the correct runner. Correct as-is.",
+      "corrections": [
+        {
+          "key": "build",
+          "before": "xcodebuild build",
+          "after": "swift build -c release",
+          "defect": "TOOLCHAIN MISMATCH — the command requires an artifact the declared layout does not describe",
+          "evidence": "`xcodebuild build` requires an .xcodeproj/.xcworkspace, but this template declares a SwiftPM `Sources/` layout (paths.source: Sources, source_dirs: [Sources]) and uses `swift test`/`swift build` for its other keys. One stack cannot be SwiftPM for two keys and Xcode for a third. This is a DESIGN JUDGEMENT, not a mechanically proven failure: the template's internal inconsistency was demonstrated, not that `xcodebuild build` fails for a real swift-ios customer.",
+          "approved_by": "operator, 2026-09-20",
+          "plant_machinery_updated": "The literal was the target of three anti-vacuity plants proving pattern-scanner Check 43 can fail (gate-registry.json: the swift-template failpoint, the map-literal failpoint, and the template-verification-vr-map-drift vitest guard). All three patterns and both oracles were re-pointed to the new literal, Check 43's expected command set was updated, and BOTH plants were re-run and proven to still drive Check 43 RED naming 'swift build -c release' — with the clean tree still opening. Changing the command without this would have left the gate green and no longer able to fail."
+        }
+      ]
+    },
+    {
+      "stack": "ts-nestjs",
+      "key": "test",
+      "before": "npm test",
+      "after": "npm test",
+      "canonical_source": "https://docs.nestjs.com/first-steps",
+      "justification": "The Nest CLI scaffolds a `test` script in package.json, so `npm test` resolves on a default project. Correct as-is.",
+      "corrections": []
+    },
+    {
+      "stack": "ts-nextjs",
+      "key": "test",
+      "before": "npm test",
+      "after": "npm test",
+      "canonical_source": "https://nextjs.org/docs/app/guides/testing",
+      "justification": "Kept as `npm test`: it is runner-agnostic and resolves to whatever the project declares. DEPENDENCY RECORDED: `create-next-app` does NOT scaffold a `test` script, so `npm test` fails on a bare Next.js app until the customer adds one. Recorded rather than changed, because inventing a runner here would guess which one the customer chose.",
+      "corrections": []
+    }
+  ]
+}

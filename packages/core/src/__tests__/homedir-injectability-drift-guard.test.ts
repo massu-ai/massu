@@ -44,6 +44,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { resolve, relative, join } from 'path';
 import { execFileSync } from 'child_process';
 import ts from 'typescript';
+import { report } from './helpers/report.ts';
 
 const SRC = resolve(__dirname, '..');
 
@@ -401,8 +402,7 @@ describe('$HOME must be an injectable default in shell too (d76ab2c8 was a .sh)'
     // A skip that is counted and named is a decision; a skip that is inferred is silence.
     // This assertion cannot fail — it exists to put the number in the run's output, and it
     // fails loudly only if the allowlist has become entirely unadjudicable.
-    // eslint-disable-next-line no-console
-    console.log(
+    report(
       `[shell $HOME sweep] scripts=${files} refs=${refs} offenders=${offenders.length} ` +
         `allowlist=${KNOWN_INLINE_SH.length} (present ${present.length}, ` +
         `absent-in-this-checkout ${absent.length}${absent.length ? `: ${absent.join(', ')}` : ''})`,

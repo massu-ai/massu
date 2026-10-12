@@ -127,17 +127,17 @@ WHILE true:
     Fix any plan document gaps you find.
 
     CONTEXT: Massu is a TypeScript monorepo with:
-    - packages/core/src/ (MCP server source)
-    - packages/core/src/__tests__/ (vitest tests)
+    - {{paths.source}}/ (MCP server source)
+    - {{paths.tests | default("tests")}}/ (vitest tests)
     - packages/core/src/hooks/ (esbuild-compiled hooks)
     - massu.config.yaml (project config)
     - Tool registration: 3-function pattern (getDefs, isTool, handleCall) wired in tools.ts
 
     VR-* CHECKS (use ONLY these, per CLAUDE.md):
     - VR-FILE, VR-GREP, VR-NEGATIVE, VR-COUNT (generic)
-    - VR-BUILD: npm run build (tsc + hooks)
-    - VR-TYPE: cd packages/core && npx tsc --noEmit
-    - VR-TEST: npm test (vitest)
+    - VR-BUILD: {{verify.build | default("(this stack declares no build step)")}} (tsc + hooks)
+    - VR-TYPE: {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
+    - VR-TEST: {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} (vitest)
     - VR-TOOL-REG: tool definitions + handler wired in tools.ts
     - VR-HOOK-BUILD: cd packages/core && npm run build:hooks
     - VR-CONFIG: massu.config.yaml parses
@@ -243,9 +243,9 @@ Run a repeatable audit->fix->re-audit loop that verifies the entire plan against
 
 | Item # | Type | Description | Expected Location | Verification Command |
 |--------|------|-------------|-------------------|---------------------|
-| P1-001 | MODULE | foo-tools.ts | packages/core/src/ | ls -la [path] |
+| P1-001 | MODULE | foo-tools.ts | {{paths.source}}/ | ls -la [path] |
 | P1-002 | TOOL_WIRE | Wire into tools.ts | packages/core/src/tools.ts | grep [module] tools.ts |
-| P2-001 | TEST | foo-tools.test.ts | packages/core/src/__tests__/ | npm test |
+| P2-001 | TEST | foo-tools.test.ts | {{paths.tests | default("tests")}}/ | {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} |
 | P-003 | REMOVAL | Remove pattern | all files | grep -rn "pattern" = 0 |
 
 ### Item Types: MODULE (exists), TOOL_WIRE (registered), TEST (passes), CONFIG (parses), HOOK (compiles), REMOVAL (0 matches)
@@ -271,7 +271,7 @@ For files plan modifies: `ls -la [file_path]`. For directories plan creates in: 
 If ANY feature uses config-stored values, verify VALUES match code expectations:
 ```bash
 # Find what the CODE expects
-grep -rn "getConfig\(\)\." packages/core/src/ | grep -oE 'getConfig\(\)\.\w+' | sort -u
+grep -rn "getConfig\(\)\." {{paths.source}}/ | grep -oE 'getConfig\(\)\.\w+' | sort -u
 ```
 Compare config keys to code expectations. Mismatches = FAIL. Add plan items to fix alignment BEFORE implementation.
 
@@ -442,10 +442,10 @@ grep -rn "[violation pattern]" [directories] | wc -l
 
 ```bash
 # Module inventory
-find packages/core/src -name "*.ts" -not -path "*__tests__*" -not -path "*node_modules*" | sort
+find {{paths.source}} -name "*.ts" -not -path "*__tests__*" -not -path "*node_modules*" | sort
 
 # Tool definition files
-find packages/core/src -name "*-tools.ts" | sort
+find {{paths.source}} -name "*-tools.ts" | sort
 
 # Hook files
 find packages/core/src/hooks -name "*.ts" 2>/dev/null | sort
@@ -457,10 +457,10 @@ Verify: all planned modules exist, all tool files follow naming convention, hook
 
 ```bash
 # Tool definitions in each module
-grep -rn "getToolDefinitions\|getDefs" packages/core/src/ | grep -v node_modules | grep -v __tests__
+grep -rn "getToolDefinitions\|getDefs" {{paths.source}}/ | grep -v node_modules | grep -v __tests__
 
 # Handler registrations
-grep -rn "handleToolCall\|handleCall" packages/core/src/ | grep -v node_modules | grep -v __tests__
+grep -rn "handleToolCall\|handleCall" {{paths.source}}/ | grep -v node_modules | grep -v __tests__
 
 # Wiring in tools.ts
 grep -rn "import\|getDefs\|isTool\|handleCall" packages/core/src/tools.ts
@@ -481,7 +481,7 @@ Verify: all tools have definitions + handlers + wiring in tools.ts. A tool that 
 #### B3. Data Layer Integrity
 
 ```bash
-cd packages/core && npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 # Compare module interfaces to usage
 grep -A 10 "export interface\|export type" packages/core/src/[MODULE].ts
 ```
@@ -533,13 +533,13 @@ Reuse existing modules per CLAUDE.md. Do NOT create one-off modules when reusabl
 #### B8. Import/Export Integrity
 
 ```bash
-cd packages/core && npx tsc --noEmit 2>&1 | grep -i "cannot find module\|not found"
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} 2>&1 | grep -i "cannot find module\|not found"
 ```
 
 #### B9. Environment & Configuration
 
 ```bash
-grep -rn "process.env\." packages/core/src/ | grep -v node_modules | grep -oE 'process\.env\.\w+' | sort -u
+grep -rn "process.env\." {{paths.source}}/ | grep -v node_modules | grep -oE 'process\.env\.\w+' | sort -u
 ls -la tsconfig.json package.json massu.config.yaml 2>/dev/null
 ```
 
@@ -547,10 +547,10 @@ ls -la tsconfig.json package.json massu.config.yaml 2>/dev/null
 
 ```bash
 # Test files
-find packages/core/src/__tests__ -name "*.test.ts" | sort
+find {{paths.tests | default("tests")}} -name "*.test.ts" | sort
 
 # Run tests
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 ```
 
 Verify: all new modules have corresponding test files, all tests pass.
@@ -558,8 +558,8 @@ Verify: all new modules have corresponding test files, all tests pass.
 #### B11. Third-Party Integration
 
 ```bash
-grep -rn "fetch(\|axios\." packages/core/src/ | grep -v node_modules | grep -v __tests__ | head -20
-grep -rn "https://\|http://" packages/core/src/ | grep -v node_modules | grep -v ".env\|localhost" | head -10
+grep -rn "fetch(\|axios\." {{paths.source}}/ | grep -v node_modules | grep -v __tests__ | head -20
+grep -rn "https://\|http://" {{paths.source}}/ | grep -v node_modules | grep -v ".env\|localhost" | head -10
 ```
 
 ### Blast Radius Verification
@@ -567,7 +567,7 @@ grep -rn "https://\|http://" packages/core/src/ | grep -v node_modules | grep -v
 When plan changes ANY constant/path/value:
 ```bash
 # For EACH changed value:
-grep -rn '"[OLD_VALUE]"' packages/core/src/ --include="*.ts" | grep -v node_modules
+grep -rn '"[OLD_VALUE]"' {{paths.source}}/ --include="*.ts" | grep -v node_modules
 # ALL matches must be accounted for in blast radius analysis
 ```
 
@@ -605,7 +605,7 @@ ITERATION N:
 **Plan Coverage**: 100% items verified with VR-* proof.
 **Requirements**: 100% Implemented with evidence.
 **Pattern Compliance**: massu-pattern-scanner exits 0, all VR-NEGATIVE checks pass.
-**Build & Types**: `npm run build` exit 0, `cd packages/core && npx tsc --noEmit` 0 errors, `npm test` passes.
+**Build & Types**: `{{verify.build | default("(this stack declares no build step)")}}` exit 0, `{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}` 0 errors, `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}` passes.
 **Blast Radius** (if applicable): Zero uncategorized references.
 **Technical Debt**: Empty OR fully planned with cleanup steps.
 

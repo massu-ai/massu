@@ -74,8 +74,10 @@ make_repo() {
     internal)
       # The markers are the *.public generator files — present only in the
       # repo that GENERATES the mirror, and named in the guard's own denylist.
-      printf '{}\n'      > "$dir/package.public.json"
+      # package.public.json was retired 2026-09-21 (the mirror manifest is derived), so the
+      # remaining markers are the *.public generator files that still exist.
       printf '# public\n'> "$dir/README.public.md"
+      printf 'node_modules\n' > "$dir/.gitignore.public"
       # A SYNTHETIC remote, deliberately not the real internal URL. Detection
       # only requires "not the public mirror", so naming the real private repo
       # here would buy nothing and publish it: this file syncs to the public
@@ -182,10 +184,12 @@ echo "[3] PUBLIC remote OUTRANKS a stray marker file"
 # — that is the dangerous direction.
 D="$WORK/public-with-marker"
 make_repo "$D" public "$REPO_ROOT/scripts/install-hooks.sh"
-printf '{}\n' > "$D/package.public.json"
+# Must be a file that IS still a marker, or this check proves nothing: planting a file the
+# detector no longer looks for would pass whether or not the remote outranks markers.
+printf '# public\n' > "$D/README.public.md"
 OUT="$(bash "$D/scripts/install-hooks.sh" 2>&1)"
 grep -q 'repo context: public' <<<"$OUT"
-check "still detected as public despite package.public.json present" $?
+check "still detected as public despite a stray README.public.md marker" $?
 grep -q "$GUARD_REF" "$D/.git/hooks/pre-commit" 2>/dev/null
 check "guard still installed" $?
 

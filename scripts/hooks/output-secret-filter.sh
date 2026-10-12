@@ -122,5 +122,22 @@ check_pattern 'whsec_[a-zA-Z0-9_-]{20,}' "WEBHOOK_SECRET"
 # Google API keys
 check_pattern 'AIza[a-zA-Z0-9_-]{35}' "GOOGLE_API_KEY"
 
+# ⛔ DETECTED WAS A TRACKED FLAG WITH NO CONSUMER, and there is exactly one honest use for it.
+# Both appends above are `>> "$LOG_FILE" 2>/dev/null` -- a SILENCED write to the forensic record
+# (CR-69). If that log is unwritable (a read-only checkout, a full disk, a changed permission)
+# detections vanish with no symptom, and "no secret was found" and "the record could not be
+# written" become the same empty file (G16: RECORD -> RETAIN -> RETRIEVE, prove all three).
+# So assert the END STATE rather than trusting exit 0: after a detection, the line we just wrote
+# must be readable back. This hook is PostToolUse advisory and must NEVER block, so the
+# consequence is a LOUD stderr line, never a non-zero exit.
+if [ "$DETECTED" = "1" ]; then
+  if [ ! -s "$LOG_FILE" ] || ! tail -20 "$LOG_FILE" 2>/dev/null | grep -qF "$TIMESTAMP"; then
+    echo "[SECURITY] A secret was detected AND the detection log could not be written:" >&2
+    echo "[SECURITY]   $LOG_FILE" >&2
+    echo "[SECURITY] The warnings above are now the ONLY record of it. Fix the log path before" >&2
+    echo "[SECURITY] relying on that file for any audit." >&2
+  fi
+fi
+
 # Never block execution
 exit 0

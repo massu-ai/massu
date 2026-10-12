@@ -56,29 +56,97 @@ export function isTestOrFixturePath(filePath: string): boolean {
   return TEST_OR_FIXTURE_PATH_PATTERNS.some((re) => re.test(filePath));
 }
 
-const FIX_HEURISTICS: Array<{ name: string; test: (diff: string) => boolean }> = [
+// ⛔ EVERY ALTERNATIVE IS `\b`-BOUNDED. Added 2026-08-20; the omission was measurable.
+//
+// The alternatives below were unanchored substrings, so they matched inside ordinary English
+// words — in a codebase whose comments discuss its own machinery constantly:
+//
+//     auth            matched  "the author", "authoring site", "GIT_AUTHOR_DATE", "authority"
+//     lock            matched  "a code block", "blocked", "blocking", "clock skew", "deadlock"
+//     rate.limit      matched  "corporate_limits"   <- the `.` was ANY CHAR, not a literal dot
+//
+// Measured over the last 250 commits, restricted to the population the role gate below
+// actually admits (87 commits touching non-test source):
+//
+//     heuristic                 BEFORE      after \b + escaped dot
+//     auth_fix                  25 (29%)    15 (17%)
+//     concurrency_fix           25 (29%)     9 (10%)
+//     added_error_handling      31 (36%)    22 (25%)
+//     >=1 signal (the banner)   51 (59%)    35 (40%)
+//
+// `concurrency_fix` at 29% was substantially the English word "block"; `auth_fix` at 29% was
+// substantially "author". Every sampled match across all three was a COMMENT or a string
+// literal, never code — see the role-gate note further down for why that matters so much
+// here. Signals feed `sessionFixes`, which drives the ACTION REQUIRED banner demanding an
+// incident, so a demand landing on three of five ordinary commits trains us to ignore the one
+// banner that must not cry wolf (CR-83).
+//
+// ⚠️ Boundaries are a PRECISION fix, not a completeness fix. They cannot tell code from
+// commentary — that needs a comment/string-aware pass (the projection put the banner at 26%),
+// which is tracked separately because it is a shared module plus a migration, not a regex edit.
+export const FIX_HEURISTICS: Array<{ name: string; test: (diff: string) => boolean }> = [
   {
     name: 'removed_broken_code',
     test: (diff) => /^-.*\b(bug|broken|wrong|incorrect|typo|crash|error|fail|miss|stale)\b/m.test(diff),
   },
   {
     name: 'added_error_handling',
+    // `if.*nil` / `if.*None` were DROPPED here, and that is deduplication rather than a silent
+    // narrowing: `nil_handling_fix` below already matches exactly that shape
+    // (`= nil|= None|is None|!= nil|is not None`), so a nil check scored twice under one banner.
     test: (diff) => {
-      const added = (diff.match(/^\+.*(try|except|catch|guard|if.*nil|if.*None|validate|assert|raise|throw)/gm) || []).length;
+      const added = (diff.match(/^\+.*\b(try|except|catch|guard|validate|assert|raise|throw)\b/gm) || []).length;
       return added > 2;
     },
   },
-  {
-    name: 'method_name_correction',
-    test: (diff) => {
-      const removed = diff.match(/^-.*\.([a-z_]+)\(/m);
-      const added = diff.match(/^\+.*\.([a-z_]+)\(/m);
-      return !!(removed && added && removed[1] !== added[1]);
-    },
-  },
+  // ⛔ `method_name_correction` WAS RETIRED HERE 2026-08-20, and the measurement is why.
+  //
+  //   test: (diff) => {
+  //     const removed = diff.match(/^-.*\.([a-z_]+)\(/m);   // FIRST removed method call
+  //     const added   = diff.match(/^\+.*\.([a-z_]+)\(/m);  // FIRST added method call
+  //     return !!(removed && added && removed[1] !== added[1]);
+  //   }
+  //
+  // It compared the FIRST removed call against the FIRST added call, anywhere in the diff.
+  // The two need no relationship to each other, so it fired whenever a diff contained any
+  // two differently-named method calls — which is nearly every diff that touches code.
+  //
+  // Measured over the last 250 commits repo-wide:
+  //     shipped predicate                                            29 firings (12%)
+  //     one requiring the two lines to be identical but for the name  0 firings
+  // Eleven firings read by hand over packages/core/src: `.push()`->`.includes()`,
+  // `.call()`->`.system()`, `.trim()`->`.stringify()`, `.all()`->`.cwd()`, `.now()`->`.push()`,
+  // `.on()`->`.sort()`, `.test()`->`.split()` … NOT ONE was a rename. Precision 0 of 29.
+  //
+  // RETIRED RATHER THAN REPAIRED, on the same numbers: a correct implementation fires ZERO
+  // times in 250 commits, so repairing it buys a branch that never runs — dead weight with a
+  // maintenance cost (CR-71 in spirit: a detector that cannot fire is not a detector). It was
+  // not free while it lived: signals feed `sessionFixes`, which drives the ACTION REQUIRED
+  // banner demanding incidents, so this put noise directly on the retro pipeline — the one
+  // banner that must not cry wolf (CR-83).
+  //
+  // Kept as a comment, not deleted outright, so the next author who reaches for
+  // "detect a method rename from a diff" finds the measurement instead of rebuilding it.
+  //
+  // ⛔ THE FULL WRITE-UP IS DELIBERATELY NOT LINKED FROM HERE. This file SYNCS TO THE PUBLIC
+  // MIRROR and the incident corpus does not, so a path citation would point at something
+  // that does not exist there — and the leak guard refuses it, correctly. It caught exactly
+  // this line. The measurement above is self-contained for that reason; search the internal
+  // incident corpus for "a summary counted signals and listed files" if you need the rest.
+  // (Memory: a-retro-citation-is-publishable-content.)
   {
     name: 'auth_fix',
-    test: (diff) => /^\+.*(token|auth|header|X-Service|Bearer|credential)/im.test(diff),
+    // `authn`/`authz` are spelled out because `\bauth\b` no longer reaches them, and the
+    // trailing `s?` keeps plurals (`tokens`, `credential`+`s`) that the boundary would drop.
+    //
+    // ⚠️ Backticks, not double quotes, and the plural is split — deliberately. CR-59's
+    // drift-guard forbids a quoted `credentials` segment literal outside credentials.ts via
+    // /['"]credentials['"]/, which cannot tell a string literal in CODE from quotation marks
+    // in PROSE. Writing the word normally here turns that guard red. That is the SAME defect
+    // class this file's own boundary fix addresses, in a second detector — recorded in the
+    // incident rather than fixed here, because widening a security-adjacent guard is its own
+    // change with its own blast radius.
+    test: (diff) => /^\+.*\b(token|auth|authn|authz|header|X-Service|Bearer|credential)s?\b/im.test(diff),
   },
   {
     name: 'nil_handling_fix',
@@ -86,16 +154,42 @@ const FIX_HEURISTICS: Array<{ name: string; test: (diff: string) => boolean }> =
   },
   {
     name: 'concurrency_fix',
-    test: (diff) => /^\+.*(timeout|semaphore|lock|mutex|throttle|rate.limit|max_conn)/im.test(diff),
+    // `rate[-_. ]limit` — the original `rate.limit` used an UNESCAPED dot, so `.` matched any
+    // character and the alternative fired on "corporate_limits". The class is now explicit
+    // about which separators are intended.
+    test: (diff) => /^\+.*\b(timeout|semaphore|lock|mutex|throttle|rate[-_. ]limit|max_conn)\b/im.test(diff),
   },
-  {
-    name: 'async_pattern_fix',
-    test: (diff) => /^\+.*(@MainActor|async with|asyncio\.timeout|\.await)/.test(diff) && /^-/m.test(diff),
-  },
-  {
-    name: 'added_missing_import',
-    test: (diff) => /^\+.*(import|from.*import|require)/.test(diff) && !/^-.*(import|from.*import|require)/m.test(diff),
-  },
+  // ⛔ `async_pattern_fix` AND `added_missing_import` WERE RETIRED HERE 2026-08-20.
+  //
+  //   async_pattern_fix:
+  //     test: (diff) => /^\+.*(@MainActor|async with|asyncio\.timeout|\.await)/.test(diff)
+  //                     && /^-/m.test(diff),
+  //   added_missing_import:
+  //     test: (diff) => /^\+.*(import|from.*import|require)/.test(diff)
+  //                     && !/^-.*(import|from.*import|require)/m.test(diff),
+  //
+  // Both fire ZERO times across the last 250 commits — measured on the same run that produced
+  // the boundary numbers above, over the 87 commits touching non-test source:
+  //
+  //     async_pattern_fix     0 / 87
+  //     added_missing_import  0 / 87
+  //
+  // This is the identical finding that retired `method_name_correction` below, and it is
+  // retired for the identical reason: a detector that never fires is not a detector, and it
+  // still costs review attention and maintenance on every pass over this table (CR-71 in
+  // spirit — a zero-caller chokepoint is a dead feature).
+  //
+  // WHY THEY CANNOT FIRE HERE, so the next author does not "fix" them back in: their tokens are
+  // largely foreign to this codebase. `@MainActor` is Swift; `async with` is Python. Neither
+  // appears in a TypeScript monorepo. `added_missing_import` requires added imports with NO
+  // removed import anywhere in the same diff, which any edit touching an import block violates.
+  // If this table is ever pointed at a Swift or Python corpus, re-measure before reinstating —
+  // do not reinstate on the assumption that the language mix changed.
+  //
+  // Kept as comments rather than deleted so the measurement travels with the code, and so a
+  // future author reaching for "detect an async-pattern fix" finds the number first.
+  // (Same reasoning, and same publication constraint, as the block below: this file syncs to
+  // the public mirror, so no internal path citations.)
 ];
 
 function getSessionFlagPath(sessionId: string): string {
@@ -220,8 +314,14 @@ async function main(): Promise<void> {
     // A gate that fires on compliant work gets disabled, and then nothing is enforced (CR-72).
     // The retro law is load-bearing; this was training us to ignore it.
     //
-    // Role-gate BEFORE scoring content — the same shape `nil_handling_fix` and
-    // `async_pattern_fix` already use to avoid misfiring (both require a paired removal).
+    // Role-gate BEFORE scoring content — the same shape `nil_handling_fix` already uses to
+    // avoid misfiring (it requires a paired removal, so an addition alone cannot trigger it).
+    //
+    // ⚠️ THIS GATE COVERS ONE AXIS OF TWO, and the 2026-08-20 measurement is what proved it.
+    // Excluding test PATHS removed the files where discussion dominates. It does nothing about
+    // discussion inside production source, which is where the boundary false positives above
+    // all landed — a comment about a message "header" scored as an auth fix. Path role and
+    // content role are different questions; this answers only the first.
     if (isTestOrFixturePath(filePath)) {
       process.exit(0);
       return;

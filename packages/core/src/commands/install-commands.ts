@@ -26,17 +26,31 @@ import {
   readdirSync,
   statSync,
 } from 'fs';
-import { resolve, dirname, relative, join } from 'path';
-import { fileURLToPath } from 'url';
+import { resolve, relative, join } from 'path';
 import { createHash } from 'crypto';
 import { getConfig } from '../config.ts';
 import type { Config } from '../config.ts';
-import { renderTemplate, MissingVariableError, TemplateParseError } from './template-engine.ts';
+import type { FragmentStats } from './fragments.ts';
+// Variant selection and rendering live in their own modules so that every consumer of a
+// bundled asset — this installer, `massu show-template`, anything added later — reaches the
+// SAME answer instead of deriving its own. See the header of `asset-render.ts` for what the
+// second derivation cost.
+import {
+  resolveAssetDir,
+  isVariantFilename,
+  variantFilename,
+  pickVariant,
+  type PickVariantResult,
+} from './asset-resolution.ts';
+import {
+  buildTemplateVars,
+  makeRenderContext,
+  renderResolvedAsset,
+  renderAssetFile,
+  type RenderContext,
+} from './asset-render.ts';
 import { atomicWriteFile } from '../lib/settings-local.ts';
 import { installPermissions } from '../permissions.ts';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 // ============================================================
 // Asset Types
@@ -51,68 +65,6 @@ const ASSET_TYPES = [
   { name: 'reference', targetSubdir: 'reference', description: 'reference files' },
 ] as const;
 
-// ============================================================
-// Directory Resolution
-// ============================================================
-
-/**
- * Resolve the path to a bundled asset directory.
- * Handles both npm-installed and local development scenarios.
- */
-/**
- * An asset dir is only a HIT if it actually CONTAINS assets.
- *
- * CR-65 — BROKEN AND EMPTY MAY NEVER RENDER IDENTICALLY.
- *
- * `existsSync(dir)` was the entire test, and it is the wrong question. Running from source,
- * `__dirname` is `src/commands/`, so candidate 2 — `resolve(__dirname, '..', 'commands')` —
- * resolves to `src/commands` ITSELF: a directory that exists, contains only `.ts`, and holds
- * ZERO installable assets. The resolver returned it, the installer walked it, found nothing to
- * do, and reported success with `installed: 0`.
- *
- *     "I found no commands to install"   and   "I looked in the wrong directory"
- *
- * were byte-identical. A resolver that CANNOT SEE passed as a resolver that FOUND NOTHING —
- * which is the mechanism behind every bug in this codebase's silent-failure class.
- *
- * So a candidate must prove it holds assets. If none does, we return null and the caller FAILS
- * LOUD rather than quietly installing nothing.
- */
-function dirHoldsAssets(dir: string): boolean {
-  if (!existsSync(dir)) return false;
-  try {
-    return readdirSync(dir).some(
-      (e) => e.endsWith('.md') || statSync(resolve(dir, e)).isDirectory(),
-    );
-  } catch {
-    // Unreadable is NOT empty. Refuse it.
-    return false;
-  }
-}
-
-export function resolveAssetDir(assetName: string): string | null {
-  const cwd = process.cwd();
-
-  const candidates = [
-    // 1. npm-installed: node_modules/@massu/core/{assetName}
-    resolve(cwd, 'node_modules/@massu/core', assetName),
-    // 2. Relative to compiled dist/cli.js → ../{assetName}
-    resolve(__dirname, '..', assetName),
-    // 3. Relative to source src/commands/ → ../../{assetName}
-    resolve(__dirname, '../..', assetName),
-  ];
-
-  for (const c of candidates) {
-    if (dirHoldsAssets(c)) return c;
-  }
-
-  return null;
-}
-
-/** Legacy alias for backwards compatibility */
-export function resolveCommandsDir(): string | null {
-  return resolveAssetDir('commands');
-}
 
 // ============================================================
 // Manifest (local-edit protection)
@@ -256,141 +208,6 @@ export function runWithManifest<T>(claudeDir: string, fn: (m: Manifest) => T): T
   return result;
 }
 
-// ============================================================
-// Variant Resolution (Phase 1)
-// ============================================================
-
-/** Discriminated-union return shape for `pickVariant`. */
-export type PickVariantResult =
-  | { kind: 'hit'; suffix: string } // found a variant (suffix may be "")
-  | { kind: 'miss' } // no candidate found, caller SKIPS the file
-  | { kind: 'fallback'; reason: string }; // misconfig / safe fallback, caller copies UNSUFFIXED default
-
-/** Well-known language keys for the passthrough-fallback step in `pickVariant`. */
-const PASSTHROUGH_LANG_KEYS = [
-  'typescript',
-  'javascript',
-  'python',
-  'swift',
-  'rust',
-  'go',
-] as const;
-
-/**
- * Choose the variant suffix for a base template name.
- *
- * Two-axis priority (Plan #2 P2-001 extends Plan #1's lang-only axis):
- *   For each language `L` in priority order (primary, languages.*, passthrough.*):
- *     a. If a sub-framework `F` is declared for L, probe `<base>.<L>-<F>.md`.
- *     b. Probe `<base>.<L>.md` (lang-only fallback).
- *   Then probe the unsuffixed `<base>.md`.
- *
- * Priority order for the language list (Plan #1):
- *   1. `framework.primary` (or `framework.type` if primary undefined). With the
- *      sub-framework axis, the candidate framework is the matching
- *      `framework.languages[primary].framework` if present, else `framework.router`
- *      / `framework.orm` / `framework.ui` heuristics, else just lang-only.
- *   2. Each declared `framework.languages.<lang>` entry with a non-empty `framework`,
- *      in YAML declaration order. Sub-framework = `entry.framework`.
- *   3. Passthrough fallback: well-known top-level `framework.<lang>` blocks with a
- *      non-empty `framework` field, in fixed order, excluding entries already covered.
- *      Sub-framework = top-level block's `framework` field.
- *   4. The unsuffixed default ("").
- *
- * The function NEVER throws. It returns a discriminated union so the caller can
- * distinguish "skip this file" from "copy the default" — see plan §"Error semantics".
- */
-export function pickVariant(
-  baseName: string,
-  sourceDir: string,
-  framework: Config['framework'],
-): PickVariantResult {
-  // Build (lang, subFramework) candidate pairs in priority order. Sub-framework
-  // can be undefined — in that case only the lang-only axis is probed for that
-  // language.
-  type Candidate = { lang: string; subFramework?: string };
-  const candidates: Candidate[] = [];
-  const seenLangs = new Set<string>();
-
-  function pushCandidate(lang: string, sub: string | undefined): void {
-    if (seenLangs.has(lang)) return;
-    seenLangs.add(lang);
-    candidates.push({ lang, subFramework: sub && sub.length > 0 ? sub : undefined });
-  }
-
-  // 1. framework.primary (or fall back to framework.type)
-  const primary = framework.primary ?? framework.type;
-  if (primary && primary !== 'multi') {
-    // Best-effort sub-framework detection for the primary lang:
-    //   - If `framework.languages[primary]` has a `framework`, use that.
-    //   - Else, fall back to top-level passthrough `framework[primary].framework`.
-    let primarySub: string | undefined;
-    if (framework.languages && framework.languages[primary]?.framework) {
-      primarySub = framework.languages[primary].framework;
-    } else {
-      const passthrough = framework as unknown as Record<string, unknown>;
-      const block = passthrough[primary];
-      if (block && typeof block === 'object') {
-        const fw = (block as { framework?: unknown }).framework;
-        if (typeof fw === 'string' && fw.length > 0) primarySub = fw;
-      }
-    }
-    pushCandidate(primary, primarySub);
-  }
-
-  // 2. framework.languages declaration order
-  if (framework.languages) {
-    for (const lang of Object.keys(framework.languages)) {
-      const entry = framework.languages[lang];
-      if (entry && typeof entry.framework === 'string' && entry.framework.length > 0) {
-        pushCandidate(lang, entry.framework);
-      }
-    }
-  }
-
-  // 3. Passthrough fallback — `framework.<lang>` (top-level passthrough block).
-  const passthrough = framework as unknown as Record<string, unknown>;
-  for (const lang of PASSTHROUGH_LANG_KEYS) {
-    if (seenLangs.has(lang)) continue;
-    const block = passthrough[lang];
-    if (block && typeof block === 'object') {
-      const fw = (block as { framework?: unknown }).framework;
-      if (typeof fw === 'string' && fw.length > 0) {
-        pushCandidate(lang, fw);
-      }
-    }
-  }
-
-  // 4. Probe disk — for each (lang, sub) pair, try lang-sub first, then lang-only.
-  for (const cand of candidates) {
-    if (cand.subFramework) {
-      const subPath = resolve(sourceDir, `${baseName}.${cand.lang}-${cand.subFramework}.md`);
-      if (existsSync(subPath)) {
-        return { kind: 'hit', suffix: `.${cand.lang}-${cand.subFramework}` };
-      }
-    }
-    const langPath = resolve(sourceDir, `${baseName}.${cand.lang}.md`);
-    if (existsSync(langPath)) {
-      return { kind: 'hit', suffix: `.${cand.lang}` };
-    }
-  }
-  // Unsuffixed default
-  const defaultPath = resolve(sourceDir, `${baseName}.md`);
-  if (existsSync(defaultPath)) {
-    return { kind: 'hit', suffix: '' };
-  }
-
-  // No hit. Risk #7: framework.type=multi without primary → safe fallback.
-  if (framework.type === 'multi' && !framework.primary) {
-    process.stderr.write(
-      'massu: warning - framework.type=multi but framework.primary is undefined; ' +
-        'falling back to default templates\n',
-    );
-    return { kind: 'fallback', reason: 'multi-without-primary' };
-  }
-
-  return { kind: 'miss' };
-}
 
 // ============================================================
 // Recursive File Sync
@@ -403,11 +220,6 @@ interface SyncStats {
   kept: number;
 }
 
-/** Returns true if a top-level entry name has the `<base>.<variant>.md` shape. */
-function isVariantFilename(entry: string): boolean {
-  // Match exactly one inner dot before `.md`. `_shared-preamble.md` (no inner dot) survives.
-  return /^[^.]+\.[^.]+\.md$/.test(entry);
-}
 
 /**
  * Recursively sync all .md files from sourceDir to targetDir.
@@ -429,6 +241,9 @@ export function syncDirectory(
   manifestKeyPrefix: string,
   topLevel: boolean = true,
   templateVars: Record<string, unknown> = {},
+  // P4.3b: supplies `{{> name}}` bodies. Threaded through rather than built here so
+  // ONE resolver (and one FragmentStats) spans the whole recursive walk.
+  resolveFragment?: (name: string) => string | null,
 ): SyncStats {
   const stats: SyncStats = { installed: 0, updated: 0, skipped: 0, kept: 0 };
 
@@ -456,6 +271,7 @@ export function syncDirectory(
         subPrefix,
         false,
         templateVars,
+        resolveFragment,
       );
       stats.installed += subStats.installed;
       stats.updated += subStats.updated;
@@ -466,6 +282,30 @@ export function syncDirectory(
 
     if (!entry.endsWith('.md')) continue;
 
+    // ⛔ A DIRECTORY'S OWN README IS CORPUS FRONT MATTER, NOT AN ASSET.
+    //
+    // `commands/README.md` documents what the directory ships and how the templating
+    // works. It is not a slash command and no customer was ever meant to receive it in
+    // `.claude/commands/`. It was nonetheless in the rendered population, and because it
+    // DOCUMENTS the syntax it contains a literal `{{variable.path}}` at line 115 — which
+    // the renderer tried to resolve, threw `MissingVariableError`, and the installer
+    // caught and turned into `stats.skipped++` plus one stderr line, exit 0.
+    //
+    // So it has been SILENTLY DROPPED on every stack since `{{...}}` rendering shipped in
+    // 1.3.0, and nothing reported it. That is this plan's headline failure mode — an asset
+    // silently absent while the install reports success — sitting inside the asset corpus
+    // the whole time. Measured 2026-09-20: `totalSkipped=1`, `commands: skipped=1`.
+    //
+    // Fixing its escapes instead would be the WRONG repair: the file would then render
+    // successfully and start appearing in every customer's command list, which is worse
+    // than being absent. The defect is that it is in the population at all.
+    //
+    // Note line 119 of that README documents the `\{{` escape its own examples on 115/118
+    // do not use — the documentation of the escape hatch is what the missing escape hatch
+    // broke. The CLASS (an asset silently dropped) is now held by the P4 acceptance
+    // gate, which asserts `stats.skipped === 0` on all 13 fixtures.
+    if (entry === 'README.md') continue;
+
     let sourceFilename = entry;
     let baseName = entry.slice(0, -'.md'.length);
 
@@ -473,46 +313,41 @@ export function syncDirectory(
       // Skip variant siblings — they are selected indirectly via the base name.
       if (isVariantFilename(entry)) continue;
 
-      const choice = pickVariant(baseName, sourceDir, framework);
-      if (choice.kind === 'miss') {
-        // No file to copy.
-        continue;
-      }
-      // 'hit' or 'fallback' both copy a file:
-      //   - 'hit' uses the chosen suffix (may be "")
-      //   - 'fallback' copies the unsuffixed default (same as suffix === "")
-      const suffix = choice.kind === 'hit' ? choice.suffix : '';
-      sourceFilename = suffix === '' ? `${baseName}.md` : `${baseName}${suffix}.md`;
+      const selected = variantFilename(baseName, pickVariant(baseName, sourceDir, framework));
+      // A miss means this stack selects no file for that base name.
+      if (selected === null) continue;
+      sourceFilename = selected;
     }
 
     const resolvedSourcePath = resolve(sourceDir, sourceFilename);
-    if (!existsSync(resolvedSourcePath)) {
-      // Defensive: pickVariant said hit, but file vanished between probe and read.
-      continue;
-    }
 
     // Target filename is always the BASE name (variant suffix is internal to the package).
     const targetFilename = topLevel ? `${baseName}.md` : entry;
     const targetPath = resolve(targetDir, targetFilename);
-    const rawContent = readFileSync(resolvedSourcePath, 'utf-8');
 
-    // Plan #2 P1-003: render any `{{var}}` substitutions BEFORE hashing so
-    // the manifest entry hash matches the byte-stream that lands on disk.
-    // Engine errors (missing var, malformed token) fail this single file but
-    // never abort the whole install — see spec §"Error semantics".
-    let sourceContent: string;
-    try {
-      sourceContent = renderTemplate(rawContent, templateVars);
-    } catch (err) {
-      if (err instanceof MissingVariableError || err instanceof TemplateParseError) {
-        process.stderr.write(
-          `massu: skipping ${resolvedSourcePath}: ${err.message}\n`,
-        );
+    // Plan #2 P1-003: render any `{{var}}` substitutions BEFORE hashing so the manifest entry
+    // hash matches the byte-stream that lands on disk.
+    //
+    // Through `renderAssetFile` rather than `renderTemplate` directly: it is the ONE render
+    // step, shared with `massu show-template`, so the bytes that command prints are the bytes
+    // this loop writes. They used to be derived separately and were not the same — see the
+    // header of `asset-render.ts`.
+    //
+    // Engine errors (missing var, malformed token) fail this single file but never abort the
+    // whole install — see spec §"Error semantics". An unreadable source is the same class: it
+    // is reported, counted, and skipped, never silently treated as empty.
+    const rendered = renderAssetFile(resolvedSourcePath, sourceFilename, {
+      vars: templateVars,
+      resolveFragment,
+    });
+    if (rendered.kind !== 'ok') {
+      if (rendered.kind === 'error') {
+        process.stderr.write(`massu: skipping ${rendered.sourcePath}: ${rendered.message}\n`);
         stats.skipped++;
-        continue;
       }
-      throw err;
+      continue;
     }
+    const sourceContent = rendered.content;
     const sourceHash = hashContent(sourceContent);
 
     const manifestKey = manifestKeyPrefix === ''
@@ -668,29 +503,6 @@ export interface InstallCommandsResult {
   commandsDir: string;
 }
 
-/**
- * Build the variable scope passed to the templating engine.
- * See spec §"Variable scope passed to the engine" for the contract.
- */
-export function buildTemplateVars(): Record<string, unknown> {
-  const config = getConfig();
-  return {
-    framework: config.framework,
-    paths: config.paths,
-    detected: config.detected ?? {},
-    config,
-    // P-H006 (plan-stage-c-high-batch): RESERVED CLAUDE CODE PLACEHOLDER.
-    // Claude Code reads `{{ARGUMENTS}}` as a runtime placeholder inside
-    // slash-command files. The Massu template engine has no native concept
-    // of reserved literals; we model the placeholder as a variable whose
-    // value IS the literal `{{ARGUMENTS}}` string. Because the engine never
-    // re-renders output, this passes through verbatim. Closes the bug class
-    // where `/massu-article-review`, `/massu-autoresearch`, etc. silently
-    // failed to install because the engine threw MissingVariableError on
-    // their {{ARGUMENTS}} usage.
-    ARGUMENTS: '{{ARGUMENTS}}',
-  };
-}
 
 export interface InstallCommandsOptions {
   /** When true, skip seeding `mcp__massu__*` into permissions.allow. */
@@ -717,7 +529,12 @@ export function installCommands(
   }
 
   const framework = getConfig().framework;
-  const templateVars = buildTemplateVars();
+  // P4.3b — ONE render context for the whole install: one variable scope, one fragment
+  // resolver and one stats object, so the counts the acceptance asserts
+  // (`fragmentsMissing === 0`) cover every asset rather than one directory. Built by the
+  // same factory `massu show-template` uses, so neither can drift from the other.
+  const ctx: RenderContext = makeRenderContext(framework);
+  const { vars: templateVars, resolveFragment, fragments: fragmentStats } = ctx;
   const stats = runWithManifest(claudeDir, (manifest) => {
     const syncStats = syncDirectory(
       sourceDir,
@@ -727,6 +544,7 @@ export function installCommands(
       'commands',
       true,
       templateVars,
+      resolveFragment,
     );
     if (!opts.skipPermissions) {
       installPermissions(claudeDir, manifest, { silent: true });
@@ -749,6 +567,14 @@ export interface InstallAllResult {
   claudeDir: string;
   /** Permission-seeding outcome (undefined when --skip-permissions). */
   permissions?: { installed: number; kept: number; skipped: number };
+  /**
+   * P4.3b — `{{> name}}` resolution counts across the WHOLE install.
+   *
+   * REPORTED, not merely tallied: `missing` is the number the acceptance asserts at zero,
+   * and a fragment that silently defaulted on every stack is a fragment nobody varied. A
+   * count nobody reads is the blind-gate shape (M1).
+   */
+  fragments: FragmentStats;
 }
 
 export interface InstallAllOptions {
@@ -771,7 +597,12 @@ export function installAll(
   let permissionsResult: { installed: number; kept: number; skipped: number } | undefined;
 
   const framework = getConfig().framework;
-  const templateVars = buildTemplateVars();
+  // P4.3b — ONE render context for the whole install: one variable scope, one fragment
+  // resolver and one stats object, so the counts the acceptance asserts
+  // (`fragmentsMissing === 0`) cover every asset rather than one directory. Built by the
+  // same factory `massu show-template` uses, so neither can drift from the other.
+  const ctx: RenderContext = makeRenderContext(framework);
+  const { vars: templateVars, resolveFragment, fragments: fragmentStats } = ctx;
 
   runWithManifest(claudeDir, (manifest) => {
     for (const assetType of ASSET_TYPES) {
@@ -787,6 +618,7 @@ export function installAll(
         assetType.targetSubdir,
         true,
         templateVars,
+        resolveFragment,
       );
 
       assets[assetType.name] = stats;
@@ -807,6 +639,7 @@ export function installAll(
     totalSkipped,
     totalKept,
     claudeDir,
+    fragments: fragmentStats,
     permissions: permissionsResult,
   };
 }

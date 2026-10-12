@@ -457,7 +457,22 @@ describe('Codebase Introspector: reads are bounded by the name filter, not by di
     // ...and the result is still correct at both sizes.
     expect(a.result.python?.auth_dep).toBe('get_current_user');
     expect(b.result.python?.auth_dep).toBe('get_current_user');
-  });
+  }, 120_000);
+  // ^ EXPLICIT BUDGET, AND IT ASSERTS NOTHING ABOUT THE CODE — the same distinction the
+  // 60_000 above draws. Every property this test makes is an OPERATION COUNT: zero `.bin`
+  // reads at either size, and an IDENTICAL read count across a 10x directory-size step.
+  // Those are invariant to how fast or busy the host is, which is the whole point (G27).
+  //
+  // The timeout is only the second detection path, for an implementation that never
+  // finishes. It was inheriting vitest.config.ts's global `testTimeout: 20000`, and on
+  // 2026-09-20 it FIRED during a full-suite run and then passed 3/3 in isolation —
+  // measured at 401ms of test time, so contention, not a regression. Fixture construction
+  // was measured separately at 140ms for all 2,750 files and is not the cost.
+  //
+  // Raising it is not the forbidden repair: widening a bound is wrong when the bound IS
+  // the assertion. Here it is a hang detector sitting behind assertions that already state
+  // the property directly, and a hang detector that fires on a busy machine is a flake
+  // source that teaches people to ignore the suite (CR-72).
 });
 
 describe('runDetection: skipIntrospect contract (P3-002 + P4-006)', () => {

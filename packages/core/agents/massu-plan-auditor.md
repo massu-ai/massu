@@ -129,7 +129,7 @@ grep -rn "[old-pattern]" src/
 ### Step 7: Pattern Compliance
 ```bash
 ./scripts/pattern-scanner.sh
-npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 ```
 
 ### Step 8: Generate Structured Audit Report

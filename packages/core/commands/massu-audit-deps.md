@@ -144,8 +144,8 @@ cat package.json | node -e "
 ```bash
 # Check if each dependency is actually imported in source
 for dep in $(node -e "const p=require('./package.json'); Object.keys(p.dependencies||{}).forEach(d=>console.log(d))"); do
-  count=$(grep -rn "from ['\"]$dep" packages/core/src/ --include="*.ts" 2>/dev/null | wc -l | tr -d ' ')
-  count2=$(grep -rn "require(['\"]$dep" packages/core/src/ --include="*.ts" 2>/dev/null | wc -l | tr -d ' ')
+  count=$(grep -rn "from ['\"]$dep" {{paths.source}}/ --include="*.ts" 2>/dev/null | wc -l | tr -d ' ')
+  count2=$(grep -rn "require(['\"]$dep" {{paths.source}}/ --include="*.ts" 2>/dev/null | wc -l | tr -d ' ')
   total=$((count + count2))
   if [ "$total" -eq 0 ]; then
     echo "UNUSED: $dep (0 imports found)"

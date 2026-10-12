@@ -25,6 +25,8 @@ framework:
 
 paths:
   source: src/main/java
+  # the Maven Standard Directory Layout, which surefire reads
+  tests: src/test/java
   aliases: {}
 
 toolPrefix: massu

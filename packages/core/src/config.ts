@@ -16,6 +16,19 @@ import { homedir } from 'os';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { encodeMemoryDirName } from './lib/memory-path.ts';
+import { CORRECTIONS_FILENAME } from './lib/corrections-md.ts';
+
+/**
+ * The knowledge-source filenames, ONCE. `conventions.knowledgeSourceFiles` defaults to
+ * this, and the two runtime fallbacks that cannot always reach config import it rather
+ * than retyping the array — they were three drifting copies of one fact, and nothing
+ * checked that they agreed.
+ */
+export const DEFAULT_KNOWLEDGE_SOURCE_FILES: readonly string[] = [
+  'CLAUDE.md',
+  'MEMORY.md',
+  CORRECTIONS_FILENAME,
+];
 import { resolveApiKey, resolveEndpoint, type ApiKeySource } from './credentials.ts';
 
 // ============================================================
@@ -162,7 +175,11 @@ const RegressionConfigSchema = z.object({
 export type RegressionConfig = z.infer<typeof RegressionConfigSchema>;
 
 // --- Auto-Learning Config ---
-const AutoLearningConfigSchema = z.object({
+// Exported so a drift-guard can assert the `signals` default was REMOVED rather than
+// re-typed. A schema nobody can parse in a test is a schema whose defaults drift silently —
+// which is exactly how the hand-typed signal list outlived the SSOT expression that was
+// supposed to supersede it.
+export const AutoLearningConfigSchema = z.object({
   enabled: z.boolean().default(true),
   incidentDir: z.string().default('docs/incidents'),
   memoryDir: z.string().default('memory'),
@@ -171,16 +188,22 @@ const AutoLearningConfigSchema = z.object({
   fixDetection: z.object({
     enabled: z.boolean().default(true),
     lookbackDays: z.number().default(7),
-    signals: z.array(z.string()).default([
-      'removed_broken_code',
-      'added_error_handling',
-      'method_name_correction',
-      'auth_fix',
-      'nil_handling_fix',
-      'concurrency_fix',
-      'async_pattern_fix',
-      'added_missing_import',
-    ]),
+    // ⛔ NO DEFAULT LIST HERE, DELIBERATELY — the heuristics are the SSOT.
+    //
+    // This carried a hand-typed copy of all eight signal names while
+    // `fix-detector.ts` already read `config…signals ?? FIX_HEURISTICS.map(h => h.name)`.
+    // Because zod ALWAYS materialised the default, that fallback — the correct expression
+    // — was unreachable, and the duplicate was the only thing in effect. Two authoring
+    // sites for one vocabulary, and the drift is SILENT: a name listed here that no longer
+    // exists simply never matches `enabledSignals.has(...)`, so a retired heuristic lingers
+    // as a dead entry with no error. Retiring `method_name_correction` would have landed at
+    // one site of two (CR-74).
+    //
+    // Optional, so an ABSENT value reaches the `??` and the heuristic list defines itself
+    // (Rule 25). An explicit list in massu.config.yaml still overrides, which is the only
+    // behaviour anyone actually configured — measured: `fix-detector.ts:267` is the sole
+    // consumer and no config file in the repo sets it.
+    signals: z.array(z.string()).optional(),
   }).default({}),
   failureClassification: z.object({
     enabled: z.boolean().default(true),
@@ -264,7 +287,7 @@ const ConventionsConfigSchema = z.object({
     'checklists', 'playbooks', 'critical', 'scripts', 'status',
     'templates', 'loop-state', 'session-state', 'agents',
   ]),
-  knowledgeSourceFiles: z.array(z.string()).default(['CLAUDE.md', 'MEMORY.md', 'corrections.md']),
+  knowledgeSourceFiles: z.array(z.string()).default([...DEFAULT_KNOWLEDGE_SOURCE_FILES]),
   excludePatterns: z.array(z.string()).default(['/ARCHIVE/', '/SESSION-HISTORY/']),
 }).optional();
 export type ConventionsConfig = z.infer<typeof ConventionsConfigSchema>;
@@ -291,6 +314,23 @@ export type PythonConfig = z.infer<typeof PythonConfigSchema>;
 // configs omit it — `.optional()` preserves full back-compat.
 const PathsConfigSchema = z.object({
   source: z.string().default('src'),
+  /**
+   * Where this stack's tests live, relative to the project root.
+   *
+   * Added 2026-09-20 for P4.3 of docs/plans/2026-09-20-stack-conformant-asset-rendering.md.
+   * ~25 shipped assets told every customer their tests belong in
+   * `packages/core/src/__tests__/` — massu's OWN layout — and no vocabulary could express
+   * the alternative because none existed. A test directory is a first-class property of
+   * every stack (`tests/` on FastAPI, `test/` on Rails, `src/test/java` on Spring,
+   * `Tests/` on SwiftPM, and Go keeps `_test.go` beside the source), so it belongs here
+   * rather than in prose.
+   *
+   * OPTIONAL, so every config written before this key existed keeps loading unchanged; an
+   * asset that needs it uses `{{paths.tests | default("...")}}`. All 13 shipped templates
+   * declare it, each with the convention it follows recorded at the site (G32 option 2),
+   * and `stack-template-conformance.test.ts` asserts that.
+   */
+  tests: z.string().optional(),
   aliases: z.record(z.string(), z.string()).default({ '@': 'src' }),
   monorepo_roots: z.array(z.string()).optional(),
   routers: z.string().optional(),
@@ -351,7 +391,7 @@ export type DetectedConfig = z.infer<typeof DetectedConfigSchema>;
 // --- P2-004: Verification command map ---
 // Map of language name -> command strings for each verification type.
 // User entries take precedence over any Phase 1 auto-defaults.
-const VerificationEntrySchema = z.object({
+export const VerificationEntrySchema = z.object({
   type: z.string().optional(),
   test: z.string().optional(),
   syntax: z.string().optional(),
@@ -494,7 +534,9 @@ export type LSPConfig = z.infer<typeof LSPConfigSchema>;
 // P2-001: schema_version tracks the config shape version. Defaults to 1 so
 // existing v1 configs (without the field) keep loading unchanged. New v2
 // configs set `schema_version: 2` explicitly.
-const RawConfigSchema = z.object({
+/** Exported so the SHIPPED-TEMPLATE schema can extend it without duplicating the shape.
+ *  Not for general use: customer configs are validated through `getConfig()`. */
+export const RawConfigSchema = z.object({
   schema_version: z.union([z.literal(1), z.literal(2)]).default(1),
   project: z.object({
     name: z.string().default('my-project'),

@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "plan": "docs/plans/2026-09-20-stack-conformant-asset-rendering.md",
+  "purpose": "The ONE definition of 'a TypeScript-shaped token that massu must not ship to every stack'. Read by scripts/measure-asset-conformance.sh (P1, the measurement) and by packages/core/src/__tests__/stack-asset-conformance.test.ts (P4, the gate). Two instruments that judge the same property must not carry two definitions of it — that is the drift this plan exists to end (G32/CR-74).",
+
+  "oracle": "THIS IS AN ORACLE AND MAY NEVER BE DERIVED (G32 option 0). It is a guard's EXPECTATION of the answer, not data the system uses. Derived from the assets it judges, both sides would agree by construction and the gate would pass forever (THE BLIND-GATE LAW). Every entry is a judgement someone made, and carries its reason.",
+
+  "halves": "The partition is load-bearing: P4.1's TOOLCHAIN/PROSE split is DERIVED from which half matched, never from a second hand-written list. An asset matching only `vocabulary` is TOOLCHAIN — the stack contract can express it, so it gets migrated. An asset matching `prose` is PROSE — it is massu's OWN repo layout leaked into the product, no vocabulary can fix it, and it needs a rewrite, a variant file, or an explicit per-site exemption.",
+
+  "vocabulary": [
+    {
+      "pattern": "npx tsc",
+      "reason": "TypeScript's type checker invoked directly. Expressible as {{verify.type}}, which resolves to `mypy .` on python-fastapi and `go vet ./...` on go-chi."
+    },
+    {
+      "pattern": "npm (run )?test",
+      "reason": "The npm test runner. Expressible as {{verify.test}}. On a Python stack npm does not exist, so this check cannot run and reports nothing — the blind gate this plan exists to close."
+    },
+    {
+      "pattern": "npm run build",
+      "reason": "Expressible as {{verify.build}}, which is OPTIONAL: only 4 of 13 stacks resolve a primary-language `build`, so a naive substitution throws on 9."
+    },
+    {
+      "pattern": "vitest",
+      "reason": "massu's own test framework name. Expressible as {{verify.test}}; naming the framework rather than the command hardcodes the JS ecosystem."
+    },
+    {
+      "pattern": "turbo (test|type-check)",
+      "reason": "The Turborepo task runner. Expressible as {{verify.test}} / {{verify.type}}; assumes a JS monorepo that 12 of 13 stacks are not."
+    }
+  ],
+
+  "prose": [
+    {
+      "pattern": "packages/core",
+      "reason": "massu's OWN monorepo layout. A customer's source lives at {{paths.source}} — `app` on python-fastapi, `internal` on go-chi, `Sources` on swift-ios. No vocabulary substitution makes this sentence true for them."
+    },
+    {
+      "pattern": "tools\\.ts",
+      "reason": "massu's MCP tool-registration file. Instructions about wiring a tool into tools.ts are about developing massu, not about the customer's repo."
+    },
+    {
+      "pattern": "tsconfig\\.json",
+      "reason": "A TypeScript project file. Present in 2 of 13 stacks; naming it presumes a toolchain most customers do not have."
+    },
+    {
+      "pattern": "esbuild",
+      "reason": "massu's hook bundler. A customer never invokes it; referencing it describes massu's build, not theirs."
+    },
+    {
+      "pattern": "better-sqlite3",
+      "reason": "A Node native dependency of massu's own storage layer. Naming it in a shipped asset leaks an implementation detail of the product into the customer's instructions."
+    }
+  ]
+}

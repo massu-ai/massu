@@ -15,9 +15,15 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT/packages/core"
 
 echo "== Massu recall eval (BM25 vs hybrid FTS-only vs hybrid semantic) =="
-# No pipe / `2>&1` swallow — vitest's exit code must reach `set -e`.
-MASSU_WRITE_EVAL_REPORT=1 npx vitest run recall-eval
-status=$?
+# No pipe / `2>&1` swallow — vitest's own exit code must survive to our exit.
+#
+# ⛔ AND THE CAPTURE MUST BE REACHABLE. This read `npx vitest …` then a bare `status=$?`, which
+# under `set -e` is dead code: on a failing run errexit ended the script at vitest, so the
+# "Report:" line below never printed and `exit $status` never ran. The earlier comment here
+# claimed the exit code "must reach `set -e`" — it did, and that was the bug, because reaching
+# errexit is precisely what killed the reporting. `&& status=0 || status=$?` keeps errexit out of
+# the way long enough to record the real code, and we still exit with it.
+MASSU_WRITE_EVAL_REPORT=1 npx vitest run recall-eval && status=0 || status=$?
 echo ""
 echo "Report: docs/reports/2026-07-12-recall-eval-semantic.md"
-exit $status
+exit "$status"

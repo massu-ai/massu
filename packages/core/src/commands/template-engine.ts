@@ -46,7 +46,40 @@ export class TemplateParseError extends Error {
  *   - `TemplateParseError` on unbalanced `{{` (no closing `}}`) or malformed
  *     `default(...)` syntax.
  */
-export function renderTemplate(template: string, vars: Record<string, unknown>): string {
+/**
+ * Resolve a fragment name to its content, or null when no variant and no default exists.
+ *
+ * INJECTED rather than imported so the engine holds no filesystem knowledge and stays
+ * unit-testable without a tree — the same abstraction Handlebars calls a TemplateLoader.
+ */
+export type FragmentResolver = (name: string) => string | null;
+
+export interface RenderOptions {
+  /** Supplies `{{> name}}` bodies. Omitted ⇒ a fragment DEGRADES rather than throwing. */
+  resolveFragment?: FragmentResolver;
+}
+
+/** A fragment that includes another fragment. Nesting is refused, not cycle-detected. */
+export class FragmentNestingError extends Error {
+  constructor(public readonly fragmentName: string) {
+    super(
+      `fragment "${fragmentName}" contains a nested {{> … }}. Fragments may not include ` +
+        'other fragments: one level keeps resolution total and removes cycles by construction.',
+    );
+    this.name = 'FragmentNestingError';
+  }
+}
+
+/** What a `{{> name}}` renders to when it cannot be resolved (D5: degrade, never drop). */
+export function fragmentDiagnostic(name: string): string {
+  return `<!-- massu: no fragment "${name}" for this stack, and no default -->`;
+}
+
+export function renderTemplate(
+  template: string,
+  vars: Record<string, unknown>,
+  opts: RenderOptions = {},
+): string {
   const out: string[] = [];
   const len = template.length;
   let i = 0;
@@ -79,6 +112,30 @@ export function renderTemplate(template: string, vars: Record<string, unknown>):
       // else (including security probes, empty `{{}}`, malformed filters,
       // invalid path characters) still goes through strict renderToken and
       // throws — security tests still pass.
+      // ⛔ FRAGMENT INCLUDE — `{{> name}}`. Checked BEFORE the JSX pass-through so a
+      // fragment is never mistaken for a JSX object literal.
+      //
+      // D5: an unresolvable fragment DEGRADES with a visible diagnostic and the asset still
+      // installs. It must never throw, because `install-commands.ts` catches engine errors
+      // into `stats.skipped++` and exit 0 — a silently absent asset, which is the exact
+      // failure the owning plan exists to end.
+      //
+      // D3: the fragment body is rendered ONCE with the same vars, so a fragment can say
+      // `{{verify.test}}`. D4: a fragment may not include another — refused outright rather
+      // than cycle-detected, which makes resolution total.
+      const fragmentName = matchFragmentToken(inner);
+      if (fragmentName !== null) {
+        const body = opts.resolveFragment ? opts.resolveFragment(fragmentName) : null;
+        if (body === null) {
+          out.push(fragmentDiagnostic(fragmentName));
+        } else {
+          if (matchFragmentAnywhere(body)) throw new FragmentNestingError(fragmentName);
+          out.push(renderTemplate(body, vars, {}));
+        }
+        i = closeIdx + 2;
+        continue;
+      }
+
       if (isJsxPassThrough(inner)) {
         out.push('{{');
         out.push(inner);
@@ -298,4 +355,20 @@ function stringify(value: unknown): string {
   if (value === null) return 'null';
   if (typeof value === 'string') return value;
   return String(value);
+}
+
+/**
+ * `{{> name}}` ⇒ "name"; anything else ⇒ null.
+ *
+ * The name charset is deliberately narrow — a fragment name becomes a FILENAME, and a
+ * permissive charset here is a path-traversal surface. `..`, `/` and `\\` cannot appear.
+ */
+export function matchFragmentToken(inner: string): string | null {
+  const m = /^>\s*([A-Za-z0-9][A-Za-z0-9_-]*)\s*$/.exec(inner);
+  return m ? m[1] : null;
+}
+
+/** True when a body contains any `{{> … }}` — used to refuse nesting (D4). */
+function matchFragmentAnywhere(body: string): boolean {
+  return /\{\{\s*>\s*[A-Za-z0-9]/.test(body);
 }

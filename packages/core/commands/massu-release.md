@@ -108,7 +108,7 @@ bash scripts/massu-pattern-scanner.sh
 # MUST exit 0
 
 # 1.2 TypeScript
-cd packages/core && npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 # MUST show 0 errors
 
 # 1.3 Hook Build
@@ -120,7 +120,7 @@ cd packages/core && npm run build:hooks
 
 ```bash
 # 2.1 All tests
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 # MUST exit 0, all tests pass
 ```
 
@@ -138,7 +138,7 @@ npm audit --audit-level=high 2>&1 || true
 
 # 3.2 Secrets scan
 grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|password.*=.*["\x27][^"\x27]\{8,\}' --include="*.ts" --include="*.tsx" \
-  packages/core/src/ 2>/dev/null \
+  {{paths.source}}/ 2>/dev/null \
   | grep -v "process.env\|RegExp\|regex\|REDACT\|redact\|sanitize\|mask\|\.test\.ts:" \
   | wc -l
 # MUST be 0

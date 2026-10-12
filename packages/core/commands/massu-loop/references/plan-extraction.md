@@ -31,9 +31,9 @@ For EACH section of the plan, extract concrete items into a table:
 ### Extracted Items
 | Item # | Type | Description | Location | Verification Command | Status |
 |--------|------|-------------|----------|---------------------|--------|
-| P1-001 | MODULE_CREATE | foo-tools.ts | packages/core/src/ | ls -la [path] | PENDING |
+| P1-001 | MODULE_CREATE | foo-tools.ts | {{paths.source}}/ | ls -la [path] | PENDING |
 | P1-002 | TOOL_WIRE | Wire into tools.ts | packages/core/src/tools.ts | grep [module] tools.ts | PENDING |
-| P2-001 | TEST | foo.test.ts | packages/core/src/__tests__/ | npm test | PENDING |
+| P2-001 | TEST | foo.test.ts | {{paths.tests | default("tests")}}/ | {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} | PENDING |
 
 ### Item Types
 - MODULE_CREATE: New TypeScript module
@@ -55,10 +55,10 @@ For EACH section of the plan, extract concrete items into a table:
 | MODULE_CREATE | `ls -la [path]` | File exists, size > 0 |
 | MODULE_MODIFY | `grep "[change]" [file]` | Pattern found |
 | TOOL_WIRE | `grep "getXDefs\|isXTool\|handleXCall" tools.ts` | All 3 present |
-| TEST | `npm test` | All pass |
+| TEST | `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}` | All pass |
 | CONFIG | Parse YAML, grep interface | Valid |
 | HOOK | `cd packages/core && npm run build:hooks` | Exit 0 |
-| REMOVAL | `grep -rn "[old]" packages/core/src/ | wc -l` | 0 matches |
+| REMOVAL | `grep -rn "[old]" {{paths.source}}/ | wc -l` | 0 matches |
 
 ### Step 0.4: Track Coverage Throughout
 

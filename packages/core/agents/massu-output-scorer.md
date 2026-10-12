@@ -73,7 +73,7 @@ Input: List of files changed, plan document path, feature description.
 #### Dimension 5: Test Coverage
 - Check: test files exist for new features
 - Check: critical paths have test coverage
-- Run `npm test` to verify passing
+- Run `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}` to verify passing
 - 1=no tests, 3=basic tests pass, 5=comprehensive coverage
 
 ### Step 3: Generate Scorecard
@@ -86,7 +86,7 @@ Input: List of files changed, plan document path, feature description.
 | Pattern Compliance | X/5 | pattern-scanner exit code | |
 | Error Handling | X/5 | [grep results for error states] | |
 | UX Quality | X/5 | [responsive/a11y checks] | |
-| Test Coverage | X/5 | npm test result | |
+| Test Coverage | X/5 | {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} result | |
 
 ### Summary
 - Average: X.X/5

@@ -59,7 +59,7 @@ Execute task/plan autonomously with **verified proof at every step**. Continue u
 
 ## COMPLETION MANDATE
 
-Loop does NOT stop until: (1) every plan item verified 100%, (2) every VR-* check passes with proof, (3) pattern scanner 0 violations, (4) type check passes, (5) ALL tests pass (npm test exit 0), (6) hook build succeeds. Test failures must be fixed regardless of origin. No deferral, no "should I continue?", no partial progress reports. Register features with massu_sentinel (CR-11).
+Loop does NOT stop until: (1) every plan item verified 100%, (2) every VR-* check passes with proof, (3) pattern scanner 0 violations, (4) type check passes, (5) ALL tests pass ({{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} exit 0), (6) hook build succeeds. Test failures must be fixed regardless of origin. No deferral, no "should I continue?", no partial progress reports. Register features with massu_sentinel (CR-11).
 
 ---
 

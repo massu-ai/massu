@@ -56,10 +56,40 @@ restore() {
 }
 trap restore EXIT INT TERM
 
+# ⛔ THE SUBJECT'S PATH WAS DECLARED IN $GUARD AND THE RUNNER SELECTED A SUBSTRING.
+# `vitest run require-ts-specifier-drift-guard` is a NAME FILTER: a correlate of "the guard
+# under attack", not the guard itself (G28 -- a scope predicate must BE the property). It can
+# widen silently if another test file ever contains that string, and then a failure anywhere
+# in the widened set reads as "the guard went RED" (memory
+# a-startup-error-scored-as-a-red-gate). $GUARD was assigned and read nowhere, so the
+# authoritative path was in hand and something else was consulted.
+[ -f "$REPO_ROOT/$GUARD" ] || { echo "FATAL: subject missing: $GUARD" >&2; exit 1; }
+GUARD_REL="${GUARD#packages/core/}"
+# shellcheck source-path=SCRIPTDIR/../lib source=vitest-verdict.sh
+. "$REPO_ROOT/scripts/lib/vitest-verdict.sh"
+
+# How many test FILES a run judged. Neither a path nor a substring guarantees "exactly the
+# subject", so every run below asserts this instead of trusting the selector.
+# Via scripts/lib/vitest-verdict.sh: the sed that used to be here was ANSI-blind, so in CI it
+# returned EMPTY and these "judged exactly the subject" assertions would all have failed on a
+# run that judged exactly the subject. Added this session and never seen under colour.
+subject_files() { vv_count "$1" 'Test Files'; }
+
 run_guard() {
-  ( cd "$REPO_ROOT/packages/core" && npx vitest run require-ts-specifier-drift-guard ) \
-    > "$1" 2>&1
-  echo "$?"
+  # vv_run forces colour OFF and returns the three-valued verdict; this harness only needs the
+  # raw pass/fail, so the verdict is echoed for the caller exactly as before. 2 (DID-NOT-RUN) is
+  # deliberately distinguishable from 1 here — a suite that never started is not a RED gate.
+  #
+  # The capture is REACHABLE today only because every caller is a `$(run_guard …)` command
+  # substitution, and bash does not inherit errexit into substitutions (no `inherit_errexit` in
+  # bash 3.2 — the shell this runs under). That is the owning cross-repo plan
+  # 2026-09-25-set-e-status-capture-is-dead-code.md [CLAIM-6], verdict CONFIRMED, whose
+  # disposition is "the site is rewritten or declared". REWRITTEN here rather than declared: an
+  # explicit `|| rc=$?` is correct under every errexit state, so a future direct (non-substituted)
+  # call cannot silently turn this into dead code.
+  local rc=0
+  vv_run "$REPO_ROOT/packages/core" "$1" "$GUARD_REL" || rc=$?
+  echo "$rc"
 }
 
 echo '== 1/4  baseline must be GREEN (a permanently-red gate gets deleted) =='
@@ -67,6 +97,7 @@ BASE_LOG="$(mktemp -t require-ts-guard-base-XXXXXX)"
 BASE_RC="$(run_guard "$BASE_LOG")"
 check "baseline exits 0 (rc=$BASE_RC)" "$([ "$BASE_RC" = "0" ] && echo 1 || echo 0)"
 [ "$BASE_RC" = "0" ] || sed -n '1,40p' "$BASE_LOG"
+check "the baseline run judged EXACTLY the subject, 1 test file (files=$(subject_files "$BASE_LOG"))" "$([ "$(subject_files "$BASE_LOG")" = "1" ] && echo 1 || echo 0)"
 
 echo '== 2/4  plant the REAL defect and demand RED =='
 # The exact shape that broke CI on 2026-08-09/10.
@@ -80,6 +111,7 @@ PLANT_LOG="$(mktemp -t require-ts-guard-plant-XXXXXX)"
 PLANT_RC="$(run_guard "$PLANT_LOG")"
 check "planted tree exits NON-ZERO (rc=$PLANT_RC)" \
   "$([ "$PLANT_RC" != "0" ] && echo 1 || echo 0)"
+check "the planted run judged EXACTLY the subject, 1 test file (files=$(subject_files "$PLANT_LOG"))" "$([ "$(subject_files "$PLANT_LOG")" = "1" ] && echo 1 || echo 0)"
 
 echo '== 3/4  RED for its OWN declared reason, not some incidental error =='
 # "It went red" is not enough — a syntax error, a missing module, or an unrelated
@@ -116,6 +148,7 @@ RESTORED_LOG="$(mktemp -t require-ts-guard-restored-XXXXXX)"
 RESTORED_RC="$(run_guard "$RESTORED_LOG")"
 check "guard GREEN again after restore (rc=$RESTORED_RC)" \
   "$([ "$RESTORED_RC" = "0" ] && echo 1 || echo 0)"
+check "the restored run judged EXACTLY the subject, 1 test file (files=$(subject_files "$RESTORED_LOG"))" "$([ "$(subject_files "$RESTORED_LOG")" = "1" ] && echo 1 || echo 0)"
 
 rm -f "$BASE_LOG" "$PLANT_LOG" "$RESTORED_LOG"
 

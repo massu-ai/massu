@@ -27,7 +27,7 @@ name: massu-deploy
 ### Pre-Flight Checks (automatic)
 1. Branch check — must be on `main` with clean working tree
 2. Project target verification — must match projectId `prj_Io7AaGCM27cwRQerAj3BdihUur1Y`
-3. Local build verification — `npm run build` must succeed
+3. Local build verification — `{{verify.build | default("(this stack declares no build step)")}}` must succeed
 4. Deploy to production — `vercel --prod --yes`
 5. Smoke tests — GET `/` and `/docs` must return 200
 6. Rollback guidance — if smoke tests fail, prints rollback command

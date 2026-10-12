@@ -92,10 +92,10 @@ Compare tools found in codebase against README documentation.
 ### 2.1 Extract Tool Output Strings
 ```bash
 # Find tool output text
-grep -rn "text:" packages/core/src/ --include="*.ts" | grep -v "__tests__" | head -30
+grep -rn "text:" {{paths.source}}/ --include="*.ts" | grep -v "__tests__" | head -30
 
 # Find error messages
-grep -rn "Error\|error\|Invalid\|invalid" packages/core/src/ --include="*.ts" | grep -v "__tests__" | head -20
+grep -rn "Error\|error\|Invalid\|invalid" {{paths.source}}/ --include="*.ts" | grep -v "__tests__" | head -20
 ```
 
 ### 2.2 Terminology Matrix
@@ -159,7 +159,7 @@ grep -c "description\|comment\|//" packages/core/src/config.ts
 ### 4.2 API Documentation
 ```bash
 # Check if tool inputSchema has descriptions for all properties
-grep -rn "description:" packages/core/src/ --include="*.ts" | grep -v "__tests__" | wc -l
+grep -rn "description:" {{paths.source}}/ --include="*.ts" | grep -v "__tests__" | wc -l
 ```
 
 ### 4.3 Config Documentation Matrix
@@ -204,7 +204,7 @@ grep -c "tool\|hook\|config\|install\|usage" packages/core/README.md 2>/dev/null
 ### 6.1 CLAUDE.md Accuracy
 ```bash
 # Check if CLAUDE.md file locations match actual
-grep "packages/core/src/" .claude/CLAUDE.md | while read line; do
+grep "{{paths.source}}/" .claude/CLAUDE.md | while read line; do
   path=$(echo "$line" | sed -n 's/.*\(packages\/core\/src\/[a-zA-Z0-9_.\/-]*\).*/\1/p')
   if [ -n "$path" ]; then
     [ -f "$path" ] && echo "OK: $path" || echo "MISSING: $path"
@@ -218,8 +218,8 @@ grep -c "\.ts" .claude/CLAUDE.md
 ### 6.2 Build & Test Commands Accuracy
 ```bash
 # Verify each documented build command works
-npm run build --dry-run 2>/dev/null
-npm test --help 2>/dev/null
+{{verify.build | default("(this stack declares no build step)")}} --dry-run 2>/dev/null
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} --help 2>/dev/null
 ```
 
 ### 6.3 Developer Docs Matrix

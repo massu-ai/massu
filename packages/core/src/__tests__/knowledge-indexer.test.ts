@@ -332,3 +332,62 @@ describe('indexAllKnowledge with plans/docs', () => {
     }
   });
 });
+
+
+describe('parseCRTable — a THREE-column table must not lose every other row', () => {
+  /**
+   * REGRESSION. The parser used one `/g` regex requiring FOUR pipe-delimited groups, and
+   * `[^|]+` matches NEWLINES — so against a three-column table the fourth group ran past
+   * its row and swallowed the next one.
+   *
+   * MEASURED 2026-09-21 against this repo's own `.claude/CLAUDE.md`: 41 rows declared,
+   * 21 extracted — CR-1, CR-3, CR-5, CR-7, … Half of massu's canonical rules had never
+   * been indexed, and every customer whose table is three-column lost the same half. The
+   * loss is SILENT: fewer rules looks exactly like a smaller table.
+   *
+   * Three columns is not an edge case — it is the shape this repo's own CLAUDE.md uses,
+   * and therefore the shape massu teaches.
+   */
+  const THREE_COL = [
+    '| ID | Rule | Verification Type |',
+    '|----|------|-------------------|',
+    '| CR-1 | Never claim state without proof | VR-BUILD |',
+    '| CR-2 | Never assume structure | VR-GREP |',
+    '| CR-3 | Run the suite before claiming complete | VR-TEST |',
+    '| CR-9 | Fix every issue encountered | VR-TEST |',
+  ].join('\n');
+
+  it('extracts EVERY declared row, not every other one', () => {
+    const rules = parseCRTable(THREE_COL);
+    expect(rules.map((r) => r.rule_id)).toEqual(['CR-1', 'CR-2', 'CR-3', 'CR-9']);
+  });
+
+  it('keeps each row\'s own text and VR type — no bleed from the next row', () => {
+    const rules = parseCRTable(THREE_COL);
+    expect(rules[0].rule_text).toBe('Never claim state without proof');
+    expect(rules[0].vr_type).toBe('VR-BUILD');
+    expect(rules[3].rule_text).toBe('Fix every issue encountered');
+    expect(rules[3].vr_type).toBe('VR-TEST');
+  });
+
+  it('still reads a FOUR-column table, reference column and all', () => {
+    const four = [
+      '| CR-7 | Some rule | VR-TEST | `docs/ref.md` |',
+      '| CR-8 | Another rule | VR-BUILD | [docs/other.md](x) |',
+    ].join('\n');
+    const rules = parseCRTable(four);
+    expect(rules.map((r) => r.rule_id)).toEqual(['CR-7', 'CR-8']);
+    expect(rules[0].reference_path).toBe('`docs/ref.md`');
+  });
+
+  it('ignores header and separator rows rather than emitting junk', () => {
+    expect(parseCRTable('| ID | Rule | VR |\n|----|----|----|\n').length).toBe(0);
+  });
+
+  it('this repo\'s OWN CLAUDE.md yields every rule it declares (M1: the real corpus)', () => {
+    const own = readFileSync(resolve(__dirname, '../../../../.claude/CLAUDE.md'), 'utf-8');
+    const declared = (own.match(/^\| CR-\d+ \|/gm) ?? []).length;
+    expect(declared).toBeGreaterThan(0); // positive control: the table exists
+    expect(parseCRTable(own).length).toBe(declared);
+  });
+});

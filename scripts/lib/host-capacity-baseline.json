@@ -1,0 +1,9 @@
+{
+  "_doc": "min_ms is the MINIMUM ever observed on this host and only ratchets DOWN; contention can only add time. max_ratio is a MEASURED tolerance and its absence FAILS CLOSED (CR-68) \u2014 never type it. \u26d4 AND NOTHING WRITES IT: --calibrate does setdefault(max_ratio, None), so this key is permanently null and the precondition is permanently advisory (warn-and-run). Arming it requires a derivation procedure that does not exist yet \u2014 an operator design decision, measured 2026-09-24. probe_version 1 was a SINGLE-THREADED loop and moved only 4% across a 7x change in load, so its numbers are not comparable to v2 (parallel) and were cleared rather than carried forward.",
+  "cores": 28,
+  "last_calibrated_utc": "2026-09-24T05:48:55+00:00",
+  "max_ratio": null,
+  "min_ms": 675.5,
+  "probe_version": 2,
+  "samples_seen": 3
+}

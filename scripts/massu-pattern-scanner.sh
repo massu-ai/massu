@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
+# massu-plan-gate: corpus | pattern-scanner (VR-PATTERN, incl. claim ledger)
 #
 # massu-pattern-scanner.sh - Massu Pattern Compliance Checker
 #
 # Checks for coding pattern violations in the Massu codebase.
 # Exit 0 = PASS (no violations), Exit 1 = FAIL (violations found)
 #
-# Usage: bash scripts/massu-pattern-scanner.sh [--quick]
+# Usage: bash scripts/massu-pattern-scanner.sh      (takes NO arguments)
 
 set -uo pipefail
 
@@ -20,7 +21,23 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT" || { echo "FATAL: cannot cd to REPO_ROOT $REPO_ROOT" >&2; exit 2; }
 SRC_DIR="$REPO_ROOT/packages/core/src"
 VIOLATIONS=0
-QUICK_MODE="${1:-}"
+# ⛔ AN ARGUMENT CONTRACT IS REAL OR IT IS A LIE. This line used to read
+# `QUICK_MODE="${1:-}"` and nothing anywhere read the variable, while the usage line above
+# advertised `[--quick]`. Two consequences, both silent: a caller passing --quick got the FULL
+# scan while believing it had asked for less, and a TYPO'd flag was accepted without a word
+# (R-011 / G12 -- refuse an unmatched argument, never resolve it to the most likely candidate).
+#
+# MEASURED 2026-09-24 -- every real invocation in the tree passes NO argument:
+#   .github/workflows/ci.yml:61 · .github/workflows/ci.public.yml:47
+#   scripts/pre-push-light.sh:217 · scripts/prepublish-check.sh:124
+# So no quick mode was ever exercised, none is implemented, and inventing one now would add a
+# way to run FEWER checks. The scanner takes no arguments, and from here it says so.
+if [ "$#" -gt 0 ]; then
+  echo "FATAL: massu-pattern-scanner.sh takes no arguments (got: $*)." >&2
+  echo "       Every check runs every time; there is no quick mode. If you were told there is," >&2
+  echo "       that documentation is wrong -- see docs/incidents/ for 2026-09-24." >&2
+  exit 2
+fi
 
 # SF-2 (audit 2026-07-14) — THE BLIND-GATE GUARD. Nearly every check greps a file
 # list rooted at a scan directory. If that directory is missing/renamed, `find`
@@ -891,7 +908,7 @@ CHECK26_VIOLATIONS=0
 # 26a: scripts/ci-*.sh policy. CI_ONLY_SCRIPTS_BASH MUST mirror
 # packages/core/src/__tests__/ci-prepush-parity.test.ts:CI_ONLY_SCRIPTS — the
 # drift-guard test asserts byte-equivalence of the two arrays.
-CI_ONLY_SCRIPTS_BASH="ci-fresh-install.sh ci-config-drift.sh ci-anti-vacuity.sh ci-provision-public-mirror.sh"
+CI_ONLY_SCRIPTS_BASH="ci-fresh-install.sh ci-config-drift.sh ci-anti-vacuity.sh ci-provision-public-mirror.sh ci-adjudicate-needs.sh"
 
 # Strip shell COMMENTS from pre-push-light.sh ONCE, into a variable (P3 hardening: a
 # commented-out reference `# TODO: run ci-foo.sh` must not satisfy the parity check; only a
@@ -1992,7 +2009,7 @@ if [ -d "$TEMPLATES_ROOT" ]; then
   # swift-ios exemplar: its four swift commands must match the map literals.
   SWIFT_CFG="$TEMPLATES_ROOT/swift-ios/massu.config.yaml"
   VRMAP="packages/core/src/detect/vr-command-map.ts"
-  for cmd in "swift test" "swift build" "xcodebuild build" "swiftlint"; do
+  for cmd in "swift test" "swift build" "swift build -c release" "swiftlint"; do
     if ! grep -qF "$cmd" "$SWIFT_CFG"; then
       fail "Check 43: swift-ios template missing swift command '$cmd' (CR-66)"
       CHECK43_VIOLATIONS=$((CHECK43_VIOLATIONS + 1))

@@ -156,8 +156,8 @@ If plan says "Add to pages: A, B, C, D, E":
 
 ### Step 5: Run Build and Type Check
 ```bash
-npm run build    # VR-BUILD
-npx tsc --noEmit # VR-TYPE
+{{verify.build | default("(this stack declares no build step)")}}    # VR-BUILD
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} # VR-TYPE
 ```
 
 ### Step 6: Complete Verification Template

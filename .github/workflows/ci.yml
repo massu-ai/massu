@@ -25,11 +25,16 @@ concurrency:
   group: ci-public-mirror-${{ github.ref }}
   cancel-in-progress: true
 
+# ── timeout-minutes: CONTAINMENT, NEVER A PASS CRITERION (G27) ──────────────────────────────
+# DERIVED from the public mirror's own history (massu-ai/massu ci.yml, last 60 runs, successful
+# executions only): timeout = max(10, 3 x measured max) rounded up to 5.
+#   Type Check 2.1m->10  Test 3.1m->10  Ruleset Drift Guard 0.3m->10  Build 1.8m->10  aggregator->10
 jobs:
   type-check:
     name: Type Check
     if: github.repository == 'massu-ai/massu'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -50,6 +55,7 @@ jobs:
     name: Test
     if: github.repository == 'massu-ai/massu'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -74,6 +80,7 @@ jobs:
     name: Ruleset Drift Guard
     if: github.repository == 'massu-ai/massu'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -89,8 +96,13 @@ jobs:
 
   build:
     name: Build
-    if: github.repository == 'massu-ai/massu'
+    # BOTH guards. The repository guard alone leaves this SKIPPABLE: `build` needs type-check
+    # and test, so a failure in either skips it — and `Build` is a required context, so the
+    # check would be satisfied by not running. `!cancelled()` is what closes that; the
+    # repository clause is what keeps the cross-repo split intact.
+    if: ${{ !cancelled() && github.repository == 'massu-ai/massu' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [type-check, test]
     steps:
       - uses: actions/checkout@v7
@@ -109,4 +121,49 @@ jobs:
         # so any finding fails (Rule 16, all-severity closure). Level semantics
         # measured against a deliberately vulnerable tree — see the matching
         # step in ci.yml for the per-level exit codes.
-        run: npm audit --audit-level=info
+        # 2026-10-11: the same gate script as ci.yml (floor=info, per-advisory
+        # dated exemptions — braces GHSA-vfj7-8cjw-p6xm has no patched release).
+        # This mirror has no website/, so only the root surface is audited; the
+        # gate treats website-scoped exemptions as out of scope, not stale.
+        run: node scripts/npm-audit-gate.mjs --surface .
+
+  # ─────────────────────────────────────────────────────────────────────────────────────────
+  # D-2 of plan-required-checks-cannot-pass-by-not-running — the public-mirror half.
+  #
+  # The SAME invariant as `ci.yml`'s `ci-required`: a required context must not be satisfiable
+  # by NOT RUNNING. `build` here has `needs: [type-check, test]` and would be SKIPPED if either
+  # failed, and GitHub counts skipped as a successful status.
+  #
+  # TWO DIFFERENCES FROM ci.yml's GATE, both deliberate:
+  #
+  # 1. The name is UNIQUE. GitHub resolves a required context BY NAME, and `Build`, `Test`,
+  #    `Type Check` and `Ruleset Drift Guard` are each emitted by jobs in BOTH this file and
+  #    `ci.yml`. That duplication is not a defect — it is how ONE committed ruleset SoT serves
+  #    both repos, with the non-matching workflow's jobs skipping. A uniquely-named gate per
+  #    workflow keeps that mechanism intact while removing the ambiguity from the gate itself.
+  #
+  # 2. The `if:` KEEPS THE REPOSITORY GUARD. Without it this gate would run in massu-internal
+  #    and adjudicate four deliberately-skipped jobs. Preserving the guard means the gate
+  #    exists in exactly the repo whose jobs actually run — so skipped-counts-as-success stays
+  #    load-bearing where this repo relies on it, and is closed where it is a hazard.
+  # ─────────────────────────────────────────────────────────────────────────────────────────
+  ci-public-required:
+    name: CI Required (public mirror)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ !cancelled() && github.repository == 'massu-ai/massu' }}
+    needs:
+      - type-check
+      - test
+      - ruleset-drift-guard
+      - build
+    steps:
+      # The verdict logic lives in scripts/ci-adjudicate-needs.sh, not inline here: pattern-scanner
+      # Check 26 forbids inline shell blocks over 5 lines in a workflow, and BOTH gates need the
+      # same verdict — inline that is two copies drifting apart, delegated it is one implementation
+      # (G32 / Rule 25). Checkout is REQUIRED: without it the script does not exist in the runner.
+      - uses: actions/checkout@v7
+      - name: Adjudicate every needed job from the needs context
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: bash scripts/ci-adjudicate-needs.sh

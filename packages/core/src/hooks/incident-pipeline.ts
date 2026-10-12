@@ -33,6 +33,35 @@ interface HookInput {
   tool_input: { file_path?: string; content?: string };
 }
 
+/**
+ * Does this incident document declare a prevention-rules section?
+ *
+ * ⛔ A NUMBERED HEADING IS STILL A HEADING. This was
+ * `/## Prevention Rules|## Prevention|## Rules/i`, which requires `##` IMMEDIATELY followed
+ * by the word — so `## 6. Prevention Rules` could not match, and the hook reported
+ * "No '## Prevention Rules' section found" over documents that have one. Numbered sections
+ * are the house style in this corpus, so the matcher was wrong about its own subject.
+ *
+ * Measured across `docs/incidents/` (114 docs), old regex vs new:
+ *     matched by BOTH             72
+ *     OLD only (the fix loses)     0     <- the ^-anchoring costs nothing in practice
+ *     NEW only (the fix gains)     4
+ *     neither (genuinely missing) 38
+ *
+ * A banner that demands work already done is the CR-83 failure: it teaches the reader to
+ * skip an ACTION REQUIRED block, which is the one block that must stay un-skippable. Widened
+ * rather than editing documents to suit a regex — the documents were never wrong.
+ *
+ * `^` with `m` so a `## Prevention` inside a code fence or mid-sentence cannot satisfy it;
+ * `\b` so `## Rulesets` does not.
+ *
+ * EXTRACTED FROM `main()` so it can be fixtured — it had no test, which is how a matcher
+ * blind to its own corpus's house style shipped.
+ */
+export function hasPreventionSection(content: string): boolean {
+  return /^##\s*(?:\d+[.)]?\s*)?(?:Prevention Rules|Prevention|Rules)\b/im.test(content);
+}
+
 async function main(): Promise<void> {
   try {
     const input = await readStdin();
@@ -93,8 +122,9 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Check if incident has prevention rules section
-    const hasPrevention = /## Prevention Rules|## Prevention|## Rules/i.test(content);
+    // Check if incident has prevention rules section. The matcher and the measurement
+    // behind it live on `hasPreventionSection` — one authoring site for one rationale.
+    const hasPrevention = hasPreventionSection(content);
 
     if (config.autoLearning?.pipeline?.requirePreventionRule === false) {
       process.exit(0);

@@ -96,7 +96,7 @@ describe('security-scorer', () => {
 
     it('detects hardcoded credentials', () => {
       const filePath = join(testDir, 'test.ts');
-      writeFileSync(filePath, `const api_key = "sk-1234567890abcdef";\n`);
+      writeFileSync(filePath, `const api_key = "sk-1234567890abcdef";\n`); // gitleaks:allow — deliberately secret-SHAPED, obviously fake fixture: this test exercises a secret detector
 
       const result = scoreFileSecurity(filePath, testDir);
       expect(result.riskScore).toBeGreaterThan(0);
@@ -151,7 +151,7 @@ describe('security-scorer', () => {
       const filePath = join(testDir, 'critical.ts');
       writeFileSync(filePath, `
         const password = "hardcoded-secret-12345";
-        const token = "sk-1234567890abcdef";
+        const token = "sk-1234567890abcdef"; // gitleaks:allow — deliberately secret-SHAPED, obviously fake fixture: this test exercises a secret detector
         const apiKey = "another-secret-key-abc";
         publicProcedure.mutation(async () => {});
         eval(userInput);

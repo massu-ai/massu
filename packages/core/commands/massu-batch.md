@@ -191,7 +191,7 @@ FOR each batch (IN PARALLEL):
       After ALL files are modified:
       7. Run: ./scripts/pattern-scanner.sh --single-file [file] for each changed file
       8. If pattern-scanner finds violations, fix them
-      9. Run: NODE_OPTIONS='--max-old-space-size=8192' npx tsc --noEmit
+      9. Run: NODE_OPTIONS='--max-old-space-size=8192' {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
       10. If tsc finds errors in your changed files, fix them
 
       ## Output Format (MANDATORY)
@@ -240,10 +240,10 @@ Run on the consolidated result:
 ./scripts/pattern-scanner.sh
 
 # Full type check
-NODE_OPTIONS="--max-old-space-size=8192" npx tsc --noEmit
+NODE_OPTIONS="--max-old-space-size=8192" {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 
 # Build check
-npm run build
+{{verify.build | default("(this stack declares no build step)")}}
 ```
 
 ### Step 8: Output Structured Result

@@ -126,6 +126,7 @@ DENIED_PATTERNS=(
   '^docker-compose\.yml$'
   '^Dockerfile$'
   '^package\.public\.json$'
+  '^scripts/lib/derive-public-manifest\.py$'
   '^README\.public\.md$'
   '^\.gitignore\.public$'
   '^\.claude/CLAUDE\.public\.md$'

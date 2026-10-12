@@ -110,9 +110,9 @@ CS Loop is COMPLETE **only when BOTH gates pass: Code Quality AND Plan Coverage*
 | Gate | Command | Result |
 |------|---------|--------|
 | Pattern scanner | `bash scripts/massu-pattern-scanner.sh` | Exit 0 |
-| Type check | `cd packages/core && npx tsc --noEmit` | 0 errors |
-| Build | `npm run build` | Exit 0 |
-| Tests | `npm test` | All pass |
+| Type check | `{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}` | 0 errors |
+| Build | `{{verify.build | default("(this stack declares no build step)")}}` | Exit 0 |
+| Tests | `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}` | All pass |
 | Hook build | `cd packages/core && npm run build:hooks` | Exit 0 |
 
 ### GATE 2: Plan Coverage Evidence

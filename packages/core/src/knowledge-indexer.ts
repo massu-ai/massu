@@ -3,6 +3,7 @@
 
 import type Database from 'better-sqlite3';
 import { createHash } from 'crypto';
+import { CORRECTIONS_FILENAME } from './lib/corrections-md.ts';
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { resolve, relative, basename, extname } from 'path';
 import { getConfig, getResolvedPaths, getProjectRoot } from './config.ts';
@@ -13,6 +14,15 @@ import { getConfig, getResolvedPaths, getProjectRoot } from './config.ts';
 
 interface IndexStats {
   filesIndexed: number;
+  /**
+   * The ABSOLUTE paths this run actually indexed.
+   *
+   * A count alone cannot name what went missing. When the live-corpus check failed with
+   * `indexed 798 of 799`, the number said a file had been dropped and said nothing about
+   * WHICH — so every occurrence cost a fresh investigation. Carrying the list makes the
+   * difference nameable by subtraction.
+   */
+  indexedPaths: string[];
   chunksCreated: number;
   edgesCreated: number;
 }
@@ -63,7 +73,7 @@ interface Section {
  * Get resolved paths for knowledge indexing.
  * These are derived from config and project root, not hardcoded.
  */
-function getKnowledgePaths() {
+export function getKnowledgePaths() {
   const resolved = getResolvedPaths();
   const config = getConfig();
   const root = getProjectRoot();
@@ -96,7 +106,7 @@ function getKnowledgePaths() {
 // File Discovery
 // ============================================================
 
-function discoverMarkdownFiles(baseDir: string): string[] {
+export function discoverMarkdownFiles(baseDir: string): string[] {
   const files: string[] = [];
   function walk(dir: string): void {
     try {
@@ -171,16 +181,38 @@ function hashContent(content: string): string {
 // ============================================================
 
 export function parseCRTable(content: string): CRRule[] {
+  // ⛔ PARSE THE TABLE LINE BY LINE. DO NOT REGEX ACROSS IT.
+  //
+  // This used a single `/g` regex requiring FOUR pipe-delimited groups:
+  //     /\|\s*(CR-\d+)\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*\[?([^\]|]+)\]?[^|]*\|/g
+  // `[^|]+` matches NEWLINES. So against a THREE-column table — which is the shape this
+  // repo's own `.claude/CLAUDE.md` uses, and therefore the shape massu teaches — the
+  // fourth group ran past the end of its row and swallowed the NEXT one.
+  //
+  // MEASURED 2026-09-21 against `.claude/CLAUDE.md`:
+  //     rows declared: 41      rules extracted: 21      ids: CR-1, CR-3, CR-5, CR-7, ...
+  // Every other rule. HALF of this project's canonical rules had never been indexed, and
+  // every customer whose table is three-column lost the same half. The failure is silent:
+  // a smaller number of rules looks exactly like a smaller table.
+  //
+  // A markdown table is a LINE-ORIENTED structure and parsing it with a cross-line regex
+  // cannot be made safe by tightening the pattern — `[^|\n]+` would fix the bleed and then
+  // match NOTHING on a three-column row, turning a half-silent loss into a total one. So
+  // this splits on lines, splits on pipes, and treats the reference column as OPTIONAL,
+  // which is what the corpus actually contains.
   const rules: CRRule[] = [];
-  // Match CR table rows: | CR-N | Rule text | VR-* | reference |
-  const tableRegex = /\|\s*(CR-\d+)\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*\[?([^\]|]+)\]?[^|]*\|/g;
-  let match: RegExpExecArray | null;
-  while ((match = tableRegex.exec(content)) !== null) {
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('|')) continue;
+    // Drop the leading/trailing empty cells produced by the outer pipes.
+    const cells = trimmed.split('|').slice(1, -1).map((c) => c.trim());
+    if (cells.length < 3) continue;
+    if (!/^CR-\d+$/.test(cells[0])) continue;   // skips the header and separator rows
     rules.push({
-      rule_id: match[1].trim(),
-      rule_text: match[2].trim(),
-      vr_type: match[3].trim(),
-      reference_path: match[4].trim().replace(/\(.*\)/, '').trim(),
+      rule_id: cells[0],
+      rule_text: cells[1],
+      vr_type: cells[2],
+      reference_path: (cells[3] ?? '').replace(/^\[|\]$/g, '').replace(/\(.*\)/, '').trim(),
     });
   }
   return rules;
@@ -422,7 +454,7 @@ export function buildCrossReferences(db: Database.Database): number {
 // ============================================================
 
 export function indexAllKnowledge(db: Database.Database): IndexStats {
-  const stats: IndexStats = { filesIndexed: 0, chunksCreated: 0, edgesCreated: 0 };
+  const stats: IndexStats = { filesIndexed: 0, chunksCreated: 0, edgesCreated: 0, indexedPaths: [] };
   const paths = getKnowledgePaths();
 
   const insertDoc = db.prepare(
@@ -536,6 +568,7 @@ export function indexAllKnowledge(db: Database.Database): IndexStats {
       const result = insertDoc.run(relPath, category, title, description, hash, nowIso, nowEpoch);
       const docId = result.lastInsertRowid;
       stats.filesIndexed++;
+      stats.indexedPaths.push(filePath);
 
       // Parse sections into chunks (triggers auto-populate FTS5)
       const sections = parseSections(content, filePath);
@@ -628,7 +661,7 @@ export function indexAllKnowledge(db: Database.Database): IndexStats {
       }
 
       // Parse corrections.md for structured correction entries
-      if (fileNameLower === 'corrections.md') {
+      if (fileNameLower === CORRECTIONS_FILENAME) {
         const corrections = parseCorrections(content);
         for (const c of corrections) {
           insertChunk.run(docId, 'section', `Correction: ${c.title}`,
@@ -735,5 +768,5 @@ export function indexIfStale(db: Database.Database): IndexStats {
   if (isKnowledgeStale(db)) {
     return indexAllKnowledge(db);
   }
-  return { filesIndexed: 0, chunksCreated: 0, edgesCreated: 0 };
+  return { filesIndexed: 0, chunksCreated: 0, edgesCreated: 0, indexedPaths: [] };
 }

@@ -73,10 +73,10 @@ For every file you create or modify, verify against:
 bash scripts/massu-pattern-scanner.sh
 
 # Type check
-cd packages/core && npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 
 # Tests still pass
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 ```
 
 ### Massu-Specific Implementation Checks
@@ -99,7 +99,7 @@ Verify tools exist with 3-function pattern (getDefs, isTool, handleCall) in tool
 
 ## ENVIRONMENT & CONFIG VERIFICATION
 
-Verify env vars documented, no hardcoded secrets (`grep -rn "sk-\|password.*=" packages/core/src/` = 0), config files exist.
+Verify env vars documented, no hardcoded secrets (`grep -rn "sk-\|password.*=" {{paths.source}}/` = 0), config files exist.
 
 ---
 

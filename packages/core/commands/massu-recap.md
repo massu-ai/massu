@@ -132,7 +132,7 @@ matches, 0 commits ever touching the path — it was copied from another repo's 
 The instruction to "note it as unavailable" is what let a mandatory check report nothing
 for months, because "could not look" and "looked and found nothing" read identically.
 The checker is now version-controlled at `~/.claude/bin/memory-contradiction-check`, has a
-caller in `npm test` (`memory-contradiction-check-caller.test.ts`), a fixture suite, and a
+caller in `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}` (`memory-contradiction-check-caller.test.ts`), a fixture suite, and a
 live-fire attack — so its absence is itself a red test.
 
 ### Step 3: Update Session State

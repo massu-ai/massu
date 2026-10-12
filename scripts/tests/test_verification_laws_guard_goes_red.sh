@@ -26,22 +26,66 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CORE="$REPO/packages/core"
+# (No CORE pointing at the real packages/core. It was declared and read by nothing, and in a
+# harness whose header says "Everything runs on SCRATCH COPIES. Nothing real is mutated" an
+# unused handle on the real tree is a loaded footgun, not a convenience. Scratch paths only.)
 SUITE="src/__tests__/verification-laws-shipped-and-wired.test.ts"
+# shellcheck source-path=SCRIPTDIR/../lib source=vitest-verdict.sh
+. "$REPO/scripts/lib/vitest-verdict.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 fails=0
 
 # A scratch copy of the WHOLE repo: the guard asserts BOTH packages/core (ships) and .claude (loads).
+#
+# EVERY real node_modules tree is linked back in, DERIVED from the repo rather than named.
+# This used to link `packages/core/node_modules` ALONE. vitest and vite are HOISTED to the
+# WORKSPACE ROOT, so `packages/core/node_modules/.bin/vitest` does not exist: `npx` in the
+# scratch fell through to its own cache and died with ERR_MODULE_NOT_FOUND ('Cannot find
+# package vite'). run_suite discarded stderr, so that STARTUP FAILURE was scored as "the
+# guard went RED" — every scratch was red, pristine and planted alike, and all eleven
+# attacks below proved NOTHING for an unknown length of time. The control was the only
+# check that could notice, and its message blames the laws, pointing away from the cause.
+# Naming one path is what rotted; a hoist decision in package.json must not be able to
+# silently de-arm this harness again.
 make_scratch() {
-  local d="$1"
+  local d="$1" nm rel
   rm -rf "$d"; mkdir -p "$d"
   rsync -a --exclude node_modules --exclude .git --exclude dist --exclude coverage \
-        --exclude '*.db' --exclude .next "$REPO/" "$d/"
-  ln -s "$CORE/node_modules" "$d/packages/core/node_modules" 2>/dev/null
+        --exclude '*.db' --exclude .next "$REPO/" "$d/" || return 1
+  while IFS= read -r nm; do
+    [ -n "$nm" ] || continue
+    rel="${nm#"$REPO"/}"
+    mkdir -p "$d/$(dirname "$rel")" || return 1
+    ln -s "$nm" "$d/$rel" || return 1          # never 2>/dev/null: CR-69
+  done < <(find "$REPO" -maxdepth 3 -type d -name node_modules \
+                 -not -path '*/node_modules/*' | LC_ALL=C sort)
 }
-run_suite() { ( cd "$1/packages/core" && npx vitest run "$SUITE" >/dev/null 2>&1 ); }
+
+# THREE-VALUED, and that is the whole point: PASSED / FAILED / DID-NOT-RUN.
+#   0 = the suite ran and passed        1 = the suite ran and FAILED its assertions
+#   2 = the suite NEVER RAN (startup error, no test files, missing runner)
+# "I could not measure" and "the gate is dead" must never be one value — that collapse is
+# what made this harness vacuous. Discriminator: vitest prints a `Test Files`/`Tests`
+# summary whenever it actually executed, and prints neither on a startup failure.
+# The three-valued verdict lives in ONE place now — see scripts/lib/vitest-verdict.sh for why.
+# The predicate that used to sit here was ANSI-BLIND: vitest colours its summary in CI, so this
+# harness reported "the suite NEVER RAN" for ten attacks that had each run and reddened exactly
+# as intended, and a REQUIRED check was a brick for ten consecutive CI runs. vv_run forces
+# colour OFF so the captured bytes are the same on a laptop and in CI.
+run_suite() {
+  local log
+  log="$(mktemp -t vlaws-suite-XXXXXX)" || return 2
+  vv_run "$1/packages/core" "$log" "$SUITE"
+  local verdict=$?
+  if [ "$verdict" -eq 2 ]; then
+    printf '     DID-NOT-RUN: the suite never executed; last lines follow\n' >&2
+    tail -6 "$log" | sed 's/^/       | /' >&2
+  fi
+  rm -f "$log"
+  return "$verdict"
+}
 
 # assert_red <label> <scratch-dir> <plant-sanity-cmd>
 # A defeat test that fails to plant its defect is itself vacuous — so the plant is verified first.
@@ -51,7 +95,11 @@ assert_red() {
     echo "  FAIL  [$label] could not PLANT the defect — this attack proves nothing."
     fails=$((fails + 1)); return
   fi
-  if run_suite "$d"; then
+  run_suite "$d"; local rc=$?
+  if [ "$rc" -eq 2 ]; then
+    echo "  FAIL  [$label] the suite NEVER RAN — this attack proves nothing (not a RED gate)."
+    fails=$((fails + 1))
+  elif [ "$rc" -eq 0 ]; then
     echo "  FAIL  [$label] guard stayed GREEN with the defect planted — IT IS DECORATION."
     fails=$((fails + 1))
   else
@@ -61,8 +109,14 @@ assert_red() {
 
 echo "════ CONTROL: the guard on the real tree (must be GREEN) ════"
 make_scratch "$TMP/control"
-if run_suite "$TMP/control"; then
+run_suite "$TMP/control"; CTL_RC=$?
+if [ "$CTL_RC" -eq 0 ]; then
   echo "  OK    guard is GREEN on the correct tree"
+elif [ "$CTL_RC" -eq 2 ]; then
+  echo "  FAIL  the suite NEVER RAN on a PRISTINE scratch — the harness cannot measure"
+  echo "        anything, and every attack below would score a vacuous RED. Fix make_scratch;"
+  echo "        do NOT read this as a defect in the laws."
+  fails=$((fails + 1))
 else
   echo "  FAIL  guard is RED on the correct tree — it is broken, or the laws really are missing."
   fails=$((fails + 1))
@@ -185,7 +239,7 @@ assert_red "decoy-mandate" "$d" \
 # ── C3. FENCED HOSTILE — denylisted phrases hidden inside a code fence ───────────────────────
 # liveText stripped fences before the denylist ran, cancelling it. The scan is now on raw text.
 echo
-echo "════ C3. FENCED HOSTILE: denylisted phrases inside a ```fence``` in a shipped command ════"
+echo '════ C3. FENCED HOSTILE: denylisted phrases inside a ```fence``` in a shipped command ════'
 d="$TMP/fenced"; make_scratch "$d"
 cat >> "$d/packages/core/commands/massu-status.md" <<'EOF'
 

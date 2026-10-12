@@ -13,7 +13,59 @@ if ! echo "$COMMAND" | grep -qE '^git commit|&& git commit|; git commit'; then
   exit 0
 fi
 
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+# ⛔ THE GATE MUST JUDGE THE REPOSITORY THE COMMIT LANDS IN (G28). FIXED 2026-09-21.
+#
+# This read `PROJECT_DIR="${CLAUDE_PROJECT_DIR:-...}"` — the ambient variable FIRST, the
+# actual repository second. A Claude Code session's CLAUDE_PROJECT_DIR is wherever the
+# session was started, which is not necessarily where a `cd <repo> && git commit` lands.
+#
+# MEASURED 2026-09-21: a session rooted at the PUBLIC MIRROR made five commits to
+# massu-internal. Every one was gated by running `tsc --noEmit` and `npm test` in the
+# MIRROR. They passed, so nothing looked wrong — a gate reporting green about a repository
+# it was never asked about is the blind-gate law with the subject swapped out. It only
+# surfaced when the mirror's node_modules were removed and the gate started failing for a
+# commit that had nothing to do with it.
+#
+# The command string is the authority, because it carries the `cd`. Order: the path the
+# command names, then the actual working tree, and the ambient variable only as a last
+# resort. WHICH BRANCH WAS TAKEN IS PRINTED — a silent fallback to the wrong repo is the
+# defect, so the choice must be observable (M1).
+_gate_subject() {
+  local dir=""
+  # 1. `cd <path> && ... git commit` / `git -C <path> commit` — the command names its target.
+  dir="$(printf '%s' "$COMMAND" | sed -nE 's|.*git -C ([^ ]+).*|\1|p' | head -1)"
+  [ -z "$dir" ] && dir="$(printf '%s' "$COMMAND" | sed -nE 's|^[[:space:]]*cd ([^ &;|]+).*|\1|p' | head -1)"
+  if [ -n "$dir" ]; then
+    # Expand a leading `~` the way the shell would, WITHOUT `eval` — the text comes from a
+    # command string, and eval on that is arbitrary execution for a path expansion. Through
+    # the documented override seam so a test can redirect it (homedir-injectability guard).
+    _gate_home="${MASSU_GATE_HOME:-$HOME}"
+    case "$dir" in
+      '~') dir="$_gate_home" ;;
+      '~/'*) dir="$_gate_home/${dir#\~/}" ;;
+    esac
+    if top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" && [ -n "$top" ]; then
+      printf '%s\t%s\n' "$top" "command"; return 0
+    fi
+  fi
+  # 2. The working tree this hook is standing in.
+  if top="$(git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$top" ]; then
+    printf '%s\t%s\n' "$top" "cwd"; return 0
+  fi
+  # 3. The ambient variable, last and announced.
+  if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+    printf '%s\t%s\n' "$CLAUDE_PROJECT_DIR" "CLAUDE_PROJECT_DIR"; return 0
+  fi
+  return 1
+}
+if ! _subject="$(_gate_subject)"; then
+  # M2 — cannot identify the repository under test. That is an ERROR, never a pass.
+  echo "[PRE-COMMIT GATE] could not identify the repository this commit targets — refusing." >&2
+  exit 2
+fi
+PROJECT_DIR="${_subject%%	*}"
+GATE_SUBJECT_SOURCE="${_subject##*	}"
+echo "[PRE-COMMIT GATE] subject: $PROJECT_DIR (from: $GATE_SUBJECT_SOURCE)" >&2
 
 # Node version pre-flight. massu supports Node >=20 (packages/core engines).
 # The <26 ceiling was DROPPED in 1.15.1 (incident 2026-07-05): better-sqlite3

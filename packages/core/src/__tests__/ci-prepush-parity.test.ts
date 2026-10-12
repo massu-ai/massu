@@ -57,6 +57,7 @@ const CI_ONLY_SCRIPTS = new Set<string>([
   'ci-fresh-install.sh',   // matrix per-fixture variant — covered locally by [0/15] clean-state sim
   'ci-config-drift.sh',    // workspace-shadow avoidance scratch-dir setup is CI-environment-specific
   'ci-anti-vacuity.sh',    // full anti-vacuity DEFEAT sweep ~14min (CR-68) — too slow for pre-push; pre-push mirrors --completeness-only at step [22/22] (G-6 Wave 1 P6)
+  'ci-adjudicate-needs.sh', // reads a GitHub Actions `needs` context from NEEDS_JSON; there is no needs graph outside a workflow run, so a pre-push invocation would adjudicate nothing. Its three exit paths (all-green 0, a failed/cancelled job 1, could-not-look 2) are exercised by ci-adjudicate-needs.test.ts so it is not a zero-caller chokepoint (CR-71).
   'ci-provision-public-mirror.sh', // clones massu-ai/massu into $HOME and overwrites its pre-push hook — DESTRUCTIVE to a developer's real working clone, so it must never run from pre-push-light.sh; the pre-push mirror is that the operator's own $HOME/massu already exists and is already scanner-wired (W-2, plan-2026-07-26-anti-vacuity-9-unproven-gates)
 ]);
 

@@ -21,7 +21,7 @@ Navigate to **Dashboard > Webhooks** or use the REST API:
 
 ```bash
 curl -X POST https://massu.ai/api/v1/webhooks \
-  -H "Authorization: Bearer ms_live_XXXXXXXX_your_key" \
+  -H "Authorization: Bearer $MASSU_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://your-server.com/webhooks/massu",
@@ -100,13 +100,13 @@ Use the "Send Test" button in the dashboard or the test endpoint to verify your 
 ### List endpoints
 ```bash
 curl https://massu.ai/api/v1/webhooks \
-  -H "Authorization: Bearer ms_live_XXXXXXXX_your_key"
+  -H "Authorization: Bearer $MASSU_API_KEY"
 ```
 
 ### Update endpoint
 ```bash
 curl -X PATCH https://massu.ai/api/v1/webhooks/{id} \
-  -H "Authorization: Bearer ms_live_XXXXXXXX_your_key" \
+  -H "Authorization: Bearer $MASSU_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"events": ["*"]}'
 ```
@@ -114,5 +114,5 @@ curl -X PATCH https://massu.ai/api/v1/webhooks/{id} \
 ### Delete endpoint
 ```bash
 curl -X DELETE https://massu.ai/api/v1/webhooks/{id} \
-  -H "Authorization: Bearer ms_live_XXXXXXXX_your_key"
+  -H "Authorization: Bearer $MASSU_API_KEY"
 ```

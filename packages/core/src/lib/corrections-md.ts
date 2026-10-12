@@ -101,3 +101,71 @@ export function parseCorrectionRules(content: string): string[] {
 
   return rules;
 }
+
+// ============================================================
+// THE PATH AND THE PLACEMENT — A-09 AMENDMENT, 2026-09-20
+// ============================================================
+//
+// WHY THIS SECTION EXISTS. A-09 shipped ONE format and ONE parser, but left the PATH and
+// the WRITE outside this module. The literal `'corrections.md'` was therefore rebuilt
+// independently in six files, and each writer did its own `writeFileSync`. A new writer
+// could reach a valid path without ever touching the module that would have handed it the
+// formatter — which is exactly how three formats appeared in the first place.
+//
+// A-09's drift-guard papered over that gap by trying to DETECT writers from source text:
+// "mentions corrections.md" AND "contains `const entry =`". Both are correlates of the
+// property, not the property (G28). Measured 2026-09-20, it flagged `config.ts` — a file
+// that merely lists the filename in a default knowledge-source array — because unrelated
+// new code there happened to declare a variable called `entry`.
+//
+// The structural answer is not a better regex. It is to remove the thing being detected:
+// this module owns the filename, the path and the placement, so a writer that does not go
+// through it cannot reach the file at all. The guard then asserts a property with no
+// heuristic and no allowlist — the literal occurs in exactly one module.
+//
+// IT ALSO FIXES A SECOND DEFECT THE OLD GUARD COULD NOT SEE. The two writers disagreed on
+// PLACEMENT: `knowledge-tools.ts` inserted before `## Archived`, while
+// `rule-candidate-applier.ts` always appended to the end — so an applier-written
+// correction landed INSIDE the archive. One rule, here, for both.
+
+/** The one true filename. Every other site imports this rather than retyping it. */
+export const CORRECTIONS_FILENAME = 'corrections.md';
+
+/** Header for a corrections.md that does not exist yet. */
+export const CORRECTIONS_HEADER = '# Corrections\n';
+
+/** Marker opening the archive section. Live entries go BEFORE it, never after. */
+const ARCHIVE_MARKER = '## Archived';
+
+/**
+ * The path to a memory directory's corrections.md. The only way to obtain it.
+ *
+ * Takes the directory rather than reading config, so the pure-function tests and the
+ * multi-file atomic writer can both use it without a config in scope.
+ */
+export function correctionsPath(memoryDir: string): string {
+  // `join` is not imported here deliberately: this module is imported by hooks that must
+  // stay dependency-light, and a single separator is all that is needed.
+  return memoryDir.endsWith('/') ? `${memoryDir}${CORRECTIONS_FILENAME}` : `${memoryDir}/${CORRECTIONS_FILENAME}`;
+}
+
+/**
+ * Produce the NEW full contents of corrections.md with `entry` inserted.
+ *
+ * Pure: takes the existing content, returns the new content. Callers keep control of how
+ * they write (one writer needs a multi-file atomic sequence), but none of them decides
+ * the FORMAT or the PLACEMENT — that is settled here.
+ *
+ * Placement: immediately BEFORE `## Archived` when that section exists, otherwise at the
+ * end. An entry appended after the archive marker reads as archived and is invisible to
+ * anyone scanning live corrections.
+ */
+export function insertCorrectionEntry(existing: string, entry: CorrectionEntry): string {
+  const rendered = formatCorrectionEntry(entry);
+  const base = existing.length > 0 ? existing : CORRECTIONS_HEADER;
+  const archiveIdx = base.indexOf(ARCHIVE_MARKER);
+  if (archiveIdx > 0) {
+    return base.slice(0, archiveIdx) + rendered + base.slice(archiveIdx);
+  }
+  return base + rendered;
+}

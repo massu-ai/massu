@@ -330,13 +330,13 @@ Proceed directly to PHASE 1 (Feature Understanding) as normal. Not every request
 
 ```bash
 # Search for similar features in codebase
-grep -rn "[feature_keyword]" packages/core/src/ --include="*.ts" | head -20
+grep -rn "[feature_keyword]" {{paths.source}}/ --include="*.ts" | head -20
 
 # Find similar tool modules
 ls -la packages/core/src/*-tools.ts
 
 # Find similar tests
-ls -la packages/core/src/__tests__/
+ls -la {{paths.tests | default("tests")}}/
 ```
 
 **Document findings:**
@@ -429,7 +429,7 @@ ls packages/core/src/__tests__/*.test.ts | wc -l
 
 ```bash
 # Check if target directories exist
-ls -la packages/core/src/
+ls -la {{paths.source}}/
 
 # Check if files to modify exist
 ls -la [file_path]
@@ -692,7 +692,7 @@ Update coverage map: mark D6, D7, D8, D10 as `done`.
 - **File**: packages/core/src/__tests__/[module].test.ts
 - **Action**: CREATE
 - **Covers**: Tool definitions, handlers, edge cases
-- **Verification**: VR-TEST (npm test)
+- **Verification**: VR-TEST ({{verify.test | default("declare verification.LANG.test in massu.config.yaml")}})
 
 ---
 
@@ -713,7 +713,7 @@ Update coverage map: mark D6, D7, D8, D10 as `done`.
 |------|------|---------------------|
 | P1-001 | MODULE | `ls -la packages/core/src/[module].ts` |
 | P1-002 | TOOL_WIRE | `grep "getXToolDefinitions" packages/core/src/tools.ts` |
-| P2-001 | TEST | `npm test` |
+| P2-001 | TEST | `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}` |
 | P3-001 | CONFIG | Parse config without error |
 
 ---
@@ -780,8 +780,8 @@ Update coverage map: mark D6, D7, D8, D10 as `done`.
 #### Build Feasibility
 | Check | Command | Result | Status |
 |-------|---------|--------|--------|
-| TypeScript compiles | cd packages/core && npx tsc --noEmit | 0 errors | PASS/FAIL |
-| Tests pass | npm test | All pass | PASS/FAIL |
+| TypeScript compiles | {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} | 0 errors | PASS/FAIL |
+| Tests pass | {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} | All pass | PASS/FAIL |
 | Hooks compile | cd packages/core && npm run build:hooks | Exit 0 | PASS/FAIL |
 
 **FEASIBILITY GATE: PASS / FAIL**

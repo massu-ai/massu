@@ -32,12 +32,14 @@ trap cleanup EXIT INT TERM
 
 # (a) Ephemeral clone — NOT a worktree (worktree mutation could corrupt the
 # operator's working tree if interrupted; clone is fully isolated).
-if ! git clone --no-local --quiet "$REPO_ROOT" "$CLONE_DIR" 2>/tmp/parity-regression-clone.log; then
+# --template= : a throwaway clone must not inherit the machine's init.templateDir hooks, which
+# would then judge the reverts below (G29 template half; sandbox-git-env drift guard).
+if ! git clone --template= --no-local --quiet "$REPO_ROOT" "$CLONE_DIR" 2>/tmp/parity-regression-clone.log; then
   echo "PARITY-REGRESSION-TEST: ABORT (git clone failed; see /tmp/parity-regression-clone.log)"
   exit 2
 fi
 
-cd "$CLONE_DIR"
+cd "$CLONE_DIR" || exit 1
 
 # (b) Revert the two SHAs that fixed the 4 CI-only failure modes from 2026-05-18.
 for sha in 8c6b843 d3164f7; do

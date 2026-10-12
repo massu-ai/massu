@@ -197,7 +197,7 @@ describe('CR-66: template verification blocks bind to the vr-command-map SoT', (
     expect(actual).toEqual({
       test: 'swift test',
       type: 'swift build',
-      build: 'xcodebuild build',
+      build: 'swift build -c release',
       lint: 'swiftlint',
     });
   });

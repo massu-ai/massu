@@ -59,7 +59,7 @@ Map the failure to a known pattern:
 2. Run the same check locally to verify:
    ```bash
    # Run the specific check that failed
-   npm run build  # or whatever CI step failed
+   {{verify.build | default("(this stack declares no build step)")}}  # or whatever CI step failed
    ```
 3. Verify fix passes locally
 

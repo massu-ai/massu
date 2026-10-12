@@ -30,161 +30,25 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// THE shared judgement. This file owns NO parser and NO oracle of its own: both live in the
+// core, which vitest imports too, so the thing CI runs is the thing the guards read.
+// Recorded 2026-09-23 in the retro for this repair.
+import {
+  WORKFLOW_NOT_REQUIRED_AS_CONTEXT,
+  jobContextNames,
+  isPushTriggered,
+  contextsCoveredByRequiredGate,
+  classifyReverseCoverage,
+} from './lib/ruleset-coverage-core.mjs'
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const REPO_ROOT = path.resolve(__dirname, '..')
 const RULESET_PATH = path.join(REPO_ROOT, '.github', 'rulesets', 'main-branch.json')
 const WORKFLOWS_DIR = path.join(REPO_ROOT, '.github', 'workflows')
 
-/**
- * Jobs whose contexts are intentionally NOT required as gating status checks.
- * Each entry MUST cite the reason. Renames or removals here are intentional
- * changes that should go through code review.
- *
- * KEEP IN SYNC with WORKFLOW_NOT_REQUIRED_AS_CONTEXT in
- * website/src/__tests__/ruleset-context-coverage.test.ts.
- */
-const WORKFLOW_NOT_REQUIRED_AS_CONTEXT = new Set([
-  // G-1 REALITY GATE (reality.yml). Probes the OUTSIDE WORLD — live endpoints at
-  // api.massu.ai, massu.ai. It MUST NOT gate a merge: a vendor outage, a DNS blip, or a
-  // Supabase incident would then block every push, and a gate that blocks on someone
-  // else's downtime gets switched off — which is how gates rot. It runs nightly and
-  // fails LOUDLY (it is what caught 4 production 404s), but it does not hold the door.
-  'reality',
 
-  // schedule-only workflow; never runs on push; requiring it as a context
-  // would block every push.
-  'Weekly retroactive leak-guard audit',
-  // matrix-shaped install verification (fresh-install-matrix.yml). The job
-  // name is the LITERAL TEMPLATE STRING 'init --ci on ${{ matrix.fixture }}'
-  // at YAML level — neither the regex parser here nor yaml.parse() in the
-  // vitest test expand the ${{ ... }} GitHub Actions expression; the 6
-  // expanded check-run names exist only at GitHub runtime. Allowlisting the
-  // literal is sufficient for the rename-drift class.
-  'init --ci on ${{ matrix.fixture }}',
-  // the rule-apply workflow itself shouldn't gate the rule it creates
-  // (chicken-and-egg).
-  'Apply Ruleset',
-  // read-only audit; informational, not gating.
-  'Branch Protection Audit',
-  // matrix-shaped Node-major native-module verification (ci.yml). The job
-  // name is the LITERAL TEMPLATE STRING 'Native Module (Node ${{ matrix.node }})'
-  // at YAML level — the 5 expanded check-run names exist only at GitHub
-  // runtime, so the matrix job cannot be a required context. The static
-  // 'Native Module Gate' aggregator IS the required gating context
-  // (main-branch.json); this allowlists the matrix.
-  'Native Module (Node ${{ matrix.node }})',
-  // matrix-shaped Windows Layer-2 bootstrap verification (ci.yml, CR-70 Windows parity). The job
-  // name is the LITERAL TEMPLATE STRING 'Windows Bootstrap (Node ${{ matrix.node }})' at YAML
-  // level — the expanded check-run names exist only at GitHub runtime, so the matrix job cannot
-  // be a required context. The static 'Windows Bootstrap Gate' aggregator IS the required gating
-  // context (main-branch.json); this allowlists the matrix.
-  'Windows Bootstrap (Node ${{ matrix.node }})',
-  // G-6 anti-vacuity meta-gate (ci.yml job "Anti-Vacuity"). A deterministic full
-  // DEFEAT sweep (~14min, CR-68) that goes RED on ANY decoration — fail-closed at the
-  // job level. It is intentionally NOT a hard required merge-context: a ~14min gate as
-  // a required status check on direct-push-to-main would rot operationally (the same
-  // structural rationale the matrix/reality jobs above cite). Enforcement is the job
-  // going RED on a planted defect PLUS the CR-48 Guardian readiness watcher, which
-  // fires if the sweep stops succeeding in-window or the runner gets un-wired.
-  'Anti-Vacuity',
-])
 
-/**
- * Regex-based extractor for jobs.<id>.name.
- * Constraints (enforced by website P-B-005 test):
- *   - 2-space indent
- *   - single-line job name
- *   - job name does not contain a literal ":"
- *
- * Algorithm:
- *   1. Find the `^jobs:$` line.
- *   2. From there, scan for `^  ([a-zA-Z0-9_-]+):` (job ID at 2-space indent).
- *   3. Within each job body, find `^    name:\s*(.+?)\s*$` (4-space indent).
- *   4. Skip commented-out lines (`^\s*#`).
- *   5. If no `name:` found before the next job ID, fall back to the job ID.
- */
-function jobContextNames(yamlContent) {
-  const lines = yamlContent.split('\n')
-  const jobs = []
-  let inJobsBlock = false
-  let currentJobId = null
-  let currentJobIndent = null
-  let currentJobName = null
-
-  const finalizeCurrentJob = () => {
-    if (currentJobId !== null) {
-      jobs.push(currentJobName ?? currentJobId)
-    }
-    currentJobId = null
-    currentJobIndent = null
-    currentJobName = null
-  }
-
-  for (const rawLine of lines) {
-    if (/^\s*#/.test(rawLine)) continue // skip comments
-    if (rawLine.trim() === '') continue // skip blank lines
-
-    if (!inJobsBlock) {
-      if (/^jobs:\s*$/.test(rawLine)) inJobsBlock = true
-      continue
-    }
-
-    // Top-level key (column 0, e.g., `permissions:`) ends the jobs block
-    if (/^[a-zA-Z_-]/.test(rawLine)) {
-      finalizeCurrentJob()
-      inJobsBlock = false
-      continue
-    }
-
-    const jobIdMatch = rawLine.match(/^  ([a-zA-Z0-9_-]+):\s*$/)
-    if (jobIdMatch) {
-      finalizeCurrentJob()
-      currentJobId = jobIdMatch[1]
-      currentJobIndent = 2
-      currentJobName = null
-      continue
-    }
-
-    if (currentJobId !== null && currentJobName === null) {
-      const nameMatch = rawLine.match(/^    name:\s*(.+?)\s*$/)
-      if (nameMatch) {
-        let v = nameMatch[1].trim()
-        // Strip single OR double quotes when fully wrapped
-        if (
-          (v.startsWith('"') && v.endsWith('"') && v.length >= 2) ||
-          (v.startsWith("'") && v.endsWith("'") && v.length >= 2)
-        ) {
-          v = v.slice(1, -1)
-        }
-        currentJobName = v
-      }
-    }
-  }
-  finalizeCurrentJob()
-
-  return jobs
-}
-
-function isPushTriggered(yamlContent) {
-  // Matches `on: push` (single-line) or `on:` block containing `push:` (or `push: ...`)
-  // The first variant: `^on:\s*push\s*$`
-  // The second: an `^on:` line followed within ~30 lines by `^  push:`
-  const lines = yamlContent.split('\n')
-  for (let i = 0; i < lines.length; i++) {
-    if (/^on:\s*push\s*$/.test(lines[i])) return true
-    if (/^on:\s*$/.test(lines[i])) {
-      // scan block for `^  push:` or `^  push:\s*$`
-      for (let j = i + 1; j < lines.length; j++) {
-        if (/^[a-zA-Z_-]/.test(lines[j])) break // new top-level key
-        if (/^  push:/.test(lines[j])) return true
-      }
-    }
-    // inline mapping: `on: [push, pull_request]`
-    if (/^on:\s*\[.*\bpush\b.*\]/.test(lines[i])) return true
-  }
-  return false
-}
 
 function loadRuleset(rulesetPath) {
   const raw = readFileSync(rulesetPath, 'utf-8')
@@ -306,10 +170,26 @@ function main() {
     console.log(`FORWARD COVERAGE PASS: ${requiredContexts.length} required contexts all emitted by some job`)
   }
 
-  // Reverse coverage: every push-triggered job is required or allowlisted
-  const ungated = [...pushTriggeredContexts].filter(
-    (c) => !requiredContexts.includes(c) && !WORKFLOW_NOT_REQUIRED_AS_CONTEXT.has(c),
-  )
+  // Reverse coverage: every push-triggered context is required, DERIVABLY GATED by the
+  // `needs:` graph of a job that IS required, structurally templated, or an oracle entry.
+  // The classification and its M1 refusal live in the core, so this file cannot pass
+  // vacuously by extracting nothing — which is exactly how it used to pass (21 -> 0).
+  const pushTriggeredSources = workflowFiles
+    .map((f) => ({ file: f, content: readFileSync(path.join(WORKFLOWS_DIR, f), 'utf-8') }))
+    .filter(({ content }) => isPushTriggered(content))
+  let reverse
+  try {
+    reverse = classifyReverseCoverage({
+      pushTriggeredContexts,
+      requiredContexts,
+      coveredByRequiredGate: contextsCoveredByRequiredGate(pushTriggeredSources, requiredContexts),
+    })
+  } catch (err) {
+    // M2: could not judge is not a pass. Exit 1 loudly rather than print a clean line.
+    console.error(`::error::REVERSE COVERAGE UNMEASURED — ${err.message}`)
+    process.exit(1)
+  }
+  const ungated = reverse.ungated
   if (ungated.length > 0) {
     console.error(
       `::error::REVERSE COVERAGE FAILED — push-triggered jobs are neither required nor allowlisted:`,
@@ -317,12 +197,17 @@ function main() {
     for (const c of ungated) console.error(`::error::  - ${c}`)
     console.error(
       `::error::Either add to required_status_checks in .github/rulesets/main-branch.json, ` +
-        `or add to WORKFLOW_NOT_REQUIRED_AS_CONTEXT in this script + the vitest test (with JSDoc reason).`,
+        `have a required job depend on it via needs: (which this guard DERIVES), ` +
+        `or add to WORKFLOW_NOT_REQUIRED_AS_CONTEXT in scripts/lib/ruleset-coverage-core.mjs ` +
+        `(ONE definition, with its cited reason).`,
     )
     failed = true
   } else {
+    const c = reverse.counts
     console.log(
-      `REVERSE COVERAGE PASS: all ${pushTriggeredContexts.size} push-triggered job contexts are either required (${requiredContexts.length}) or allowlisted (${WORKFLOW_NOT_REQUIRED_AS_CONTEXT.size})`,
+      `REVERSE COVERAGE PASS: all ${reverse.denominator} push-triggered job contexts are gated — ` +
+        `required ${c.required}, derivably-gated ${c['derivably-gated']}, templated ${c.templated}, ` +
+        `oracle ${c.oracle} (of ${WORKFLOW_NOT_REQUIRED_AS_CONTEXT.size} oracle entries)`,
     )
   }
 

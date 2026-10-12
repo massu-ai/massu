@@ -25,6 +25,36 @@ set -uo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 GATE="$REPO_ROOT/scripts/pre-push-light.sh"
 
+# --- CAPTURE WHAT THE PUSH ACTUALLY DELIVERS, ONCE, AT THE ONLY BOUNDARY THAT HAS IT ---
+#
+# git writes one line per pushed ref to the pre-push hook's STDIN:
+#
+#     <local ref> <local oid> <remote ref> <remote oid>
+#
+# That is the ONLY authoritative statement of what this push will transmit. Everything
+# downstream used to re-derive it, and the derivation's fallback (`HEAD~1..HEAD`) judged
+# an 8-commit branch on its last commit — a blind gate on the irreversible half of the
+# commit/push pair.
+#
+# THIS IS THE LAST LINK IN THE CHAIN THAT RECEIVES THE STREAM, AND A STREAM HAS EXACTLY
+# ONE READER. `.git/hooks/pre-push` (the managed shim) replays its captured payload to
+# `pre-push.local`, which invokes this script with that stdin inherited; nothing after
+# this point reads it. So capturing here consumes nothing another link needs — and
+# EXPORTING it, rather than piping it on, is what lets several gates read the same fact.
+# A pipe would hand it to exactly one of them and leave the rest reporting
+# "nothing to scan", which ALLOWS.
+#
+# `[ ! -t 0 ]` distinguishes a real hook invocation from an interactive run. A terminal
+# stdin means nobody handed us refs, and the resolver's own fallback chain takes over —
+# it refuses rather than inventing a range, so an empty capture cannot read as "clean".
+if [ ! -t 0 ]; then
+  MASSU_PUSH_REFS="$(cat)"
+  export MASSU_PUSH_REFS
+  # M1 — say what was captured. Zero refs on the hook path is a state worth seeing in the
+  # log: it means either a no-op push or a broken capture, and those must not look alike.
+  echo "[pre-push] pushed refs captured: $(printf '%s' "$MASSU_PUSH_REFS" | grep -c . || true) line(s)"
+fi
+
 if [ ! -x "$GATE" ] && [ ! -f "$GATE" ]; then
   echo "[pre-push] WARNING: $GATE not found — pushing WITHOUT release gates." >&2
   echo "[pre-push] $(date -u +%FT%TZ) MISSING-GATE push allowed" >> "$REPO_ROOT/.massu/pre-push-audit.log" 2>/dev/null || true

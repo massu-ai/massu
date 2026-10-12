@@ -41,23 +41,39 @@ if [[ ! -f "$MEMORY_DB" ]]; then
 fi
 
 # --- Step 1: Extract the highest incident number and its summary ---
-# Find lines like "## Incident #25: February 18, 2026 - IntegrationCard onClick Undefined"
-LATEST_INCIDENT=$(grep -oE '## Incident #([0-9]+):' "$INCIDENT_FILE" | grep -oE '[0-9]+' | sort -n | tail -1)
+#
+# ⛔ THE FORMAT IS THE LOG'S, NOT THIS FILE'S. This parser used to demand `## Incident #N:`
+# headings and `**What happened**:` / `**Prevention added**:` fields. The log it watches declares
+# its own format in its `## Template` section — `### Incident #N:` headings and `- **Root Cause**:`
+# / `- **Prevention**:` bullets — and the two never agreed. `grep -oE '## Incident #…'` still
+# matched `###` as a SUBSTRING (so a number was found), then the anchored `^## Incident #N:` found
+# nothing, and under `set -euo pipefail` that empty grep KILLED the hook: exit 1, no insert, no
+# message, on every edit of the real log. Measured 2026-09-26 against a copy of the real
+# INCIDENT-LOG.md: rc=1, INSERT attempts 0. A drift-guard in the core test suite drives THIS
+# script against the REAL log, so the two authoring sites cannot drift apart silently again.
+#
+# Both heading depths are accepted (logs written to the older `## Incident #N:` convention keep
+# working; this repo's template uses `###`), and the fields are OPTIONAL: every extraction that may
+# legitimately find nothing is `|| true`, because under pipefail a grep that matches nothing fails
+# the assignment and errexit ends the hook. That is not a status capture, so the `&& X=0 || X=$?`
+# idiom used for the INSERT below does not apply here.
+HEADING_RE='^#{2,3} Incident #'
+LATEST_INCIDENT=$( { grep -oE "${HEADING_RE}[0-9]+:" "$INCIDENT_FILE" | grep -oE '[0-9]+' | sort -n | tail -1; } || true)
 
 if [[ -z "$LATEST_INCIDENT" ]]; then
   exit 0
 fi
 
 # Extract the full header line for the latest incident
-INCIDENT_HEADER=$(grep -E "^## Incident #${LATEST_INCIDENT}:" "$INCIDENT_FILE" | head -1)
-INCIDENT_TITLE=$(echo "$INCIDENT_HEADER" | sed 's/^## //')
+INCIDENT_HEADER=$( { grep -E "${HEADING_RE}${LATEST_INCIDENT}:" "$INCIDENT_FILE" | head -1; } || true)
+INCIDENT_TITLE=$(echo "$INCIDENT_HEADER" | sed -E 's/^#{2,3} //')
 
-# Extract "What happened" for the LATEST incident specifically
-HEADER_LINE=$(grep -n "^## Incident #${LATEST_INCIDENT}:" "$INCIDENT_FILE" | head -1 | cut -d: -f1)
+# Extract the summary fields for the LATEST incident specifically
+HEADER_LINE=$( { grep -nE "${HEADING_RE}${LATEST_INCIDENT}:" "$INCIDENT_FILE" | head -1 | cut -d: -f1; } || true)
 if [[ -n "$HEADER_LINE" ]]; then
-  SECTION=$(sed -n "${HEADER_LINE},/^## Incident #[0-9]/p" "$INCIDENT_FILE" | head -30)
-  WHAT_HAPPENED=$(echo "$SECTION" | grep "^\*\*What happened\*\*:" | head -1 | sed 's/^\*\*What happened\*\*: *//' | head -c 500)
-  PREVENTION=$(echo "$SECTION" | grep "^\*\*Prevention added\*\*:" | head -1 | sed 's/^\*\*Prevention added\*\*: *//' | head -c 500)
+  SECTION=$( { sed -nE "${HEADER_LINE},/${HEADING_RE}[0-9]/p" "$INCIDENT_FILE" | head -30; } || true)
+  WHAT_HAPPENED=$( { echo "$SECTION" | grep -E '^(- )?\*\*(What happened|Root Cause)\*\*:' | head -1 | sed -E 's/^(- )?\*\*(What happened|Root Cause)\*\*: *//' | head -c 500; } || true)
+  PREVENTION=$( { echo "$SECTION" | grep -E '^(- )?\*\*Prevention( added)?\*\*:' | head -1 | sed -E 's/^(- )?\*\*Prevention( added)?\*\*: *//' | head -c 500; } || true)
 else
   WHAT_HAPPENED=""
   PREVENTION=""
@@ -101,16 +117,18 @@ NOW_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 NOW_EPOCH=$(date +%s)
 
 # Insert observation with type=incident_near_miss, importance=5
-sqlite3 "$MEMORY_DB" "INSERT INTO observations (session_id, type, title, detail, files_involved, cr_rule, importance, created_at, created_at_epoch) VALUES ('${SESSION_ID}', 'incident_near_miss', '${ESCAPED_TITLE}', '${ESCAPED_DETAIL}', '[\"$INCIDENT_FILE\"]', 'CR-9', 5, '${NOW_ISO}', ${NOW_EPOCH});" 2>/dev/null && INGEST_RC=0 || INGEST_RC=$?
-
 # Under `set -e` a bare `$?` on the next line is DEAD CODE: a failing sqlite3 ends the script
 # before the test runs, so the "Failed to ingest" line never printed and this hook exited
 # non-zero with no diagnosis instead of reaching its documented `exit 0`. Owning
 # cross-repo plan 2026-09-25-set-e-status-capture-is-dead-code.md, incident #432.
+# `cmd && RC=0 || RC=$?` is a list, which errexit exempts. sqlite3's stderr is CAPTURED rather
+# than discarded, so the failure message below can say WHY instead of only THAT.
+INGEST_ERR=$(sqlite3 "$MEMORY_DB" "INSERT INTO observations (session_id, type, title, detail, files_involved, cr_rule, importance, created_at, created_at_epoch) VALUES ('${SESSION_ID}', 'incident_near_miss', '${ESCAPED_TITLE}', '${ESCAPED_DETAIL}', '[\"$INCIDENT_FILE\"]', 'CR-9', 5, '${NOW_ISO}', ${NOW_EPOCH});" 2>&1) && INGEST_RC=0 || INGEST_RC=$?
+
 if [[ $INGEST_RC -eq 0 ]]; then
   echo "[auto-ingest-incident] Ingested Incident #${LATEST_INCIDENT} into massu memory (${TOTAL_INCIDENTS} total incidents)"
 else
-  echo "[auto-ingest-incident] Failed to ingest incident into memory DB" >&2
+  echo "[auto-ingest-incident] Failed to ingest incident into memory DB (sqlite3 exit ${INGEST_RC}): ${INGEST_ERR:-no error text}" >&2
 fi
 
 exit 0

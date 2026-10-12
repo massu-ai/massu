@@ -338,6 +338,7 @@
       "vitest-guard::packages/core/src/__tests__/anti-vacuity-plant-payload-safety.test.ts",
       "vitest-guard::packages/core/src/__tests__/api-key-resolution-drift-guard.test.ts",
       "vitest-guard::packages/core/src/__tests__/asset-render-parity.test.ts",
+      "vitest-guard::packages/core/src/__tests__/auto-ingest-incident-format-drift-guard.test.ts",
       "vitest-guard::packages/core/src/__tests__/auto-learning-detector-scope.test.ts",
       "vitest-guard::packages/core/src/__tests__/auto-learning-entitlement.test.ts",
       "vitest-guard::packages/core/src/__tests__/auto-learning-fix-summary-counts-its-own-list.test.ts",

@@ -30,8 +30,8 @@ Templates for the debug report and session state update.
 ### Verification Evidence
 | Check | Command | Result | Status |
 |-------|---------|--------|--------|
-| Build | npm run build | Exit 0 | PASS |
-| Types | npx tsc --noEmit | 0 errors | PASS |
+| Build | {{verify.build | default("(this stack declares no build step)")}} | Exit 0 | PASS |
+| Types | {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} | 0 errors | PASS |
 | Patterns | ./scripts/pattern-scanner.sh | Exit 0 | PASS |
 | VR-NEGATIVE | grep [old] | 0 matches | PASS |
 

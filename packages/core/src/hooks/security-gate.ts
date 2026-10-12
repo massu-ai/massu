@@ -100,6 +100,133 @@ const PROTECTED_FILE_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /kubeconfig$/, label: 'Kubernetes config file' },
 ];
 
+/**
+ * Does this token NAME A SECRET FILE?
+ *
+ * ── Occurrence #2 of a class whose memory said a recurrence earns a gate ──────────
+ *
+ * The judgement used to live as two shell one-liners in `.claude/settings.json`, each
+ * matching an extension pattern against the WHOLE Bash command text. That predicate is
+ * not the property: it asks "do these characters appear anywhere" when it means "does
+ * this command name a file whose name says it holds secrets".
+ *
+ *   2026-08-12  the pattern had no end anchor, so the key extension matched inside
+ *               `Object.keys(` and ordinary commands were refused three times in one
+ *               session. Fixed by appending an end anchor — at ONE of the two inline
+ *               sites. The staged-file matcher still carries the unanchored form.
+ *   2026-09-22  the anchored form still refuses a command mentioning the Node process
+ *               environment object, because the dotenv extension followed by a dot
+ *               satisfies it. An end anchor does not help when the character after the
+ *               extension is legitimately a dot.
+ *
+ * Both are the same shape: a SUBSTRING test standing in for a PATH test. So test the
+ * path — the token's BASENAME — against the one protected list this file already owns.
+ * A property access can never match, by construction rather than by an exception list.
+ *
+ * Template dotenv files are permitted by NAME here, which retires the `sed` pre-pass the
+ * inline matchers used to rewrite them out of the command before matching.
+ */
+const SECRET_BASENAME_EXTENSIONS = ['pem', 'key', 'p12', 'pfx', 'secret'];
+const DOTENV_TEMPLATE_SUFFIXES = ['example', 'template', 'sample', 'defaults', 'dist'];
+const SECRET_EXACT_BASENAMES = [
+  'id_rsa',
+  'id_ed25519',
+  'id_ecdsa',
+  '.netrc',
+  'kubeconfig',
+  'credentials.json',
+  'secrets.yaml',
+  'secrets.yml',
+];
+
+/**
+ * A bare `credentials` file is only meaningful WITH a directory — the same lesson the
+ * dotenv rule above encodes. Path-qualifying it is strictly better than an exact
+ * basename: it covers every `<dir>/credentials` (aws, gcloud, anything) instead of the
+ * one vendor path that used to be special-cased, and it cannot fire on the bare word.
+ *
+ * It also keeps `api-key-resolution-drift-guard` honest rather than working around it.
+ * That guard forbids a quoted `credentials` segment literal outside `credentials.ts`,
+ * because assembling the user credentials path is that module's job alone. This is a
+ * path SUFFIX, not a segment the code assembles, and importing the credential reader
+ * into a security hook to borrow the name would be a worse dependency than the literal.
+ */
+const CREDENTIALS_PATH_SUFFIX = '/credentials';
+
+const DOTENV = '.env';
+
+/** A token carrying code punctuation is a program fragment, not a path argument. */
+function looksLikeCode(token: string): boolean {
+  return /[()[\]{};=`$<>|&*?!"']/.test(token) || /\s/.test(token);
+}
+
+export function namesSecretFile(token: string): string | null {
+  if (!token || looksLikeCode(token)) return null;
+  const clean = token.replace(/[,:.]+$/, '');
+  if (!clean) return null;
+  const base = clean.split('/').pop() ?? '';
+  if (!base) return null;
+
+  if (SECRET_EXACT_BASENAMES.includes(base)) return base;
+  if (clean.endsWith('.ssh/config')) return 'SSH config file';
+  if (clean.endsWith(CREDENTIALS_PATH_SUFFIX)) return 'credentials file';
+
+  // dotenv: the component must BE the dotenv file, not merely end in those letters.
+  if (base === DOTENV) return `${DOTENV} file`;
+  if (base.startsWith(`${DOTENV}.`)) {
+    const suffix = base.slice(DOTENV.length + 1);
+    return DOTENV_TEMPLATE_SUFFIXES.includes(suffix) ? null : `${base} file`;
+  }
+  if (base.endsWith(DOTENV) && clean.includes('/')) return `${base} file`;
+
+  for (const ext of SECRET_BASENAME_EXTENSIONS) {
+    if (base.endsWith(`.${ext}`)) return `${base} file`;
+  }
+  return null;
+}
+
+/**
+ * Split a shell command into tokens the way a shell would, to find PATH ARGUMENTS.
+ * Quoting is what matters: a quoted program must stay ONE token so its contents are
+ * never read as argv — that is what turned prose inside a heredoc into a blocked
+ * command on 2026-09-22.
+ */
+function shellTokens(command: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let quote: string | null = null;
+  for (const ch of command) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      cur += ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (cur) out.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+/** Every secret file a Bash command names, by token. Empty when it names none. */
+export function secretFilesInCommand(command: string): string[] {
+  const hits: string[] = [];
+  for (const token of shellTokens(command)) {
+    const label = namesSecretFile(token);
+    if (label) hits.push(label);
+  }
+  return hits;
+}
+
 function checkBashCommand(command: string): { label: string; severity: SecuritySeverity } | null {
   for (const { pattern, label, severity } of DANGEROUS_BASH_PATTERNS) {
     if (pattern.test(command)) {
@@ -118,20 +245,91 @@ function checkFilePath(filePath: string): string | null {
   return null;
 }
 
-const DANGEROUS_PYTHON_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
-  { pattern: /\beval\s*\(/, label: 'Python eval() — arbitrary code execution' },
-  { pattern: /\bexec\s*\(/, label: 'Python exec() — arbitrary code execution' },
-  { pattern: /\b__import__\s*\(/, label: 'Python __import__() — dynamic import (potential code injection)' },
-  { pattern: /subprocess\.call\([^)]*shell\s*=\s*True/, label: 'subprocess.call(shell=True) — shell injection risk' },
-  { pattern: /subprocess\.Popen\([^)]*shell\s*=\s*True/, label: 'subprocess.Popen(shell=True) — shell injection risk' },
-  { pattern: /os\.system\s*\(/, label: 'os.system() — shell injection risk' },
-  { pattern: /\bf['"].*\{.*\}.*['"].*(?:execute|cursor|query)/, label: 'f-string in SQL — SQL injection risk' },
-  { pattern: /['"].*%s.*['"].*%.*(?:execute|cursor|query)/, label: 'String formatting in SQL — SQL injection risk' },
+/**
+ * WHERE A PATTERN IS ALLOWED TO MATCH. Added 2026-08-19.
+ *
+ * ⛔ EVERY PATTERN USED TO MATCH THE RAW TEXT, SO THE GATE READ PROSE AS CODE. Measured in
+ * one session: it fired three times, and all three were a comment describing `os.system(...)`
+ * or a TEST FIXTURE holding it as a string. None was an `os.system` call. This is the same
+ * class as massu's `a-scanner-that-reads-prose-as-code` (twice) and the G29 census predicate
+ * that read a wrapped `description` field as a git invocation — a detector must be scoped to
+ * what it may judge, and the axis is WHERE THE MATCH LANDS, never the file type.
+ *
+ *   'code' — the pattern names a CALL, so a mention inside a comment or a string is prose.
+ *            Matched against text whose comments are removed and whose string BODIES are
+ *            emptied. A real call survives that untouched: `os.system(cmd)` has its name
+ *            outside any quotes; only the mention of it disappears.
+ *   'raw'  — the pattern is ABOUT string content and must see it. Both SQL rules are this:
+ *            `f"...{x}..." ... execute` is a finding precisely because of what is inside the
+ *            quotes, so scoping them to 'code' would silently delete them (CR-74 — the fix
+ *            must land at the right sites, and blanket-applying it here is a NEW defect).
+ */
+type PythonPatternScope = 'code' | 'raw';
+
+const DANGEROUS_PYTHON_PATTERNS: Array<{ pattern: RegExp; label: string; scope: PythonPatternScope }> = [
+  { pattern: /\beval\s*\(/, label: 'Python eval() — arbitrary code execution', scope: 'code' },
+  { pattern: /\bexec\s*\(/, label: 'Python exec() — arbitrary code execution', scope: 'code' },
+  { pattern: /\b__import__\s*\(/, label: 'Python __import__() — dynamic import (potential code injection)', scope: 'code' },
+  { pattern: /subprocess\.call\([^)]*shell\s*=\s*True/, label: 'subprocess.call(shell=True) — shell injection risk', scope: 'code' },
+  { pattern: /subprocess\.Popen\([^)]*shell\s*=\s*True/, label: 'subprocess.Popen(shell=True) — shell injection risk', scope: 'code' },
+  { pattern: /os\.system\s*\(/, label: 'os.system() — shell injection risk', scope: 'code' },
+  { pattern: /\bf['"].*\{.*\}.*['"].*(?:execute|cursor|query)/, label: 'f-string in SQL — SQL injection risk', scope: 'raw' },
+  { pattern: /['"].*%s.*['"].*%.*(?:execute|cursor|query)/, label: 'String formatting in SQL — SQL injection risk', scope: 'raw' },
 ];
 
+/**
+ * Remove Python comments and EMPTY string bodies, keeping every other byte in place.
+ *
+ * Returns `null` when the input ends inside an unterminated string or the scan cannot be
+ * trusted. THAT RETURN IS THE WHOLE SAFETY ARGUMENT: this gate sees `new_string`, an EDIT
+ * FRAGMENT, which routinely starts or ends mid-construct. A fragment beginning inside a
+ * string would make the lexer read real code as string body and DELETE a genuine finding —
+ * a false negative, which is the one direction a security check may never move in. So an
+ * untrusted scan falls back to the raw text: noisier, never blinder.
+ */
+export function stripPythonCommentsAndStringBodies(src: string): string | null {
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+
+    if (ch === '#') {
+      // Comment: drop to end of line, keeping the newline so line structure survives.
+      while (i < src.length && src[i] !== '\n') i++;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      const triple = src.startsWith(ch.repeat(3), i);
+      const delim = triple ? ch.repeat(3) : ch;
+      out += delim;
+      i += delim.length;
+      let closed = false;
+      while (i < src.length) {
+        if (src[i] === '\\') { i += 2; continue; }        // escape: skip the escaped char
+        if (src.startsWith(delim, i)) { out += delim; i += delim.length; closed = true; break; }
+        // A single-quoted string cannot span a newline; an unterminated one means the
+        // fragment is not self-contained and the whole scan is untrustworthy.
+        if (!triple && src[i] === '\n') break;
+        i++;
+      }
+      if (!closed) return null;
+      continue;
+    }
+
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
 function checkPythonContent(content: string): string | null {
-  for (const { pattern, label } of DANGEROUS_PYTHON_PATTERNS) {
-    if (pattern.test(content)) {
+  // Computed ONCE, and `null` means "could not be trusted" — never an empty string, which
+  // would match nothing and silently clear every 'code' pattern (THE BLIND-GATE LAW).
+  const stripped = stripPythonCommentsAndStringBodies(content);
+  for (const { pattern, label, scope } of DANGEROUS_PYTHON_PATTERNS) {
+    const subject = scope === 'raw' || stripped === null ? content : stripped;
+    if (pattern.test(subject)) {
       return label;
     }
   }
@@ -158,6 +356,23 @@ export function runSecurityGateFindings(hookInput: HookInput): SecurityFinding[]
   // (pre-tool-use-gate) now catches and FAILS CLOSED. See S-3.
 
   if (tool_name === 'Bash' && tool_input.command) {
+    // Secret files a command NAMES. This concern used to live as two shell one-liners in
+    // `.claude/settings.json`, judging the command TEXT rather than its path arguments;
+    // both are deleted in favour of this, so there is one predicate and one list (Rule
+    // 25). The inline copies had already drifted apart — the end-anchor repair of
+    // 2026-08-12 landed on one of the two.
+    const secretFiles = secretFilesInCommand(tool_input.command);
+    if (secretFiles.length > 0) {
+      findings.push({
+        severity: 'block',
+        message:
+          `SECURITY GATE: command names a secret file: ${secretFiles.join(', ')}\n` +
+          `Command: ${tool_input.command.slice(0, 200)}\n` +
+          `BLOCKED. If this file is a template or fixture, name it with a template ` +
+          `suffix (.example/.template/.sample) rather than weakening this check.`,
+      });
+    }
+
     const violation = checkBashCommand(tool_input.command);
     if (violation) {
       findings.push({

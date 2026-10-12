@@ -255,7 +255,8 @@ def run(reg_path, repo, gid):
         # text. Exit 2 already carries four meanings on this channel (no gate :127,
         # tree already dirty :143, unknown kind/recipe :244, restore leak :256); this
         # is the fifth, and it is the one that means "rebuild", not "something broke".
-        print(f"FATAL: PLANT TARGET ABSENT: {e} — the gate's plant target does not exist, "
+        from gate_sentinels import sentinel  # ONE definition; the consumer greps for it
+        print(f"FATAL: {sentinel('plant-target-absent')}: {e} — the gate's plant target does not exist, "
               f"so the mutation could not be applied. This is a MISSING BUILD or a moved "
               f"file, NOT an inert pattern and NOT a dirty tree. Build the artifact (e.g. "
               f"`npm run build`) and re-run, or correct the gate's plant path in the registry.",

@@ -33,7 +33,7 @@ Run ALL applicable VR-* verification checks and produce proof output. This comma
 **ALL tests MUST pass before verification can be marked complete. Tests are NEVER optional.**
 
 ```bash
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 # Expected: Exit 0, ALL tests pass
 ```
 
@@ -114,21 +114,21 @@ grep -n "[pattern]" [file]
 ### VR-NEGATIVE: Removal Verification (CRITICAL)
 ```bash
 # For each pattern claimed to be removed:
-grep -rn "[removed_pattern]" packages/core/src/ | wc -l
+grep -rn "[removed_pattern]" {{paths.source}}/ | wc -l
 # Expected: 0
 # Failure: Any matches found
 ```
 
 ### VR-BUILD: Build Integrity Verification
 ```bash
-npm run build
+{{verify.build | default("(this stack declares no build step)")}}
 # Expected: Exit 0, "Build complete" message
 # Failure: Exit non-zero or errors
 ```
 
 ### VR-TYPE: Type Safety Verification
 ```bash
-npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 # Expected: 0 errors
 # Failure: Any type errors
 ```
@@ -149,10 +149,10 @@ grep -c "[pattern]" [file]
 node -e "const yaml = require('yaml'); const fs = require('fs'); yaml.parse(fs.readFileSync('massu.config.yaml', 'utf-8'));"
 
 # VR-CONFIG-002: Extract ALL config keys used in code
-grep -rn "getConfig()" packages/core/src/ | sed 's/.*\(config\.[a-zA-Z_]*\).*/\1/' | sort -u
+grep -rn "getConfig()" {{paths.source}}/ | sed 's/.*\(config\.[a-zA-Z_]*\).*/\1/' | sort -u
 
 # VR-CONFIG-003: Verify config values match code expectations
-grep -rn "toolPrefix\|config\." packages/core/src/ | head -20
+grep -rn "toolPrefix\|config\." {{paths.source}}/ | head -20
 ```
 
 **VR-CONFIG Alignment Checklist:**
@@ -209,14 +209,14 @@ grep "<ComponentName" src/app/**/page.tsx
 ### VR-INTEGRATION: Full Integration Verification
 ```bash
 # Module is imported AND registered AND build passes
-grep "[ModuleName]" packages/core/src/tools.ts && npm run build
+grep "[ModuleName]" packages/core/src/tools.ts && {{verify.build | default("(this stack declares no build step)")}}
 # Expected: Both checks pass
 ```
 
 ### VR-REUSE: Component/Code Reuse Verification
 ```bash
 # BEFORE creating new module, search for existing:
-grep -rn "[functionality]" packages/core/src/
+grep -rn "[functionality]" {{paths.source}}/
 
 # Expected: Use existing or document why new needed
 ```
@@ -343,7 +343,7 @@ grep -A 10 "[procedure]:" src/server/api/routers/[router].ts | grep "input"
 
 ```bash
 # Step 1: Find all env var usage
-grep -rn "process.env\." packages/core/src/ src/ | sed 's/.*\(process\.env\.[a-zA-Z_]*\).*/\1/' | sort -u
+grep -rn "process.env\." {{paths.source}}/ src/ | sed 's/.*\(process\.env\.[a-zA-Z_]*\).*/\1/' | sort -u
 
 # Step 2: Compare to .env.example
 cat .env.example | grep -v "^#" | cut -d= -f1 | sort
@@ -388,8 +388,8 @@ For each feature/change:
 
 ```bash
 # Find code defaults
-grep -rn "default:" packages/core/src/
-grep -rn "?? '" packages/core/src/ | grep -v node_modules
+grep -rn "default:" {{paths.source}}/
+grep -rn "?? '" {{paths.source}}/ | grep -v node_modules
 ```
 
 ```markdown
@@ -409,7 +409,7 @@ Read the plan document and extract ALL deliverables:
 
 | Item # | Type | Description | Expected Location | Verification | Status |
 |--------|------|-------------|-------------------|--------------|--------|
-| P-001 | FILE | module.ts | packages/core/src/ | ls -la | PENDING |
+| P-001 | FILE | module.ts | {{paths.source}}/ | ls -la | PENDING |
 | P-002 | TOOL | tool_action | tools.ts | grep | PENDING |
 | P-003 | REMOVAL | old_pattern | all files | grep = 0 | PENDING |
 
@@ -459,7 +459,7 @@ git diff --cached --name-only | grep -E '\.(env|pem|key|secret)' && echo "FAIL: 
 
 ### No Credentials in Code
 ```bash
-grep -rn "sk-\|password.*=.*['\"]" --include="*.ts" --include="*.tsx" packages/core/src/ src/ | grep -v "process.env" | wc -l
+grep -rn "sk-\|password.*=.*['\"]" --include="*.ts" --include="*.tsx" {{paths.source}}/ src/ | grep -v "process.env" | wc -l
 # Expected: 0
 ```
 
@@ -501,7 +501,7 @@ grep -rn "sk-\|password.*=.*['\"]" --include="*.ts" --include="*.tsx" packages/c
 
 ## VR-BUILD Verification
 ```bash
-npm run build
+{{verify.build | default("(this stack declares no build step)")}}
 ```
 **Status**: PASS/FAIL
 **Output**: [build output summary]
@@ -510,7 +510,7 @@ npm run build
 
 ## VR-TYPE Verification
 ```bash
-npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 ```
 **Status**: PASS/FAIL
 **Errors**: 0/N
@@ -600,8 +600,8 @@ For faster verification, use **Task agents** to run independent checks simultane
 ```markdown
 ### Launch Parallel Verification Agents (single message, all at once)
 - Agent 1: "Run pattern scanner" -> bash scripts/massu-pattern-scanner.sh
-- Agent 2: "Run TypeScript check" -> npx tsc --noEmit
-- Agent 3: "Run unit tests" -> npm test
+- Agent 2: "Run TypeScript check" -> {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
+- Agent 3: "Run unit tests" -> {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 ```
 
 ### Benefits
@@ -620,8 +620,8 @@ For quick checks without full report:
 ```bash
 # Run all critical checks
 bash scripts/massu-pattern-scanner.sh && \
-npx tsc --noEmit && \
-npm run build && \
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} && \
+{{verify.build | default("(this stack declares no build step)")}} && \
 echo "QUICK VERIFY: PASS"
 ```
 
@@ -750,7 +750,7 @@ Update session state with the WRONG vs CORRECT pattern discovered.
 If the bad pattern is detectable by grep, add check to `scripts/massu-pattern-scanner.sh`.
 
 ### Step 3: Search Codebase-Wide (CR-9)
-`grep -rn "[bad_pattern]" packages/core/src/` - fix ALL instances of the same issue.
+`grep -rn "[bad_pattern]" {{paths.source}}/` - fix ALL instances of the same issue.
 
 ---
 

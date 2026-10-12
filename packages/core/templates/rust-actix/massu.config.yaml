@@ -21,6 +21,8 @@ framework:
 
 paths:
   source: src
+  # Cargo reserves tests/ for integration tests; unit tests live in src/
+  tests: tests
   aliases:
     "@": src
 

@@ -26,7 +26,7 @@ import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 // G29/CR-92 — `cwd:` does not scope git; GIT_DIR outranks it. See the helper for why.
-import { gitSafeEnv } from './helpers/git-safe-env.ts';
+import { gitSafeEnv, gitSafeEnvForNewRepo } from './helpers/git-safe-env.ts';
 
 const REPO_ROOT = resolve(__dirname, '../../../..');
 const GATE_SCRIPT_REAL = resolve(REPO_ROOT, 'scripts/massu-loop-completion-gate.sh');
@@ -78,7 +78,7 @@ function setupSandbox(): string {
   // `git init` re-inits the REAL repo and the gate's `--show-toplevel` resolves there
   // too: the sandbox is written to the wrong tree AND adjudicated against the wrong
   // tree. Incident #166.
-  spawnSync('git', ['init', '-q'], { cwd: sandbox, env: gitSafeEnv() });
+  spawnSync('git', ['init', '-q'], { cwd: sandbox, env: gitSafeEnvForNewRepo() });
 
   return sandbox;
 }

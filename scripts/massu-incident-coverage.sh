@@ -38,12 +38,23 @@
 # Bypass: MASSU_SKIP_INCIDENT_COVERAGE=1 (explicit + logged, never silent).
 #
 # Usage:  bash scripts/massu-incident-coverage.sh [<base>..<head>]
-#         (defaults to origin/<branch>..HEAD, or the last commit on a fresh branch)
+#         With no argument the range is what the push ACTUALLY delivers, resolved by
+#         scripts/lib/pushed-range.sh. It is never guessed: if it cannot be determined,
+#         this gate exits 2 rather than scanning an arbitrary window.
 set -uo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not a git repo"; exit 0; }
 cd "$REPO_ROOT" || exit 0
+
+# ONE derivation of "what is this push delivering?", shared with every other consumer
+# (Rule 25). Sourcing is FAIL-CLOSED: a gate whose range resolver is missing must refuse,
+# because the alternative is to fall back to a guess, which is the defect this fixes.
+# shellcheck source=lib/pushed-range.sh
+if ! . "$REPO_ROOT/scripts/lib/pushed-range.sh"; then
+  echo "massu-incident-coverage: FATAL — cannot source scripts/lib/pushed-range.sh" >&2
+  exit 2
+fi
 
 if [[ "${MASSU_SKIP_INCIDENT_COVERAGE:-0}" == "1" ]]; then
   echo -e "${YELLOW}SKIP: Incident coverage (CR-62) bypassed via MASSU_SKIP_INCIDENT_COVERAGE=1${NC}"
@@ -53,19 +64,54 @@ if [[ "${MASSU_SKIP_INCIDENT_COVERAGE:-0}" == "1" ]]; then
 fi
 
 # --- Resolve the push range -------------------------------------------------
-RANGE="${1:-}"
-if [[ -z "$RANGE" ]]; then
-  BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
-  if git rev-parse --verify --quiet "origin/$BRANCH" >/dev/null 2>&1; then
-    RANGE="origin/$BRANCH..HEAD"
-  else
-    RANGE="HEAD~1..HEAD"
-  fi
-fi
+#
+# THE RANGE IS RECEIVED, NOT GUESSED. It used to be inferred, and the `else` branch of
+# that inference read `HEAD~1..HEAD` — one commit — which is what every not-yet-pushed
+# branch got. Wrong in both directions: a branch of 8 commits was judged on its last 1
+# (so seven obligated commits were never examined and the gate said PASS), and discharge
+# evidence sitting two commits back was invisible (so a compliant branch was refused).
+# Both were observed on `chore/website-row-aliases-onto-tables-generic`, 2026-09-22.
+#
+# `massu_pushed_range` resolves argv -> the pre-push ref lines git handed us -> the
+# upstream -> what is not on any remote -> exit 2. There is no branch that invents one.
+RANGE_RECORDS="$(massu_pushed_range "${1:-}")" || exit 2
 
-COMMITS="$(git rev-list "$RANGE" 2>/dev/null)"
+COMMITS=""
+INCIDENT_DOCS=""
+RANGE=""
+EMPTY_TREE="$(git hash-object -t tree /dev/null)"
+while IFS="$(printf '\t')" read -r R_SOURCE R_BASE R_HEAD; do
+  [[ -n "${R_SOURCE:-}" ]] || continue
+  if [[ -z "${R_HEAD:-}" ]]; then
+    # `refs:none` — a deletion-only push. Nothing is delivered, so there is nothing to
+    # judge; recorded in the description so it is a NAMED state, not an empty one.
+    RANGE="${RANGE:+$RANGE, }$R_SOURCE"
+    continue
+  fi
+  if [[ -n "$R_BASE" ]]; then
+    COMMITS="${COMMITS}$(git rev-list "$R_BASE..$R_HEAD")
+"
+    INCIDENT_DOCS="${INCIDENT_DOCS}$(git diff --name-only "$R_BASE..$R_HEAD" -- 'docs/incidents/*.md')
+"
+    RANGE="${RANGE:+$RANGE, }${R_SOURCE} ${R_BASE:0:8}..${R_HEAD:0:8}"
+  else
+    # No base: the push carries a root commit, so "everything reachable" IS the range.
+    # Diffing against the empty tree is the only correct spelling of that, and the tree
+    # id is COMPUTED rather than pasted as a magic constant.
+    COMMITS="${COMMITS}$(git rev-list "$R_HEAD")
+"
+    INCIDENT_DOCS="${INCIDENT_DOCS}$(git diff --name-only "$EMPTY_TREE" "$R_HEAD" -- 'docs/incidents/*.md')
+"
+    RANGE="${RANGE:+$RANGE, }${R_SOURCE} (root)..${R_HEAD:0:8}"
+  fi
+done <<< "$RANGE_RECORDS"
+
+# A multi-ref push can deliver the same commit under two refs. Dedupe, but never sort:
+# the loop below reports offenders and newest-first is the order a reader expects.
+COMMITS="$(printf '%s' "$COMMITS" | awk 'NF && !seen[$0]++')"
+
 if [[ -z "$COMMITS" ]]; then
-  echo -e "${GREEN}PASS${NC}: Incident coverage (CR-62) — no commits in range ($RANGE)"
+  echo -e "${GREEN}PASS${NC}: Incident coverage (CR-62) — no commits delivered ($RANGE)"
   exit 0
 fi
 
@@ -103,8 +149,8 @@ fi
 # the historical range-existence behaviour; commits at or after it must link.
 LINKAGE_RATCHET_EPOCH="${MASSU_INCIDENT_LINKAGE_FROM:-1786312583}"   # 2026-08-09T21:56:23Z
 
-# Range-existence, retained ONLY for pre-ratchet commits.
-INCIDENT_DOCS="$(git diff --name-only "$RANGE" -- 'docs/incidents/*.md' 2>/dev/null)"
+# Range-existence, retained ONLY for pre-ratchet commits. Accumulated above, once per
+# delivered ref, so a multi-ref push cannot lose the evidence carried by one of them.
 
 # Every sha cited by a range commit that actually carries an incident doc.
 # FAIL-CLOSED: if nothing in the range carries an incident doc this is empty, so
@@ -197,6 +243,9 @@ for sha in $COMMITS; do
   OFFENDERS+=("$(git log -1 --format='%h %s' "$sha")")
 done
 
+# M1 — and the DESCRIPTION carries the resolution SOURCE (`refs:new`, `upstream`, …),
+# so a silent regression to a weaker resolver is visible in the log instead of looking
+# exactly like a healthy run.
 echo "  scanned $N_COMMITS commit(s) in $RANGE; $N_OBLIGATED obligated"
 echo "  discharged: containment $N_CONTAINED · citation $N_CITED · pre-ratchet range-existence $N_LEGACY"
 

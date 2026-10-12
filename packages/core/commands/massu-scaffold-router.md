@@ -119,7 +119,7 @@ export const appRouter = createTRPCRouter({
 2. Run VR-SCHEMA-PRE to verify table columns exist
 3. Create router file with proper patterns
 4. Register in root.ts
-5. Run `npx tsc --noEmit` to verify types
+5. Run `{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}` to verify types
 
 ## START NOW
 

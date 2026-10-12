@@ -159,7 +159,7 @@ export interface MyType {
 
 ```bash
 # Verify no TypeScript errors introduced
-cd packages/core && npx tsc --noEmit 2>&1
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} 2>&1
 # MUST show same or fewer errors than baseline
 ```
 
@@ -213,7 +213,7 @@ sectionName:
 
 ### Gate 1: Type Check (VR-TYPE)
 ```bash
-cd packages/core && npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 # MUST show 0 errors (or <= baseline before docs were added)
 ```
 
@@ -225,7 +225,7 @@ bash scripts/massu-pattern-scanner.sh
 
 ### Gate 3: All Tests (VR-TEST)
 ```bash
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 # Documentation changes MUST NOT affect test results
 ```
 

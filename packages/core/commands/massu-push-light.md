@@ -40,7 +40,7 @@ bash scripts/massu-security-scanner.sh
 
 ### 4. TypeScript Check (~30s)
 ```bash
-cd packages/core && npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 ```
 **Catches:** Type errors, missing imports, interface mismatches
 
@@ -52,13 +52,13 @@ cd packages/core && npm run build:hooks
 
 ### 6. Unit Tests (~30s)
 ```bash
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 ```
 **Catches:** Regressions, broken logic, handler errors
 
 ### 7. Build (~20s)
 ```bash
-npm run build
+{{verify.build | default("(this stack declares no build step)")}}
 ```
 **Catches:** Build failures, compilation errors
 
@@ -101,7 +101,7 @@ else
 fi
 
 echo "[4/7] TypeScript Check..."
-if cd packages/core && npx tsc --noEmit 2>&1; then
+if {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} 2>&1; then
   echo "  PASS"
 else
   echo "  FAIL"
@@ -117,7 +117,7 @@ else
 fi
 
 echo "[6/7] Unit Tests..."
-if npm test > /dev/null 2>&1; then
+if {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} > /dev/null 2>&1; then
   echo "  PASS"
 else
   echo "  FAIL - Tests failing"
@@ -125,7 +125,7 @@ else
 fi
 
 echo "[7/7] Build..."
-if npm run build > /dev/null 2>&1; then
+if {{verify.build | default("(this stack declares no build step)")}} > /dev/null 2>&1; then
   echo "  PASS"
 else
   echo "  FAIL - Build error"
@@ -201,7 +201,7 @@ ALL CHECKS PASSED - Safe to push
 | Pattern Scanner | Run `bash scripts/massu-pattern-scanner.sh` to see details |
 | Generalization Scanner | Run `bash scripts/massu-generalization-scanner.sh` for details |
 | Security Scanner | Run `bash scripts/massu-security-scanner.sh` for details |
-| TypeScript | Run `cd packages/core && npx tsc --noEmit` for full error output |
+| TypeScript | Run `{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}` for full error output |
 | Hook Compilation | Run `cd packages/core && npm run build:hooks` for error details |
-| Unit Tests | Run `npm test` to see failing tests |
-| Build | Run `npm run build` for full error output |
+| Unit Tests | Run `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}` to see failing tests |
+| Build | Run `{{verify.build | default("(this stack declares no build step)")}}` for full error output |

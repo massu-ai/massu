@@ -37,6 +37,8 @@ framework:
 
 paths:
   source: apps
+  # pytest default discovery under the api app, matching paths.source apps
+  tests: apps/api/tests
   aliases:
     "@": apps
 
@@ -50,7 +52,7 @@ verification:
   python:
     test: cd apps/api && python3 -m pytest -q
     type: cd apps/api && python3 -m mypy .
-    syntax: cd apps/api && python3 -m py_compile
+    syntax: cd apps/api && python3 -m compileall -q .
     lint: cd apps/api && python3 -m ruff check .
   typescript:
     test: cd apps/web && npm test
@@ -65,7 +67,7 @@ verification:
   swift:
     test: cd apps/ios && swift test
     type: cd apps/ios && swift build
-    build: cd apps/ios && xcodebuild build
+    build: cd apps/ios && swift build -c release
     lint: cd apps/ios && swiftlint
 
 python:

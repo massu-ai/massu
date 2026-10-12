@@ -47,7 +47,7 @@ verification:
   python:
     test: cd apps && python3 -m pytest -q
     type: cd apps && python3 -m mypy .
-    syntax: cd apps && python3 -m py_compile
+    syntax: cd apps && python3 -m compileall -q .
     lint: cd apps && python3 -m ruff check .
   rust:
     test: cd apps && cargo test
@@ -57,7 +57,7 @@ verification:
   swift:
     test: cd apps && swift test
     type: cd apps && swift build
-    build: cd apps && xcodebuild build
+    build: cd apps && swift build -c release
     lint: cd apps && swiftlint
   typescript:
     test: cd apps && npm test

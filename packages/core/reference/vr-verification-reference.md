@@ -29,9 +29,9 @@
 | VR-FILE | `ls -la [path]` | File exists | Claiming file created | Missing files |
 | VR-GREP | `grep "[pattern]" [file]` | Match found | Claiming code added | Missing code |
 | VR-NEGATIVE | `grep -rn "[old]" src/` | 0 matches | Claiming removal | Leftover code |
-| VR-BUILD | `npm run build` | Exit 0 | Claiming production ready | Build failures |
-| VR-TYPE | `npx tsc --noEmit` | 0 errors | Claiming type safety | Type errors |
-| VR-TEST | `npm test` | All pass | Claiming tested | Test failures |
+| VR-BUILD | `{{verify.build | default("(this stack declares no build step)")}}` | Exit 0 | Claiming production ready | Build failures |
+| VR-TYPE | `{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}` | 0 errors | Claiming type safety | Type errors |
+| VR-TEST | `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}` | All pass | Claiming tested | Test failures |
 | VR-DEPLOY | `./scripts/pre-deploy-check.sh` | All pass | Claiming deployable | Deploy blockers |
 | VR-SCHEMA | `SELECT ... FROM information_schema` | Matches | Before DB operations | Schema mismatches |
 | VR-SCHEMA-PRE | `SELECT column_name...` | Columns exist | BEFORE writing ANY query | Wrong column names |
@@ -129,7 +129,7 @@ grep -rn "legacyPattern" src/ | wc -l
 **Purpose**: Verify code compiles for production deployment.
 
 ```bash
-npm run build
+{{verify.build | default("(this stack declares no build step)")}}
 # Expected: Exit 0, "Compiled successfully"
 ```
 
@@ -145,7 +145,7 @@ npm run build
 **Purpose**: Verify zero TypeScript errors.
 
 ```bash
-NODE_OPTIONS="--max-old-space-size=8192" npx tsc --noEmit
+NODE_OPTIONS="--max-old-space-size=8192" {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 # Expected: 0 errors (no output)
 ```
 
@@ -166,7 +166,7 @@ npm run test:run
 npm run test:e2e
 
 # Specific test file
-npm test -- src/components/feature/__tests__/MyComponent.test.tsx
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} -- src/components/feature/__tests__/MyComponent.test.tsx
 ```
 
 **Expected Output**: All tests pass
@@ -279,12 +279,12 @@ grep "<MyComponent" src/app/**/page.tsx
 
 ```bash
 # Combined check
-grep "<MyComponent" src/app/feature/page.tsx && npm run build
+grep "<MyComponent" src/app/feature/page.tsx && {{verify.build | default("(this stack declares no build step)")}}
 
 # Full integration verification
 grep "import.*MyComponent" src/app/feature/page.tsx && \
 grep "<MyComponent" src/app/feature/page.tsx && \
-npm run build
+{{verify.build | default("(this stack declares no build step)")}}
 ```
 
 **Expected Output**: All checks pass
@@ -849,7 +849,7 @@ When running verifications, document results in this format:
 |---------|---------|----------|--------|--------|
 | VR-FILE | `ls -la component.tsx` | File exists | File exists | PASS |
 | VR-RENDER | `grep "<Component" page.tsx` | Match found | Match line 42 | PASS |
-| VR-BUILD | `npm run build` | Exit 0 | Exit 0 | PASS |
+| VR-BUILD | `{{verify.build | default("(this stack declares no build step)")}}` | Exit 0 | Exit 0 | PASS |
 | VR-NEGATIVE | `grep "oldCode" src/` | 0 matches | 3 matches | **FAIL** |
 
 **Overall Status**: FAIL (VR-NEGATIVE failed)

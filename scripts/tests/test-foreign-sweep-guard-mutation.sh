@@ -114,6 +114,7 @@ echo "── mutation proof: foreign-sweep-guard ──"
 # 163047 was the sweep and 3002383/4 were _run_guard_defeat.py — this test's own ancestry.
 # It was the third hand-written process scan the helper exists to consolidate, sitting inside
 # the helper's own test (CR-74 — a fix is a set of SITES).
+# shellcheck source-path=SCRIPTDIR/../lib source=foreign-sweep-guard.sh
 PRE="$( . "$HELPER"; foreign_sweep_pids )"
 PRE_RC=$?
 if [ "$PRE_RC" -ne 0 ]; then
@@ -313,6 +314,7 @@ assert_fails_closed() {  # $1 = label, $2 = shadowed binary, $3 = ERE the reason
   out="$SCRATCH/blind-$shadow.txt"
   mkdir -p "$SCRATCH/only-$shadow"
   cp "$SCRATCH/badbin/$shadow" "$SCRATCH/only-$shadow/$shadow"
+  # shellcheck source-path=SCRIPTDIR/../lib source=foreign-sweep-guard.sh
   ( PATH="$SCRATCH/only-$shadow:$PATH"; . "$HELPER"; assert_no_foreign_sweep "unit test" ) \
     >"$out" 2>&1
   rc=$?

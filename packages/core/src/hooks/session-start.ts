@@ -12,7 +12,7 @@ import { getMemoryDb, getSessionSummaries, getRecentObservations, getFailedAttem
 import { pullTeamPromotions } from '../team-rule-sync.ts';
 import { reconcileMemoryFileObservations, backfillMemoryFiles } from '../memory-file-ingest.ts';
 import { getConfig, getResolvedPaths } from '../config.ts';
-import { parseCorrectionRules } from '../lib/corrections-md.ts';
+import { parseCorrectionRules, correctionsPath } from '../lib/corrections-md.ts';
 import { readFileSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { parse as parseYaml } from 'yaml';
@@ -532,9 +532,9 @@ function loadCorrectionsPreventionRules(): string[] {
     // found nothing even if corrections.md had been written in the format it
     // parses. The "dead corrections read" (D2) was diagnosed as a FORMAT mismatch;
     // it was ALSO a path bug. Fixing only the format would have left it dead.
-    const correctionsPath = join(getResolvedPaths().memoryDir, 'corrections.md');
+    const correctionsFile = correctionsPath(getResolvedPaths().memoryDir);
 
-    if (!existsSync(correctionsPath)) return [];
+    if (!existsSync(correctionsFile)) return [];
 
     // A-09 — ONE parser, shared with both writers (`lib/corrections-md.ts`).
     //
@@ -543,7 +543,7 @@ function loadCorrectionsPreventionRules(): string[] {
     // every prevention rule ever written was invisible to the injection that exists to
     // surface them. (A-00 also showed it was looking in a directory that does not
     // exist; fixing only the format would have left it dead.)
-    return parseCorrectionRules(readFileSync(correctionsPath, 'utf-8'));
+    return parseCorrectionRules(readFileSync(correctionsFile, 'utf-8'));
   } catch (_e) {
     // Graceful degradation: never block session start
     return [];

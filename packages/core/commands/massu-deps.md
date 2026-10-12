@@ -155,10 +155,10 @@ npm dedupe --dry-run
 npx depcheck packages/core
 
 # Verify no phantom MCP SDK references (should be 0 — raw JSON-RPC 2.0)
-grep -rn "@modelcontextprotocol/sdk" packages/core/src/ --include="*.ts" | wc -l
+grep -rn "@modelcontextprotocol/sdk" {{paths.source}}/ --include="*.ts" | wc -l
 
 # Check better-sqlite3 usage
-grep -rn "better-sqlite3\|Database" packages/core/src/ --include="*.ts" | wc -l
+grep -rn "better-sqlite3\|Database" {{paths.source}}/ --include="*.ts" | wc -l
 ```
 
 ### 3.4 Dependency Matrix
@@ -215,13 +215,13 @@ npm outdated | grep @types
 # After EACH update:
 
 # 1. Type check
-cd packages/core && npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 
 # 2. Build (includes hook compilation)
-npm run build
+{{verify.build | default("(this stack declares no build step)")}}
 
 # 3. Test
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 
 # 4. Pattern scanner
 bash scripts/massu-pattern-scanner.sh

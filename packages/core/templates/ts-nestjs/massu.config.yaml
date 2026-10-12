@@ -22,6 +22,8 @@ framework:
 
 paths:
   source: src
+  # the Nest CLI scaffolds test/ for e2e alongside co-located *.spec.ts
+  tests: test
   aliases:
     "@": src
 

@@ -27,7 +27,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # never cwd (T-4: 4 checks were cwd-vacuous)
-cd "$ROOT"
+cd "$ROOT" || exit 1
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YEL=$'\033[1;33m'; DIM=$'\033[2m'; NC=$'\033[0m'
 FAILURES=0; PASSES=0; SKIPS=0

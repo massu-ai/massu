@@ -22,8 +22,8 @@ Run in parallel where possible:
 |-------|---------|
 | Pattern Scanner | `bash scripts/massu-pattern-scanner.sh` |
 | Generalization | `bash scripts/massu-generalization-scanner.sh` |
-| TypeScript | `cd packages/core && npx tsc --noEmit` |
-| Build | `npm run build` |
+| TypeScript | `{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}` |
+| Build | `{{verify.build | default("(this stack declares no build step)")}}` |
 | Hook Compilation | `cd packages/core && npm run build:hooks` |
 
 ## 5.3 Tier 2: Test Suite (CRITICAL)
@@ -33,11 +33,11 @@ Run in parallel where possible:
 ```bash
 # Establish baseline on main
 git stash && git checkout main -q
-npm test 2>&1 | tee /tmp/baseline-tests.txt
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} 2>&1 | tee /tmp/baseline-tests.txt
 git checkout - -q && git stash pop -q
 
 # Run on current branch
-npm test 2>&1 | tee /tmp/current-tests.txt
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} 2>&1 | tee /tmp/current-tests.txt
 
 # Compare: any test passing on main but failing now = REGRESSION
 # Regressions MUST be fixed before push
@@ -49,7 +49,7 @@ Use **parallel Task agents** for independent checks:
 
 ```
 Agent Group A (parallel):
-- Agent 1: npm test (unit tests)
+- Agent 1: {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} (unit tests)
 - Agent 2: npm audit --audit-level=high
 - Agent 3: bash scripts/massu-security-scanner.sh
 

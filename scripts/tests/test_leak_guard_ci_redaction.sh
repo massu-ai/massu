@@ -152,6 +152,9 @@ printf 'export const ok = 1;\n' > "$REPO/packages/core/src/fine.ts"
 git -C "$REPO" add -A >/dev/null 2>&1
 OUT_OK="$( cd "$REPO" && GITHUB_ACTIONS=true MASSU_LEAK_GUARD_MODE=tree bash "$GUARD" 2>&1 )"; RC_OK=$?
 check "clean tree exits 0 under CI (rc=$RC_OK)" "$([ "$RC_OK" -eq 0 ]; echo $?)"
+# The output was captured and never shown (SC2034), so this case failed with rc and nothing
+# else -- the one case where you most need to see what the guard said. Print it on failure only.
+[ "$RC_OK" -eq 0 ] || printf '%s\n' "$OUT_OK" | sed 's/^/      /' | tail -12
 
 # ---------------------------------------------------------------------------
 echo

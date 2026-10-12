@@ -29,7 +29,7 @@ Provide a comprehensive READ-ONLY snapshot of the project's health across all di
 ### 1. Test Suite Health
 
 ```bash
-npm test 2>&1
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} 2>&1
 ```
 
 | Metric | Value | Status |
@@ -42,7 +42,7 @@ npm test 2>&1
 ### 2. Type Safety
 
 ```bash
-cd packages/core && npx tsc --noEmit 2>&1
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} 2>&1
 ```
 
 | Metric | Value | Status |
@@ -121,12 +121,12 @@ grep -c "startsWith" packages/core/src/tools.ts
 
 ```bash
 # Source line counts
-find packages/core/src -name "*.ts" -not -path "*/__tests__/*" -not -path "*/node_modules/*" | xargs wc -l | tail -1
-find packages/core/src/__tests__ -name "*.test.ts" | xargs wc -l | tail -1
+find {{paths.source}} -name "*.ts" -not -path "*/__tests__/*" -not -path "*/node_modules/*" | xargs wc -l | tail -1
+find {{paths.tests | default("tests")}} -name "*.test.ts" | xargs wc -l | tail -1
 
 # File counts
-find packages/core/src -name "*.ts" -not -path "*/__tests__/*" -not -path "*/node_modules/*" | wc -l
-find packages/core/src/__tests__ -name "*.test.ts" | wc -l
+find {{paths.source}} -name "*.ts" -not -path "*/__tests__/*" -not -path "*/node_modules/*" | wc -l
+find {{paths.tests | default("tests")}} -name "*.test.ts" | wc -l
 ```
 
 | Metric | Value |
@@ -158,7 +158,7 @@ fi
 # List source modules without test files
 for f in packages/core/src/*.ts; do
   base=$(basename "$f" .ts)
-  test_file="packages/core/src/__tests__/${base}.test.ts"
+  test_file="{{paths.tests | default("tests")}}/${base}.test.ts"
   if [ ! -f "$test_file" ]; then
     echo "MISSING: $base"
   fi
@@ -271,8 +271,8 @@ fi
 - **UNHEALTHY**: Failing tests, type errors, or security vulns
 
 ### Quick Fix Commands (if degraded/unhealthy)
-- Tests failing: `npm test` to see failures, then fix
-- Type errors: `cd packages/core && npx tsc --noEmit` for details
+- Tests failing: `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}` to see failures, then fix
+- Type errors: `{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}` for details
 - Pattern violations: `bash scripts/massu-pattern-scanner.sh` for details
 - Vulnerabilities: `npm audit` for details, `/massu-audit-deps` for full audit
 ```

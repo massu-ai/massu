@@ -53,7 +53,7 @@ git diff --cached
 
 ## DIMENSION 1: CLAUDE.md PATTERN COMPLIANCE
 
-For each changed file in `packages/core/src/`:
+For each changed file in `{{paths.source}}/`:
 
 | Check | What | How |
 |-------|------|-----|

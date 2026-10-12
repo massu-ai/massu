@@ -85,9 +85,9 @@ If NO references found: candidate for removal.
 
 After user approval:
 1. Remove files/exports/dependencies
-2. Run `npm run build` (VR-BUILD)
-3. Run `npx tsc --noEmit` (VR-TYPE)
-4. Run `npm test` (VR-TEST)
+2. Run `{{verify.build | default("(this stack declares no build step)")}}` (VR-BUILD)
+3. Run `{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}` (VR-TYPE)
+4. Run `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}` (VR-TEST)
 5. Run `./scripts/pattern-scanner.sh`
 
 ### Step 7: Report

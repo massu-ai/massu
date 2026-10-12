@@ -34,7 +34,7 @@ If feature uses config-driven values:
 
 ```bash
 # Check config keys used in code
-grep -rn "getConfig()" packages/core/src/ | grep -o 'config\.\w\+' | sort -u
+grep -rn "getConfig()" {{paths.source}}/ | grep -o 'config\.\w\+' | sort -u
 # Compare to massu.config.yaml structure
 ```
 

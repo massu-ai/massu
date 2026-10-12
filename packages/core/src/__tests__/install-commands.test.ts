@@ -23,15 +23,14 @@ import {
 import { resolve, join } from 'path';
 import { tmpdir } from 'os';
 import {
-  pickVariant,
   syncDirectory,
   loadManifest,
   saveManifest,
   hashContent,
   installCommands,
   type Manifest,
-  type PickVariantResult,
 } from '../commands/install-commands.ts';
+import { pickVariant, type PickVariantResult } from '../commands/asset-resolution.ts';
 import type { Config } from '../config.ts';
 import { resetConfig } from '../config.ts';
 

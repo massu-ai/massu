@@ -109,9 +109,9 @@ Present the standard development workflow:
 ```
 
 Explain the verification system:
-- **VR-BUILD**: `npm run build` must exit 0
-- **VR-TYPE**: `npx tsc --noEmit` must have 0 errors
-- **VR-TEST**: `npm test` must pass (MANDATORY)
+- **VR-BUILD**: `{{verify.build | default("(this stack declares no build step)")}}` must exit 0
+- **VR-TYPE**: `{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}` must have 0 errors
+- **VR-TEST**: `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}` must pass (MANDATORY)
 - **VR-SCHEMA**: Query database before using column names
 - **VR-NEGATIVE**: grep returns 0 matches for removed code
 

@@ -222,7 +222,33 @@ export function codeOnly(src: string, ext: string, opts?: CodeOnlyOptions): stri
   if (shebang !== null) out = kept.length > 0 ? `${shebang}\n${out}` : shebang;
 
   if (opts?.stripStringLiterals) {
-    out = out.replace(/"(?:\\.|[^"\\])*"/g, '""').replace(/'(?:\\.|[^'\\])*'/g, "''");
+    // ⛔ THE NEGATED CLASSES EXCLUDE `\n`, AND THAT IS THE WHOLE FIX.
+    //
+    // A single- or double-quoted JavaScript string CANNOT contain a raw newline — only a
+    // template literal can, and those use backticks and are deliberately left alone. Without
+    // the `\n` exclusion, one unbalanced quote makes the scan run to the next quote ANYWHERE
+    // IN THE FILE, merging every line between them into one.
+    //
+    // MEASURED 2026-09-21 over the whole tracked tree, comparing line counts with and
+    // without string-stripping (comment-stripping is identical in both, so any drop is a
+    // desync by construction):
+    //
+    //     tracked .ts scanned                 1045
+    //     desynchronised by string-stripping   138   (13%)
+    //     worst: security-scorer.ts   389 lines -> 32
+    //            memory-db.ts       2393 lines -> 1348
+    //
+    // A guard scanning that output is reading garbage and reporting a clean number for it —
+    // the blind-gate shape, inside the helper guards use to avoid false positives. Bounding
+    // to the line turns an unbounded, silent, file-wide corruption into a one-line one.
+    //
+    // ⛔ STILL OPEN, STATED AS A FINDING RATHER THAN A DISCLOSURE (G20): a REGEX LITERAL
+    // containing a quote — `/['"]log['"]/` — is not a string, but its quote is consumed as
+    // if it were, so THAT LINE is still mangled. Telling a regex literal from a division
+    // needs a lexer, which this helper is deliberately not. The damage is now confined to
+    // the line, `stringStripBoundedToLine` pins that, and any consumer whose corpus contains
+    // such regexes must expect noise on those lines and nowhere else.
+    out = out.replace(/"(?:\\.|[^"\\\n])*"/g, '""').replace(/'(?:\\.|[^'\\\n])*'/g, "''");
   }
   return out;
 }

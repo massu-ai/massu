@@ -25,6 +25,8 @@ framework:
 
 paths:
   source: lib
+  # `mix new` scaffolds test/ and `mix test` defaults to it
+  tests: test
   aliases: {}
 
 toolPrefix: massu

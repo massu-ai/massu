@@ -26,7 +26,9 @@ describe('detect/vr-command-map', () => {
     );
     expect(cmds.test).toBe('cd apps/ai-service && python3 -m pytest -q');
     expect(cmds.type).toBe('cd apps/ai-service && python3 -m mypy .');
-    expect(cmds.syntax).toMatch(/py_compile/);
+    // `python3 -m py_compile` with no filenames exits 2 (usage error) — a check that can
+    // never pass. Corrected 2026-09-20; this expectation now pins the WORKING command.
+    expect(cmds.syntax).toMatch(/compileall/);
   });
 
   it('produces vitest/tsc commands for TypeScript', () => {
@@ -57,7 +59,7 @@ describe('detect/vr-command-map', () => {
       fwInfo({ framework: 'vapor' }),
       'apps/ios'
     );
-    expect(cmds.build).toBe('cd apps/ios && xcodebuild build');
+    expect(cmds.build).toBe('cd apps/ios && swift build -c release');
     expect(cmds.test).toBe('cd apps/ios && swift test');
   });
 
@@ -91,7 +93,9 @@ describe('detect/vr-command-map', () => {
 
   it('Ruby RSpec commands', () => {
     const cmds = getVRCommands('ruby', fwInfo({ framework: 'rails' }), '.');
-    expect(cmds.test).toBe('bundle exec rspec');
+    // Minitest is Rails' default; rspec requires adding rspec-rails to the Gemfile, so
+    // `bundle exec rspec` failed on a fresh `rails new`. Corrected 2026-09-20.
+    expect(cmds.test).toBe('bin/rails test');
     expect(cmds.lint).toBe('bundle exec rubocop');
   });
 

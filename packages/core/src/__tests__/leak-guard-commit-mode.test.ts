@@ -36,7 +36,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 // G29/CR-92 — `cwd:` does not scope git; GIT_DIR outranks it. See the helper for why.
-import { gitSafeEnv } from './helpers/git-safe-env.ts'
+import { gitSafeEnv, gitSafeEnvForNewRepo } from './helpers/git-safe-env.ts'
 
 
 const REPO_ROOT = resolve(__dirname, '../../../..')
@@ -56,7 +56,7 @@ function runInTmp(cmd: string, env: Record<string, string> = {}): string {
   return execSync(cmd, {
     cwd: tmpRepo,
     encoding: 'utf-8',
-    env: gitSafeEnv(env),
+    env: gitSafeEnvForNewRepo(env),
     stdio: ['ignore', 'pipe', 'pipe'],
   })
 }

@@ -68,6 +68,31 @@ PRIVATE_BOUNDARY_FILES='scripts/lib/private-denylist\.json|scripts/lib/generate_
 
 # Check 1: No "limn" references in shipped directories
 # -------------------------------------------------------
+# ⛔ THE PREDICATE IS ASKED FOR, NOT RE-DERIVED (Rule 25). ADDED 2026-09-21.
+#
+# This check used a bare `grep -rn "/Users/"`. `scripts/lib/home-path-guard.sh` — the guard
+# that actually stands at the publication boundary — asks a different, narrower question:
+# `/Users/<name>` where <name> starts alphanumeric, MINUS a documented set of synthetic
+# placeholder names. Two implementations of one predicate, and they had already diverged:
+# the publication guard's own error message tells you to write `/Users/<user>/…`, and this
+# check then FAILED on exactly that string. A rule that flags its own prescribed remedy is
+# one people learn to bypass.
+#
+# So the library owns the JUDGEMENT (what is a real home path) and this scanner owns the
+# SCOPE (which directories and files are in bounds). Sourcing it also means a placeholder
+# added there is honoured here on the next run, with nothing to keep in step.
+# shellcheck source=scripts/lib/home-path-guard.sh
+. "$REPO_ROOT/scripts/lib/home-path-guard.sh"
+HPG_REAL_HOME_RE="/Users/[A-Za-z0-9_][A-Za-z0-9._-]*"
+HPG_PLACEHOLDER_ALT="$(printf '%s' "${HOME_PATH_PLACEHOLDERS_DEFAULT} ${MASSU_HOME_PATH_PLACEHOLDERS:-}" \
+  | tr ' \t' '\n\n' | sed '/^$/d' | sort -u | paste -sd'|' -)"
+if [ -z "$HPG_PLACEHOLDER_ALT" ]; then
+  # M2 — an empty alternation would make the filter below match nothing and silently
+  # re-admit every placeholder as a violation. Unreadable input is an ERROR, never empty.
+  echo "generalization-scanner: could not build the placeholder set from home-path-guard.sh" >&2
+  exit 2
+fi
+
 echo "Check 1: No 'limn' references in shipped files"
 
 LIMN_DIRS=""
@@ -133,6 +158,20 @@ fi
 # `/Users/<name>` literal exists in the file and the home-path guard itself stays
 # green on it when it syncs public — verified against a real sync.
 # -------------------------------------------------------
+# ⛔ THE --include LIST IS THE GATE (G18). MEASURED 2026-09-21.
+#
+# This check was `*.ts` / `*.sh` / `*.md` only. `scripts/ops/classify-asset-contamination.mjs`
+# shipped with a literal `/Users/<user>/massu-internal` in it and this scanner returned
+# "PASS: All generalization checks passed" over the same tree — blind by FILE TYPE, which is
+# the usual hole. It was caught instead by the publication gate at sync time, i.e. at the
+# last boundary before a real home path reached a PUBLIC repo.
+#
+# Derived population of the three scanned directories at the time of the fix:
+#     327 tracked files carried an extension this check could not see
+#     (.mjs 22, .py 50, .tsx 255 and .js/.cjs), of which 2 contained `/Users/`
+# One was the offender above; the other is `scripts/lib/generate_denylist.py`, a private
+# boundary file that is sync-EXCLUDED and therefore allowed to carry real paths — it is
+# covered by $PRIVATE_BOUNDARY_FILES below, not by a new exception.
 echo "Check 2: No hardcoded /Users/ paths in source"
 
 USERS_DIRS=""
@@ -142,8 +181,9 @@ done
 
 if [ -n "$USERS_DIRS" ]; then
   # shellcheck disable=SC2086
-  USERS_COUNT=$(grep -rn "/Users/" $USERS_DIRS \
-    --include="*.ts" --include="*.sh" --include="*.md" \
+  USERS_COUNT=$(grep -rnE "$HPG_REAL_HOME_RE" $USERS_DIRS \
+    --include="*.ts" --include="*.tsx" --include="*.sh" --include="*.md" \
+    --include="*.mjs" --include="*.cjs" --include="*.js" --include="*.py" \
     $COMMON_EXCLUDES \
     2>/dev/null \
     | grep -v "internal-feature-parity" \
@@ -158,12 +198,14 @@ if [ -n "$USERS_DIRS" ]; then
     | grep -v 'scripts/lib/home-path-guard\.sh' \
     | grep -v 'scripts/tests/test_home_path_guard_tarball_mode\.sh' \
     | grep -vE "$PRIVATE_BOUNDARY_FILES" \
+    | grep -vE "/Users/($HPG_PLACEHOLDER_ALT)([/\"'[:space:]]|$)" \
     | wc -l | tr -d ' ')
   if [ "$USERS_COUNT" -gt 0 ]; then
     fail "Found $USERS_COUNT hardcoded /Users/ paths in source"
     # shellcheck disable=SC2086
-    grep -rn "/Users/" $USERS_DIRS \
-      --include="*.ts" --include="*.sh" --include="*.md" \
+    grep -rnE "$HPG_REAL_HOME_RE" $USERS_DIRS \
+      --include="*.ts" --include="*.tsx" --include="*.sh" --include="*.md" \
+    --include="*.mjs" --include="*.cjs" --include="*.js" --include="*.py" \
       $COMMON_EXCLUDES \
       2>/dev/null \
       | grep -v "internal-feature-parity" \
@@ -178,6 +220,7 @@ if [ -n "$USERS_DIRS" ]; then
       | grep -v 'scripts/lib/home-path-guard\.sh' \
     | grep -v 'scripts/tests/test_home_path_guard_tarball_mode\.sh' \
       | grep -vE "$PRIVATE_BOUNDARY_FILES" \
+    | grep -vE "/Users/($HPG_PLACEHOLDER_ALT)([/\"'[:space:]]|$)" \
       | head -10
   else
     pass "No hardcoded /Users/ paths found"

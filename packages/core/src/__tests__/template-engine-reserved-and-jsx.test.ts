@@ -17,7 +17,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { renderTemplate } from '../commands/template-engine.ts';
-import { buildTemplateVars } from '../commands/install-commands.ts';
+import { buildTemplateVars } from '../commands/asset-render.ts';
 
 describe('template engine reserved literal {{ARGUMENTS}} (P-H006)', () => {
   it('renders {{ARGUMENTS}} verbatim when consumer provides the reserved var', () => {

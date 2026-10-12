@@ -140,8 +140,8 @@ WHILE true:
     Fix any gaps you find (code or plan document).
 
     CONTEXT: Massu is a TypeScript monorepo with:
-    - packages/core/src/ (MCP server source)
-    - packages/core/src/__tests__/ (vitest tests)
+    - {{paths.source}}/ (MCP server source)
+    - {{paths.tests | default("tests")}}/ (vitest tests)
     - packages/core/src/hooks/ (esbuild-compiled hooks)
     - website/ (Next.js + Supabase website)
     - massu.config.yaml (project config)
@@ -149,13 +149,13 @@ WHILE true:
 
     VERIFICATION COMMANDS:
     - Pattern scanner: bash scripts/massu-pattern-scanner.sh
-    - Type check: cd packages/core && npx tsc --noEmit
-    - Tests: npm test
+    - Type check: {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
+    - Tests: {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
     - Hook build: cd packages/core && npm run build:hooks
 
     VR-* CHECKS (use ONLY these, per CLAUDE.md):
     - VR-FILE, VR-GREP, VR-NEGATIVE, VR-COUNT (generic)
-    - VR-BUILD: npm run build (tsc + hooks)
+    - VR-BUILD: {{verify.build | default("(this stack declares no build step)")}} (tsc + hooks)
     - VR-TYPE, VR-TEST, VR-TOOL-REG, VR-HOOK-BUILD, VR-CONFIG, VR-PATTERN
 
     CRITICAL INSTRUCTION FOR GAPS_DISCOVERED:

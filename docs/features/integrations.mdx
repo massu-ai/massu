@@ -47,7 +47,7 @@ Rate limits are enforced per API key. Default limits are 1,000 requests per minu
 ```bash
 # Fetch quality scores for the last 7 days
 curl -s \
-  -H "Authorization: Bearer ms_live_xxxx" \
+  -H "Authorization: Bearer $MASSU_API_KEY" \
   "https://api.massu.ai/v1/quality/scores?days=7&limit=50" \
   | jq '.scores[] | {session_id, score, date}'
 ```

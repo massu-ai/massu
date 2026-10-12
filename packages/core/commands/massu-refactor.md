@@ -82,7 +82,7 @@ For each export, function, type, or constant being changed:
 
 ```bash
 # Find all references in the codebase
-grep -rn "[export_name]" packages/core/src/ --include="*.ts"
+grep -rn "[export_name]" {{paths.source}}/ --include="*.ts"
 grep -rn "[export_name]" packages/ --include="*.ts" --include="*.tsx"
 grep -rn "[export_name]" .claude/commands/ --include="*.md"
 grep -rn "[export_name]" scripts/ --include="*.sh"
@@ -112,7 +112,7 @@ Capture the behavioral baseline BEFORE making any changes:
 ### 2a. Test Baseline
 
 ```bash
-npm test 2>&1
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} 2>&1
 ```
 
 Record:
@@ -129,7 +129,7 @@ Record:
 ### 2b. Type Check Baseline
 
 ```bash
-cd packages/core && npx tsc --noEmit 2>&1
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} 2>&1
 ```
 
 Record:
@@ -185,9 +185,9 @@ TRANSFORMATION LOOP:
     1. Select next batch (max 3 files)
     2. Apply changes to batch
     3. Run type check:
-         cd packages/core && npx tsc --noEmit 2>&1
+         {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} 2>&1
     4. Run tests:
-         npm test 2>&1
+         {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} 2>&1
     5. Compare against baseline:
          - Type errors must be <= baseline
          - Passing tests must be >= baseline
@@ -225,7 +225,7 @@ TRANSFORMATION LOOP:
 
 ```bash
 # Verify old name no longer exists in source
-grep -rn "[old_name]" packages/core/src/ --include="*.ts"
+grep -rn "[old_name]" {{paths.source}}/ --include="*.ts"
 # MUST return 0 matches
 ```
 
@@ -262,13 +262,13 @@ bash scripts/massu-pattern-scanner.sh
 
 ### Gate 2: Type Check (VR-TYPE)
 ```bash
-cd packages/core && npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 # MUST show 0 errors (or <= baseline)
 ```
 
 ### Gate 3: All Tests (VR-TEST)
 ```bash
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 # MUST exit 0, all tests pass
 ```
 

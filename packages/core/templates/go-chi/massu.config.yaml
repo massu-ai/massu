@@ -25,6 +25,8 @@ framework:
 
 paths:
   source: internal
+  # Go keeps `_test.go` files ALONGSIDE the code they test; `go test ./...` walks the tree
+  tests: internal
   aliases: {}
 
 toolPrefix: massu

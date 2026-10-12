@@ -574,6 +574,15 @@ var init_memory_path = __esm({
   }
 });
 
+// src/lib/corrections-md.ts
+var CORRECTIONS_FILENAME;
+var init_corrections_md = __esm({
+  "src/lib/corrections-md.ts"() {
+    "use strict";
+    CORRECTIONS_FILENAME = "corrections.md";
+  }
+});
+
 // src/config-memory-schema.ts
 import { z } from "zod";
 var MemoryConfigSchema;
@@ -913,13 +922,19 @@ function getResolvedPaths() {
     settingsLocalPath: resolve2(root, claudeDirName, "settings.local.json")
   };
 }
-var DomainConfigSchema, PatternRuleConfigSchema, CostModelSchema, AnalyticsConfigSchema, CustomPatternSchema, GovernanceConfigSchema, SecurityPatternSchema, SecurityConfigSchema, TeamConfigSchema, RegressionConfigSchema, AutoLearningConfigSchema, CloudConfigSchema, ConventionsConfigSchema, PythonDomainConfigSchema, PythonConfigSchema, PathsConfigSchema, LanguageFrameworkEntrySchema, FrameworkConfigSchema, DetectedConfigSchema, VerificationEntrySchema, VerificationConfigSchema, CanonicalPathsSchema, VerificationTypesSchema, DetectionRuleEntrySchema, DetectionConfigSchema, WatchConfigSchema, AdapterLocalPathSchema, AdaptersConfigSchema, TelemetryConfigSchema, LSPConfigSchema, RawConfigSchema, _config, _resolvedApiKeySource, _projectRoot;
+var DEFAULT_KNOWLEDGE_SOURCE_FILES, DomainConfigSchema, PatternRuleConfigSchema, CostModelSchema, AnalyticsConfigSchema, CustomPatternSchema, GovernanceConfigSchema, SecurityPatternSchema, SecurityConfigSchema, TeamConfigSchema, RegressionConfigSchema, AutoLearningConfigSchema, CloudConfigSchema, ConventionsConfigSchema, PythonDomainConfigSchema, PythonConfigSchema, PathsConfigSchema, LanguageFrameworkEntrySchema, FrameworkConfigSchema, DetectedConfigSchema, VerificationEntrySchema, VerificationConfigSchema, CanonicalPathsSchema, VerificationTypesSchema, DetectionRuleEntrySchema, DetectionConfigSchema, WatchConfigSchema, AdapterLocalPathSchema, AdaptersConfigSchema, TelemetryConfigSchema, LSPConfigSchema, RawConfigSchema, _config, _resolvedApiKeySource, _projectRoot;
 var init_config = __esm({
   "src/config.ts"() {
     "use strict";
     init_memory_path();
+    init_corrections_md();
     init_credentials();
     init_config_memory_schema();
+    DEFAULT_KNOWLEDGE_SOURCE_FILES = [
+      "CLAUDE.md",
+      "MEMORY.md",
+      CORRECTIONS_FILENAME
+    ];
     DomainConfigSchema = z2.object({
       name: z2.string().default("Unknown"),
       routers: z2.array(z2.string()).default([]),
@@ -1048,16 +1063,22 @@ var init_config = __esm({
       fixDetection: z2.object({
         enabled: z2.boolean().default(true),
         lookbackDays: z2.number().default(7),
-        signals: z2.array(z2.string()).default([
-          "removed_broken_code",
-          "added_error_handling",
-          "method_name_correction",
-          "auth_fix",
-          "nil_handling_fix",
-          "concurrency_fix",
-          "async_pattern_fix",
-          "added_missing_import"
-        ])
+        // ⛔ NO DEFAULT LIST HERE, DELIBERATELY — the heuristics are the SSOT.
+        //
+        // This carried a hand-typed copy of all eight signal names while
+        // `fix-detector.ts` already read `config…signals ?? FIX_HEURISTICS.map(h => h.name)`.
+        // Because zod ALWAYS materialised the default, that fallback — the correct expression
+        // — was unreachable, and the duplicate was the only thing in effect. Two authoring
+        // sites for one vocabulary, and the drift is SILENT: a name listed here that no longer
+        // exists simply never matches `enabledSignals.has(...)`, so a retired heuristic lingers
+        // as a dead entry with no error. Retiring `method_name_correction` would have landed at
+        // one site of two (CR-74).
+        //
+        // Optional, so an ABSENT value reaches the `??` and the heuristic list defines itself
+        // (Rule 25). An explicit list in massu.config.yaml still overrides, which is the only
+        // behaviour anyone actually configured — measured: `fix-detector.ts:267` is the sole
+        // consumer and no config file in the repo sets it.
+        signals: z2.array(z2.string()).optional()
       }).default({}),
       failureClassification: z2.object({
         enabled: z2.boolean().default(true),
@@ -1139,7 +1160,7 @@ var init_config = __esm({
         "session-state",
         "agents"
       ]),
-      knowledgeSourceFiles: z2.array(z2.string()).default(["CLAUDE.md", "MEMORY.md", "corrections.md"]),
+      knowledgeSourceFiles: z2.array(z2.string()).default([...DEFAULT_KNOWLEDGE_SOURCE_FILES]),
       excludePatterns: z2.array(z2.string()).default(["/ARCHIVE/", "/SESSION-HISTORY/"])
     }).optional();
     PythonDomainConfigSchema = z2.object({
@@ -1155,6 +1176,23 @@ var init_config = __esm({
     }).optional();
     PathsConfigSchema = z2.object({
       source: z2.string().default("src"),
+      /**
+       * Where this stack's tests live, relative to the project root.
+       *
+       * Added 2026-09-20 for P4.3 of docs/plans/2026-09-20-stack-conformant-asset-rendering.md.
+       * ~25 shipped assets told every customer their tests belong in
+       * `packages/core/src/__tests__/` — massu's OWN layout — and no vocabulary could express
+       * the alternative because none existed. A test directory is a first-class property of
+       * every stack (`tests/` on FastAPI, `test/` on Rails, `src/test/java` on Spring,
+       * `Tests/` on SwiftPM, and Go keeps `_test.go` beside the source), so it belongs here
+       * rather than in prose.
+       *
+       * OPTIONAL, so every config written before this key existed keeps loading unchanged; an
+       * asset that needs it uses `{{paths.tests | default("...")}}`. All 13 shipped templates
+       * declare it, each with the convention it follows recorded at the site (G32 option 2),
+       * and `stack-template-conformance.test.ts` asserts that.
+       */
+      tests: z2.string().optional(),
       aliases: z2.record(z2.string(), z2.string()).default({ "@": "src" }),
       monorepo_roots: z2.array(z2.string()).optional(),
       routers: z2.string().optional(),
@@ -4081,6 +4119,76 @@ var PROTECTED_FILE_PATTERNS = [
   { pattern: /aws\/credentials$/, label: "AWS credentials file" },
   { pattern: /kubeconfig$/, label: "Kubernetes config file" }
 ];
+var SECRET_BASENAME_EXTENSIONS = ["pem", "key", "p12", "pfx", "secret"];
+var DOTENV_TEMPLATE_SUFFIXES = ["example", "template", "sample", "defaults", "dist"];
+var SECRET_EXACT_BASENAMES = [
+  "id_rsa",
+  "id_ed25519",
+  "id_ecdsa",
+  ".netrc",
+  "kubeconfig",
+  "credentials.json",
+  "secrets.yaml",
+  "secrets.yml"
+];
+var CREDENTIALS_PATH_SUFFIX = "/credentials";
+var DOTENV = ".env";
+function looksLikeCode(token) {
+  return /[()[\]{};=`$<>|&*?!"']/.test(token) || /\s/.test(token);
+}
+function namesSecretFile(token) {
+  if (!token || looksLikeCode(token)) return null;
+  const clean = token.replace(/[,:.]+$/, "");
+  if (!clean) return null;
+  const base = clean.split("/").pop() ?? "";
+  if (!base) return null;
+  if (SECRET_EXACT_BASENAMES.includes(base)) return base;
+  if (clean.endsWith(".ssh/config")) return "SSH config file";
+  if (clean.endsWith(CREDENTIALS_PATH_SUFFIX)) return "credentials file";
+  if (base === DOTENV) return `${DOTENV} file`;
+  if (base.startsWith(`${DOTENV}.`)) {
+    const suffix = base.slice(DOTENV.length + 1);
+    return DOTENV_TEMPLATE_SUFFIXES.includes(suffix) ? null : `${base} file`;
+  }
+  if (base.endsWith(DOTENV) && clean.includes("/")) return `${base} file`;
+  for (const ext of SECRET_BASENAME_EXTENSIONS) {
+    if (base.endsWith(`.${ext}`)) return `${base} file`;
+  }
+  return null;
+}
+function shellTokens(command) {
+  const out = [];
+  let cur = "";
+  let quote = null;
+  for (const ch of command) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      cur += ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (cur) out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+function secretFilesInCommand(command) {
+  const hits = [];
+  for (const token of shellTokens(command)) {
+    const label = namesSecretFile(token);
+    if (label) hits.push(label);
+  }
+  return hits;
+}
 function checkBashCommand(command) {
   for (const { pattern, label, severity } of DANGEROUS_BASH_PATTERNS) {
     if (pattern.test(command)) {
@@ -4098,18 +4206,57 @@ function checkFilePath(filePath) {
   return null;
 }
 var DANGEROUS_PYTHON_PATTERNS = [
-  { pattern: /\beval\s*\(/, label: "Python eval() \u2014 arbitrary code execution" },
-  { pattern: /\bexec\s*\(/, label: "Python exec() \u2014 arbitrary code execution" },
-  { pattern: /\b__import__\s*\(/, label: "Python __import__() \u2014 dynamic import (potential code injection)" },
-  { pattern: /subprocess\.call\([^)]*shell\s*=\s*True/, label: "subprocess.call(shell=True) \u2014 shell injection risk" },
-  { pattern: /subprocess\.Popen\([^)]*shell\s*=\s*True/, label: "subprocess.Popen(shell=True) \u2014 shell injection risk" },
-  { pattern: /os\.system\s*\(/, label: "os.system() \u2014 shell injection risk" },
-  { pattern: /\bf['"].*\{.*\}.*['"].*(?:execute|cursor|query)/, label: "f-string in SQL \u2014 SQL injection risk" },
-  { pattern: /['"].*%s.*['"].*%.*(?:execute|cursor|query)/, label: "String formatting in SQL \u2014 SQL injection risk" }
+  { pattern: /\beval\s*\(/, label: "Python eval() \u2014 arbitrary code execution", scope: "code" },
+  { pattern: /\bexec\s*\(/, label: "Python exec() \u2014 arbitrary code execution", scope: "code" },
+  { pattern: /\b__import__\s*\(/, label: "Python __import__() \u2014 dynamic import (potential code injection)", scope: "code" },
+  { pattern: /subprocess\.call\([^)]*shell\s*=\s*True/, label: "subprocess.call(shell=True) \u2014 shell injection risk", scope: "code" },
+  { pattern: /subprocess\.Popen\([^)]*shell\s*=\s*True/, label: "subprocess.Popen(shell=True) \u2014 shell injection risk", scope: "code" },
+  { pattern: /os\.system\s*\(/, label: "os.system() \u2014 shell injection risk", scope: "code" },
+  { pattern: /\bf['"].*\{.*\}.*['"].*(?:execute|cursor|query)/, label: "f-string in SQL \u2014 SQL injection risk", scope: "raw" },
+  { pattern: /['"].*%s.*['"].*%.*(?:execute|cursor|query)/, label: "String formatting in SQL \u2014 SQL injection risk", scope: "raw" }
 ];
+function stripPythonCommentsAndStringBodies(src) {
+  let out = "";
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === "#") {
+      while (i < src.length && src[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      const triple = src.startsWith(ch.repeat(3), i);
+      const delim = triple ? ch.repeat(3) : ch;
+      out += delim;
+      i += delim.length;
+      let closed = false;
+      while (i < src.length) {
+        if (src[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (src.startsWith(delim, i)) {
+          out += delim;
+          i += delim.length;
+          closed = true;
+          break;
+        }
+        if (!triple && src[i] === "\n") break;
+        i++;
+      }
+      if (!closed) return null;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
 function checkPythonContent(content) {
-  for (const { pattern, label } of DANGEROUS_PYTHON_PATTERNS) {
-    if (pattern.test(content)) {
+  const stripped = stripPythonCommentsAndStringBodies(content);
+  for (const { pattern, label, scope } of DANGEROUS_PYTHON_PATTERNS) {
+    const subject = scope === "raw" || stripped === null ? content : stripped;
+    if (pattern.test(subject)) {
       return label;
     }
   }
@@ -4119,6 +4266,15 @@ function runSecurityGateFindings(hookInput) {
   const findings = [];
   const { tool_name, tool_input } = hookInput;
   if (tool_name === "Bash" && tool_input.command) {
+    const secretFiles = secretFilesInCommand(tool_input.command);
+    if (secretFiles.length > 0) {
+      findings.push({
+        severity: "block",
+        message: `SECURITY GATE: command names a secret file: ${secretFiles.join(", ")}
+Command: ${tool_input.command.slice(0, 200)}
+BLOCKED. If this file is a template or fixture, name it with a template suffix (.example/.template/.sample) rather than weakening this check.`
+      });
+    }
     const violation = checkBashCommand(tool_input.command);
     if (violation) {
       findings.push({

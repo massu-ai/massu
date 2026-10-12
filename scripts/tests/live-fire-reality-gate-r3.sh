@@ -60,7 +60,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 GATE="$REPO_ROOT/scripts/massu-reality-gate.sh"
-REAL_LOG="$REPO_ROOT/.massu/hook-failures.jsonl"
+# INJECTABLE so the three states of the operator's log -- ABSENT, EMPTY, NON-EMPTY -- can
+# each be exercised by a test. Hardcoded, the branch that runs depended entirely on the
+# machine, so the EMPTY branch was unreachable by any test and shipped broken (it aborted
+# the whole harness on `head -c 0`). Default is unchanged, so production behaviour is the
+# same; only provability changed.
+REAL_LOG="${MASSU_R3_REAL_LOG:-$REPO_ROOT/.massu/hook-failures.jsonl}"
 
 # G29: hook-reachable -- ASSERT the repository, scrub nothing. `--show-toplevel` cannot see
 # a GIT_DIR leak (it returns the CWD); only --absolute-git-dir can.
@@ -83,12 +88,30 @@ fail=0
 cleanup() { [ -n "${WORK:-}" ] && [ -d "$WORK" ] && rm -rf "$WORK"; }
 trap cleanup EXIT
 
+# sha256 of the first N bytes of a file.
+#
+# ⚠️ BSD `head -c 0` is an ERROR ("illegal byte count -- 0"), not an empty read, so under
+# `set -e` a ZERO-BYTE real log aborted this whole harness before its first check — and an
+# empty real log is not a broken state, it is the state a rotation legitimately produces
+# (D-001 of plan-2026-08-11 truncates the log in place after sealing it). Measured
+# 2026-09-21: rotating the corpus took the log to 0 bytes and this harness died with
+# `head: illegal byte count -- 0`, which the consumer test reported as "the harness
+# aborted". A zero-length prefix is trivially identical, so return the digest of the empty
+# string rather than asking `head` for nothing.
+prefix_sha () {  # prefix_sha <file> <bytes>
+  if [ "$2" -eq 0 ]; then
+    printf '%s' '' | shasum -a 256 | cut -d' ' -f1
+  else
+    head -c "$2" "$1" | shasum -a 256 | cut -d' ' -f1
+  fi
+}
+
 # --- the real log's pre-run identity (append-only assertion, see header) ---------------
 REAL_EXISTED=0; REAL_SIZE_BEFORE=0; REAL_PREFIX_SHA_BEFORE=""
 if [ -f "$REAL_LOG" ]; then
   REAL_EXISTED=1
   REAL_SIZE_BEFORE=$(wc -c < "$REAL_LOG" | tr -d ' ')
-  REAL_PREFIX_SHA_BEFORE=$(head -c "$REAL_SIZE_BEFORE" "$REAL_LOG" | shasum -a 256 | cut -d' ' -f1)
+  REAL_PREFIX_SHA_BEFORE=$(prefix_sha "$REAL_LOG" "$REAL_SIZE_BEFORE")
 fi
 
 PASSED=0; FAILED=0
@@ -340,7 +363,7 @@ if [ "$REAL_EXISTED" = "1" ]; then
   # asserting a floor on the raw total would be asserting the environment (G27/CR-90).
   CONDITIONAL=2
   SIZE_AFTER=$(wc -c < "$REAL_LOG" | tr -d ' ')
-  PREFIX_SHA_AFTER=$(head -c "$REAL_SIZE_BEFORE" "$REAL_LOG" | shasum -a 256 | cut -d' ' -f1)
+  PREFIX_SHA_AFTER=$(prefix_sha "$REAL_LOG" "$REAL_SIZE_BEFORE")
   if [ "$PREFIX_SHA_AFTER" = "$REAL_PREFIX_SHA_BEFORE" ]; then
     ok "pre-run prefix byte-identical (sha256 ${REAL_PREFIX_SHA_BEFORE:0:16}…) — nothing rewritten"
   else

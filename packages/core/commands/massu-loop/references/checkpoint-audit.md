@@ -13,9 +13,9 @@ CHECKPOINT AUDIT FLOW:
 [3] LS files to verify they exist
 [4] VR-TOOL-REG: Verify tools are WIRED in tools.ts (not just created)
 [5] GREP for pattern violations
-[6] RUN build verification (npm run build)
-[7] RUN type verification (cd packages/core && npx tsc --noEmit)
-[8] RUN tests (npm test) - MANDATORY, NOT optional
+[6] RUN build verification ({{verify.build | default("(this stack declares no build step)")}})
+[7] RUN type verification ({{verify.type | default("declare verification.LANG.type in massu.config.yaml")}})
+[8] RUN tests ({{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}) - MANDATORY, NOT optional
 [9] RUN hook build (cd packages/core && npm run build:hooks)
 [10] RUN pattern scanner (bash scripts/massu-pattern-scanner.sh)
 [11] RUN security check (secrets staged)

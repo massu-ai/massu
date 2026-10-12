@@ -29,7 +29,7 @@ import {
   type GitRunner,
 } from '../hooks/auto-learning-pipeline.ts';
 import { sessionTouchedFiles } from '../hooks/lib/session-touched-files.ts';
-import { gitSafeEnv, GIT_ENV_LEAKS } from './helpers/git-safe-env.ts';
+import { gitSafeEnv, gitSafeEnvForNewRepo, GIT_ENV_LEAKS } from './helpers/git-safe-env.ts';
 
 // ── Fixtures ────────────────────────────────────────────────────────────────────────────
 
@@ -68,7 +68,7 @@ function git(args: string[], cwd = repo): string {
   return execFileSync('git', args, {
     cwd,
     encoding: 'utf-8',
-    env: { ...gitSafeEnv(), GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' },
+    env: { ...gitSafeEnvForNewRepo(), GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' },
   });
 }
 
@@ -274,7 +274,7 @@ describe('the read is bound to the repo it names', () => {
     write('src/parse.ts', REAL_CODE);
     const other = mkdtempSync(join(tmpdir(), 'massu-al-other-'));
     try {
-      execFileSync('git', ['init', '-q'], { cwd: other, env: gitSafeEnv() });
+      execFileSync('git', ['init', '-q'], { cwd: other, env: gitSafeEnvForNewRepo() });
       const saved = process.env.GIT_DIR;
       process.env.GIT_DIR = join(other, '.git');
       try {

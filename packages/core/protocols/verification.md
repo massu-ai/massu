@@ -15,9 +15,9 @@
 | VR-FILE | `ls -la [path]` | File exists | Claiming file created |
 | VR-GREP | `grep "[pattern]" [file]` | Match found | Claiming code added |
 | VR-NEGATIVE | `grep -rn "[old]" src/` | 0 matches | Claiming removal |
-| VR-BUILD | `npm run build` | Exit 0 | Claiming production ready |
-| VR-TYPE | `npx tsc --noEmit` | 0 errors | Claiming type safety |
-| VR-TEST | `npm test` | All pass | Claiming tested |
+| VR-BUILD | `{{verify.build | default("(this stack declares no build step)")}}` | Exit 0 | Claiming production ready |
+| VR-TYPE | `{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}` | 0 errors | Claiming type safety |
+| VR-TEST | `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}` | All pass | Claiming tested |
 | VR-DEPLOY | `./scripts/pre-deploy-check.sh` | All pass | Claiming deployable |
 | VR-SCHEMA | `SELECT ... FROM information_schema` | Matches expectation | Before DB operations |
 | VR-COUNT | `grep -c "[pattern]" [file]` | Expected count | Verifying all instances |
@@ -358,7 +358,7 @@ After any verification run, if issues found:
 
 **Verification (VR-TEST):**
 ```bash
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 # Expected: Exit 0, ALL tests pass
 # If ANY test fails, work is NOT complete
 ```

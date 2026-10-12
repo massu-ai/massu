@@ -6,7 +6,7 @@ import Database from 'better-sqlite3';
 import { resolve, dirname } from 'path';
 import { tmpdir } from 'os';
 import { unlinkSync, existsSync, mkdirSync, rmSync } from 'fs';
-import { getResolvedPaths } from '../config.ts';
+import { getResolvedPaths, resetConfig } from '../config.ts';
 import { initKnowledgeSchema } from '../knowledge-db.ts';
 import { indexAllKnowledge } from '../knowledge-indexer.ts';
 import { handleKnowledgeToolCall, getKnowledgeToolDefinitions } from '../knowledge-tools.ts';
@@ -26,13 +26,92 @@ function cleanupTestDb(): void {
   } catch { /* ignore */ }
 }
 
+/**
+ * ⛔ THE CORPUS IS A COMMITTED FIXTURE, NOT THIS REPOSITORY.
+ *
+ * This `beforeAll` used to call `indexAllKnowledge(db)` against the LIVE tree — 770 files
+ * and 12,241 chunks — which made every one of the 30 handler tests below a function of how
+ * much documentation the team happens to have written. Two consequences, both real:
+ *
+ *   1. IT FLAKED. Measured 2026-09-20: the indexer itself takes ~1.1s, but under the
+ *      pre-push battery's parallelism this hook blew its 30,000ms budget. It had already
+ *      done so once before — the comment further down records the same failure on
+ *      2026-08-13 — and the corpus only grows, so any constant is a date at which it
+ *      starts failing again (G27: a wall-clock budget asserts the MACHINE, not the code).
+ *   2. THE ORACLE MOVED. Asserting `CR-1` and `VR-BUILD` against whatever `.claude/`
+ *      contains today means the expectation changes when the documentation does. A test
+ *      whose expected answer is supplied by the system under test agrees with itself.
+ *
+ * So the corpus is now `fixtures/knowledge-corpus/` — constant time, and a deterministic
+ * oracle whose every row exists because a test asserts on it. It is hand-authored on
+ * purpose: a guard's expectation may never be DERIVED from the thing it judges, or both
+ * sides agree by construction (G32 option 0, THE BLIND-GATE LAW).
+ *
+ * The separate claim — "massu can index THIS repository's real knowledge base" — is a
+ * different question with a different failure mode, and it is asserted on its own terms at
+ * the bottom of this file, by COUNT rather than by clock.
+ */
+const FIXTURE_ROOT = resolve(__dirname, 'fixtures/knowledge-corpus');
+
+/** Run `fn` with the process rooted in the fixture project. */
+function inFixture<T>(fn: () => T): T {
+  const prevCwd = process.cwd();
+  resetConfig();
+  try {
+    process.chdir(FIXTURE_ROOT);
+    return fn();
+  } finally {
+    process.chdir(prevCwd);
+    resetConfig();
+  }
+}
+
 beforeAll(() => {
   cleanupTestDb();
   db = new Database(TEST_DB_PATH);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   initKnowledgeSchema(db);
-  indexAllKnowledge(db);
+  const stats = inFixture(() => indexAllKnowledge(db));
+
+  // M1 — ASSERT THE ORACLE ARRIVED, NOT MERELY THAT SOMETHING WAS READ.
+  //
+  // The first version of this guard checked `filesIndexed`/`chunksCreated` only, and its
+  // own live-fire proved that insufficient: emptying every corpus file still yields a
+  // non-zero file count (the files exist) and non-zero chunks (document-level rows), so
+  // the guard stayed silent while the suite fell back to `All Canonical Rules (0 total)`.
+  // A corpus that parsed into no RULES and no VERIFICATIONS is exactly as vacuous as an
+  // absent one, and it is the state a broken parser also produces.
+  const ruleCount = (db.prepare('SELECT COUNT(*) AS n FROM knowledge_rules').get() as { n: number }).n;
+  const vrCount = (db.prepare('SELECT COUNT(*) AS n FROM knowledge_verifications').get() as { n: number }).n;
+  if (stats.filesIndexed === 0 || stats.chunksCreated === 0 || ruleCount === 0 || vrCount === 0) {
+    throw new Error(
+      `knowledge fixture indexed nothing usable at ${FIXTURE_ROOT} ` +
+        `(files=${stats.filesIndexed} chunks=${stats.chunksCreated} rules=${ruleCount} vr=${vrCount}) ` +
+        '— refusing to run assertions against a corpus that supplied no oracle',
+    );
+  }
+
+  // ⛔ MARK THE INDEX FRESH SO NO DISPATCH RE-INDEXES MID-SUITE.
+  //
+  // `handleKnowledgeToolCall` opens with `ensureKnowledgeIndexed(db)` -> `indexIfStale(db)`,
+  // which compares the CORPUS mtimes against `last_index_epoch`. Inside a test body the
+  // process cwd is the repo root, not the fixture — so a stale verdict re-indexes against
+  // THIS REPOSITORY and silently replaces the fixture corpus mid-run.
+  //
+  // The consequence is not merely "different rules". This repo's own CLAUDE.md writes its
+  // canonical-rules table with THREE columns while `parseCRTable` requires four, so the
+  // re-index yields ZERO rules and every lookup answers "Rule CR-9 not found."
+  //
+  // REPRODUCED 2026-09-20, and it is NOT about any particular harness: running this file
+  // once and then `npm test` is enough. The first run updates mtimes under the repo, so the
+  // second run reads them as newer than the index epoch. Isolation hid it because nothing
+  // had touched the tree yet.
+  //
+  // A future stamp, not `Date.now()`: the point is that the fixture index is authoritative
+  // for the whole file, whatever the ambient tree does while it runs.
+  db.prepare("INSERT OR REPLACE INTO knowledge_meta (key, value) VALUES ('last_index_epoch', ?)")
+    .run(String(Date.now() + 3_600_000));
 });
 
 afterAll(() => {

@@ -172,25 +172,7 @@ Before starting, determine what the feature needs:
 ```markdown
 ### Feature: [FEATURE_NAME]
 
-#### Components Needed
-- [ ] Tool module file (packages/core/src/[feature].ts)
-- [ ] Tool definitions (getXToolDefinitions)
-- [ ] Tool name matcher (isXTool)
-- [ ] Tool handler (handleXToolCall)
-- [ ] Wire into tools.ts
-- [ ] Input schemas
-- [ ] Config integration
-- [ ] Tests (packages/core/src/__tests__/[feature].test.ts)
-- [ ] Documentation
-
-#### Patterns to Apply (MANDATORY)
-
-**Tool Registration Patterns:**
-- [ ] 3-function pattern (getDefs + isTool + handleCall)
-- [ ] Config-driven tool prefix via getConfig().toolPrefix
-- [ ] Wire definitions into getToolDefinitions() in tools.ts
-- [ ] Wire handler into handleToolCall() in tools.ts
-- [ ] stripPrefix() for base name matching
+{{> feature-components}}
 
 **Database Patterns:**
 - [ ] getMemoryDb() with try/finally for memory operations
@@ -234,7 +216,7 @@ Based on feature type, load relevant patterns from CLAUDE.md:
 ls packages/core/src/*[feature]* 2>/dev/null
 
 # Find modules with similar functionality
-grep -rln "[functionality]" packages/core/src/ | head -20
+grep -rln "[functionality]" {{paths.source}}/ | head -20
 
 # Check existing tool modules
 grep "ToolDefinitions" packages/core/src/*.ts
@@ -359,7 +341,7 @@ describe('[feature] tools', () => {
 ### 2.2 Verify Tests
 ```bash
 # Run tests
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 
 # Verify test file exists
 ls -la packages/core/src/__tests__/[feature].test.ts
@@ -375,16 +357,16 @@ ls -la packages/core/src/__tests__/[feature].test.ts
 bash scripts/massu-pattern-scanner.sh
 
 # Type check
-cd packages/core && npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 
 # Build (includes hook compilation)
-npm run build
+{{verify.build | default("(this stack declares no build step)")}}
 
 # Hook build
 cd packages/core && npm run build:hooks
 
 # Tests
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 ```
 
 ### 3.2 Tool Registration Verification (VR-TOOL-REG)

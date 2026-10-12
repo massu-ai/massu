@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # scripts/lib/mtime-helper.sh — sourced by callers; defines:
 #   file_mtime <path>  -> stdout: epoch.fractional seconds; non-zero exit if path absent
 #

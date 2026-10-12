@@ -18,4 +18,8 @@ coverage/
 .playwright-mcp/
 .vercel
 .claude/session-state/
+# Agent working state, same category as session-state above. Observed untracked and
+# NOT ignored in the publish-only mirror on 2026-09-21, where a `git add -A` would have
+# committed it to the public repo.
+.claude/loop-state/
 .massu/

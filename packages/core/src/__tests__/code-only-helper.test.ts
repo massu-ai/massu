@@ -165,6 +165,54 @@ describe('codeOnly — the shared source-text comment stripper', () => {
     });
   });
 
+  describe('stringStripBoundedToLine — a string literal may never swallow the next line', () => {
+    /**
+     * ⛔ MEASURED 2026-09-21, AND THE NUMBER IS THE POINT. The stripper's negated classes
+     * did not exclude `\n`, so ONE unbalanced quote ran to the next quote anywhere in the
+     * file and merged everything between. Over the tracked tree — comparing line counts with
+     * and without string-stripping, where comment-stripping is identical so any drop is a
+     * desync by construction:
+     *
+     *     tracked .ts scanned 1045 · desynchronised 138 (13%) · worst 389 lines -> 32
+     *
+     * A guard reading that output reports a clean number over garbage. These assertions pin
+     * the boundary so the `\n` exclusion cannot be "simplified" back out.
+     */
+    it('an unbalanced quote does NOT consume the following lines', () => {
+      // A regex literal with a quote in a character class: not a string, but its quote is
+      // read as one. The damage must stop at the end of its own line.
+      const src = ["const re = /x['\"]y/;", "const keep = 1;", "const also = 2;"].join('\n');
+      const out = codeOnly(src, '.ts', { stripStringLiterals: true });
+      expect(out).not.toBeNull();
+      expect((out as string).split('\n').length, 'lines were merged').toBe(3);
+      expect(out).toContain('const keep = 1;');
+      expect(out).toContain('const also = 2;');
+    });
+
+    it('string-stripping never reduces the LINE COUNT of comment-stripped output', () => {
+      // The property in its general form, over a corpus that really exercises it.
+      const corpus = [
+        "const a = 'plain'; const b = \"two\";",
+        "const re = /q['\"]z/;",
+        "const c = 'tail';",
+        "const d = 3;",
+      ].join('\n');
+      const withStrings = codeOnly(corpus, '.ts');
+      const stripped = codeOnly(corpus, '.ts', { stripStringLiterals: true });
+      expect(withStrings).not.toBeNull();
+      expect(stripped).not.toBeNull();
+      expect((stripped as string).split('\n').length).toBe(
+        (withStrings as string).split('\n').length,
+      );
+    });
+
+    it('POSITIVE CONTROL: it still actually strips — otherwise the above is vacuous', () => {
+      const out = codeOnly("const a = 'secret';\n", '.ts', { stripStringLiterals: true });
+      expect(out).toContain("''");
+      expect(out).not.toContain('secret');
+    });
+  });
+
   describe('`stripStringLiterals` is OPT-IN and defaults FALSE', () => {
     const src = 'console.log("hello");\n';
 

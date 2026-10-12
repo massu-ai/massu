@@ -42,6 +42,15 @@ var init_memory_path = __esm({
   }
 });
 
+// src/lib/corrections-md.ts
+var CORRECTIONS_FILENAME;
+var init_corrections_md = __esm({
+  "src/lib/corrections-md.ts"() {
+    "use strict";
+    CORRECTIONS_FILENAME = "corrections.md";
+  }
+});
+
 // src/credentials.ts
 import { homedir } from "os";
 import { resolve } from "path";
@@ -449,13 +458,19 @@ function getResolvedPaths() {
     settingsLocalPath: resolve2(root, claudeDirName, "settings.local.json")
   };
 }
-var DomainConfigSchema, PatternRuleConfigSchema, CostModelSchema, AnalyticsConfigSchema, CustomPatternSchema, GovernanceConfigSchema, SecurityPatternSchema, SecurityConfigSchema, TeamConfigSchema, RegressionConfigSchema, AutoLearningConfigSchema, CloudConfigSchema, ConventionsConfigSchema, PythonDomainConfigSchema, PythonConfigSchema, PathsConfigSchema, LanguageFrameworkEntrySchema, FrameworkConfigSchema, DetectedConfigSchema, VerificationEntrySchema, VerificationConfigSchema, CanonicalPathsSchema, VerificationTypesSchema, DetectionRuleEntrySchema, DetectionConfigSchema, WatchConfigSchema, AdapterLocalPathSchema, AdaptersConfigSchema, TelemetryConfigSchema, LSPConfigSchema, RawConfigSchema, _config, _resolvedApiKeySource, _projectRoot;
+var DEFAULT_KNOWLEDGE_SOURCE_FILES, DomainConfigSchema, PatternRuleConfigSchema, CostModelSchema, AnalyticsConfigSchema, CustomPatternSchema, GovernanceConfigSchema, SecurityPatternSchema, SecurityConfigSchema, TeamConfigSchema, RegressionConfigSchema, AutoLearningConfigSchema, CloudConfigSchema, ConventionsConfigSchema, PythonDomainConfigSchema, PythonConfigSchema, PathsConfigSchema, LanguageFrameworkEntrySchema, FrameworkConfigSchema, DetectedConfigSchema, VerificationEntrySchema, VerificationConfigSchema, CanonicalPathsSchema, VerificationTypesSchema, DetectionRuleEntrySchema, DetectionConfigSchema, WatchConfigSchema, AdapterLocalPathSchema, AdaptersConfigSchema, TelemetryConfigSchema, LSPConfigSchema, RawConfigSchema, _config, _resolvedApiKeySource, _projectRoot;
 var init_config = __esm({
   "src/config.ts"() {
     "use strict";
     init_memory_path();
+    init_corrections_md();
     init_credentials();
     init_config_memory_schema();
+    DEFAULT_KNOWLEDGE_SOURCE_FILES = [
+      "CLAUDE.md",
+      "MEMORY.md",
+      CORRECTIONS_FILENAME
+    ];
     DomainConfigSchema = z2.object({
       name: z2.string().default("Unknown"),
       routers: z2.array(z2.string()).default([]),
@@ -584,16 +599,22 @@ var init_config = __esm({
       fixDetection: z2.object({
         enabled: z2.boolean().default(true),
         lookbackDays: z2.number().default(7),
-        signals: z2.array(z2.string()).default([
-          "removed_broken_code",
-          "added_error_handling",
-          "method_name_correction",
-          "auth_fix",
-          "nil_handling_fix",
-          "concurrency_fix",
-          "async_pattern_fix",
-          "added_missing_import"
-        ])
+        // ⛔ NO DEFAULT LIST HERE, DELIBERATELY — the heuristics are the SSOT.
+        //
+        // This carried a hand-typed copy of all eight signal names while
+        // `fix-detector.ts` already read `config…signals ?? FIX_HEURISTICS.map(h => h.name)`.
+        // Because zod ALWAYS materialised the default, that fallback — the correct expression
+        // — was unreachable, and the duplicate was the only thing in effect. Two authoring
+        // sites for one vocabulary, and the drift is SILENT: a name listed here that no longer
+        // exists simply never matches `enabledSignals.has(...)`, so a retired heuristic lingers
+        // as a dead entry with no error. Retiring `method_name_correction` would have landed at
+        // one site of two (CR-74).
+        //
+        // Optional, so an ABSENT value reaches the `??` and the heuristic list defines itself
+        // (Rule 25). An explicit list in massu.config.yaml still overrides, which is the only
+        // behaviour anyone actually configured — measured: `fix-detector.ts:267` is the sole
+        // consumer and no config file in the repo sets it.
+        signals: z2.array(z2.string()).optional()
       }).default({}),
       failureClassification: z2.object({
         enabled: z2.boolean().default(true),
@@ -675,7 +696,7 @@ var init_config = __esm({
         "session-state",
         "agents"
       ]),
-      knowledgeSourceFiles: z2.array(z2.string()).default(["CLAUDE.md", "MEMORY.md", "corrections.md"]),
+      knowledgeSourceFiles: z2.array(z2.string()).default([...DEFAULT_KNOWLEDGE_SOURCE_FILES]),
       excludePatterns: z2.array(z2.string()).default(["/ARCHIVE/", "/SESSION-HISTORY/"])
     }).optional();
     PythonDomainConfigSchema = z2.object({
@@ -691,6 +712,23 @@ var init_config = __esm({
     }).optional();
     PathsConfigSchema = z2.object({
       source: z2.string().default("src"),
+      /**
+       * Where this stack's tests live, relative to the project root.
+       *
+       * Added 2026-09-20 for P4.3 of docs/plans/2026-09-20-stack-conformant-asset-rendering.md.
+       * ~25 shipped assets told every customer their tests belong in
+       * `packages/core/src/__tests__/` — massu's OWN layout — and no vocabulary could express
+       * the alternative because none existed. A test directory is a first-class property of
+       * every stack (`tests/` on FastAPI, `test/` on Rails, `src/test/java` on Spring,
+       * `Tests/` on SwiftPM, and Go keeps `_test.go` beside the source), so it belongs here
+       * rather than in prose.
+       *
+       * OPTIONAL, so every config written before this key existed keeps loading unchanged; an
+       * asset that needs it uses `{{paths.tests | default("...")}}`. All 13 shipped templates
+       * declare it, each with the convention it follows recorded at the site (G32 option 2),
+       * and `stack-template-conformance.test.ts` asserts that.
+       */
+      tests: z2.string().optional(),
       aliases: z2.record(z2.string(), z2.string()).default({ "@": "src" }),
       monorepo_roots: z2.array(z2.string()).optional(),
       routers: z2.string().optional(),
@@ -4079,22 +4117,62 @@ var FIX_HEURISTICS = [
   },
   {
     name: "added_error_handling",
+    // `if.*nil` / `if.*None` were DROPPED here, and that is deduplication rather than a silent
+    // narrowing: `nil_handling_fix` below already matches exactly that shape
+    // (`= nil|= None|is None|!= nil|is not None`), so a nil check scored twice under one banner.
     test: (diff) => {
-      const added = (diff.match(/^\+.*(try|except|catch|guard|if.*nil|if.*None|validate|assert|raise|throw)/gm) || []).length;
+      const added = (diff.match(/^\+.*\b(try|except|catch|guard|validate|assert|raise|throw)\b/gm) || []).length;
       return added > 2;
     }
   },
-  {
-    name: "method_name_correction",
-    test: (diff) => {
-      const removed = diff.match(/^-.*\.([a-z_]+)\(/m);
-      const added = diff.match(/^\+.*\.([a-z_]+)\(/m);
-      return !!(removed && added && removed[1] !== added[1]);
-    }
-  },
+  // ⛔ `method_name_correction` WAS RETIRED HERE 2026-08-20, and the measurement is why.
+  //
+  //   test: (diff) => {
+  //     const removed = diff.match(/^-.*\.([a-z_]+)\(/m);   // FIRST removed method call
+  //     const added   = diff.match(/^\+.*\.([a-z_]+)\(/m);  // FIRST added method call
+  //     return !!(removed && added && removed[1] !== added[1]);
+  //   }
+  //
+  // It compared the FIRST removed call against the FIRST added call, anywhere in the diff.
+  // The two need no relationship to each other, so it fired whenever a diff contained any
+  // two differently-named method calls — which is nearly every diff that touches code.
+  //
+  // Measured over the last 250 commits repo-wide:
+  //     shipped predicate                                            29 firings (12%)
+  //     one requiring the two lines to be identical but for the name  0 firings
+  // Eleven firings read by hand over packages/core/src: `.push()`->`.includes()`,
+  // `.call()`->`.system()`, `.trim()`->`.stringify()`, `.all()`->`.cwd()`, `.now()`->`.push()`,
+  // `.on()`->`.sort()`, `.test()`->`.split()` … NOT ONE was a rename. Precision 0 of 29.
+  //
+  // RETIRED RATHER THAN REPAIRED, on the same numbers: a correct implementation fires ZERO
+  // times in 250 commits, so repairing it buys a branch that never runs — dead weight with a
+  // maintenance cost (CR-71 in spirit: a detector that cannot fire is not a detector). It was
+  // not free while it lived: signals feed `sessionFixes`, which drives the ACTION REQUIRED
+  // banner demanding incidents, so this put noise directly on the retro pipeline — the one
+  // banner that must not cry wolf (CR-83).
+  //
+  // Kept as a comment, not deleted outright, so the next author who reaches for
+  // "detect a method rename from a diff" finds the measurement instead of rebuilding it.
+  //
+  // ⛔ THE FULL WRITE-UP IS DELIBERATELY NOT LINKED FROM HERE. This file SYNCS TO THE PUBLIC
+  // MIRROR and the incident corpus does not, so a path citation would point at something
+  // that does not exist there — and the leak guard refuses it, correctly. It caught exactly
+  // this line. The measurement above is self-contained for that reason; search the internal
+  // incident corpus for "a summary counted signals and listed files" if you need the rest.
+  // (Memory: a-retro-citation-is-publishable-content.)
   {
     name: "auth_fix",
-    test: (diff) => /^\+.*(token|auth|header|X-Service|Bearer|credential)/im.test(diff)
+    // `authn`/`authz` are spelled out because `\bauth\b` no longer reaches them, and the
+    // trailing `s?` keeps plurals (`tokens`, `credential`+`s`) that the boundary would drop.
+    //
+    // ⚠️ Backticks, not double quotes, and the plural is split — deliberately. CR-59's
+    // drift-guard forbids a quoted `credentials` segment literal outside credentials.ts via
+    // /['"]credentials['"]/, which cannot tell a string literal in CODE from quotation marks
+    // in PROSE. Writing the word normally here turns that guard red. That is the SAME defect
+    // class this file's own boundary fix addresses, in a second detector — recorded in the
+    // incident rather than fixed here, because widening a security-adjacent guard is its own
+    // change with its own blast radius.
+    test: (diff) => /^\+.*\b(token|auth|authn|authz|header|X-Service|Bearer|credential)s?\b/im.test(diff)
   },
   {
     name: "nil_handling_fix",
@@ -4102,16 +4180,42 @@ var FIX_HEURISTICS = [
   },
   {
     name: "concurrency_fix",
-    test: (diff) => /^\+.*(timeout|semaphore|lock|mutex|throttle|rate.limit|max_conn)/im.test(diff)
-  },
-  {
-    name: "async_pattern_fix",
-    test: (diff) => /^\+.*(@MainActor|async with|asyncio\.timeout|\.await)/.test(diff) && /^-/m.test(diff)
-  },
-  {
-    name: "added_missing_import",
-    test: (diff) => /^\+.*(import|from.*import|require)/.test(diff) && !/^-.*(import|from.*import|require)/m.test(diff)
+    // `rate[-_. ]limit` — the original `rate.limit` used an UNESCAPED dot, so `.` matched any
+    // character and the alternative fired on "corporate_limits". The class is now explicit
+    // about which separators are intended.
+    test: (diff) => /^\+.*\b(timeout|semaphore|lock|mutex|throttle|rate[-_. ]limit|max_conn)\b/im.test(diff)
   }
+  // ⛔ `async_pattern_fix` AND `added_missing_import` WERE RETIRED HERE 2026-08-20.
+  //
+  //   async_pattern_fix:
+  //     test: (diff) => /^\+.*(@MainActor|async with|asyncio\.timeout|\.await)/.test(diff)
+  //                     && /^-/m.test(diff),
+  //   added_missing_import:
+  //     test: (diff) => /^\+.*(import|from.*import|require)/.test(diff)
+  //                     && !/^-.*(import|from.*import|require)/m.test(diff),
+  //
+  // Both fire ZERO times across the last 250 commits — measured on the same run that produced
+  // the boundary numbers above, over the 87 commits touching non-test source:
+  //
+  //     async_pattern_fix     0 / 87
+  //     added_missing_import  0 / 87
+  //
+  // This is the identical finding that retired `method_name_correction` below, and it is
+  // retired for the identical reason: a detector that never fires is not a detector, and it
+  // still costs review attention and maintenance on every pass over this table (CR-71 in
+  // spirit — a zero-caller chokepoint is a dead feature).
+  //
+  // WHY THEY CANNOT FIRE HERE, so the next author does not "fix" them back in: their tokens are
+  // largely foreign to this codebase. `@MainActor` is Swift; `async with` is Python. Neither
+  // appears in a TypeScript monorepo. `added_missing_import` requires added imports with NO
+  // removed import anywhere in the same diff, which any edit touching an import block violates.
+  // If this table is ever pointed at a Swift or Python corpus, re-measure before reinstating —
+  // do not reinstate on the assumption that the language mix changed.
+  //
+  // Kept as comments rather than deleted so the measurement travels with the code, and so a
+  // future author reaching for "detect an async-pattern fix" finds the number first.
+  // (Same reasoning, and same publication constraint, as the block below: this file syncs to
+  // the public mirror, so no internal path citations.)
 ];
 function getSessionFlagPath(sessionId) {
   const dir = join6(tmpdir2(), "massu-auto-learning");

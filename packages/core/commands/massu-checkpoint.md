@@ -265,16 +265,16 @@ Then manual checks (all expect 0):
 ### Step 6: RUN Build Verification (VR-BUILD)
 
 ```bash
-npm run build
+{{verify.build | default("(this stack declares no build step)")}}
 ```
 
 ### Step 6.5: Additional Verification Gates
 
 ```bash
-npx tsc --noEmit        # VR-TYPE: 0 errors
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}        # VR-TYPE: 0 errors
 npm run lint             # VR-LINT: Exit 0
 npx prisma validate     # VR-SCHEMA-VALIDATE: Exit 0
-npm test                # VR-TEST: MANDATORY, ALL pass
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}                # VR-TEST: MANDATORY, ALL pass
 ./scripts/pre-deploy-check.sh 2>/dev/null || echo "No pre-deploy script"
 ```
 
@@ -282,10 +282,10 @@ npm test                # VR-TEST: MANDATORY, ALL pass
 ### Additional Gates
 | Gate | Command | Result | Status |
 |------|---------|--------|--------|
-| Type Safety | npx tsc --noEmit | 0 errors | PASS/FAIL |
+| Type Safety | {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} | 0 errors | PASS/FAIL |
 | Lint | npm run lint | Exit 0 | PASS/FAIL |
 | Prisma Validate | npx prisma validate | Valid | PASS/FAIL |
-| Tests | npm test | ALL Pass | PASS/FAIL |
+| Tests | {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} | ALL Pass | PASS/FAIL |
 | Pre-deploy | pre-deploy-check.sh | Pass/N/A | PASS/FAIL/N/A |
 ```
 
@@ -566,9 +566,9 @@ Checkpoint MUST abort if: pattern scanner fails, security violation detected, bu
 ## PARALLEL EXECUTION
 
 Independent checks can run simultaneously via Task agents:
-- Agent 1: `npx tsc --noEmit`
+- Agent 1: `{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}`
 - Agent 2: `./scripts/pattern-scanner.sh`
-- Agent 3: `npm run build`
+- Agent 3: `{{verify.build | default("(this stack declares no build step)")}}`
 - Agent 4: `npm run test:run`
 
 ---

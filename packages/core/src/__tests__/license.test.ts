@@ -306,7 +306,7 @@ describe('P3-024: isToolAllowed()', () => {
 // ============================================================
 
 describe('P3-025: validateLicense()', () => {
-  const apiKey = 'ms_live_test_key_abc123';
+  const apiKey = 'ms_live_test_key_abc123'; // gitleaks:allow — fake fixture key; a real key is ms_live_{8hex}_{64hex} (81 chars)
 
   it('returns cached tier when cache is fresh (< 1 hour)', async () => {
     insertCache(testDb, apiKey, 'pro', '2027-01-01', hoursAgo(0.5), ['knowledge']);

@@ -17,7 +17,7 @@ vi.mock('../config.ts', () => ({
   getConfig: vi.fn(() => ({
     cloud: {
       enabled: true,
-      apiKey: 'ms_live_test_key_12345',
+      apiKey: 'ms_live_test_key_12345', // gitleaks:allow — fake fixture key; a real key is ms_live_{8hex}_{64hex} (81 chars)
       endpoint: 'https://test.supabase.co/functions/v1',
       sync: { memory: true, analytics: true, audit: true },
     },

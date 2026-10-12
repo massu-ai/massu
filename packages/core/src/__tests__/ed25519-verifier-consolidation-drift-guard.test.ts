@@ -61,7 +61,7 @@ describe('ed25519-verifier-consolidation drift-guard (PC-004 / CR-46)', () => {
   // (ii) — behavioral equivalence: the same fixtures through the core and the
   // promotion wrapper produce identical verdicts.
   describe('behavioral equivalence (core vs wrappers)', () => {
-    const promoKey: Ed25519VerifierKey = {
+    const promoKey: Ed25519VerifierKey = { // gitleaks:allow — Ed25519VerifierKey is a TYPE name, not a value
       pubkeyBytes: PROMOTION_PUBKEY_ED25519,
       fingerprintHex: PROMOTION_PUBKEY_FINGERPRINT_HEX,
       knownFingerprints: KNOWN_PROMOTION_PUBKEY_FINGERPRINTS,

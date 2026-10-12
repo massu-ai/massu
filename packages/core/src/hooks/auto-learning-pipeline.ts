@@ -226,6 +226,50 @@ export function scanUncommittedForFix(opts: {
   }
 }
 
+/**
+ * The detected-fix summary block, as lines.
+ *
+ * ⛔ COUNT THE NOUN YOU ARE ABOUT TO LIST. This read
+ * `${sessionFixes.length} bug fix(es) detected:` and then printed one line per DISTINCT
+ * FILE — two different nouns. On 2026-08-19 it reported "2 bug fix(es)" and listed 1 file
+ * (the same file edited twice), and its only reader concluded a finding had been counted
+ * and not named — that a check had aborted. It had not.
+ *
+ * That reading is not careless. This machine's blind-gate law says a summary and its
+ * details that disagree must FAIL LOUDLY, because a counted-but-unprinted finding is a
+ * dead check. A header whose arithmetic cannot be reconciled against its own list teaches
+ * the reader to distrust the check — the CR-83 failure reached by presentation rather than
+ * by logic. Both facts are kept: SIGNALS are what the detector produced, FILES are what
+ * the operator must act on.
+ *
+ * EXTRACTED FROM `main()` so it can be fixtured. It was unreachable from any test, which
+ * is how a header that contradicts its own body shipped — same move this repo already made
+ * for other validators that had only ever been shown valid input.
+ */
+export function formatFixSummary(
+  sessionFixes: ReadonlyArray<{ file: string; signals: string[] }>,
+): string[] {
+  if (sessionFixes.length === 0) return [];
+
+  const byFile = new Map<string, string[]>();
+  for (const fix of sessionFixes) {
+    const existing = byFile.get(fix.file) ?? [];
+    existing.push(...fix.signals);
+    byFile.set(fix.file, [...new Set(existing)]);
+  }
+
+  const lines: string[] = [
+    '',
+    `  ${sessionFixes.length} fix signal(s) across ${byFile.size} file(s) ` +
+      `detected during this session:`,
+    '',
+  ];
+  for (const [file, signals] of byFile) {
+    lines.push(`    - ${file} (${signals.join(', ')})`);
+  }
+  return lines;
+}
+
 async function main(): Promise<void> {
   try {
     const input = await readStdin();
@@ -302,21 +346,7 @@ async function main(): Promise<void> {
     lines.push(' MASSU AUTO-LEARNING PIPELINE — ACTION REQUIRED BEFORE SESSION END');
     lines.push('============================================================================');
 
-    if (sessionFixes.length > 0) {
-      lines.push('');
-      lines.push(`  ${sessionFixes.length} bug fix(es) detected during this session:`);
-      lines.push('');
-      // Deduplicate by file
-      const byFile = new Map<string, string[]>();
-      for (const fix of sessionFixes) {
-        const existing = byFile.get(fix.file) ?? [];
-        existing.push(...fix.signals);
-        byFile.set(fix.file, [...new Set(existing)]);
-      }
-      for (const [file, signals] of byFile) {
-        lines.push(`    - ${file} (${signals.join(', ')})`);
-      }
-    }
+    lines.push(...formatFixSummary(sessionFixes));
 
     if (uncommittedFix) {
       lines.push('');

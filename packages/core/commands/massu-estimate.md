@@ -70,7 +70,7 @@ Determine what the change will touch.
 
 ```bash
 # Search for related code to the requested feature
-grep -rn "$ARGUMENTS" packages/core/src/ --include="*.ts" | head -20
+grep -rn "$ARGUMENTS" {{paths.source}}/ --include="*.ts" | head -20
 grep -rn "$ARGUMENTS" website/src/ --include="*.ts" --include="*.tsx" | head -20
 ```
 
@@ -106,7 +106,7 @@ grep -A 30 "interface.*Config\|type.*Config" packages/core/src/config.ts 2>/dev/
 
 ```bash
 # How many files import from core modules that would change
-grep -rn "from.*tools\|from.*server\|from.*config" packages/core/src/ --include="*.ts" | wc -l
+grep -rn "from.*tools\|from.*server\|from.*config" {{paths.source}}/ --include="*.ts" | wc -l
 ```
 
 ```markdown
@@ -162,7 +162,7 @@ Score: [1-5] — Justification: [number of integration points]
 
 ```bash
 # Existing test patterns for reference
-ls packages/core/src/__tests__/ 2>/dev/null
+ls {{paths.tests | default("tests")}}/ 2>/dev/null
 wc -l packages/core/src/__tests__/*.test.ts 2>/dev/null | sort -rn | head -5
 ```
 

@@ -78,7 +78,7 @@ IMPLEMENTATION RULES:
 2. Follow ALL CLAUDE.md patterns (ctx.db, protectedProcedure, etc.)
 3. Do NOT run database migrations (handled separately)
 4. Run pattern-scanner after each file: bash scripts/massu-pattern-scanner.sh
-5. Run tsc after implementation: cd packages/core && npx tsc --noEmit
+5. Run tsc after implementation: {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 6. Fix any issues before declaring done
 
 OUTPUT FORMAT (at completion):
@@ -252,7 +252,7 @@ IF cleanup fails:
 
 ```
 1. Run bash scripts/massu-pattern-scanner.sh (exit 0 required)
-2. Run cd packages/core && npx tsc --noEmit (0 errors required)
+2. Run {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} (0 errors required)
 3. IF either fails:
      Fix issues from merge
      Re-run verification

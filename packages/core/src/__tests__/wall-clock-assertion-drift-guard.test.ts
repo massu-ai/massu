@@ -40,7 +40,23 @@ function configuredTestTimeout(): number {
   try {
     const cfg = readFileSync(join(REPO_ROOT, 'packages/core/vitest.config.ts'), 'utf-8');
     const m = /\btestTimeout\s*:\s*([0-9_]+)/.exec(cfg);
-    return m ? Number(m[1].replace(/_/g, '')) : VITEST_DEFAULT;
+    if (!m) return VITEST_DEFAULT;
+    const configured = Number(m[1].replace(/_/g, ''));
+    // ⛔ A NON-POSITIVE TIMEOUT IS *NO CEILING*, NOT A TINY ONE — AND READING IT NUMERICALLY
+    // INVERTS THIS GUARD. vitest never ARMS the timer when the value is non-positive:
+    //     @vitest/runner/dist/chunk-artifact.js:2262
+    //       if (timeout <= 0 || timeout === Number.POSITIVE_INFINITY) {
+    // So with `testTimeout: 0` (D-6) there is no outer bound that could pre-empt an inner
+    // budget — the SAFEST state this guard can observe. Compared as the number 0 it became the
+    // most dangerous: every inner budget "exceeds" it, and the third path reported 16 findings
+    // on a tree where the defect it describes is now IMPOSSIBLE.
+    //
+    // Modelling it as Infinity is not a relaxation. The defect this path exists to catch is "an
+    // inner budget is silently pre-empted by a smaller outer timeout"; with the timer unarmed
+    // there is no outer timeout to do the pre-empting, so the predicate is vacuously satisfied
+    // for the right reason. The other two paths (a wall-clock assertion, a `retry:` on one) are
+    // untouched and still fire.
+    return configured > 0 ? configured : Number.POSITIVE_INFINITY;
   } catch {
     return VITEST_DEFAULT;
   }

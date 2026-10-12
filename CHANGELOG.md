@@ -10,6 +10,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.5.3] - 2026-08-14
+
+### Fixed
+
+- **The release ceremony contained a step it could not reach.** CR-64 makes a published
+  version immutable: once `X.Y.Z` is on npm, HEAD must be exactly the `vX.Y.Z` tag, so any
+  further commit at that version cannot be pushed. The ceremony nonetheless listed the
+  `.mcp.json` pin update (step 8) and the master-plan row (step 10) *after* `npm publish`
+  (step 6) — two commits at a version that forbids commits. Unreachable by construction, and
+  only visible at the moment someone tried to perform them.
+
+  The step order now matches what has always actually worked: every repository commit lands
+  first, the tag is placed at the final tip, and publishing happens last. Nothing about the
+  invariant changed; the written order was wrong.
+
+- **`.mcp.json` pin drift is now caught on the commit that causes it, not at the next
+  release.** A drive-by edit in an unrelated commit had replaced the pin with a machine-local
+  path and a stale version, breaking the publish path for two days while every commit, push
+  and CI run stayed green — the only check that catches it runs at publish time.
+
 ## [2.5.2] - 2026-08-14
 
 ### Fixed

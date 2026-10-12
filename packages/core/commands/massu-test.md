@@ -35,7 +35,7 @@ Run tests intelligently, analyze failures, detect coverage gaps, and generate mi
 - In `--generate` mode: follow vitest patterns from existing tests exactly
 - Report ALL failures, not just the first one
 - **FIX ALL ISSUES ENCOUNTERED (CR-9)** — in `--fix` mode, fix every failing test, not just one
-- **VR-TEST verification** — `npm test` must pass before commit
+- **VR-TEST verification** — `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}` must pass before commit
 - **Critical paths first** — Tool handlers, config parsing, DB operations need tests
 - **Isolation** — Tests must not depend on external state
 - **Deterministic** — Same code = same result
@@ -106,7 +106,7 @@ ELSE:
 
 ```bash
 # Run the full test suite with output capture
-npm test 2>&1
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} 2>&1
 ```
 
 **For AFFECTED mode, skip to STEP 6 first, then run only affected tests.**
@@ -176,7 +176,7 @@ For each failing test (ordered by classification priority: CODE_BUG > TEST_BUG >
 3. **If still failing:** Re-analyze and retry (max 3 attempts per test)
 4. **After all fixes applied:** Run the full suite to verify no regressions:
    ```bash
-   npm test 2>&1
+   {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} 2>&1
    ```
 
 ```
@@ -192,7 +192,7 @@ FIX LOOP:
       - Mark as MANUAL_FIX_NEEDED
       - Continue to next test
   AFTER all fixes:
-    - Run full suite: npm test
+    - Run full suite: {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
     - IF new failures introduced: REVERT last fix, investigate
 ```
 
@@ -268,11 +268,11 @@ git diff --cached --name-only
 
 ### 6b. Trace to Test Files
 
-For each changed source file in `packages/core/src/`:
+For each changed source file in `{{paths.source}}/`:
 
 ```bash
 # Find test files that import or reference this module
-grep -rl "[module-name]" packages/core/src/__tests__/ --include="*.test.ts"
+grep -rl "[module-name]" {{paths.tests | default("tests")}}/ --include="*.test.ts"
 ```
 
 ### 6c. Run Affected Tests Only
@@ -367,7 +367,7 @@ npx vitest run packages/core/src/__tests__/[module].test.ts 2>&1
 1. Read the error output carefully
 2. Fix the test (NOT the source code — unless it reveals an actual bug)
 3. Re-run until passing
-4. Run full suite to verify no regressions: `npm test`
+4. Run full suite to verify no regressions: `{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}`
 
 ---
 
@@ -377,13 +377,13 @@ After any modifications (--fix or --generate modes):
 
 ### Gate 1: All Tests Pass (VR-TEST)
 ```bash
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 # MUST exit 0, all tests pass
 ```
 
 ### Gate 2: Type Safety (VR-TYPE)
 ```bash
-cd packages/core && npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 # MUST show 0 errors
 ```
 
@@ -402,13 +402,13 @@ bash scripts/massu-pattern-scanner.sh
 ### Check for Anti-Patterns
 ```bash
 # Find tests without assertions
-grep -rn "it(.*{" packages/core/src/__tests__/ | grep -v "expect\|assert" | head -10
+grep -rn "it(.*{" {{paths.tests | default("tests")}}/ | grep -v "expect\|assert" | head -10
 
 # Find tests with only console.log
-grep -rn "console.log" packages/core/src/__tests__/ | head -10
+grep -rn "console.log" {{paths.tests | default("tests")}}/ | head -10
 
 # Find flaky patterns (setTimeout, random)
-grep -rn "setTimeout\|Math.random" packages/core/src/__tests__/ | head -10
+grep -rn "setTimeout\|Math.random" {{paths.tests | default("tests")}}/ | head -10
 ```
 
 ### Test Quality Matrix
@@ -467,7 +467,7 @@ If the bad pattern is detectable by grep, consider adding it to `scripts/massu-p
 
 ### Step 3: Search Codebase-Wide (CR-9)
 ```bash
-grep -rn "[bad_pattern]" packages/core/src/ --include="*.ts"
+grep -rn "[bad_pattern]" {{paths.source}}/ --include="*.ts"
 ```
 Fix ALL instances found, not just the one that was reported.
 

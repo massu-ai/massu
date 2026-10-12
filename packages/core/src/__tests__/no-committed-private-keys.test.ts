@@ -39,7 +39,7 @@ describe('no committed private keys (SEC-1 drift-guard)', () => {
   it('detector flags a real key body but NOT a bare marker (anti-vacuity)', () => {
     // Synthetic, obviously-fake key body (repeated chars) — never a real key.
     const fakeKey =
-      '-----BEGIN PRIVATE KEY-----\n' +
+      '-----BEGIN PRIVATE KEY-----\n' + // gitleaks:allow — synthetic key, body is 'A'.repeat(64); this test exercises a private-key detector
       'A'.repeat(64) + '\n' +
       '-----END PRIVATE KEY-----\n';
     expect(containsRealPrivateKey(fakeKey)).toBe(true); // MUST catch a real body

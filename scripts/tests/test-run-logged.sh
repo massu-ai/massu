@@ -40,8 +40,11 @@ echo "PASS: Case A — failing command → helper exit 1, sentinel __RUN_EXIT__=
 
 # ── Case B: a command that exits 0 (prove the gate OPENS on success) ─────────
 logB="${TMPDIR_T}/b.log"
-bash "${HELPER}" "${logB}" -- bash -c 'echo ok; exit 0' >/dev/null
-exitB=$?
+# Cases A and C wrap their capture in `set +e` / `set -e`; Case B was the one site in this
+# file that did not, so under the errexit enabled above a REGRESSION here died silently instead
+# of reaching fail() with the diagnosis. `&& exitB=0 || exitB=$?` is reachable regardless of
+# errexit state and needs no mode change.
+bash "${HELPER}" "${logB}" -- bash -c 'echo ok; exit 0' >/dev/null && exitB=0 || exitB=$?
 [[ "${exitB}" -eq 0 ]] || fail "Case B: helper exit expected 0, got ${exitB}"
 lastB="$(tail -n 1 "${logB}")"
 [[ "${lastB}" == "__RUN_EXIT__=0" ]] || fail "Case B: last log line expected '__RUN_EXIT__=0', got '${lastB}'"

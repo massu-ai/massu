@@ -413,10 +413,10 @@ CREATE POLICY "[old_policy_name]" ON [table]
 ### 6.1 Code Verification
 ```bash
 # Type check
-npx tsc --noEmit
+{{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
 
 # Build
-npm run build
+{{verify.build | default("(this stack declares no build step)")}}
 
 # Pattern scanner
 ./scripts/pattern-scanner.sh
@@ -426,7 +426,7 @@ npm run build
 # Expected: Exit 0 - all backend features exposed in UI
 
 # Tests
-npm test
+{{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}
 ```
 
 ### 6.2 Database Verification
@@ -462,11 +462,11 @@ curl -I http://localhost:3000/api/health
 
 | Check | Command | Expected | Actual | Status |
 |-------|---------|----------|--------|--------|
-| Type check | npx tsc --noEmit | 0 errors | [N] | PASS/FAIL |
-| Build | npm run build | Exit 0 | [exit code] | PASS/FAIL |
+| Type check | {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} | 0 errors | [N] | PASS/FAIL |
+| Build | {{verify.build | default("(this stack declares no build step)")}} | Exit 0 | [exit code] | PASS/FAIL |
 | Patterns | pattern-scanner.sh | Exit 0 | [exit code] | PASS/FAIL |
 | VR-COUPLING | check-coupling.sh | Exit 0 | [exit code] | PASS/FAIL |
-| Tests | npm test | All pass | [result] | PASS/FAIL |
+| Tests | {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}} | All pass | [result] | PASS/FAIL |
 | DB Schema | SQL query | [expected] | [actual] | PASS/FAIL |
 | App starts | npm run dev | No errors | [result] | PASS/FAIL |
 

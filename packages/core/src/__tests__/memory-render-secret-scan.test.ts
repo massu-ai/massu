@@ -17,9 +17,9 @@ describe('B-06 — containsSecret DETECTS rather than redacts', () => {
     ['a massu live key', 'The key is ms_live_abc123def456ghi789 and it works.'],
     ['an openai-style key', 'export OPENAI=sk-abcdefghijklmnop0123456789'],
     ['a github token', 'ghp_abcdefghijklmnopqrstuvwxyz0123456789'],
-    ['a supabase token', 'sbp_0123456789abcdefghijklmnop'],
+    ['a supabase token', 'sbp_0123456789abcdefghijklmnop'], // gitleaks:allow — deliberately secret-SHAPED, obviously fake fixture: this test exercises a secret detector
     ['an aws access key', 'AKIAIOSFODNN7EXAMPLE'],
-    ['a jwt', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N'],
+    ['a jwt', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N'], // gitleaks:allow — deliberately secret-SHAPED, obviously fake fixture: this test exercises a secret detector
   ];
 
   for (const [label, text] of CASES) {

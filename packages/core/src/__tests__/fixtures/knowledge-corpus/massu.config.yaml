@@ -1,0 +1,11 @@
+# Fixture project for knowledge-tools.test.ts. Minimal on purpose: the suite under test is
+# about the 12 knowledge TOOL HANDLERS, not about detection.
+project:
+  name: knowledge-fixture
+framework:
+  type: typescript
+  primary: typescript
+paths:
+  source: src
+  tests: __tests__
+toolPrefix: massu

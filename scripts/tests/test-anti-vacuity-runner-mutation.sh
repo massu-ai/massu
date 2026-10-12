@@ -27,7 +27,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || exit 1
 
 RUNNER="scripts/massu-gate-anti-vacuity.sh"
 SCANNER="scripts/massu-pattern-scanner.sh"

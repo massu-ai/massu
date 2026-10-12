@@ -24,6 +24,20 @@ import {
 
 const SRC = join(__dirname, '..');
 
+/**
+ * Source with comments removed.
+ *
+ * Every text predicate in this file MUST read through this. A guard that matches prose is
+ * the defect this file exists to prevent, one level up: the first draft of the
+ * replacement flagged `knowledge-tools.ts` because a COMMENT said `## Archived` in
+ * markdown backticks. Code is the subject; commentary about code is not.
+ */
+function codeOf(file: string): string {
+  return readFileSync(file, 'utf-8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+}
+
 function walk(dir: string, acc: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
@@ -101,23 +115,53 @@ describe('corrections.md — one format (A-09 drift-guard)', () => {
     expect(parseCorrectionRules('# Corrections\n' + a + b)).toEqual(['rule A', 'rule B']);
   });
 
-  it('STRUCTURAL: every corrections.md writer goes through the shared formatter', () => {
-    // A fourth format is how this broke in the first place.
-    const offenders: string[] = [];
-    for (const f of walk(SRC)) {
-      if (basename(f) === 'corrections-md.ts') continue;
-      const code = readFileSync(f, 'utf-8')
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/^\s*\/\/.*$/gm, '');
-      if (!/corrections\.md|correctionsMd|correctionsPath/.test(code)) continue;
+  it('STRUCTURAL: the corrections.md PATH exists in exactly one module', () => {
+    // A-09 AMENDMENT, 2026-09-20 — this replaced a HEURISTIC that could not work.
+    //
+    // The old predicate was: the file mentions `corrections.md|correctionsMd|
+    // correctionsPath` AND contains `correctionsEntry|const entry =` AND lacks
+    // `formatCorrectionEntry`. Both halves are CORRELATES of "this file writes
+    // corrections.md", not the property itself (G28) — and `const entry =` is one of the
+    // commonest variable names in any codebase. Measured: it flagged `config.ts`, a file
+    // that merely listed the filename in a default knowledge-source array, because
+    // unrelated new code there declared a variable called `entry`.
+    //
+    // Tightening the regex only moves the coincidence to the next file. So the thing being
+    // detected was REMOVED instead: `lib/corrections-md.ts` now owns the filename, the
+    // path and the placement, and every other site imports `CORRECTIONS_FILENAME` /
+    // `correctionsPath()` / `insertCorrectionEntry()`. A writer cannot reach the file
+    // without importing the module that also hands it the formatter.
+    //
+    // What remains is a property with NO heuristic and NO allowlist, and an exact
+    // denominator: the literal occurs in one module.
+    const holders = walk(SRC)
+      .filter((f) => /['"`]corrections\.md['"`]/.test(codeOf(f)))
+      .map((f) => relative(SRC, f))
+      .sort();
 
-      const writesEntry = /correctionsEntry|const entry =/.test(code);
-      if (writesEntry && !/formatCorrectionEntry/.test(code)) offenders.push(relative(SRC, f));
-    }
+    // M1: a zero denominator would make this pass by looking at nothing.
+    expect(walk(SRC).length).toBeGreaterThan(0);
+    expect(
+      holders,
+      'The corrections.md filename literal must live ONLY in lib/corrections-md.ts. A ' +
+        'second holder can construct the path without importing the formatter — which is ' +
+        'exactly how three incompatible writer formats appeared. Import ' +
+        'CORRECTIONS_FILENAME / correctionsPath() instead. Holders',
+    ).toEqual([join('lib', 'corrections-md.ts')]);
+  });
+
+  it('STRUCTURAL: nothing outside the module decides PLACEMENT either', () => {
+    // The two writers used to disagree: knowledge-tools inserted before `## Archived`
+    // while rule-candidate-applier appended unconditionally, so an applier-written
+    // correction landed INSIDE the archive and read as already-retired.
+    const offenders = walk(SRC)
+      .filter((f) => basename(f) !== 'corrections-md.ts')
+      .filter((f) => /['"`]## Archived['"`]/.test(codeOf(f)))
+      .map((f) => relative(SRC, f))
+      .sort();
     expect(
       offenders,
-      'A corrections.md writer that does NOT use formatCorrectionEntry — its rules will be ' +
-        'invisible to the reader, exactly as before. Offenders',
+      'Only lib/corrections-md.ts may decide where an entry goes. Offenders',
     ).toEqual([]);
   });
 

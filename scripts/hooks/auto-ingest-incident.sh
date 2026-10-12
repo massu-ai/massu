@@ -101,9 +101,13 @@ NOW_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 NOW_EPOCH=$(date +%s)
 
 # Insert observation with type=incident_near_miss, importance=5
-sqlite3 "$MEMORY_DB" "INSERT INTO observations (session_id, type, title, detail, files_involved, cr_rule, importance, created_at, created_at_epoch) VALUES ('${SESSION_ID}', 'incident_near_miss', '${ESCAPED_TITLE}', '${ESCAPED_DETAIL}', '[\"$INCIDENT_FILE\"]', 'CR-9', 5, '${NOW_ISO}', ${NOW_EPOCH});" 2>/dev/null
+sqlite3 "$MEMORY_DB" "INSERT INTO observations (session_id, type, title, detail, files_involved, cr_rule, importance, created_at, created_at_epoch) VALUES ('${SESSION_ID}', 'incident_near_miss', '${ESCAPED_TITLE}', '${ESCAPED_DETAIL}', '[\"$INCIDENT_FILE\"]', 'CR-9', 5, '${NOW_ISO}', ${NOW_EPOCH});" 2>/dev/null && INGEST_RC=0 || INGEST_RC=$?
 
-if [[ $? -eq 0 ]]; then
+# Under `set -e` a bare `$?` on the next line is DEAD CODE: a failing sqlite3 ends the script
+# before the test runs, so the "Failed to ingest" line never printed and this hook exited
+# non-zero with no diagnosis instead of reaching its documented `exit 0`. Owning
+# cross-repo plan 2026-09-25-set-e-status-capture-is-dead-code.md, incident #432.
+if [[ $INGEST_RC -eq 0 ]]; then
   echo "[auto-ingest-incident] Ingested Incident #${LATEST_INCIDENT} into massu memory (${TOTAL_INCIDENTS} total incidents)"
 else
   echo "[auto-ingest-incident] Failed to ingest incident into memory DB" >&2

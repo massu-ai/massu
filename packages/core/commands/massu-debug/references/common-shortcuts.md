@@ -77,7 +77,7 @@ grep -rn "publicProcedure.mutation" src/ | wc -l  # Should be 0
 1. Check for static jsdom/cheerio imports (must use `await import()`)
 2. Check client/server boundary violations (`@/lib/db` in client components)
 3. Check `next-intl` setup (plugin + request.ts + Provider)
-4. Run `NODE_OPTIONS="--max-old-space-size=8192" npx tsc --noEmit`
+4. Run `NODE_OPTIONS="--max-old-space-size=8192" {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}`
 5. Check for circular dependencies in import chains
 
 ---

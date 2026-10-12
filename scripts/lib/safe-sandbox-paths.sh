@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Copyright (c) 2026 Massu. All rights reserved.
 # Licensed under BSL 1.1 - see LICENSE file for details.
 #

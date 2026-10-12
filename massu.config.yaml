@@ -26,7 +26,22 @@ framework:
         - scripts
         - .
 paths:
-  source: website
+  # ⛔ THE PRODUCT, NOT THE MARKETING SITE — corrected 2026-09-20, same class as the
+  # `verification:` block below. This read `website` while the thing this repo builds and
+  # governs lives in `packages/core/src`, so every `{{paths.source}}` rendered for THIS
+  # repo named the Next.js site. The `pages`/`components` keys beneath were added in
+  # August to compensate for exactly that (their comment records `buildPageDeps indexed
+  # 0 of 69`) — they stay, because they genuinely describe the website and are read only
+  # by `lib/source-layout.ts`.
+  #
+  # Blast radius enumerated (CR-10): 11 non-test files read `paths.source`
+  # (detect/regex-fallback.ts, trpc-index.ts, python/coupling-detector.ts and the
+  # introspector chain). For THIS repo they now scan the product instead of the marketing
+  # site, which is the intended behaviour and is what the full suite exercises.
+  source: packages/core/src
+  # Where this repo's tests live. `paths.tests` was added to the schema 2026-09-20 so
+  # assets could stop telling every customer their tests belong in massu's own directory.
+  tests: packages/core/src/__tests__
   aliases:
     "@": src
   monorepo_roots:
@@ -55,11 +70,27 @@ verification:
     test: cd website && npm test
     build: cd website && npm run build
     lint: cd website && npx eslint .
+  # ⛔ THE PRIMARY LANGUAGE'S BLOCK MUST NAME THE PRODUCT, NOT THE MARKETING SITE.
+  # These four read `cd website && ...` until 2026-09-20, so every {{verify.*}} massu
+  # renders for ITSELF pointed at the Next.js marketing site: `cd website && npm test`
+  # runs that site's own vitest suite, while the product's 4,106 tests live behind the
+  # root `npm test` (`npm test --workspace=packages/core`). The repo's own CLAUDE.md
+  # declares the canonical commands and this block contradicted it.
+  #
+  # `lint` is the pattern scanner, not eslint: massu's product ships NO eslint config
+  # (the only one is website/eslint.config.mjs, and eslint-rules/ is consumed solely by
+  # it). VR-PATTERN — `bash scripts/massu-pattern-scanner.sh`, "Before every commit" per
+  # CLAUDE.md — is what this repo actually gates style and pattern compliance on, so it
+  # is the honest value for the REQUIRED `lint` key rather than a command that does not
+  # exist here.
+  #
+  # The `javascript` block above is left website-scoped on purpose: the website genuinely
+  # IS this repo's JavaScript surface, and verifyByLang keeps the two separable.
   typescript:
-    test: cd website && npm test
-    type: cd website && npx tsc --noEmit
-    build: cd website && npm run build
-    lint: cd website && npx eslint .
+    test: npm test
+    type: cd packages/core && npx tsc --noEmit
+    build: npm run build
+    lint: bash scripts/massu-pattern-scanner.sh
 detection:
   fingerprint: 77072ac20da3b1d3cc03c03f2f70c52003b41531de42d6d15304e9c9f79394f9
 analytics:

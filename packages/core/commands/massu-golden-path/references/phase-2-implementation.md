@@ -61,8 +61,8 @@ For each plan item:
 CHECKPOINT:
 [1] READ plan section          [2] GREP tool registrations    [3] LS modules
 [4] VR-CONFIG check            [5] VR-TOOL-REG check          [6] VR-HOOK-BUILD check
-[7] Pattern scanner            [8] npm run build               [9] cd packages/core && npx tsc --noEmit
-[10] npm test                  [11] VR-GENERIC check           [12] Security scanner
+[7] Pattern scanner            [8] {{verify.build | default("(this stack declares no build step)")}}               [9] {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}}
+[10] {{verify.test | default("declare verification.LANG.test in massu.config.yaml")}}                  [11] VR-GENERIC check           [12] Security scanner
 [13] COUNT gaps -> IF > 0: FIX and return to [1]
 ```
 

@@ -24,6 +24,18 @@ COMMAND=$(echo "$TOOL_INPUT" | jq -r '.tool_input.command // empty')
 FILE_PATH=$(echo "$TOOL_INPUT" | jq -r '.tool_input.file_path // empty')
 TOOL_NAME=$(echo "$TOOL_INPUT" | jq -r '.tool_name // empty')
 
+# M1 ON THE PAYLOAD. Every validation below dispatches on COMMAND or FILE_PATH, so an
+# unrecognised payload makes both empty, every check is skipped, and the hook is silent --
+# which is exactly what it looks like when there is genuinely nothing to validate. `tool_name`
+# is always present in a real PostToolUse payload, so its ABSENCE is the one signal that
+# separates "nothing to check" from "I could not read what I was given". It was extracted here
+# and read nowhere (SC2034). Advisory only: this hook must never block.
+if [ -z "$TOOL_NAME" ]; then
+  echo "[DELIVERABLE WARNING] hook payload carried no .tool_name, so no validation could be" >&2
+  echo "                      dispatched. This is a hook-contract problem, not a clean run." >&2
+  exit 0
+fi
+
 # Resolve project root dynamically
 PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$PROJECT_ROOT" 2>/dev/null || exit 0

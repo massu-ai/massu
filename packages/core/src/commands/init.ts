@@ -42,6 +42,7 @@ import { execFileSync } from 'child_process';
 import { stringify as yamlStringify, parse as yamlParse } from 'yaml';
 import { backfillMemoryFiles } from '../memory-file-ingest.ts';
 import { getConfig, resetConfig } from '../config.ts';
+import { validateShippedTemplate } from '../shipped-template-schema.ts';
 import { installAll } from './install-commands.ts';
 import { readSettingsLocal, writeSettingsLocalAtomic } from '../lib/settings-local.ts';
 import { encodeMemoryDirName } from '../lib/memory-path.ts';
@@ -652,11 +653,32 @@ export function applyVariantTemplate(
     // pattern-scanner-allow: yaml-parse — reason: this loads a per-framework
     // variant config-template shipped inside @massu/core. getConfig() reads
     // the project's massu.config.yaml from cwd; this is a SEPARATE file
-    // (the template) that doesn't pass through that cache and isn't a Zod-
-    // validated config — it's a partial override map.
+    // (the template) that doesn't pass through that cache.
     template = yamlParse(readFileSync(templatePath, 'utf-8')) as Record<string, unknown>;
-  } catch {
-    return config;
+  } catch (err) {
+    // A shipped template that will not parse is a MASSU BUG, not a customer situation.
+    // This used to be a bare `catch { return config; }`, which made "the template was
+    // malformed" and "there was no template" the same value — the customer silently got
+    // no overrides and no message. The absent-template case is already handled above by
+    // the existsSync guard, so reaching here means the file exists and is broken.
+    throw new Error(
+      `massu: the shipped stack template '${templateId}' is unreadable at ${templatePath}: ` +
+        `${err instanceof Error ? err.message : String(err)}\n` +
+        `This is a defect in @massu/core, not in your project. Please report it.`,
+    );
+  }
+
+  // P3.3 (plan-2026-09-20-stack-conformant-asset-rendering): a shipped template must
+  // satisfy the STRICT template schema. Only massu's own templates are held to this —
+  // a customer's massu.config.yaml keeps the permissive schema, because refusing to run
+  // over a missing key would cost them every massu command including `doctor`.
+  const validation = validateShippedTemplate(template, templateId);
+  if (!validation.ok) {
+    throw new Error(
+      `massu: the shipped stack template '${templateId}' does not satisfy the template ` +
+        `contract:\n${validation.issues.map((i) => `  - ${i}`).join('\n')}\n` +
+        `This is a defect in @massu/core, not in your project. Please report it.`,
+    );
   }
 
   const out = { ...config };

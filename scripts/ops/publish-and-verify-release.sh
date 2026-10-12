@@ -22,7 +22,7 @@
 #   scripts/ops/publish-and-verify-release.sh --verify-only # check a published version
 set -uo pipefail
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; NC='\033[0m'   # no YELLOW: this script has no WARN level
 ok()   { printf "  ${GREEN}ok${NC}   %s\n" "$1"; }
 bad()  { printf "  ${RED}FAIL${NC} %s\n" "$1"; }
 info() { printf "  %s\n" "$1"; }

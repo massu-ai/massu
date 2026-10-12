@@ -500,8 +500,8 @@ FOR EACH issue in issues WHERE priority <= P2:
      - For code-level verification: run applicable VR-* checks
      - VR-GREP: Confirm correct pattern is present
      - VR-NEGATIVE: Confirm incorrect pattern is removed
-     - VR-BUILD: npm run build (must pass)
-     - VR-TYPE: npx tsc --noEmit (must pass)
+     - VR-BUILD: {{verify.build | default("(this stack declares no build step)")}} (must pass)
+     - VR-TYPE: {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} (must pass)
 
   4. LOG the fix
      - Record in fix log table (see report format below)
@@ -629,7 +629,7 @@ Timestamps MUST be in PST (America/Los_Angeles).
 
 | # | Issue | Severity | File(s) Changed | Fix Applied | VR Check | Verified |
 |---|-------|----------|-----------------|-------------|----------|----------|
-| 1 | TypeError in DocsPage | P0 | packages/core/src/... | Added null guard | VR-GREP | YES |
+| 1 | TypeError in DocsPage | P0 | {{paths.source}}/... | Added null guard | VR-GREP | YES |
 
 ---
 
@@ -653,8 +653,8 @@ Timestamps MUST be in PST (America/Los_Angeles).
 
 | Check | Command | Result |
 |-------|---------|--------|
-| Build | npm run build | Exit 0 / PENDING |
-| Types | npx tsc --noEmit | 0 errors / PENDING |
+| Build | {{verify.build | default("(this stack declares no build step)")}} | Exit 0 / PENDING |
+| Types | {{verify.type | default("declare verification.LANG.type in massu.config.yaml")}} | 0 errors / PENDING |
 | Browser Retest | Console errors after reload | 0 / PENDING DEPLOY |
 ```
 

@@ -574,6 +574,15 @@ var init_memory_path = __esm({
   }
 });
 
+// src/lib/corrections-md.ts
+var CORRECTIONS_FILENAME;
+var init_corrections_md = __esm({
+  "src/lib/corrections-md.ts"() {
+    "use strict";
+    CORRECTIONS_FILENAME = "corrections.md";
+  }
+});
+
 // src/config-memory-schema.ts
 import { z } from "zod";
 var MemoryConfigSchema;
@@ -913,13 +922,19 @@ function getResolvedPaths() {
     settingsLocalPath: resolve2(root, claudeDirName, "settings.local.json")
   };
 }
-var DomainConfigSchema, PatternRuleConfigSchema, CostModelSchema, AnalyticsConfigSchema, CustomPatternSchema, GovernanceConfigSchema, SecurityPatternSchema, SecurityConfigSchema, TeamConfigSchema, RegressionConfigSchema, AutoLearningConfigSchema, CloudConfigSchema, ConventionsConfigSchema, PythonDomainConfigSchema, PythonConfigSchema, PathsConfigSchema, LanguageFrameworkEntrySchema, FrameworkConfigSchema, DetectedConfigSchema, VerificationEntrySchema, VerificationConfigSchema, CanonicalPathsSchema, VerificationTypesSchema, DetectionRuleEntrySchema, DetectionConfigSchema, WatchConfigSchema, AdapterLocalPathSchema, AdaptersConfigSchema, TelemetryConfigSchema, LSPConfigSchema, RawConfigSchema, _config, _resolvedApiKeySource, _projectRoot;
+var DEFAULT_KNOWLEDGE_SOURCE_FILES, DomainConfigSchema, PatternRuleConfigSchema, CostModelSchema, AnalyticsConfigSchema, CustomPatternSchema, GovernanceConfigSchema, SecurityPatternSchema, SecurityConfigSchema, TeamConfigSchema, RegressionConfigSchema, AutoLearningConfigSchema, CloudConfigSchema, ConventionsConfigSchema, PythonDomainConfigSchema, PythonConfigSchema, PathsConfigSchema, LanguageFrameworkEntrySchema, FrameworkConfigSchema, DetectedConfigSchema, VerificationEntrySchema, VerificationConfigSchema, CanonicalPathsSchema, VerificationTypesSchema, DetectionRuleEntrySchema, DetectionConfigSchema, WatchConfigSchema, AdapterLocalPathSchema, AdaptersConfigSchema, TelemetryConfigSchema, LSPConfigSchema, RawConfigSchema, _config, _resolvedApiKeySource, _projectRoot;
 var init_config = __esm({
   "src/config.ts"() {
     "use strict";
     init_memory_path();
+    init_corrections_md();
     init_credentials();
     init_config_memory_schema();
+    DEFAULT_KNOWLEDGE_SOURCE_FILES = [
+      "CLAUDE.md",
+      "MEMORY.md",
+      CORRECTIONS_FILENAME
+    ];
     DomainConfigSchema = z2.object({
       name: z2.string().default("Unknown"),
       routers: z2.array(z2.string()).default([]),
@@ -1048,16 +1063,22 @@ var init_config = __esm({
       fixDetection: z2.object({
         enabled: z2.boolean().default(true),
         lookbackDays: z2.number().default(7),
-        signals: z2.array(z2.string()).default([
-          "removed_broken_code",
-          "added_error_handling",
-          "method_name_correction",
-          "auth_fix",
-          "nil_handling_fix",
-          "concurrency_fix",
-          "async_pattern_fix",
-          "added_missing_import"
-        ])
+        // ⛔ NO DEFAULT LIST HERE, DELIBERATELY — the heuristics are the SSOT.
+        //
+        // This carried a hand-typed copy of all eight signal names while
+        // `fix-detector.ts` already read `config…signals ?? FIX_HEURISTICS.map(h => h.name)`.
+        // Because zod ALWAYS materialised the default, that fallback — the correct expression
+        // — was unreachable, and the duplicate was the only thing in effect. Two authoring
+        // sites for one vocabulary, and the drift is SILENT: a name listed here that no longer
+        // exists simply never matches `enabledSignals.has(...)`, so a retired heuristic lingers
+        // as a dead entry with no error. Retiring `method_name_correction` would have landed at
+        // one site of two (CR-74).
+        //
+        // Optional, so an ABSENT value reaches the `??` and the heuristic list defines itself
+        // (Rule 25). An explicit list in massu.config.yaml still overrides, which is the only
+        // behaviour anyone actually configured — measured: `fix-detector.ts:267` is the sole
+        // consumer and no config file in the repo sets it.
+        signals: z2.array(z2.string()).optional()
       }).default({}),
       failureClassification: z2.object({
         enabled: z2.boolean().default(true),
@@ -1139,7 +1160,7 @@ var init_config = __esm({
         "session-state",
         "agents"
       ]),
-      knowledgeSourceFiles: z2.array(z2.string()).default(["CLAUDE.md", "MEMORY.md", "corrections.md"]),
+      knowledgeSourceFiles: z2.array(z2.string()).default([...DEFAULT_KNOWLEDGE_SOURCE_FILES]),
       excludePatterns: z2.array(z2.string()).default(["/ARCHIVE/", "/SESSION-HISTORY/"])
     }).optional();
     PythonDomainConfigSchema = z2.object({
@@ -1155,6 +1176,23 @@ var init_config = __esm({
     }).optional();
     PathsConfigSchema = z2.object({
       source: z2.string().default("src"),
+      /**
+       * Where this stack's tests live, relative to the project root.
+       *
+       * Added 2026-09-20 for P4.3 of docs/plans/2026-09-20-stack-conformant-asset-rendering.md.
+       * ~25 shipped assets told every customer their tests belong in
+       * `packages/core/src/__tests__/` — massu's OWN layout — and no vocabulary could express
+       * the alternative because none existed. A test directory is a first-class property of
+       * every stack (`tests/` on FastAPI, `test/` on Rails, `src/test/java` on Spring,
+       * `Tests/` on SwiftPM, and Go keeps `_test.go` beside the source), so it belongs here
+       * rather than in prose.
+       *
+       * OPTIONAL, so every config written before this key existed keeps loading unchanged; an
+       * asset that needs it uses `{{paths.tests | default("...")}}`. All 13 shipped templates
+       * declare it, each with the convention it follows recorded at the site (G32 option 2),
+       * and `stack-template-conformance.test.ts` asserts that.
+       */
+      tests: z2.string().optional(),
       aliases: z2.record(z2.string(), z2.string()).default({ "@": "src" }),
       monorepo_roots: z2.array(z2.string()).optional(),
       routers: z2.string().optional(),

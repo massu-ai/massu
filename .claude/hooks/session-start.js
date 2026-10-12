@@ -597,6 +597,40 @@ var init_memory_path = __esm({
   }
 });
 
+// src/lib/corrections-md.ts
+function parseCorrectionRules(content) {
+  const rules = [];
+  for (const raw of content.split("\n")) {
+    const line = raw.trim();
+    const m = line.match(CORRECTION_RULE_BULLET);
+    if (m && m[1].trim()) {
+      rules.push(m[1].trim());
+      continue;
+    }
+    if (line.startsWith("|") && line.endsWith("|")) {
+      const cells = line.split("|").map((c) => c.trim()).filter((c) => c.length > 0);
+      if (cells.length < 4) continue;
+      if (cells[0] === "Date" || cells[0].startsWith("-")) continue;
+      const prevention = cells[3];
+      if (prevention && !prevention.startsWith("-") && !prevention.startsWith("<!--")) {
+        rules.push(prevention);
+      }
+    }
+  }
+  return rules;
+}
+function correctionsPath(memoryDir) {
+  return memoryDir.endsWith("/") ? `${memoryDir}${CORRECTIONS_FILENAME}` : `${memoryDir}/${CORRECTIONS_FILENAME}`;
+}
+var CORRECTION_RULE_BULLET, CORRECTIONS_FILENAME;
+var init_corrections_md = __esm({
+  "src/lib/corrections-md.ts"() {
+    "use strict";
+    CORRECTION_RULE_BULLET = /^-\s+\*\*Rule\*\*:\s*(.+)$/;
+    CORRECTIONS_FILENAME = "corrections.md";
+  }
+});
+
 // src/config-memory-schema.ts
 import { z } from "zod";
 var MemoryConfigSchema;
@@ -936,13 +970,19 @@ function getResolvedPaths() {
     settingsLocalPath: resolve2(root, claudeDirName, "settings.local.json")
   };
 }
-var DomainConfigSchema, PatternRuleConfigSchema, CostModelSchema, AnalyticsConfigSchema, CustomPatternSchema, GovernanceConfigSchema, SecurityPatternSchema, SecurityConfigSchema, TeamConfigSchema, RegressionConfigSchema, AutoLearningConfigSchema, CloudConfigSchema, ConventionsConfigSchema, PythonDomainConfigSchema, PythonConfigSchema, PathsConfigSchema, LanguageFrameworkEntrySchema, FrameworkConfigSchema, DetectedConfigSchema, VerificationEntrySchema, VerificationConfigSchema, CanonicalPathsSchema, VerificationTypesSchema, DetectionRuleEntrySchema, DetectionConfigSchema, WatchConfigSchema, AdapterLocalPathSchema, AdaptersConfigSchema, TelemetryConfigSchema, LSPConfigSchema, RawConfigSchema, _config, _resolvedApiKeySource, _projectRoot;
+var DEFAULT_KNOWLEDGE_SOURCE_FILES, DomainConfigSchema, PatternRuleConfigSchema, CostModelSchema, AnalyticsConfigSchema, CustomPatternSchema, GovernanceConfigSchema, SecurityPatternSchema, SecurityConfigSchema, TeamConfigSchema, RegressionConfigSchema, AutoLearningConfigSchema, CloudConfigSchema, ConventionsConfigSchema, PythonDomainConfigSchema, PythonConfigSchema, PathsConfigSchema, LanguageFrameworkEntrySchema, FrameworkConfigSchema, DetectedConfigSchema, VerificationEntrySchema, VerificationConfigSchema, CanonicalPathsSchema, VerificationTypesSchema, DetectionRuleEntrySchema, DetectionConfigSchema, WatchConfigSchema, AdapterLocalPathSchema, AdaptersConfigSchema, TelemetryConfigSchema, LSPConfigSchema, RawConfigSchema, _config, _resolvedApiKeySource, _projectRoot;
 var init_config = __esm({
   "src/config.ts"() {
     "use strict";
     init_memory_path();
+    init_corrections_md();
     init_credentials();
     init_config_memory_schema();
+    DEFAULT_KNOWLEDGE_SOURCE_FILES = [
+      "CLAUDE.md",
+      "MEMORY.md",
+      CORRECTIONS_FILENAME
+    ];
     DomainConfigSchema = z2.object({
       name: z2.string().default("Unknown"),
       routers: z2.array(z2.string()).default([]),
@@ -1071,16 +1111,22 @@ var init_config = __esm({
       fixDetection: z2.object({
         enabled: z2.boolean().default(true),
         lookbackDays: z2.number().default(7),
-        signals: z2.array(z2.string()).default([
-          "removed_broken_code",
-          "added_error_handling",
-          "method_name_correction",
-          "auth_fix",
-          "nil_handling_fix",
-          "concurrency_fix",
-          "async_pattern_fix",
-          "added_missing_import"
-        ])
+        // ⛔ NO DEFAULT LIST HERE, DELIBERATELY — the heuristics are the SSOT.
+        //
+        // This carried a hand-typed copy of all eight signal names while
+        // `fix-detector.ts` already read `config…signals ?? FIX_HEURISTICS.map(h => h.name)`.
+        // Because zod ALWAYS materialised the default, that fallback — the correct expression
+        // — was unreachable, and the duplicate was the only thing in effect. Two authoring
+        // sites for one vocabulary, and the drift is SILENT: a name listed here that no longer
+        // exists simply never matches `enabledSignals.has(...)`, so a retired heuristic lingers
+        // as a dead entry with no error. Retiring `method_name_correction` would have landed at
+        // one site of two (CR-74).
+        //
+        // Optional, so an ABSENT value reaches the `??` and the heuristic list defines itself
+        // (Rule 25). An explicit list in massu.config.yaml still overrides, which is the only
+        // behaviour anyone actually configured — measured: `fix-detector.ts:267` is the sole
+        // consumer and no config file in the repo sets it.
+        signals: z2.array(z2.string()).optional()
       }).default({}),
       failureClassification: z2.object({
         enabled: z2.boolean().default(true),
@@ -1162,7 +1208,7 @@ var init_config = __esm({
         "session-state",
         "agents"
       ]),
-      knowledgeSourceFiles: z2.array(z2.string()).default(["CLAUDE.md", "MEMORY.md", "corrections.md"]),
+      knowledgeSourceFiles: z2.array(z2.string()).default([...DEFAULT_KNOWLEDGE_SOURCE_FILES]),
       excludePatterns: z2.array(z2.string()).default(["/ARCHIVE/", "/SESSION-HISTORY/"])
     }).optional();
     PythonDomainConfigSchema = z2.object({
@@ -1178,6 +1224,23 @@ var init_config = __esm({
     }).optional();
     PathsConfigSchema = z2.object({
       source: z2.string().default("src"),
+      /**
+       * Where this stack's tests live, relative to the project root.
+       *
+       * Added 2026-09-20 for P4.3 of docs/plans/2026-09-20-stack-conformant-asset-rendering.md.
+       * ~25 shipped assets told every customer their tests belong in
+       * `packages/core/src/__tests__/` — massu's OWN layout — and no vocabulary could express
+       * the alternative because none existed. A test directory is a first-class property of
+       * every stack (`tests/` on FastAPI, `test/` on Rails, `src/test/java` on Spring,
+       * `Tests/` on SwiftPM, and Go keeps `_test.go` beside the source), so it belongs here
+       * rather than in prose.
+       *
+       * OPTIONAL, so every config written before this key existed keeps loading unchanged; an
+       * asset that needs it uses `{{paths.tests | default("...")}}`. All 13 shipped templates
+       * declare it, each with the convention it follows recorded at the site (G32 option 2),
+       * and `stack-template-conformance.test.ts` asserts that.
+       */
+      tests: z2.string().optional(),
       aliases: z2.record(z2.string(), z2.string()).default({ "@": "src" }),
       monorepo_roots: z2.array(z2.string()).optional(),
       routers: z2.string().optional(),
@@ -12522,7 +12585,11 @@ function defaultsFor(language, fw, dir) {
         test: testFw === "unittest" ? prefix(dir, "python3 -m unittest") : prefix(dir, "python3 -m pytest -q"),
         type: prefix(dir, "python3 -m mypy ."),
         build: null,
-        syntax: prefix(dir, "python3 -m py_compile"),
+        // `python3 -m py_compile` with NO filenames exits 2 ('the following arguments are
+        // required: filenames') — a check that can never pass, i.e. a brick, and a brick
+        // gets bypassed. `compileall -q .` measured exit 1 on a tree with a syntax error
+        // and exit 0 on a clean tree (2026-09-20).
+        syntax: prefix(dir, "python3 -m compileall -q ."),
         lint: prefix(dir, "python3 -m ruff check .")
       };
     }
@@ -12560,7 +12627,12 @@ function defaultsFor(language, fw, dir) {
       return {
         test: prefix(dir, "swift test"),
         type: prefix(dir, "swift build"),
-        build: prefix(dir, "xcodebuild build"),
+        // `xcodebuild build` requires an .xcodeproj/.xcworkspace, but this block's other
+        // commands (`swift test`, `swift build`) and the swift-ios template's declared
+        // layout (Sources/) are SwiftPM. One stack cannot be SwiftPM for two keys and
+        // Xcode for a third. Operator-approved 2026-09-20; the three anti-vacuity plants
+        // that target this literal were re-pointed in the same change.
+        build: prefix(dir, "swift build -c release"),
         syntax: null,
         lint: prefix(dir, "swiftlint")
       };
@@ -12585,10 +12657,17 @@ function defaultsFor(language, fw, dir) {
     }
     case "ruby": {
       return {
-        test: prefix(dir, "bundle exec rspec"),
+        // Minitest is Rails' default; `bin/rails test` works on a fresh `rails new`.
+        // `bundle exec rspec` requires adding rspec-rails to the Gemfile first.
+        // https://guides.rubyonrails.org/testing.html
+        test: prefix(dir, "bin/rails test"),
         type: null,
         build: null,
-        syntax: prefix(dir, "ruby -c"),
+        // `ruby -c` with NO file argument reads STDIN: on empty stdin it prints
+        // 'Syntax OK' and exits 0 without inspecting one project file, and it BLOCKS on a
+        // TTY. A check that cannot fail is a blind gate. Measured 2026-09-20; the
+        // replacement exits 1 on a tree with a syntax error and 0 on a clean one.
+        syntax: prefix(dir, "find app lib -name '*.rb' -print0 | xargs -0 -n1 ruby -c > /dev/null"),
         lint: prefix(dir, "bundle exec rubocop")
       };
     }
@@ -13580,32 +13659,7 @@ function verifyPromotionEnvelope(payload) {
 
 // src/rule-candidate-applier.ts
 init_safe_write();
-
-// src/lib/corrections-md.ts
-var CORRECTION_RULE_BULLET = /^-\s+\*\*Rule\*\*:\s*(.+)$/;
-function parseCorrectionRules(content) {
-  const rules = [];
-  for (const raw of content.split("\n")) {
-    const line = raw.trim();
-    const m = line.match(CORRECTION_RULE_BULLET);
-    if (m && m[1].trim()) {
-      rules.push(m[1].trim());
-      continue;
-    }
-    if (line.startsWith("|") && line.endsWith("|")) {
-      const cells = line.split("|").map((c) => c.trim()).filter((c) => c.length > 0);
-      if (cells.length < 4) continue;
-      if (cells[0] === "Date" || cells[0].startsWith("-")) continue;
-      const prevention = cells[3];
-      if (prevention && !prevention.startsWith("-") && !prevention.startsWith("<!--")) {
-        rules.push(prevention);
-      }
-    }
-  }
-  return rules;
-}
-
-// src/rule-candidate-applier.ts
+init_corrections_md();
 init_memory_authorship();
 init_memory_index_region();
 init_config();
@@ -13903,9 +13957,10 @@ function failSync(db, reason) {
 // src/hooks/session-start.ts
 init_memory_file_ingest();
 init_config();
+init_corrections_md();
 init_db_driver();
 import { readFileSync as readFileSync19, existsSync as existsSync24 } from "fs";
-import { join as join18, resolve as resolve9 } from "path";
+import { resolve as resolve9 } from "path";
 import { parse as parseYaml4 } from "yaml";
 
 // src/capability-advisor.ts
@@ -14513,9 +14568,9 @@ function getMemoryDir() {
 }
 function loadCorrectionsPreventionRules() {
   try {
-    const correctionsPath = join18(getResolvedPaths().memoryDir, "corrections.md");
-    if (!existsSync24(correctionsPath)) return [];
-    return parseCorrectionRules(readFileSync19(correctionsPath, "utf-8"));
+    const correctionsFile = correctionsPath(getResolvedPaths().memoryDir);
+    if (!existsSync24(correctionsFile)) return [];
+    return parseCorrectionRules(readFileSync19(correctionsFile, "utf-8"));
   } catch (_e) {
     return [];
   }

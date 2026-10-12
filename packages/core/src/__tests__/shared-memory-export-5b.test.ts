@@ -73,7 +73,7 @@ describe('Slice 5 B-02/B-09/B-12 — fail-closed export', () => {
   });
 
   it('B-02: a record carrying a synthetic ms_live_ secret is REFUSED — no outbox file', async () => {
-    insertShareable(db, { title: 'the prod key', detail: 'set MASSU_API_KEY=ms_live_ABCdef0123456789' });
+    insertShareable(db, { title: 'the prod key', detail: 'set MASSU_API_KEY=ms_live_ABCdef0123456789' }); // gitleaks:allow — deliberately secret-SHAPED, obviously fake fixture: this test exercises a secret detector
     const res = await exportSharedMemories(db, new LocalFsTransport(home), { home, shareEnabled: true, nowEpoch: NOW });
     expect(res.published).toBe(false);
     expect(res.exported).toBe(0);
@@ -86,7 +86,7 @@ describe('Slice 5 B-02/B-09/B-12 — fail-closed export', () => {
 
   it('B-02: sk-/JWT fragments are also refused', async () => {
     insertShareable(db, { title: 'openai', detail: 'sk-abcdef0123456789abcd used here' });
-    insertShareable(db, { title: 'jwt', detail: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV token' });
+    insertShareable(db, { title: 'jwt', detail: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV token' }); // gitleaks:allow — deliberately secret-SHAPED, obviously fake fixture: this test exercises a secret detector
     const res = await exportSharedMemories(db, new LocalFsTransport(home), { home, shareEnabled: true, nowEpoch: NOW });
     expect(res.published).toBe(false);
     expect(res.refusals.filter((r) => r.reason.startsWith('secret:')).length).toBe(2);

@@ -52,6 +52,7 @@ trap cleanup EXIT INT TERM
 echo "[ci-sync-check] mirror dir: $MIRROR_DIR"
 
 # Step 1: git-init the mirror (sync-public.sh requires .git/).
+# git-template-exempt: this mirror must inherit init.templateDir so the payload-safety hook runs here exactly as in the real mirror (Step 1b)
 git init --quiet "$MIRROR_DIR"
 git -C "$MIRROR_DIR" config user.email "ci@massu.ai"
 git -C "$MIRROR_DIR" config user.name "CI Bot"

@@ -30,7 +30,7 @@ verification:
   python:
     test: cd src && python3 -m pytest -q
     type: cd src && python3 -m mypy .
-    syntax: cd src && python3 -m py_compile
+    syntax: cd src && python3 -m compileall -q .
     lint: cd src && python3 -m ruff check .
 python:
   root: src

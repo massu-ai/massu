@@ -27,7 +27,7 @@ import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { MAX_FULL_DIFF_BYTES } from '../hooks/auto-learning-pipeline.ts';
 // G29/CR-92 — `cwd:` does not scope git; GIT_DIR outranks it. See the helper for why.
-import { gitSafeEnv } from './helpers/git-safe-env.ts';
+import { gitSafeEnv, gitSafeEnvForNewRepo } from './helpers/git-safe-env.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -83,7 +83,7 @@ function makeLargeDiff(repoPath: string, totalBytes: number): void {
 
 beforeAll(() => {
   testRepo = mkdtempSync(join(tmpdir(), 'massu-auto-learning-bound-'));
-  execFileSync('git', ['init', '--quiet'], { cwd: testRepo, env: gitSafeEnv() });
+  execFileSync('git', ['init', '--quiet'], { cwd: testRepo, env: gitSafeEnvForNewRepo() });
   execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: testRepo, env: gitSafeEnv() });
   execFileSync('git', ['config', 'user.name', 'Test'], { cwd: testRepo, env: gitSafeEnv() });
   // Initial commit to establish HEAD — and COMMIT the bulk files, so the
@@ -176,7 +176,7 @@ describe('auto-learning pipeline bounded-diff (DG-2)', () => {
     // Use a separate small-diff repo so we don't contaminate the 5MB fixture
     const smallRepo = mkdtempSync(join(tmpdir(), 'massu-auto-learning-small-'));
     try {
-      execFileSync('git', ['init', '--quiet'], { cwd: smallRepo, env: gitSafeEnv() });
+      execFileSync('git', ['init', '--quiet'], { cwd: smallRepo, env: gitSafeEnvForNewRepo() });
       execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: smallRepo, env: gitSafeEnv() });
       execFileSync('git', ['config', 'user.name', 'Test'], { cwd: smallRepo, env: gitSafeEnv() });
       writeFileSync(join(smallRepo, 'a.ts'), 'function x() { return 1; }\n');

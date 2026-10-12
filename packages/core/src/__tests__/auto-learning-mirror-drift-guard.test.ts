@@ -13,6 +13,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'fs';
+import { renderTemplate } from '../commands/template-engine.ts';
+import { buildTemplateVars } from '../commands/asset-render.ts';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -25,6 +27,34 @@ function resolveRepoRoot(): string {
   // both in `cd packages/core && npm test` AND in the pre-commit gate's
   // scratch-dir scenario where cwd differs.
   return join(__dirname, '..', '..', '..', '..');
+}
+
+/**
+ * ⛔ THE INVARIANT IS RENDER-EQUIVALENCE, NOT BYTE-EQUALITY. Changed 2026-09-20.
+ *
+ * The mirror under `packages/core/` is a TEMPLATE; the canonical under `.claude/` is what
+ * this repo INSTALLED from it. That distinction did not exist while no asset used a
+ * placeholder, so byte-equality was the right test and held for months.
+ *
+ * P4 of docs/plans/2026-09-20-stack-conformant-asset-rendering.md migrates the assets onto
+ * the stack vocabulary, so the mirror now contains `{{verify.type}}` where the canonical
+ * contains the resolved command. Byte-equality between a template and its own output is
+ * UNSATISFIABLE from that moment on — and an unsatisfiable gate is a brick, which gets
+ * bypassed (G26/CR-72). Widening or deleting it would have been the cheap escape.
+ *
+ * Rendering the mirror against THIS repo's own config restores the property the guard was
+ * always about — "the installed copy has not drifted from its source" — and makes it
+ * STRICTLY STRONGER: it also proves this repo's own install is current and that its
+ * `massu.config.yaml` resolves every placeholder its assets reference. It fails the same
+ * way for the same reasons; only the comparison's right-hand side changed.
+ *
+ * A render failure is an ERROR, never a silent equality miss (M2): a thrown
+ * MissingVariableError means an asset references a key this repo does not declare, which
+ * is a finding about the config, not about drift.
+ */
+function renderMirror(absMirrorPath: string): string {
+  const raw = readFileSync(absMirrorPath, 'utf-8');
+  return renderTemplate(raw, buildTemplateVars());
 }
 
 function fileExistsRelative(relPath: string): boolean {
@@ -55,7 +85,7 @@ describe.skipIf(!canonicalExists)('auto-learning.md mirror byte-equivalence (P-E
   it('canonical and mirror are byte-equivalent', () => {
     const repoRoot = resolveRepoRoot();
     const canonicalBytes = readFileSync(join(repoRoot, canonical), 'utf-8');
-    const mirrorBytes = readFileSync(join(repoRoot, mirror), 'utf-8');
+    const mirrorBytes = renderMirror(join(repoRoot, mirror));
 
     if (canonicalBytes !== mirrorBytes) {
       const aLines = canonicalBytes.split('\n');
@@ -99,7 +129,7 @@ describe.skipIf(!fileExistsRelative(loopControllerCanonical))('loop-controller.m
   it('canonical and mirror are byte-equivalent', () => {
     const repoRoot = resolveRepoRoot();
     const canonicalBytes = readFileSync(join(repoRoot, loopControllerCanonical), 'utf-8');
-    const mirrorBytes = readFileSync(join(repoRoot, loopControllerMirror), 'utf-8');
+    const mirrorBytes = renderMirror(join(repoRoot, loopControllerMirror));
 
     if (canonicalBytes !== mirrorBytes) {
       const aLines = canonicalBytes.split('\n');

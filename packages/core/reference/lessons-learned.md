@@ -47,7 +47,7 @@
 - Application completely broken for all users
 
 **Root Cause:**
-- Did not run `npm run build` before pushing previous commit
+- Did not run `{{verify.build | default("(this stack declares no build step)")}}` before pushing previous commit
 - Assumed partial checks (type-check, prevention tests) were sufficient
 - Did not analyze full import graph for client/server separation
 - Did not test production build locally before deploying
@@ -59,9 +59,9 @@
 - Zero users could access application
 
 **Lessons:**
-1. **ALWAYS run `npm run build` before pushing** - No exceptions
+1. **ALWAYS run `{{verify.build | default("(this stack declares no build step)")}}` before pushing** - No exceptions
 2. **Trace client import chains** - Verify no server code imported
-3. **Test production build locally** - Run `npm run build && npm start`
+3. **Test production build locally** - Run `{{verify.build | default("(this stack declares no build step)")}} && npm start`
 4. **ESLint warnings = deployment blockers** - Zero tolerance
 5. **Import chain analysis required** - Client components must not transitively import server code
 6. **Lazy-loading for external services** - Never instantiate at module load time
@@ -143,7 +143,7 @@ When encountering errors:
 
 ## Build Timeout Protocol
 
-If `npm run build` times out:
+If `{{verify.build | default("(this stack declares no build step)")}}` times out:
 
 1. **DO NOT** assume it's just slow
 2. **DO NOT** skip to other checks

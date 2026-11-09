@@ -10,9 +10,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
-## [2.5.3] - 2026-08-14
+## [2.5.3] - 2026-11-08
+
+### Added
+
+- **Installed commands and agents now match your stack, not massu's own.** massu detected a
+  project's stack correctly and then installed the same TypeScript-shaped command set into every
+  repository, so a Python project's checks ran `npm test` and `npx tsc --noEmit` against a tree
+  that has neither, found nothing, and reported clean. The shipped assets now render the
+  toolchain from `massu.config.yaml`: measured on a python-fastapi fixture, the 83 `npm test`
+  references became `pytest`, and `npx tsc --noEmit` became `mypy`. Stack capabilities are
+  resolved once and all 13 shipped templates are held to that contract.
+- **`paths.tests` config key.** About 25 assets told every project its tests belong in massu's
+  own `packages/core/src/__tests__/`. The test directory is now a config property. It is
+  optional, so every existing config keeps working.
+- **`{{> name}}` fragments in templates.** Block-level, stack-specific content (for example the
+  "where a new feature goes" section of `/massu-new-feature`) now lives in one shared body with a
+  per-stack fragment, instead of telling a FastAPI user to edit `tools.ts`.
 
 ### Fixed
+
+- **`massu show-template` printed the raw template while the installer wrote rendered bytes.**
+  The diff the installer suggests (`diff <target> <(npx massu show-template <base>)`) therefore
+  reported differences that did not exist. It now prints what would be installed.
+- **The template-syntax README was silently dropped from every install since 1.3.0.** It
+  documents `{{variable.path}}` literally, the renderer tried to resolve it, and the error was
+  counted as "skipped" with exit 0. Documentation is no longer rendered.
+- **The knowledge index read about half of a project's canonical rules.** The CR-table parser's
+  `[^|]+` matched newlines, so in a three-column table each row consumed the next: 21 of 41
+  rules were indexed in this repository, for the life of the feature. Every row is now read.
+- **The fix detector cried wolf on English.** `auth`, `lock` and `rate.limit` matched inside
+  "author", "blocked" and "corporate_limits". Every heuristic is now word-bounded,
+  `method_name_correction` (which fired on any two differently named method calls) is retired,
+  and a numbered Markdown heading is no longer read as an incident title.
+- **The security gate flagged its own documentation.** `os.system() — shell injection risk`
+  fired on a comment quoting the call and on a test fixture holding it as a string. Python
+  content is now judged on code, not on prose that mentions the pattern.
+- **`corrections.md` has one owner.** Its filename, path and placement were rebuilt in five
+  places. One module now owns them, so a hook and the indexer cannot disagree about where it is.
+- **`zod` moves to 4 (GHSA-mrhx-c7xc-m3w5, high, covers every zod 3 release).** Config parsing is
+  unchanged. zod 4's `.default()` no longer parses its value, so every object-level config default
+  now uses `.prefault()`; without that, a section left out of `massu.config.yaml` would have come
+  back empty instead of filled with its defaults.
+- **Dependency advisories cleared** (`smol-toml` ^1.8.0, `vitest` ^4.1.12).
+- **The auto-learning Stop hook no longer counts keywords inside strings and comments, and no
+  longer repeats itself.** It matched fix keywords (`try`, `catch`, `raise`, …) against raw diff
+  text, so `"The catch"` in a Python string counted as error handling, and it re-read the working
+  tree on every Stop with no record of what it had already shown. One false positive repeated
+  after every reply until the file was committed. Added lines are now scored on their CODE spans by
+  a per-language lexer (`hooks/lib/code-spans.ts`: escapes, triple quotes, template literals,
+  block comments, regex literals), which the per-edit fix detector now shares. Languages without a
+  lexer are judged as before and named in the hook's debug output. The hook keeps a per-session
+  record of the matched lines it has shown and speaks again only when a new one appears. Diff file
+  headers (`--- a/src/error.ts`) are no longer scored as removed lines.
 
 - **The release ceremony contained a step it could not reach.** CR-64 makes a published
   version immutable: once `X.Y.Z` is on npm, HEAD must be exactly the `vX.Y.Z` tag, so any

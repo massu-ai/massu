@@ -106,9 +106,10 @@ afterAll(() => {
 });
 
 describe('auto-learning pipeline bounded-diff (DG-2)', () => {
-  // The spawned hook is given 30_000ms below; vitest's global testTimeout is 20000, so
-  // without this the smaller bound silently won and the declared budget was unreachable.
-  it('SKIPS the full-diff scan when the working tree exceeds the cap', { timeout: 30_000 }, () => {
+  // The spawned hook's own 30_000ms subprocess timeout is the only bound. No per-test ceiling:
+  // packages/core runs `testTimeout: 0`, and a hang is decided by the progress-silence detector
+  // (scripts/lib/hang_watch.mjs; plan-2026-09-24-a-hang-is-the-absence-of-events, D-9).
+  it('SKIPS the full-diff scan when the working tree exceeds the cap', () => {
     const hookPath = resolve(__dirname, '../../dist/hooks/auto-learning-pipeline.js');
 
     // FAIL CLOSED (G-1, plan-2026-07-26-anti-vacuity-9-unproven-gates): the hook not
@@ -164,8 +165,8 @@ describe('auto-learning pipeline bounded-diff (DG-2)', () => {
     expect(result.stdout).not.toContain('MASSU AUTO-LEARNING PIPELINE');
   });
 
-  // Same 30_000ms subprocess budget as above — matched here so one authority governs.
-  it('still detects fix patterns on small diffs (regression guard)', { timeout: 30_000 }, () => {
+  // Same 30_000ms subprocess timeout as above, and the same single authority.
+  it('still detects fix patterns on small diffs (regression guard)', () => {
     const hookPath = resolve(__dirname, '../../dist/hooks/auto-learning-pipeline.js');
     expect(
       existsSync(hookPath),
@@ -175,6 +176,7 @@ describe('auto-learning pipeline bounded-diff (DG-2)', () => {
 
     // Use a separate small-diff repo so we don't contaminate the 5MB fixture
     const smallRepo = mkdtempSync(join(tmpdir(), 'massu-auto-learning-small-'));
+    const hookTmp = mkdtempSync(join(tmpdir(), 'massu-auto-learning-small-tmp-'));
     try {
       execFileSync('git', ['init', '--quiet'], { cwd: smallRepo, env: gitSafeEnvForNewRepo() });
       execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: smallRepo, env: gitSafeEnv() });
@@ -227,7 +229,12 @@ describe('auto-learning pipeline bounded-diff (DG-2)', () => {
           // G29/CR-92 — this call carried NO `env:` at all, so it inherited the
           // whole environment implicitly. That is the silent shape: nothing to
           // grep for, and `cwd:` does not scope git.
-          env: gitSafeEnv(),
+          //
+          // TMPDIR is this test's own (2026-11-08). The hook now records, per session, which
+          // matched lines it has already shown, and stays silent on bytes it has shown before.
+          // With a FIXED session id and the shared temp root, this test's second run anywhere
+          // on the machine read its first run's record and correctly said nothing.
+          env: { ...gitSafeEnv(), TMPDIR: hookTmp },
         },
       );
 
@@ -238,6 +245,7 @@ describe('auto-learning pipeline bounded-diff (DG-2)', () => {
       expect(result.stdout).toContain('MASSU AUTO-LEARNING PIPELINE');
     } finally {
       rmSync(smallRepo, { recursive: true, force: true });
+      rmSync(hookTmp, { recursive: true, force: true });
     }
   });
 });

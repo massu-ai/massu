@@ -143,8 +143,13 @@ describe('npm-audit-gate: closed exemption vocabulary', () => {
   });
 
   it('the COMMITTED exemptions file validates, and every row is GHSA-scoped with a reachability statement', () => {
+    // `loadExemptions` is the "did it look?" half: it THROWS CouldNotLook on an unreadable or
+    // misshapen file, so reaching the next line already proves the oracle was read. ZERO rows is
+    // a legal, and the best, state — the loader's own contract says "use [] for none". This line
+    // used to demand `> 0`, which made the gate unpassable at the moment every advisory has a
+    // fix (2026-11-08: the last three exemptions went stale and had to be deleted).
     const rows = loadExemptions(join(REPO, 'scripts', 'npm-audit-exemptions.json'));
-    expect(rows.length).toBeGreaterThan(0);
+    expect(Array.isArray(rows)).toBe(true);
     expect(validateExemptions(rows)).toEqual([]);
     for (const r of rows) expect(r.reachability.length).toBeGreaterThan(40);
   });

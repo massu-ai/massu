@@ -67,5 +67,5 @@ describe('pattern scanner cwd-independence (CR-62 drift-guard)', () => {
     const fromTmp = runScanner(tmpdir());
     expect(fromCore, 'scanner from packages/core must match root').toBe(fromRoot);
     expect(fromTmp, 'scanner from an unrelated cwd must match root').toBe(fromRoot);
-  }, 120_000);
+  });
 });

@@ -83,7 +83,21 @@ fi
 # Step 2: Project target verification
 echo ""
 echo "--- Step 2: Vercel Project Target ---"
-VERCEL_PROJECT_FILE="$WEBSITE_DIR/.vercel/project.json"
+# THE LINK LIVES AT THE REPOSITORY ROOT (2026-11-08). The project's Root Directory is
+# `website`, and the CLI uploads the directory it runs in, so it must run from the root:
+# the site's build imports files outside website/ (scripts/lib/ruleset-coverage-core.mjs,
+# scripts/lib/vitest-hang-armed.mjs, packages/types). Deploying from website/ uploaded only
+# website/, every one of those imports failed with TS2307, and production went 86 days
+# without a deploy. `.vercelignore` at the root is the upload ALLOWLIST.
+VERCEL_LINK_DIR="$PROJECT_DIR"
+VERCEL_PROJECT_FILE="$VERCEL_LINK_DIR/.vercel/project.json"
+if [ -e "$WEBSITE_DIR/.vercel" ]; then
+  fail "website/.vercel exists: a 'vercel' run from website/ would upload website/ alone and fail."
+  info "Delete it; the one link is $VERCEL_PROJECT_FILE"
+fi
+if [ ! -f "$PROJECT_DIR/.vercelignore" ]; then
+  fail "$PROJECT_DIR/.vercelignore is missing: a root deploy would upload the WHOLE repository."
+fi
 if [ -f "$VERCEL_PROJECT_FILE" ]; then
   ACTUAL_PROJECT_ID=$(jq -r '.projectId // empty' "$VERCEL_PROJECT_FILE")
   ACTUAL_PROJECT_NAME=$(jq -r '.projectName // empty' "$VERCEL_PROJECT_FILE")
@@ -107,15 +121,17 @@ if [ -f "$VERCEL_PROJECT_FILE" ]; then
   fi
 else
   fail "Vercel project file not found: $VERCEL_PROJECT_FILE"
-  info "Run: cd website && npx vercel link"
+  info "Run from the repo root: npx vercel link --project massu"
 fi
 
 # Step 3: Build dry-run
 echo ""
 echo "--- Step 3: Local Build Verification ---"
 if [ -d "$WEBSITE_DIR" ]; then
-  info "Running: cd website && npm run build"
-  if (cd "$WEBSITE_DIR" && npm run build 2>&1 | tail -10); then
+  # @massu/types is consumed as `file:../packages/types` and its dist/ is gitignored, so it is
+  # built here, immediately before both the local check and the upload that carries it.
+  info "Running: npm run build:types && cd website && npm run build"
+  if (cd "$PROJECT_DIR" && npm run build:types >/dev/null 2>&1) && (cd "$WEBSITE_DIR" && npm run build 2>&1 | tail -10); then
     pass "Website build succeeded"
   else
     fail "Website build failed — fix errors before deploying"
@@ -142,8 +158,8 @@ fi
 # Step 4: Deploy
 echo ""
 echo "--- Step 4: Deploy to Production ---"
-info "Running: cd website && npx vercel --prod --yes"
-DEPLOY_OUTPUT=$(cd "$WEBSITE_DIR" && npx vercel --prod --yes 2>&1)
+info "Running (from the repo root): npx vercel --prod --yes"
+DEPLOY_OUTPUT=$(cd "$VERCEL_LINK_DIR" && npx vercel --prod --yes 2>&1)
 DEPLOY_URL=$(echo "$DEPLOY_OUTPUT" | grep -oE 'https://[a-zA-Z0-9._-]+\.vercel\.app' | head -1)
 
 if [ -n "$DEPLOY_URL" ]; then
@@ -188,7 +204,7 @@ while [ "$SECS_WAITED" -lt "$ALIAS_PROPAGATION_TIMEOUT_SECS" ]; do
   # (auth-expired, rate-limit, network) can be surfaced to the operator on timeout
   # — silently swallowing stderr makes the failure mode "alias never propagated"
   # indistinguishable from "Vercel CLI lost auth" for the operator.
-  ALIAS_TARGET=$(cd "$WEBSITE_DIR" && npx vercel ls --prod 2>"$ALIAS_POLL_STDERR_LOG" | grep -oE "https://${DEPLOY_HOST_PREFIX}[a-zA-Z0-9.-]*\.vercel\.app" | head -1)
+  ALIAS_TARGET=$(cd "$VERCEL_LINK_DIR" && npx vercel ls --prod 2>"$ALIAS_POLL_STDERR_LOG" | grep -oE "https://${DEPLOY_HOST_PREFIX}[a-zA-Z0-9.-]*\.vercel\.app" | head -1)
   if [ -n "$ALIAS_TARGET" ]; then
     pass "Alias propagated: ${PRODUCTION_HOST} now serving deploy ${DEPLOY_HOST_PREFIX}"
     PROPAGATED=true

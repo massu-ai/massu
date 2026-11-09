@@ -34,15 +34,13 @@ const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const SCANNER_PATH = resolve(REPO_ROOT, 'scripts', 'massu-pattern-scanner.sh');
 
 describe('pattern-scanner self-test (Plan 2026-05-07 drift-guard)', () => {
-  // Timeout 120s (raised from 30s, plan-2026-06-03-website-lib-test-coverage).
-  // The scanner runs ~22s STANDALONE today (Check 16 scans 129 MDX files +
-  // ~37 checks grep the core tree). This test invokes it via SYNCHRONOUS
-  // execSync, but vitest's forks pool runs ~16 other test files concurrently,
-  // so under full-suite CPU contention the scanner's wall-clock routinely
-  // exceeds 30s (observed >30s in the pre-commit gate while 2700 tests ran).
-  // 120s gives ~5x headroom over the standalone cost so the gate is reliable
-  // under load without masking a real scanner failure (it still must exit 0).
-  it('massu-pattern-scanner.sh exits 0 against current source tree', { timeout: 120000 }, () => {
+  // The scanner runs ~22s STANDALONE (Check 16 scans 129 MDX files + ~37 checks grep the core
+  // tree), invoked via SYNCHRONOUS execSync while vitest's forks pool runs other files, so under
+  // full-suite contention its wall-clock routinely exceeds 30s. It used to carry a 120s ceiling
+  // (raised from 30s); there is none now: packages/core runs `testTimeout: 0`, and a hang is
+  // decided by the progress-silence detector (scripts/lib/hang_watch.mjs; plan-2026-09-24-a-hang-
+  // is-the-absence-of-events, D-9). It still must exit 0.
+  it('massu-pattern-scanner.sh exits 0 against current source tree', () => {
     let stdout = '';
     let stderr = '';
     let exitCode = 0;

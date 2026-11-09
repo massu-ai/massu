@@ -289,12 +289,12 @@ describe('recall eval (BM25 vs hybrid FTS-only vs hybrid semantic)', () => {
           'This is expected only where onnxruntime-web / the bundled model cannot load.',
       );
     }
-    // 120s, not the 5s default: this test loads the bundled WASM embedding model
-    // and embeds the whole eval corpus. In THIS repo the model is warm so it
-    // finishes in ~2s, but on a cold checkout (the public mirror, fresh CI) the
-    // first load is far slower — and timing out there looked like a recall
-    // regression when it was only a cold cache.
-  }, 120_000);
+    // This test loads the bundled WASM embedding model and embeds the whole eval corpus: ~2s
+    // warm, far slower on a cold checkout (the public mirror, fresh CI), where a timeout once
+    // looked like a recall regression when it was only a cold cache. No per-test ceiling:
+    // packages/core runs `testTimeout: 0`, and a hang is decided by the progress-silence
+    // detector (scripts/lib/hang_watch.mjs; plan-2026-09-24-a-hang-is-the-absence-of-events, D-9).
+  });
 
   it('hybrid FTS-only does not regress the BM25 baseline (aggregate)', () => {
     const n = fixture.queries.length;

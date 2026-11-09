@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import Database from 'better-sqlite3';
 import { resolve } from 'path';
 import { tmpdir } from 'os';
@@ -10,13 +10,11 @@ import { initKnowledgeSchema } from '../knowledge-db.ts';
 import { indexAllKnowledge, isKnowledgeStale, indexIfStale } from '../knowledge-indexer.ts';
 import { handleKnowledgeToolCall } from '../knowledge-tools.ts';
 
-// These tests index the REAL .claude/ tree from disk (hundreds of files) and
-// are genuinely slow — the 5s default is not a meaningful budget for them. Under
-// full-suite parallel load they exceeded it and failed while passing in isolation:
-// a timeout masquerading as a defect. Give them a realistic budget.
-vi.setConfig({ testTimeout: 60_000 });
-
-
+// These tests index the REAL .claude/ tree from disk (hundreds of files) and are genuinely
+// slow: the full-pipeline case measured 18.5 s standalone on 2026-11-08, and a fixed 30 s
+// ceiling failed it under a host load average of ~24. No per-test ceiling:
+// packages/core runs `testTimeout: 0`, and a hang is decided by the progress-silence detector
+// (scripts/lib/hang_watch.mjs; plan-2026-09-24-a-hang-is-the-absence-of-events, D-9).
 
 // P1-005: Knowledge Integration / E2E Tests
 
@@ -47,9 +45,8 @@ afterAll(() => {
 });
 
 describe('Full Pipeline: Index -> Query -> Verify', () => {
-  // Knowledge indexer walks .claude/ + scans all markdown — can take
-  // 4-10s on slower runners. 30s gives headroom without masking hangs.
-  it('indexes, searches, and returns results matching source files', { timeout: 30_000 }, () => {
+  // Knowledge indexer walks .claude/ + scans all markdown: ~18 s standalone (2026-11-08).
+  it('indexes, searches, and returns results matching source files', () => {
     // Step 1: Index
     const stats = indexAllKnowledge(db);
     expect(stats.filesIndexed).toBeGreaterThan(0);

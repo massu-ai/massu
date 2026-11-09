@@ -369,7 +369,7 @@ describe('Codebase Introspector: ReDoS / pathological input', () => {
       expect(m.ratio, `${name}: ratio ${m.ratio.toFixed(2)} suggests super-linear scaling`)
         .toBeLessThan(8);
     }
-  }, 60_000);
+  });
   // ^ Explicit budget, and it is the SECOND detection path rather than a
   // convenience. The two failure modes surface differently:
   //
@@ -457,7 +457,7 @@ describe('Codebase Introspector: reads are bounded by the name filter, not by di
     // ...and the result is still correct at both sizes.
     expect(a.result.python?.auth_dep).toBe('get_current_user');
     expect(b.result.python?.auth_dep).toBe('get_current_user');
-  }, 120_000);
+  });
   // ^ EXPLICIT BUDGET, AND IT ASSERTS NOTHING ABOUT THE CODE — the same distinction the
   // 60_000 above draws. Every property this test makes is an OPERATION COUNT: zero `.bin`
   // reads at either size, and an IDENTICAL read count across a 10x directory-size step.

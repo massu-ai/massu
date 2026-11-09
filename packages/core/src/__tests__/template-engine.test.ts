@@ -251,7 +251,7 @@ describe('Template Engine: TPL-SEC-05 (no quadratic blowup)', () => {
     // Linear ≈ 4, quadratic ≈ 16; 8 sits midway on a log scale.
     expect(m.ratio, `ratio ${m.ratio.toFixed(2)} suggests super-linear rendering`)
       .toBeLessThan(8);
-  }, 60_000);
+  });
 });
 
 describe('Template Engine: TPL-SEC-06 (malformed `{{{{var}}}}`)', () => {

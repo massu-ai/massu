@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
 import { resolve } from 'path';
 import { tmpdir } from 'os';
@@ -21,11 +21,9 @@ import {
   categorizeFile,
 } from '../knowledge-indexer.ts';
 
-// These tests index the REAL .claude/ tree from disk (hundreds of files) and
-// are genuinely slow — the 5s default is not a meaningful budget for them. Under
-// full-suite parallel load they exceeded it and failed while passing in isolation:
-// a timeout masquerading as a defect. Give them a realistic budget.
-vi.setConfig({ testTimeout: 60_000 });
+// These tests index the REAL .claude/ tree from disk (hundreds of files) and are genuinely
+// slow. No per-test ceiling: packages/core runs `testTimeout: 0`, and a hang is decided by the progress-silence detector
+// (scripts/lib/hang_watch.mjs; plan-2026-09-24-a-hang-is-the-absence-of-events, D-9).
 
 // G-1 (plan-2026-07-26-anti-vacuity-9-unproven-gates): these two corpora are absent
 // in a public-repo clone. Resolved at MODULE scope so `it.skipIf` can adjudicate at

@@ -102,7 +102,7 @@ beforeAll(() => {
   discoverableBefore = snapshotDiscoverable();
   stats = indexAllKnowledge(db);
   discoverableAfter = snapshotDiscoverable();
-}, 300_000);
+});
 
 afterAll(() => {
   try {

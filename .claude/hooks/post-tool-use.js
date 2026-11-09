@@ -622,7 +622,7 @@ var init_config_memory_schema = __esm({
           message: "memory.recall.embedEndpoint must be an http(s) URL"
         }).optional(),
         embedModel: z.string().min(1).optional()
-      }).default({}),
+      }).prefault({}),
       // --- Contradiction / supersede gate (plan-living-memory-slice-2-temporal-model, P5-001) ---
       // When a new high-value memory (decision/correction) is written, find
       // semantically-related existing records and, if the new one contradicts an
@@ -651,7 +651,7 @@ var init_config_memory_schema = __esm({
         annotateSuperseded: z.boolean().default(false),
         // Time budget (ms) for the contradiction check; exceeded → fail-open (ADD).
         budgetMs: z.number().int().positive().default(800)
-      }).default({}),
+      }).prefault({}),
       // --- Background consolidation, the "sleep-time" pass
       //     (plan-living-memory-slice-3-consolidation) ---
       // Keeps memory sharp over years: dedupes, distills dying sessions into
@@ -697,7 +697,7 @@ var init_config_memory_schema = __esm({
         // Surface optional upgrades (e.g. "a local model was detected") in chat.
         suggestUpgrades: z.boolean().default(true),
         suggestIntervalDays: z.number().int().positive().default(30)
-      }).default({}),
+      }).prefault({}),
       // A-20 (Slice 4) — memory FILES: the mirror, and the one switch that decides whether
       // Massu may ever WRITE into the user's memory directory.
       //
@@ -722,7 +722,7 @@ var init_config_memory_schema = __esm({
         // turn of EVERY session, so an unbounded index is a permanent context tax — and the
         // per-session cap bounds only the RATE, never the total.
         indexMaxLines: z.number().int().min(1).default(50)
-      }).default({}),
+      }).prefault({}),
       // --- Cross-repo memory surfacing (plan-living-memory-slice-5-cross-repo-surfacing) ---
       // A decision made in one of your repos can surface in another — opt-in per
       // decision AND opt-in per repo, signed, verified, and materialized ONLY on
@@ -747,8 +747,8 @@ var init_config_memory_schema = __esm({
           enabled: z.boolean().default(true),
           maxCrossRepoItems: z.number().int().min(0).default(1),
           minScore: z.number().optional()
-        }).default({})
-      }).default({})
+        }).prefault({})
+      }).prefault({})
     }).optional();
   }
 });
@@ -1085,24 +1085,24 @@ var init_config = __esm({
         // behaviour anyone actually configured — measured: `fix-detector.ts:267` is the sole
         // consumer and no config file in the repo sets it.
         signals: z2.array(z2.string()).optional()
-      }).default({}),
+      }).prefault({}),
       failureClassification: z2.object({
         enabled: z2.boolean().default(true),
         thresholds: z2.object({
           known: z2.number().default(5),
           similar: z2.number().default(3)
-        }).default({}),
+        }).prefault({}),
         scoring: z2.object({
           diffPatternWeight: z2.number().default(3),
           filePatternWeight: z2.number().default(2),
           promptKeywordWeight: z2.number().default(2)
-        }).default({})
-      }).default({}),
+        }).prefault({})
+      }).prefault({}),
       pipeline: z2.object({
         requireIncidentReport: z2.boolean().default(true),
         requirePreventionRule: z2.boolean().default(true),
         requireEnforcement: z2.boolean().default(true)
-      }).default({}),
+      }).prefault({}),
       // plan-v0.2-interactive-rule-approval P-D-008 / P-D-009: project-configured
       // custom destinations for the rule-candidate funnel. The classifier matches
       // a candidate to one of these entries when none of the framework
@@ -1135,7 +1135,7 @@ var init_config = __esm({
         memory: z2.boolean().default(true),
         analytics: z2.boolean().default(true),
         audit: z2.boolean().default(true)
-      }).default({ memory: true, analytics: true, audit: true })
+      }).prefault({ memory: true, analytics: true, audit: true })
     }).optional();
     ConventionsConfigSchema = z2.object({
       claudeDirName: z2.string().default(".claude").refine(
@@ -1308,14 +1308,14 @@ var init_config = __esm({
       project: z2.object({
         name: z2.string().default("my-project"),
         root: z2.string().default("auto")
-      }).default({ name: "my-project", root: "auto" }),
-      framework: FrameworkConfigSchema.default({
+      }).prefault({ name: "my-project", root: "auto" }),
+      framework: FrameworkConfigSchema.prefault({
         type: "typescript",
         router: "none",
         orm: "none",
         ui: "none"
       }),
-      paths: PathsConfigSchema.default({ source: "src", aliases: { "@": "src" } }),
+      paths: PathsConfigSchema.prefault({ source: "src", aliases: { "@": "src" } }),
       toolPrefix: z2.string().default("massu"),
       dbAccessPattern: z2.string().optional(),
       knownMismatches: z2.record(z2.string(), z2.record(z2.string(), z2.string())).optional(),

@@ -151,7 +151,7 @@ describe('gate fail-open drift-guard (incident 2026-07-23 — a WARN is not a PA
     "packages/core/src/__tests__/trpc-map-empty-codegraph-hint.test.ts asserts 'P-H009' over packages/core/src/tool-db-needs.ts",
   ];
 
-  it('no guard assertion is discharged by a COMMENT alone', { timeout: 120_000 }, () => {
+  it('no guard assertion is discharged by a COMMENT alone', () => {
     const probe = resolve(REPO_ROOT, 'scripts', 'ops', 'probe-comment-satisfiable-assertions.py');
     const r = spawnSync('python3', [probe, '--json'], {
       cwd: REPO_ROOT,

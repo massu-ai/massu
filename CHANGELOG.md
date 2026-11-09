@@ -10,6 +10,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.5.4] - 2026-11-08
+
+### Fixed
+
+- **Release tooling no longer reports a successful publish as failed.** After `npm publish`
+  succeeded, the release verifier waited 90 seconds, then reported FAIL with "this is not
+  propagation lag". npm's registry can take a few minutes to serve a new version. The verifier
+  now has three results. PASS: the version is served and the package carries the fix. PENDING:
+  npm accepted the publish but isn't serving it yet; re-run `--verify-only`, don't publish again.
+  FAIL: npm refused the publish, or the served package is wrong.
+- **Publishing no longer leaves uncommitted changes.** The four bundled-public-key modules
+  stamped the current time into their first line, so every publish rewrote four tracked files
+  whose keys hadn't changed. One shared, deterministic generator replaces the four hand-copied
+  ones, and a test confirms each committed module matches what the generator renders.
+- **The public repository carries release tags again.** Every mirror sync now tags the public
+  commit that holds a release's exact tree, verifies the tag on GitHub, and never moves an
+  existing tag. This release backfills v2.0.0, v2.3.0 and v2.5.3.
+- **The public repository's six `nx` security alerts are cleared.** They came from two test
+  fixtures that declared `nx ^17.0.0`. Nothing installs either fixture; both now declare
+  `^22.7.10`.
+
+`@massu/core` behaves exactly as 2.5.3 did: every change is in release tooling and test fixtures.
+
 ## [2.5.3] - 2026-11-08
 
 ### Added

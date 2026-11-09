@@ -29,7 +29,9 @@ info() { printf "  %s\n" "$1"; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT" || exit 2
-PKG_DIR="$REPO_ROOT/packages/core"
+# Overridable ONLY so the verdict test can drive this script against a fixture package
+# (version 9.9.9-test, with a stub `npm` first on PATH). Releases never set it.
+PKG_DIR="${MASSU_RELEASE_PKG_DIR:-$REPO_ROOT/packages/core}"
 
 MODE="dry-run"
 for a in "$@"; do
@@ -67,7 +69,7 @@ fi
 # read everything and found nothing. The controls make the denominator real.
 verify_dist() {
   local dir="$1" label="$2" rc=0
-  local n; n="$(ls "$dir"/*.js 2>/dev/null | wc -l | tr -d ' ')"
+  local n; n="$(find "$dir" -maxdepth 1 -type f -name '*.js' 2>/dev/null | wc -l | tr -d ' ')"
   info "$label: $n file(s) scanned"
   if [ "$n" -eq 0 ]; then bad "$label: scanned ZERO files — blind, not clean"; return 1; fi
 
@@ -134,39 +136,59 @@ fi
 echo "--- verifying AT THE DESTINATION ---"
 FAILED=0
 
-# NOT-YET-VISIBLE IS NOT NOT-PUBLISHED (fixed 2026-08-10, after this script reported a
-# FALSE FAIL on a successful 2.5.1 publish). npm's registry is read-after-write eventually
-# consistent, so a `sleep 2` then a single read makes "the CDN has not caught up" and "the
-# publish did not land" produce the same verdict — and the reassuring-looking one is the
-# WRONG one here: a spurious FAIL on a release tool invites a re-publish or a panic.
+# NOT-YET-VISIBLE IS NOT NOT-PUBLISHED, AND A DEADLINE CANNOT TELL THEM APART.
+# npm's registry is eventually consistent after a write. 2.5.1 (2026-08-10) was reported
+# FAIL after a `sleep 2`; the fix polled to a 90 s deadline, and 2.5.3 (2026-11-08) was
+# reported FAIL again, with the line "the registry genuinely does not serve 2.5.3 — this
+# is not propagation lag". It was propagation lag: npm had printed "may take a few minutes
+# to become available", and a --verify-only run minutes later passed. Any deadline is a
+# constant about the outside world (CR-68), so expiry must not be read as absence.
 #
-# A fixed sleep is also a constant about the outside world, i.e. an unprobed claim (CR-68).
-# Replaced with a DEADLINE-bounded poll: it reports how long it waited, and only calls the
-# version absent after the deadline actually expires.
-DEADLINE_SECS="${MASSU_PUBLISH_VERIFY_DEADLINE_SECS:-90}"
-POLL_SECS=3
+# What DOES separate the two states is this run's own publish status: the registry
+# acknowledged the write (exit 0) or it did not. So there are three verdicts:
+#   PASS     visible, and the tarball npm serves carries the fix        exit 0
+#   PENDING  this run's publish was ACCEPTED, not yet visible            exit 3
+#            -> re-run --verify-only; do NOT re-publish (versions are immutable)
+#   FAIL     the publish was refused, or the version is absent in
+#            --verify-only, or the served tarball is wrong              exit 1
+# Incident 2026-11-08: a successful publish was reported FAIL, and every publish left the tree dirty.
+DEADLINE_SECS="${MASSU_PUBLISH_VERIFY_DEADLINE_SECS:-300}"
+POLL_SECS=5
 WAITED=0
 NOW=""
 while :; do
-  NOW="$(npm view @massu/core version 2>/dev/null || true)"
+  NOW="$(npm view "@massu/core@${VERSION}" version 2>/dev/null || true)"
   [ "$NOW" = "$VERSION" ] && break
   [ "$WAITED" -ge "$DEADLINE_SECS" ] && break
   sleep "$POLL_SECS"
   WAITED=$((WAITED + POLL_SECS))
 done
 
-if [ "$NOW" = "$VERSION" ]; then
-  ok "npm view @massu/core version -> $NOW (visible after ${WAITED}s)"
-else
-  bad "npm view reports '$NOW', expected '$VERSION' after ${WAITED}s (deadline ${DEADLINE_SECS}s)"
-  info "the registry genuinely does not serve $VERSION — this is not propagation lag"
-  FAILED=1
+if [ "$NOW" != "$VERSION" ]; then
+  echo
+  if [ "${PUBLISH_RC:-}" = "0" ]; then
+    info "npm accepted this run's publish (exit 0), but @massu/core@${VERSION} is not served after ${WAITED}s."
+    info "That is the registry's processing delay, not evidence of absence. Do NOT re-publish."
+    info "Re-run:  scripts/ops/publish-and-verify-release.sh --verify-only"
+    echo -e "RESULT: PENDING — ${VERSION} was accepted and is not yet visible."
+    exit 3
+  fi
+  bad "@massu/core@${VERSION} is not served after ${WAITED}s (deadline ${DEADLINE_SECS}s)"
+  if [ -n "${PUBLISH_RC:-}" ]; then
+    info "this run's npm publish exited ${PUBLISH_RC}: the registry refused the write"
+  else
+    info "no publish ran in this invocation; if one ran recently, re-run --verify-only in a few minutes"
+  fi
+  echo -e "${RED}RESULT: FAIL${NC} — the registry does not serve ${VERSION}."
+  exit 1
 fi
+ok "npm view @massu/core@${VERSION} version -> $NOW (visible after ${WAITED}s)"
+info "dist-tag latest -> $(npm view @massu/core dist-tags.latest 2>/dev/null || echo '(unreadable)')"
 
 TARBALL_DIR="$(mktemp -d -t massu-release-verify-XXXXXX)" || exit 2
 trap 'rm -rf "${TARBALL_DIR:?}"' EXIT
 ( cd "$TARBALL_DIR" && npm pack "@massu/core@${VERSION}" >/dev/null 2>&1 )
-TGZ="$(ls "$TARBALL_DIR"/*.tgz 2>/dev/null | head -1)"
+TGZ="$(find "$TARBALL_DIR" -maxdepth 1 -type f -name '*.tgz' 2>/dev/null | head -1)"
 if [ -z "$TGZ" ]; then
   bad "could not fetch the published tarball — cannot verify what consumers receive"
   FAILED=1
@@ -190,5 +212,5 @@ if [ "$FAILED" -eq 0 ]; then
   echo -e "${GREEN}RESULT: PASS${NC} — ${VERSION} is live and the published tarball carries the fix."
   exit 0
 fi
-echo -e "${RED}RESULT: FAIL${NC} — the registry does not yet serve a correct ${VERSION}."
+echo -e "${RED}RESULT: FAIL${NC} — ${VERSION} is served, but what npm serves is not correct (see FAIL lines above)."
 exit 1

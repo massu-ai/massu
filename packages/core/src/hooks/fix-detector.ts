@@ -19,6 +19,7 @@ import { existsSync, appendFileSync, mkdirSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
+import { diffCodeView } from './lib/code-spans.ts';
 import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
 
 /** Registered on PostToolUse. Asserted against `.claude/settings.json` by
@@ -94,8 +95,16 @@ export const FIX_HEURISTICS: Array<{ name: string; test: (diff: string) => boole
     // `if.*nil` / `if.*None` were DROPPED here, and that is deduplication rather than a silent
     // narrowing: `nil_handling_fix` below already matches exactly that shape
     // (`= nil|= None|is None|!= nil|is not None`), so a nil check scored twice under one banner.
+    // Scored on each added line's CODE projection (`lib/code-spans.ts`), the same lexer the
+    // Stop hook uses: a keyword in a string literal or a comment is not error handling. The
+    // per-edit diff carries its `diff --git` header, so the file's language is known here
+    // without threading a path through this table. A language with no lexer is judged raw.
     test: (diff) => {
-      const added = (diff.match(/^\+.*\b(try|except|catch|guard|validate|assert|raise|throw)\b/gm) || []).length;
+      const re = /^\+.*\b(try|except|catch|guard|validate|assert|raise|throw)\b/;
+      let added = 0;
+      for (const view of diffCodeView(diff)) {
+        for (const a of view.added) if (re.test(`+${a.code}`)) added++;
+      }
       return added > 2;
     },
   },

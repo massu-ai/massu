@@ -258,7 +258,7 @@ describe('plan-status-drift-guard (Plan 1.5.8 P2-002)', () => {
 
   // ----- Live HEAD assertion (unconditional after Phase 4 backfill) -----
 
-  it('case 8: live HEAD — validator + scanner exit 0 against real docs/plans/*.md', { timeout: 180_000 }, () => {
+  it('case 8: live HEAD — validator + scanner exit 0 against real docs/plans/*.md', () => {
     // BUDGET, MEASURED 2026-07-27 — re-derive it, do not trust this number (CR-68).
     //
     //   bash scripts/massu-plan-status-validator.sh   ->  6s   (115 plans)
@@ -451,7 +451,6 @@ describe('plan-status-drift-guard (Plan 1.5.8 P2-002)', () => {
 
   it.skipIf(!existsSync(join(REAL_PLANS, SUBJECT_PLAN)))(
     'case 22: REAL corpus — re-planting the P6 rollback omission makes the validator RED',
-    { timeout: 180_000 },
     () => {
       const SUBJECT = SUBJECT_PLAN;
       const tmp = mkdtempSync(join(tmpdir(), 'massu-plan-real-'));

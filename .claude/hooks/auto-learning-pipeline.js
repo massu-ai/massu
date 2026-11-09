@@ -146,7 +146,7 @@ var init_config_memory_schema = __esm({
           message: "memory.recall.embedEndpoint must be an http(s) URL"
         }).optional(),
         embedModel: z.string().min(1).optional()
-      }).default({}),
+      }).prefault({}),
       // --- Contradiction / supersede gate (plan-living-memory-slice-2-temporal-model, P5-001) ---
       // When a new high-value memory (decision/correction) is written, find
       // semantically-related existing records and, if the new one contradicts an
@@ -175,7 +175,7 @@ var init_config_memory_schema = __esm({
         annotateSuperseded: z.boolean().default(false),
         // Time budget (ms) for the contradiction check; exceeded → fail-open (ADD).
         budgetMs: z.number().int().positive().default(800)
-      }).default({}),
+      }).prefault({}),
       // --- Background consolidation, the "sleep-time" pass
       //     (plan-living-memory-slice-3-consolidation) ---
       // Keeps memory sharp over years: dedupes, distills dying sessions into
@@ -221,7 +221,7 @@ var init_config_memory_schema = __esm({
         // Surface optional upgrades (e.g. "a local model was detected") in chat.
         suggestUpgrades: z.boolean().default(true),
         suggestIntervalDays: z.number().int().positive().default(30)
-      }).default({}),
+      }).prefault({}),
       // A-20 (Slice 4) — memory FILES: the mirror, and the one switch that decides whether
       // Massu may ever WRITE into the user's memory directory.
       //
@@ -246,7 +246,7 @@ var init_config_memory_schema = __esm({
         // turn of EVERY session, so an unbounded index is a permanent context tax — and the
         // per-session cap bounds only the RATE, never the total.
         indexMaxLines: z.number().int().min(1).default(50)
-      }).default({}),
+      }).prefault({}),
       // --- Cross-repo memory surfacing (plan-living-memory-slice-5-cross-repo-surfacing) ---
       // A decision made in one of your repos can surface in another — opt-in per
       // decision AND opt-in per repo, signed, verified, and materialized ONLY on
@@ -271,8 +271,8 @@ var init_config_memory_schema = __esm({
           enabled: z.boolean().default(true),
           maxCrossRepoItems: z.number().int().min(0).default(1),
           minScore: z.number().optional()
-        }).default({})
-      }).default({})
+        }).prefault({})
+      }).prefault({})
     }).optional();
   }
 });
@@ -609,24 +609,24 @@ var init_config = __esm({
         // behaviour anyone actually configured — measured: `fix-detector.ts:267` is the sole
         // consumer and no config file in the repo sets it.
         signals: z2.array(z2.string()).optional()
-      }).default({}),
+      }).prefault({}),
       failureClassification: z2.object({
         enabled: z2.boolean().default(true),
         thresholds: z2.object({
           known: z2.number().default(5),
           similar: z2.number().default(3)
-        }).default({}),
+        }).prefault({}),
         scoring: z2.object({
           diffPatternWeight: z2.number().default(3),
           filePatternWeight: z2.number().default(2),
           promptKeywordWeight: z2.number().default(2)
-        }).default({})
-      }).default({}),
+        }).prefault({})
+      }).prefault({}),
       pipeline: z2.object({
         requireIncidentReport: z2.boolean().default(true),
         requirePreventionRule: z2.boolean().default(true),
         requireEnforcement: z2.boolean().default(true)
-      }).default({}),
+      }).prefault({}),
       // plan-v0.2-interactive-rule-approval P-D-008 / P-D-009: project-configured
       // custom destinations for the rule-candidate funnel. The classifier matches
       // a candidate to one of these entries when none of the framework
@@ -659,7 +659,7 @@ var init_config = __esm({
         memory: z2.boolean().default(true),
         analytics: z2.boolean().default(true),
         audit: z2.boolean().default(true)
-      }).default({ memory: true, analytics: true, audit: true })
+      }).prefault({ memory: true, analytics: true, audit: true })
     }).optional();
     ConventionsConfigSchema = z2.object({
       claudeDirName: z2.string().default(".claude").refine(
@@ -832,14 +832,14 @@ var init_config = __esm({
       project: z2.object({
         name: z2.string().default("my-project"),
         root: z2.string().default("auto")
-      }).default({ name: "my-project", root: "auto" }),
-      framework: FrameworkConfigSchema.default({
+      }).prefault({ name: "my-project", root: "auto" }),
+      framework: FrameworkConfigSchema.prefault({
         type: "typescript",
         router: "none",
         orm: "none",
         ui: "none"
       }),
-      paths: PathsConfigSchema.default({ source: "src", aliases: { "@": "src" } }),
+      paths: PathsConfigSchema.prefault({ source: "src", aliases: { "@": "src" } }),
       toolPrefix: z2.string().default("massu"),
       dbAccessPattern: z2.string().optional(),
       knownMismatches: z2.record(z2.string(), z2.record(z2.string(), z2.string())).optional(),
@@ -4033,9 +4033,10 @@ var init_hook_failure_signal = __esm({
 // src/hooks/auto-learning-pipeline.ts
 init_config();
 import { execFileSync } from "child_process";
-import { existsSync as existsSync10, readFileSync as readFileSync7, unlinkSync as unlinkSync2, readdirSync as readdirSync2, statSync as statSync2 } from "fs";
+import { createHash } from "crypto";
+import { existsSync as existsSync10, readFileSync as readFileSync7, unlinkSync as unlinkSync2, readdirSync as readdirSync2, statSync as statSync2, writeFileSync as writeFileSync3, mkdirSync as mkdirSync7 } from "fs";
 import { tmpdir as tmpdir2 } from "os";
-import { join as join6 } from "path";
+import { join as join6, dirname as dirname8 } from "path";
 
 // src/hooks/lib/write-hook-message.ts
 var HOOK_EVENTS = [
@@ -4192,6 +4193,342 @@ function gitSafeEnv(extra = {}, source = process.env) {
   return e;
 }
 
+// src/hooks/lib/code-spans.ts
+import { extname } from "path";
+var DQ = { open: '"', close: '"', escapes: true, multiline: false };
+var SQ = { open: "'", close: "'", escapes: true, multiline: false };
+var C_COMMENTS = { lineComments: ["//"], blockComments: [["/*", "*/"]] };
+var JS = {
+  id: "js",
+  ...C_COMMENTS,
+  strings: [DQ, SQ, { open: "`", close: "`", escapes: true, multiline: true, interpolation: true }],
+  regexLiterals: true
+};
+var C = { id: "c", ...C_COMMENTS, strings: [DQ, SQ] };
+var GO = {
+  id: "go",
+  ...C_COMMENTS,
+  strings: [DQ, SQ, { open: "`", close: "`", escapes: false, multiline: true }]
+};
+var JVM = {
+  id: "jvm",
+  ...C_COMMENTS,
+  strings: [{ open: '"""', close: '"""', escapes: true, multiline: true }, DQ, SQ]
+};
+var SWIFT = {
+  id: "swift",
+  ...C_COMMENTS,
+  strings: [{ open: '"""', close: '"""', escapes: true, multiline: true }, DQ]
+};
+var RUST = {
+  id: "rust",
+  ...C_COMMENTS,
+  strings: [{ open: '"', close: '"', escapes: true, multiline: true }],
+  rustChars: true
+};
+var PYTHON = {
+  id: "python",
+  lineComments: ["#"],
+  blockComments: [],
+  strings: [
+    { open: '"""', close: '"""', escapes: true, multiline: true },
+    { open: "'''", close: "'''", escapes: true, multiline: true },
+    DQ,
+    SQ
+  ]
+};
+var SHELL = {
+  id: "shell",
+  lineComments: ["#"],
+  blockComments: [],
+  strings: [
+    { open: '"', close: '"', escapes: true, multiline: true },
+    { open: "'", close: "'", escapes: false, multiline: true }
+  ],
+  hashNeedsBoundary: true
+};
+var RUBY = {
+  id: "ruby",
+  lineComments: ["#"],
+  blockComments: [],
+  strings: [
+    { open: '"', close: '"', escapes: true, multiline: true },
+    { open: "'", close: "'", escapes: true, multiline: true }
+  ]
+};
+var LEX_SPECS = Object.freeze({
+  ".ts": JS,
+  ".tsx": JS,
+  ".mts": JS,
+  ".cts": JS,
+  ".js": JS,
+  ".jsx": JS,
+  ".mjs": JS,
+  ".cjs": JS,
+  ".c": C,
+  ".h": C,
+  ".cc": C,
+  ".cpp": C,
+  ".hpp": C,
+  ".cs": C,
+  ".dart": C,
+  ".m": C,
+  ".mm": C,
+  ".go": GO,
+  ".java": JVM,
+  ".kt": JVM,
+  ".kts": JVM,
+  ".scala": JVM,
+  ".groovy": JVM,
+  ".swift": SWIFT,
+  ".rs": RUST,
+  ".py": PYTHON,
+  ".pyi": PYTHON,
+  ".sh": SHELL,
+  ".bash": SHELL,
+  ".zsh": SHELL,
+  ".rb": RUBY
+});
+function lexSpecFor(path) {
+  const ext = extname(path).toLowerCase();
+  return Object.prototype.hasOwnProperty.call(LEX_SPECS, ext) ? LEX_SPECS[ext] : null;
+}
+var RUST_CHAR_RE = /^'(?:\\(?:u\{[0-9a-fA-F]{1,6}\}|x[0-9a-fA-F]{2}|.)|[^\\'\n])'/;
+var IDENT_CHAR_RE = /[A-Za-z0-9_$]/;
+var SHELL_WORD_BREAK = /* @__PURE__ */ new Set([" ", "	", ";", "|", "&", "(", ")"]);
+var REGEX_AFTER_KEYWORD = /* @__PURE__ */ new Set([
+  "return",
+  "typeof",
+  "case",
+  "in",
+  "of",
+  "delete",
+  "void",
+  "throw",
+  "new",
+  "yield",
+  "await",
+  "else",
+  "do"
+]);
+function regexLiteralLength(line, i, lastSig) {
+  if (lastSig === ")" || lastSig === "]") return 0;
+  if (lastSig !== "" && IDENT_CHAR_RE.test(lastSig)) {
+    const m = /([A-Za-z_$][A-Za-z0-9_$]*)\s*$/.exec(line.slice(0, i));
+    if (!m || !REGEX_AFTER_KEYWORD.has(m[1])) return 0;
+  }
+  let inClass = false;
+  for (let j = i + 1; j < line.length; j++) {
+    const ch = line[j];
+    if (ch === "\\") {
+      j++;
+      continue;
+    }
+    if (inClass) {
+      if (ch === "]") inClass = false;
+      continue;
+    }
+    if (ch === "[") {
+      inClass = true;
+      continue;
+    }
+    if (ch === "/") return j - i + 1;
+  }
+  return 0;
+}
+function projectLine(line, spec, st) {
+  const out = line.split("");
+  const blank = (from, len) => {
+    for (let k = from; k < from + len && k < out.length; k++) out[k] = " ";
+  };
+  let i = 0;
+  while (i < line.length) {
+    const mode = st.mode;
+    if (mode.kind === "block") {
+      if (line.startsWith(mode.close, i)) {
+        blank(i, mode.close.length);
+        i += mode.close.length;
+        st.mode = { kind: "code" };
+      } else {
+        blank(i, 1);
+        i++;
+      }
+      continue;
+    }
+    if (mode.kind === "string") {
+      const r = mode.rule;
+      if (r.escapes && line[i] === "\\") {
+        blank(i, 2);
+        i += 2;
+        continue;
+      }
+      if (r.interpolation && line.startsWith("${", i)) {
+        blank(i, 2);
+        i += 2;
+        st.holes.push(0);
+        st.mode = { kind: "code" };
+        st.lastSig = "";
+        continue;
+      }
+      if (line.startsWith(r.close, i)) {
+        blank(i, r.close.length);
+        i += r.close.length;
+        st.mode = { kind: "code" };
+        st.lastSig = '"';
+        continue;
+      }
+      blank(i, 1);
+      i++;
+      continue;
+    }
+    const ch = line[i];
+    if (st.holes.length > 0) {
+      const top = st.holes.length - 1;
+      if (ch === "{") st.holes[top]++;
+      else if (ch === "}") {
+        if (st.holes[top] === 0) {
+          st.holes.pop();
+          blank(i, 1);
+          i++;
+          st.mode = { kind: "string", rule: spec.strings.find((s) => s.interpolation) };
+          continue;
+        }
+        st.holes[top]--;
+      }
+    }
+    const lc = spec.lineComments.find((m) => line.startsWith(m, i));
+    if (lc && (!spec.hashNeedsBoundary || i === 0 || SHELL_WORD_BREAK.has(line[i - 1]))) {
+      blank(i, line.length - i);
+      break;
+    }
+    const bc = spec.blockComments.find(([open]) => line.startsWith(open, i));
+    if (bc) {
+      blank(i, bc[0].length);
+      i += bc[0].length;
+      st.mode = { kind: "block", close: bc[1] };
+      continue;
+    }
+    if (spec.rustChars && ch === "'") {
+      const m = RUST_CHAR_RE.exec(line.slice(i));
+      if (m) {
+        blank(i, m[0].length);
+        i += m[0].length;
+        st.lastSig = "'";
+        continue;
+      }
+      i++;
+      continue;
+    }
+    const sr = spec.strings.find((s) => line.startsWith(s.open, i));
+    if (sr) {
+      blank(i, sr.open.length);
+      i += sr.open.length;
+      st.mode = { kind: "string", rule: sr };
+      continue;
+    }
+    if (spec.regexLiterals && ch === "/") {
+      const len = regexLiteralLength(line, i, st.lastSig);
+      if (len > 0) {
+        blank(i, len);
+        i += len;
+        st.lastSig = "/";
+        continue;
+      }
+    }
+    if (ch !== " " && ch !== "	") st.lastSig = ch;
+    i++;
+  }
+  if (st.mode.kind === "string" && !st.mode.rule.multiline) st.mode = { kind: "code" };
+  return out.join("");
+}
+function projectCode(lines, spec) {
+  const st = { mode: { kind: "code" }, holes: [], lastSig: "" };
+  return lines.map((l) => projectLine(l, spec, st));
+}
+function unquoteGitPath(p) {
+  const s = p.startsWith('"') && p.endsWith('"') ? p.slice(1, -1) : p;
+  return s.startsWith("b/") ? s.slice(2) : s;
+}
+function diffCodeView(diff, opts = {}) {
+  const files = [];
+  let cur = null;
+  let hunk = null;
+  let newLine = 0;
+  let inHeader = false;
+  const startFile = (path) => {
+    const f = { path, hunks: [], removed: [] };
+    files.push(f);
+    return f;
+  };
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      cur = startFile("");
+      hunk = null;
+      inHeader = true;
+      continue;
+    }
+    if (inHeader && line.startsWith("+++ ")) {
+      const p = line.slice(4).trim();
+      if (cur) cur.path = p === "/dev/null" ? "" : unquoteGitPath(p);
+      continue;
+    }
+    if (inHeader && (line.startsWith("--- ") || !line.startsWith("@@"))) continue;
+    const hh = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (hh) {
+      inHeader = false;
+      if (!cur) cur = startFile("");
+      hunk = { newSide: [], addedAt: [] };
+      cur.hunks.push(hunk);
+      newLine = parseInt(hh[1], 10);
+      continue;
+    }
+    if (!cur) cur = startFile("");
+    if (!hunk) {
+      hunk = { newSide: [], addedAt: [] };
+      cur.hunks.push(hunk);
+      newLine = 1;
+    }
+    if (line.startsWith("+")) {
+      hunk.addedAt.push({ idx: hunk.newSide.length, lineNo: newLine });
+      hunk.newSide.push(line.slice(1));
+      newLine++;
+    } else if (line.startsWith("-")) {
+      cur.removed.push(line.slice(1));
+    } else if (line.startsWith(" ")) {
+      hunk.newSide.push(line.slice(1));
+      newLine++;
+    }
+  }
+  return files.map((f) => {
+    const spec = f.path ? lexSpecFor(f.path) : null;
+    const rawAdded = f.hunks.flatMap(
+      (h) => h.addedAt.map((a) => ({ lineNo: a.lineNo, raw: h.newSide[a.idx] }))
+    );
+    if (!spec) {
+      return { path: f.path, mode: "raw", added: rawAdded.map((a) => ({ ...a, code: a.raw })), removed: f.removed };
+    }
+    const text = opts.postImage ? opts.postImage(f.path) : null;
+    if (text !== null && text !== void 0) {
+      const post = text.split(/\r\n|\n|\r/);
+      if (rawAdded.every((a) => post[a.lineNo - 1] === a.raw)) {
+        const proj = projectCode(post, spec);
+        return {
+          path: f.path,
+          mode: "post-image",
+          added: rawAdded.map((a) => ({ ...a, code: proj[a.lineNo - 1] })),
+          removed: f.removed
+        };
+      }
+    }
+    const added = [];
+    for (const h of f.hunks) {
+      const proj = projectCode(h.newSide, spec);
+      for (const a of h.addedAt) added.push({ lineNo: a.lineNo, raw: h.newSide[a.idx], code: proj[a.idx] });
+    }
+    return { path: f.path, mode: "hunk", added, removed: f.removed };
+  });
+}
+
 // src/hooks/auto-learning-pipeline.ts
 var HOOK_EVENT = "Stop";
 var MAX_FULL_DIFF_BYTES = 2 * 1024 * 1024;
@@ -4215,6 +4552,27 @@ var REMOVED_BROKEN_RE = /^-.*\b(?:bug|broken|crash|wrong|incorrect|typo|fail|err
 function getSessionFlagPath(sessionId) {
   return join6(tmpdir2(), "massu-auto-learning", `fixes-${sessionId.slice(0, 12)}.jsonl`);
 }
+function getSessionAckPath(sessionId) {
+  return join6(tmpdir2(), "massu-auto-learning", `shown-${sessionId.slice(0, 12)}.json`);
+}
+function matchKey(file, side, line) {
+  return createHash("sha256").update(`${file}\0${side}\0${line}`).digest("hex").slice(0, 32);
+}
+function readShownKeys(ackPath) {
+  try {
+    const parsed = JSON.parse(readFileSync7(ackPath, "utf-8"));
+    return new Set(Array.isArray(parsed.shown) ? parsed.shown.filter((k) => typeof k === "string") : []);
+  } catch {
+    return /* @__PURE__ */ new Set();
+  }
+}
+function writeShownKeys(ackPath, keys) {
+  mkdirSync7(dirname8(ackPath), { recursive: true });
+  writeFileSync3(ackPath, JSON.stringify({ shown: [...keys].sort() }), "utf-8");
+}
+function freshMatches(matchKeys, shown) {
+  return [...new Set(matchKeys)].filter((k) => !shown.has(k));
+}
 var RECENT_INCIDENT_WINDOW_MS = 12 * 60 * 60 * 1e3;
 function recentIncidentFiles(dir, nowMs = Date.now()) {
   try {
@@ -4229,7 +4587,44 @@ function recentIncidentFiles(dir, nowMs = Date.now()) {
     return [];
   }
 }
+var MAX_POST_IMAGE_BYTES = MAX_FULL_DIFF_BYTES;
+function readPostImageFrom(root) {
+  return (rel) => {
+    try {
+      const abs = join6(root, rel);
+      if (statSync2(abs).size > MAX_POST_IMAGE_BYTES) return null;
+      return readFileSync7(abs, "utf-8");
+    } catch {
+      return null;
+    }
+  };
+}
+function scoreDiff(diff, postImage) {
+  const fixRe = new RegExp(FIX_PATTERN_RE.source);
+  const brokenRe = new RegExp(REMOVED_BROKEN_RE.source);
+  let fixPatterns = 0;
+  let removedBroken = 0;
+  const matchKeys = [];
+  const lexModes = {};
+  for (const view of diffCodeView(diff, { postImage })) {
+    lexModes[view.path] = view.mode;
+    for (const a of view.added) {
+      if (fixRe.test(`+${a.code}`)) {
+        fixPatterns++;
+        matchKeys.push(matchKey(view.path, "+", a.raw));
+      }
+    }
+    for (const r of view.removed) {
+      if (brokenRe.test(`-${r}`)) {
+        removedBroken++;
+        matchKeys.push(matchKey(view.path, "-", r));
+      }
+    }
+  }
+  return { fixPatterns, removedBroken, matchKeys, lexModes };
+}
 function scanUncommittedForFix(opts) {
+  const none = { fixPatterns: 0, removedBroken: 0, matchKeys: [], lexModes: {} };
   const git = opts.git ?? ((args, t, m) => execFileSync("git", [...args], {
     cwd: opts.root,
     // `cwd` does NOT scope git: GIT_DIR in the environment outranks it, and a leaked one
@@ -4242,39 +4637,39 @@ function scanUncommittedForFix(opts) {
     maxBuffer: m
   }));
   if (opts.sessionTouched === null) {
-    return { uncommittedFix: false, reason: "unattributable", filesScanned: 0 };
+    return { uncommittedFix: false, reason: "unattributable", filesScanned: 0, ...none };
   }
   if (opts.sessionTouched.size === 0) {
-    return { uncommittedFix: false, reason: "not-this-session", filesScanned: 0 };
+    return { uncommittedFix: false, reason: "not-this-session", filesScanned: 0, ...none };
   }
   try {
     const nameOnly = git(["diff", "--name-only", ...CODE_ONLY_PATHSPEC], 3e3, 1024 * 1024);
     const changed = nameOnly.split("\n").map((s) => s.trim()).filter(Boolean);
     if (changed.length === 0) {
-      return { uncommittedFix: false, reason: "no-changes", filesScanned: 0 };
+      return { uncommittedFix: false, reason: "no-changes", filesScanned: 0, ...none };
     }
     const mine = changed.filter((f) => opts.sessionTouched.has(f));
     if (mine.length === 0) {
-      return { uncommittedFix: false, reason: "not-this-session", filesScanned: 0 };
+      return { uncommittedFix: false, reason: "not-this-session", filesScanned: 0, ...none };
     }
     const scoped = mine.length <= MAX_SESSION_PATHSPEC_FILES ? ["--", ...mine, ...DOC_EXCLUDE_PATHSPEC] : [...CODE_ONLY_PATHSPEC];
     const shortstat = git(["diff", "--shortstat", ...scoped], 2e3, 64 * 1024);
     const insertions = parseInt(shortstat.match(/(\d+) insertion/)?.[1] ?? "0", 10);
     const deletions = parseInt(shortstat.match(/(\d+) deletion/)?.[1] ?? "0", 10);
     if ((insertions + deletions) * 80 > MAX_FULL_DIFF_BYTES) {
-      return { uncommittedFix: false, reason: "over-cap", filesScanned: mine.length };
+      return { uncommittedFix: false, reason: "over-cap", filesScanned: mine.length, ...none };
     }
     const fullDiff = git(["diff", ...scoped], 5e3, MAX_FULL_DIFF_BYTES);
-    const fixPatterns = (fullDiff.match(FIX_PATTERN_RE) || []).length;
-    const removedBroken = (fullDiff.match(REMOVED_BROKEN_RE) || []).length;
-    const hit = fixPatterns > 3 || removedBroken > 1;
+    const scored = scoreDiff(fullDiff, opts.postImage ?? readPostImageFrom(opts.root));
+    const hit = scored.fixPatterns > 3 || scored.removedBroken > 1;
     return {
       uncommittedFix: hit,
       reason: hit ? "fix-detected" : "no-signal",
-      filesScanned: mine.length
+      filesScanned: mine.length,
+      ...scored
     };
   } catch {
-    return { uncommittedFix: false, reason: "git-unavailable", filesScanned: 0 };
+    return { uncommittedFix: false, reason: "git-unavailable", filesScanned: 0, ...none };
   }
 }
 function formatFixSummary(sessionFixes) {
@@ -4316,14 +4711,29 @@ async function main() {
       } catch {
       }
     }
-    const uncommittedFix = scanUncommittedForFix({
+    const scan = scanUncommittedForFix({
       root,
       sessionTouched: sessionTouchedFiles({
         root,
         transcriptPath: hookInput.transcript_path,
         flagPath
       })
-    }).uncommittedFix;
+    });
+    const ackPath = getSessionAckPath(hookInput.session_id);
+    const shown = readShownKeys(ackPath);
+    const fresh = scan.uncommittedFix ? freshMatches(scan.matchKeys, shown) : [];
+    const uncommittedFix = fresh.length > 0;
+    if (scan.uncommittedFix) {
+      try {
+        writeShownKeys(ackPath, /* @__PURE__ */ new Set([...shown, ...scan.matchKeys]));
+      } catch {
+      }
+    }
+    const modes = Object.entries(scan.lexModes);
+    const rawFallback = modes.filter(([, m]) => m === "raw").map(([f]) => f || "<headerless>");
+    process.stderr.write(
+      `[massu auto-learning] scan reason=${scan.reason} files=${scan.filesScanned} fixPatterns=${scan.fixPatterns} removedBroken=${scan.removedBroken} lexed=${modes.length - rawFallback.length}/${modes.length}` + (rawFallback.length ? ` raw-fallback=[${rawFallback.join(", ")}]` : "") + (scan.uncommittedFix ? ` new-lines=${fresh.length} (${fresh.length === 0 ? "already shown \u2014 silent" : "notice"})` : "") + "\n"
+    );
     if (sessionFixes.length === 0 && !uncommittedFix) {
       cleanup(flagPath);
       process.exit(0);
@@ -4424,10 +4834,17 @@ export {
   DOC_EXCLUDE_PATHSPEC,
   FIX_PATTERN_RE,
   MAX_FULL_DIFF_BYTES,
+  MAX_POST_IMAGE_BYTES,
   MAX_SESSION_PATHSPEC_FILES,
   RECENT_INCIDENT_WINDOW_MS,
   REMOVED_BROKEN_RE,
   formatFixSummary,
+  freshMatches,
+  getSessionAckPath,
+  matchKey,
+  readShownKeys,
   recentIncidentFiles,
-  scanUncommittedForFix
+  scanUncommittedForFix,
+  scoreDiff,
+  writeShownKeys
 };

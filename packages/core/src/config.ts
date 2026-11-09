@@ -204,24 +204,24 @@ export const AutoLearningConfigSchema = z.object({
     // behaviour anyone actually configured — measured: `fix-detector.ts:267` is the sole
     // consumer and no config file in the repo sets it.
     signals: z.array(z.string()).optional(),
-  }).default({}),
+  }).prefault({}),
   failureClassification: z.object({
     enabled: z.boolean().default(true),
     thresholds: z.object({
       known: z.number().default(5),
       similar: z.number().default(3),
-    }).default({}),
+    }).prefault({}),
     scoring: z.object({
       diffPatternWeight: z.number().default(3),
       filePatternWeight: z.number().default(2),
       promptKeywordWeight: z.number().default(2),
-    }).default({}),
-  }).default({}),
+    }).prefault({}),
+  }).prefault({}),
   pipeline: z.object({
     requireIncidentReport: z.boolean().default(true),
     requirePreventionRule: z.boolean().default(true),
     requireEnforcement: z.boolean().default(true),
-  }).default({}),
+  }).prefault({}),
   // plan-v0.2-interactive-rule-approval P-D-008 / P-D-009: project-configured
   // custom destinations for the rule-candidate funnel. The classifier matches
   // a candidate to one of these entries when none of the framework
@@ -257,7 +257,7 @@ const CloudConfigSchema = z.object({
     memory: z.boolean().default(true),
     analytics: z.boolean().default(true),
     audit: z.boolean().default(true),
-  }).default({ memory: true, analytics: true, audit: true }),
+  }).prefault({ memory: true, analytics: true, audit: true }),
 }).optional();
 export type CloudConfig = z.infer<typeof CloudConfigSchema>;
 
@@ -541,14 +541,14 @@ export const RawConfigSchema = z.object({
   project: z.object({
     name: z.string().default('my-project'),
     root: z.string().default('auto'),
-  }).default({ name: 'my-project', root: 'auto' }),
-  framework: FrameworkConfigSchema.default({
+  }).prefault({ name: 'my-project', root: 'auto' }),
+  framework: FrameworkConfigSchema.prefault({
     type: 'typescript',
     router: 'none',
     orm: 'none',
     ui: 'none',
   }),
-  paths: PathsConfigSchema.default({ source: 'src', aliases: { '@': 'src' } }),
+  paths: PathsConfigSchema.prefault({ source: 'src', aliases: { '@': 'src' } }),
   toolPrefix: z.string().default('massu'),
   dbAccessPattern: z.string().optional(),
   knownMismatches: z.record(z.string(), z.record(z.string(), z.string())).optional(),

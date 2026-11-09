@@ -126,7 +126,7 @@ d('phase B — version-stable launcher shim', () => {
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
-  }, 180_000);
+  });
 
   it('(e) CAN-FAIL PROOF: a shim whose npx fallback is removed FAILS the same case', () => {
     // Mutate the body: drop the npx branch. If (d) still passed with this mutant, (d) would
@@ -148,12 +148,12 @@ d('phase B — version-stable launcher shim', () => {
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
-  }, 60_000);
+  });
 
   it('(f) exit-code fidelity: a failing subcommand propagates a non-zero status', () => {
     const r = runShim(massuShimPath(SANDBOX_HOME), ['2.4.0', 'definitely-not-a-subcommand'], process.env.HOME ?? '');
     expect(r.status).not.toBe(0);
-  }, 120_000);
+  });
 
   it('(g) idempotent: reinstalling is a no-op that still verifies', () => {
     expect(installMassuShim(SANDBOX_HOME)).toBe(true);

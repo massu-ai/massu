@@ -3,7 +3,9 @@
 # live-fire-auto-learning-session-scope.sh — attack the REAL guards in the REAL tree (CR-72).
 #
 # The auto-learning fix detector reached occurrence #3 of one shape: it judged input it had
-# no business judging. This plants all three defects back into the real source and demands
+# no business judging. Occurrence #4 (2026-11-08) added two more: keywords inside quoted text
+# scored as fixes, and a notice that re-fired on identical bytes every Stop. This plants every
+# one of those defects back into the real source and demands
 # the real checker go RED **for that defect's own declared reason**. A RED for the wrong
 # reason proves nothing about the check that was supposed to fire.
 #
@@ -38,11 +40,13 @@ SPECS=(
   "src/__tests__/auto-learning-session-scoped-diff.test.ts"
   "src/__tests__/auto-learning-prose-vs-code.test.ts"
   "src/__tests__/auto-learning-bounded-diff.test.ts"
+  "src/__tests__/auto-learning-quoted-text-and-repeat.test.ts"
 )
 
 # Files this run mutates. Snapshotted before anything else happens.
 TARGETS=(
   "packages/core/src/hooks/auto-learning-pipeline.ts"
+  "packages/core/src/hooks/fix-detector.ts"
 )
 
 for f in "${TARGETS[@]}"; do
@@ -133,6 +137,30 @@ add_plant \
   "      false" \
   "DEFECT 3: the fixDetection switch stops reaching this hook" \
   "fixDetection.enabled gates BOTH branches"
+
+# ── Occurrence #4 (2026-11-08): keywords inside quoted text, and a notice with no memory. ──
+# Single-quoted on purpose: these originals contain backticks and `${…}`, which a double-
+# quoted bash string would execute or expand before the oracle ever saw them.
+add_plant \
+  "packages/core/src/hooks/auto-learning-pipeline.ts" \
+  '      if (fixRe.test(`+${a.code}`)) {' \
+  '      if (fixRe.test(`+${a.raw}`)) {' \
+  "DEFECT 4: added lines are scored on raw text again — quoted slide copy counts as a fix" \
+  "FIXTURE A: four added lines whose only keyword is quoted"
+
+add_plant \
+  "packages/core/src/hooks/fix-detector.ts" \
+  '        for (const a of view.added) if (re.test(`+${a.code}`)) added++;' \
+  '        for (const a of view.added) if (re.test(`+${a.raw}`)) added++;' \
+  "DEFECT 4b: the per-edit detector scores raw text again" \
+  "the per-edit detector shares the lexer"
+
+add_plant \
+  "packages/core/src/hooks/auto-learning-pipeline.ts" \
+  "    const uncommittedFix = fresh.length > 0;" \
+  "    const uncommittedFix = scan.uncommittedFix;" \
+  "DEFECT 5: the acknowledgement is ignored — identical bytes re-fire on every Stop" \
+  "fires once on identical bytes"
 
 # A plant into a file that is NOT snapshotted would be LEFT IN THE TREE by the restore loop,
 # because restore_all only walks TARGETS. That is a live weapon pointed at the working copy,
@@ -276,7 +304,10 @@ if ! ( cd "$REPO_ROOT/$CORE" && npm run build:hooks ) > "$SCRATCH/rebuild.log" 2
   exit 2
 fi
 # Assert the artifact carries the restored behaviour, not the last plant's.
-if ! grep -q "fixDetection" "$REPO_ROOT/$CORE/dist/hooks/auto-learning-pipeline.js"; then
+# One marker per restored behaviour that a plant could leave behind in dist/.
+if ! grep -q "fixDetection" "$REPO_ROOT/$CORE/dist/hooks/auto-learning-pipeline.js" \
+  || ! grep -qF "const uncommittedFix = fresh.length > 0;" "$REPO_ROOT/$CORE/dist/hooks/auto-learning-pipeline.js" \
+  || ! grep -qF 'fixRe.test(`+${a.code}`)' "$REPO_ROOT/$CORE/dist/hooks/auto-learning-pipeline.js"; then
   echo "${RED}FATAL${NC}: rebuilt bundle does not contain the restored gate — dist is stale or poisoned." >&2
   exit 2
 fi

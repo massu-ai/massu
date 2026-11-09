@@ -138,7 +138,7 @@ describe('watch/daemon real-chokidar end-to-end', () => {
     ).toBeGreaterThan(baseline);
 
     await handle.stop();
-  }, 20_000);
+  });
 
   it('never lets the canary refresh the project on its own heartbeat', async () => {
     // The canary writes a sentinel every tick. If those writes reached the
@@ -199,7 +199,7 @@ describe('watch/daemon real-chokidar end-to-end', () => {
     ).toBe(baseline);
 
     await handle.stop();
-  }, 15_000);
+  });
 
   it('does not arm the canary from the `ready` handler — the first arm is a TICK later', async () => {
     // THE DEFECT THIS PINS. Arming from inside `ready` wrote a sentinel the watcher
@@ -258,7 +258,7 @@ describe('watch/daemon real-chokidar end-to-end', () => {
         'is written before the directory watch is effective, so it is never echoed and ' +
         'the daemon convicts a live watcher (measured on Linux/inotify).',
     ).toBe(false);
-  }, 20_000);
+  });
 
   it('excludes directory events from the stack-relevant set', () => {
     // An allowlist, asserted explicitly so widening it is a deliberate edit
@@ -341,7 +341,7 @@ describe('watch/daemon real-chokidar end-to-end', () => {
     ).toBe(baseline);
 
     await handle.stop();
-  }, 30_000);
+  });
 
   it('stop() cleanly closes the real chokidar watcher', async () => {
     const handle = await startDaemon(dir, {
@@ -350,5 +350,5 @@ describe('watch/daemon real-chokidar end-to-end', () => {
     await new Promise<void>((r) => setTimeout(r, 200));
     // No assertion beyond "doesn't throw or hang".
     await handle.stop();
-  }, 5_000);
+  });
 });

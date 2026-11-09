@@ -104,7 +104,6 @@ describe('P5-003: native-dependency drift-guard (embedder)', () => {
         [],
       );
     },
-    30_000,
   );
 
   it('ships no compiled *.node addon in the built dist/', () => {

@@ -17,9 +17,10 @@
 // ============================================================
 
 import { execFileSync } from 'child_process';
-import { existsSync, readFileSync, unlinkSync, readdirSync, statSync } from 'fs';
+import { createHash } from 'crypto';
+import { existsSync, readFileSync, unlinkSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
 import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
 
@@ -31,6 +32,7 @@ import { recordHookFailure } from './lib/hook-failure-signal.ts';
 import { isDirectInvocation } from './lib/is-direct-invocation.ts';
 import { sessionTouchedFiles } from './lib/session-touched-files.ts';
 import { gitSafeEnv } from './lib/git-safe-env.ts';
+import { diffCodeView, type DiffFileView } from './lib/code-spans.ts';
 
 // P-H002 (plan-stage-c-high-batch): bound git-diff reads so monorepos with
 // 10MB+ working trees don't trigger Stop-hook timeout. Short-stat first,
@@ -79,7 +81,14 @@ export const CODE_ONLY_PATHSPEC = ['--', '.', ...DOC_EXCLUDE_PATHSPEC] as const;
 export const MAX_SESSION_PATHSPEC_FILES = 500;
 
 /**
- * A fix-shaped ADDED line. WORD-BOUNDARIED on purpose: the unbounded form matched `try`
+ * A fix-shaped ADDED line. Matched against the line's CODE PROJECTION
+ * ({@link diffCodeView}), never its raw text: a keyword inside a string literal or a comment
+ * is not a fix. Measured 2026-11-08 — the one file that fired this hook in another repository
+ * was a slide-deck builder, and two of its four hits were slide copy inside Python strings
+ * (`"The catch"`, `"Every app kept its own copy"`). The other two were real `raise` lines and
+ * still count.
+ *
+ * WORD-BOUNDARIED on purpose: the unbounded form matched `try`
  * inside `retry`/`entry`/`country` and `throw` inside "the throw", so ordinary English
  * scored as code. Measured 2026-08-11 on a documentation-only diff: 8 matches, 0 code files.
  */
@@ -104,6 +113,54 @@ interface FixSignal {
 
 function getSessionFlagPath(sessionId: string): string {
   return join(tmpdir(), 'massu-auto-learning', `fixes-${sessionId.slice(0, 12)}.jsonl`);
+}
+
+/**
+ * Where this session records which uncommitted fix lines it has ALREADY been shown.
+ *
+ * A separate file from the flag file on purpose: `cleanup()` deletes the flag file after
+ * every warning, so any "already shown" record kept there would be destroyed by the very
+ * warning it records. This file is removed only by the >24h age sweep, and it is rewritten
+ * on every Stop that consults it, so it expires only after a day with no Stop at all.
+ */
+export function getSessionAckPath(sessionId: string): string {
+  return join(tmpdir(), 'massu-auto-learning', `shown-${sessionId.slice(0, 12)}.json`);
+}
+
+/**
+ * One matched line's identity: file + side + exact content. NOT a line number (an edit above
+ * it would shift the number and re-fire on unchanged bytes) and NOT an mtime (G15: a time
+ * says something happened, never who did it or what).
+ */
+export function matchKey(file: string, side: '+' | '-', line: string): string {
+  return createHash('sha256').update(`${file}\0${side}\0${line}`).digest('hex').slice(0, 32);
+}
+
+/** The keys this session has been shown. A missing or unreadable record is the empty set. */
+export function readShownKeys(ackPath: string): Set<string> {
+  try {
+    const parsed = JSON.parse(readFileSync(ackPath, 'utf-8')) as { shown?: unknown };
+    return new Set(Array.isArray(parsed.shown) ? parsed.shown.filter((k): k is string => typeof k === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function writeShownKeys(ackPath: string, keys: ReadonlySet<string>): void {
+  mkdirSync(dirname(ackPath), { recursive: true });
+  writeFileSync(ackPath, JSON.stringify({ shown: [...keys].sort() }), 'utf-8');
+}
+
+/**
+ * Should the uncommitted-fix part of the notice be shown, given what this session has seen?
+ *
+ * Only a matched line this session has NOT been shown re-opens the notice. A shrinking set
+ * (a false positive deleted, a fix committed) is not news, and neither are identical bytes.
+ * Claude Code's `stop_hook_active` does not cover this: it marks a Stop re-entered because a
+ * hook BLOCKED, and this hook adds context and exits 0.
+ */
+export function freshMatches(matchKeys: readonly string[], shown: ReadonlySet<string>): string[] {
+  return [...new Set(matchKeys)].filter((k) => !shown.has(k));
 }
 
 /** How recently an incident must have been written to count as "this session's work". */
@@ -143,6 +200,69 @@ export interface UncommittedScanResult {
   reason: 'no-changes' | 'not-this-session' | 'unattributable' | 'over-cap' | 'no-signal' | 'fix-detected' | 'git-unavailable';
   /** Files actually scanned. The DENOMINATOR: a 0 here with a `false` verdict is a skip, not a clean bill. */
   filesScanned: number;
+  /** Added lines whose CODE matched {@link FIX_PATTERN_RE}. */
+  fixPatterns: number;
+  /** Removed lines matching {@link REMOVED_BROKEN_RE}. */
+  removedBroken: number;
+  /** {@link matchKey} of every matched line — what the acknowledgement state is compared against. */
+  matchKeys: string[];
+  /** How each scanned file's added lines were classified. `raw` = no lexer, judged as before. */
+  lexModes: Record<string, DiffFileView['mode']>;
+}
+
+/** Above this size a post-image is not read; the hunk-local lexer is used instead. */
+export const MAX_POST_IMAGE_BYTES = MAX_FULL_DIFF_BYTES;
+
+/** Injectable so the post-image read can be attacked. Returns `null` when unreadable. */
+export type PostImageReader = (relPath: string) => string | null;
+
+function readPostImageFrom(root: string): PostImageReader {
+  return (rel) => {
+    try {
+      const abs = join(root, rel);
+      if (statSync(abs).size > MAX_POST_IMAGE_BYTES) return null;
+      return readFileSync(abs, 'utf-8');
+    } catch {
+      return null;
+    }
+  };
+}
+
+/**
+ * Score a unified diff. Pure: no git, no filesystem beyond the injected post-image reader.
+ *
+ * Added lines are scored on their CODE projection; removed lines on their raw text (a
+ * deleted string such as `"bug fix(es)"` can BE the defect, so blanking literals there would
+ * hide a true positive). Diff headers are parsed, not scored — `--- a/src/error.ts` used to
+ * count as a removed "error" line.
+ */
+export function scoreDiff(
+  diff: string,
+  postImage?: PostImageReader,
+): Pick<UncommittedScanResult, 'fixPatterns' | 'removedBroken' | 'matchKeys' | 'lexModes'> {
+  const fixRe = new RegExp(FIX_PATTERN_RE.source);
+  const brokenRe = new RegExp(REMOVED_BROKEN_RE.source);
+  let fixPatterns = 0;
+  let removedBroken = 0;
+  const matchKeys: string[] = [];
+  const lexModes: Record<string, DiffFileView['mode']> = {};
+
+  for (const view of diffCodeView(diff, { postImage })) {
+    lexModes[view.path] = view.mode;
+    for (const a of view.added) {
+      if (fixRe.test(`+${a.code}`)) {
+        fixPatterns++;
+        matchKeys.push(matchKey(view.path, '+', a.raw));
+      }
+    }
+    for (const r of view.removed) {
+      if (brokenRe.test(`-${r}`)) {
+        removedBroken++;
+        matchKeys.push(matchKey(view.path, '-', r));
+      }
+    }
+  }
+  return { fixPatterns, removedBroken, matchKeys, lexModes };
 }
 
 /**
@@ -164,7 +284,9 @@ export function scanUncommittedForFix(opts: {
   root: string;
   sessionTouched: ReadonlySet<string> | null;
   git?: GitRunner;
+  postImage?: PostImageReader;
 }): UncommittedScanResult {
+  const none = { fixPatterns: 0, removedBroken: 0, matchKeys: [], lexModes: {} };
   const git = opts.git ?? ((args, t, m) =>
     execFileSync('git', [...args], {
       cwd: opts.root,
@@ -180,23 +302,23 @@ export function scanUncommittedForFix(opts: {
 
   // Property 3: no actor, no demand.
   if (opts.sessionTouched === null) {
-    return { uncommittedFix: false, reason: 'unattributable', filesScanned: 0 };
+    return { uncommittedFix: false, reason: 'unattributable', filesScanned: 0, ...none };
   }
   if (opts.sessionTouched.size === 0) {
-    return { uncommittedFix: false, reason: 'not-this-session', filesScanned: 0 };
+    return { uncommittedFix: false, reason: 'not-this-session', filesScanned: 0, ...none };
   }
 
   try {
     const nameOnly = git(['diff', '--name-only', ...CODE_ONLY_PATHSPEC], 3000, 1024 * 1024);
     const changed = nameOnly.split('\n').map(s => s.trim()).filter(Boolean);
     if (changed.length === 0) {
-      return { uncommittedFix: false, reason: 'no-changes', filesScanned: 0 };
+      return { uncommittedFix: false, reason: 'no-changes', filesScanned: 0, ...none };
     }
 
     // Property 2: intersect with the actor's own files.
     const mine = changed.filter(f => opts.sessionTouched!.has(f));
     if (mine.length === 0) {
-      return { uncommittedFix: false, reason: 'not-this-session', filesScanned: 0 };
+      return { uncommittedFix: false, reason: 'not-this-session', filesScanned: 0, ...none };
     }
 
     // Property 1 + 2: the body read carries BOTH the doc exclusion and the session scope.
@@ -209,20 +331,20 @@ export function scanUncommittedForFix(opts: {
     const deletions = parseInt(shortstat.match(/(\d+) deletion/)?.[1] ?? '0', 10);
     if ((insertions + deletions) * 80 > MAX_FULL_DIFF_BYTES) {
       // Skip the body rather than risk a Stop-hook timeout. Reported, not silent.
-      return { uncommittedFix: false, reason: 'over-cap', filesScanned: mine.length };
+      return { uncommittedFix: false, reason: 'over-cap', filesScanned: mine.length, ...none };
     }
 
     const fullDiff = git(['diff', ...scoped], 5000, MAX_FULL_DIFF_BYTES);
-    const fixPatterns = (fullDiff.match(FIX_PATTERN_RE) || []).length;
-    const removedBroken = (fullDiff.match(REMOVED_BROKEN_RE) || []).length;
-    const hit = fixPatterns > 3 || removedBroken > 1;
+    const scored = scoreDiff(fullDiff, opts.postImage ?? readPostImageFrom(opts.root));
+    const hit = scored.fixPatterns > 3 || scored.removedBroken > 1;
     return {
       uncommittedFix: hit,
       reason: hit ? 'fix-detected' : 'no-signal',
       filesScanned: mine.length,
+      ...scored,
     };
   } catch {
-    return { uncommittedFix: false, reason: 'git-unavailable', filesScanned: 0 };
+    return { uncommittedFix: false, reason: 'git-unavailable', filesScanned: 0, ...none };
   }
 }
 
@@ -323,14 +445,42 @@ async function main(): Promise<void> {
     // incident write-up and the `a-scanner-that-reads-prose-as-code` memory carry the detail.
     // Deliberately no internal doc PATH here: this file syncs to the PUBLIC repo, where an
     // internal incident-doc citation both leaks a filename and resolves to nothing.
-    const uncommittedFix = scanUncommittedForFix({
+    const scan = scanUncommittedForFix({
       root,
       sessionTouched: sessionTouchedFiles({
         root,
         transcriptPath: hookInput.transcript_path,
         flagPath,
       }),
-    }).uncommittedFix;
+    });
+
+    // ACKNOWLEDGEMENT (2026-11-08). The scan re-reads the working tree on every Stop, so
+    // until this existed the identical block re-fired after EVERY reply for as long as the
+    // bytes stayed uncommitted — measured for hours on a false positive in another repo.
+    // The uncommitted half now speaks only when a matched line appears that this session
+    // has not yet been shown. Per-edit `sessionFixes` need no such state: their flag file is
+    // consumed by each warning, so anything in it is new by construction.
+    const ackPath = getSessionAckPath(hookInput.session_id);
+    const shown = readShownKeys(ackPath);
+    const fresh = scan.uncommittedFix ? freshMatches(scan.matchKeys, shown) : [];
+    const uncommittedFix = fresh.length > 0;
+    if (scan.uncommittedFix) {
+      // Rewritten even when silent, so the >24h age sweep only removes a dead session's record.
+      try { writeShownKeys(ackPath, new Set([...shown, ...scan.matchKeys])); } catch { /* best effort */ }
+    }
+
+    // Debug channel (stderr; Claude Code shows it in its debug log, never as context). The
+    // DENOMINATOR and the lexer's coverage are printed so a silent Stop is never unexplained.
+    const modes = Object.entries(scan.lexModes);
+    const rawFallback = modes.filter(([, m]) => m === 'raw').map(([f]) => f || '<headerless>');
+    process.stderr.write(
+      `[massu auto-learning] scan reason=${scan.reason} files=${scan.filesScanned} ` +
+        `fixPatterns=${scan.fixPatterns} removedBroken=${scan.removedBroken} ` +
+        `lexed=${modes.length - rawFallback.length}/${modes.length}` +
+        (rawFallback.length ? ` raw-fallback=[${rawFallback.join(', ')}]` : '') +
+        (scan.uncommittedFix ? ` new-lines=${fresh.length} (${fresh.length === 0 ? 'already shown — silent' : 'notice'})` : '') +
+        '\n',
+    );
 
     if (sessionFixes.length === 0 && !uncommittedFix) {
       // Clean up flag file

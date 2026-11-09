@@ -45,7 +45,7 @@ export const MemoryConfigSchema = z.object({
       })
       .optional(),
     embedModel: z.string().min(1).optional(),
-  }).default({}),
+  }).prefault({}),
   // --- Contradiction / supersede gate (plan-living-memory-slice-2-temporal-model, P5-001) ---
   // When a new high-value memory (decision/correction) is written, find
   // semantically-related existing records and, if the new one contradicts an
@@ -80,7 +80,7 @@ export const MemoryConfigSchema = z.object({
     annotateSuperseded: z.boolean().default(false),
     // Time budget (ms) for the contradiction check; exceeded → fail-open (ADD).
     budgetMs: z.number().int().positive().default(800),
-  }).default({}),
+  }).prefault({}),
 
   // --- Background consolidation, the "sleep-time" pass
   //     (plan-living-memory-slice-3-consolidation) ---
@@ -133,7 +133,7 @@ export const MemoryConfigSchema = z.object({
     // Surface optional upgrades (e.g. "a local model was detected") in chat.
     suggestUpgrades: z.boolean().default(true),
     suggestIntervalDays: z.number().int().positive().default(30),
-  }).default({}),
+  }).prefault({}),
 
   // A-20 (Slice 4) — memory FILES: the mirror, and the one switch that decides whether
   // Massu may ever WRITE into the user's memory directory.
@@ -159,7 +159,7 @@ export const MemoryConfigSchema = z.object({
     // turn of EVERY session, so an unbounded index is a permanent context tax — and the
     // per-session cap bounds only the RATE, never the total.
     indexMaxLines: z.number().int().min(1).default(50),
-  }).default({}),
+  }).prefault({}),
 
   // --- Cross-repo memory surfacing (plan-living-memory-slice-5-cross-repo-surfacing) ---
   // A decision made in one of your repos can surface in another — opt-in per
@@ -185,6 +185,6 @@ export const MemoryConfigSchema = z.object({
       enabled: z.boolean().default(true),
       maxCrossRepoItems: z.number().int().min(0).default(1),
       minScore: z.number().optional(),
-    }).default({}),
-  }).default({}),
+    }).prefault({}),
+  }).prefault({}),
 }).optional();

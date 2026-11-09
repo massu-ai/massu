@@ -130,7 +130,7 @@ describe('detection paths — each must FIRE', () => {
     // Totals and details must agree, or a counted-but-unprinted failure is hiding.
     expect(parsed + failures.length).toBe(tracked.length);
     expect(failures, `parser failed on ${failures.length} of ${tracked.length} tracked shell files:\n${failures.join('\n')}`).toEqual([]);
-  }, 120_000);
+  });
 
   it('an UNRESOLVABLE path is REPORTED, never dropped', async () => {
     const { root, rel } = fixture('source "$SOME_UNKNOWN_DIR/mystery.sh"\n');

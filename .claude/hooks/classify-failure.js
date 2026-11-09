@@ -152,7 +152,7 @@ var init_config_memory_schema = __esm({
           message: "memory.recall.embedEndpoint must be an http(s) URL"
         }).optional(),
         embedModel: z.string().min(1).optional()
-      }).default({}),
+      }).prefault({}),
       // --- Contradiction / supersede gate (plan-living-memory-slice-2-temporal-model, P5-001) ---
       // When a new high-value memory (decision/correction) is written, find
       // semantically-related existing records and, if the new one contradicts an
@@ -181,7 +181,7 @@ var init_config_memory_schema = __esm({
         annotateSuperseded: z.boolean().default(false),
         // Time budget (ms) for the contradiction check; exceeded → fail-open (ADD).
         budgetMs: z.number().int().positive().default(800)
-      }).default({}),
+      }).prefault({}),
       // --- Background consolidation, the "sleep-time" pass
       //     (plan-living-memory-slice-3-consolidation) ---
       // Keeps memory sharp over years: dedupes, distills dying sessions into
@@ -227,7 +227,7 @@ var init_config_memory_schema = __esm({
         // Surface optional upgrades (e.g. "a local model was detected") in chat.
         suggestUpgrades: z.boolean().default(true),
         suggestIntervalDays: z.number().int().positive().default(30)
-      }).default({}),
+      }).prefault({}),
       // A-20 (Slice 4) — memory FILES: the mirror, and the one switch that decides whether
       // Massu may ever WRITE into the user's memory directory.
       //
@@ -252,7 +252,7 @@ var init_config_memory_schema = __esm({
         // turn of EVERY session, so an unbounded index is a permanent context tax — and the
         // per-session cap bounds only the RATE, never the total.
         indexMaxLines: z.number().int().min(1).default(50)
-      }).default({}),
+      }).prefault({}),
       // --- Cross-repo memory surfacing (plan-living-memory-slice-5-cross-repo-surfacing) ---
       // A decision made in one of your repos can surface in another — opt-in per
       // decision AND opt-in per repo, signed, verified, and materialized ONLY on
@@ -277,8 +277,8 @@ var init_config_memory_schema = __esm({
           enabled: z.boolean().default(true),
           maxCrossRepoItems: z.number().int().min(0).default(1),
           minScore: z.number().optional()
-        }).default({})
-      }).default({})
+        }).prefault({})
+      }).prefault({})
     }).optional();
   }
 });
@@ -615,24 +615,24 @@ var init_config = __esm({
         // behaviour anyone actually configured — measured: `fix-detector.ts:267` is the sole
         // consumer and no config file in the repo sets it.
         signals: z2.array(z2.string()).optional()
-      }).default({}),
+      }).prefault({}),
       failureClassification: z2.object({
         enabled: z2.boolean().default(true),
         thresholds: z2.object({
           known: z2.number().default(5),
           similar: z2.number().default(3)
-        }).default({}),
+        }).prefault({}),
         scoring: z2.object({
           diffPatternWeight: z2.number().default(3),
           filePatternWeight: z2.number().default(2),
           promptKeywordWeight: z2.number().default(2)
-        }).default({})
-      }).default({}),
+        }).prefault({})
+      }).prefault({}),
       pipeline: z2.object({
         requireIncidentReport: z2.boolean().default(true),
         requirePreventionRule: z2.boolean().default(true),
         requireEnforcement: z2.boolean().default(true)
-      }).default({}),
+      }).prefault({}),
       // plan-v0.2-interactive-rule-approval P-D-008 / P-D-009: project-configured
       // custom destinations for the rule-candidate funnel. The classifier matches
       // a candidate to one of these entries when none of the framework
@@ -665,7 +665,7 @@ var init_config = __esm({
         memory: z2.boolean().default(true),
         analytics: z2.boolean().default(true),
         audit: z2.boolean().default(true)
-      }).default({ memory: true, analytics: true, audit: true })
+      }).prefault({ memory: true, analytics: true, audit: true })
     }).optional();
     ConventionsConfigSchema = z2.object({
       claudeDirName: z2.string().default(".claude").refine(
@@ -838,14 +838,14 @@ var init_config = __esm({
       project: z2.object({
         name: z2.string().default("my-project"),
         root: z2.string().default("auto")
-      }).default({ name: "my-project", root: "auto" }),
-      framework: FrameworkConfigSchema.default({
+      }).prefault({ name: "my-project", root: "auto" }),
+      framework: FrameworkConfigSchema.prefault({
         type: "typescript",
         router: "none",
         orm: "none",
         ui: "none"
       }),
-      paths: PathsConfigSchema.default({ source: "src", aliases: { "@": "src" } }),
+      paths: PathsConfigSchema.prefault({ source: "src", aliases: { "@": "src" } }),
       toolPrefix: z2.string().default("massu"),
       dbAccessPattern: z2.string().optional(),
       knownMismatches: z2.record(z2.string(), z2.record(z2.string(), z2.string())).optional(),
@@ -4050,6 +4050,342 @@ import { existsSync as existsSync9, appendFileSync as appendFileSync3, mkdirSync
 import { tmpdir as tmpdir2 } from "os";
 import { join as join6 } from "path";
 
+// src/hooks/lib/code-spans.ts
+import { extname } from "path";
+var DQ = { open: '"', close: '"', escapes: true, multiline: false };
+var SQ = { open: "'", close: "'", escapes: true, multiline: false };
+var C_COMMENTS = { lineComments: ["//"], blockComments: [["/*", "*/"]] };
+var JS = {
+  id: "js",
+  ...C_COMMENTS,
+  strings: [DQ, SQ, { open: "`", close: "`", escapes: true, multiline: true, interpolation: true }],
+  regexLiterals: true
+};
+var C = { id: "c", ...C_COMMENTS, strings: [DQ, SQ] };
+var GO = {
+  id: "go",
+  ...C_COMMENTS,
+  strings: [DQ, SQ, { open: "`", close: "`", escapes: false, multiline: true }]
+};
+var JVM = {
+  id: "jvm",
+  ...C_COMMENTS,
+  strings: [{ open: '"""', close: '"""', escapes: true, multiline: true }, DQ, SQ]
+};
+var SWIFT = {
+  id: "swift",
+  ...C_COMMENTS,
+  strings: [{ open: '"""', close: '"""', escapes: true, multiline: true }, DQ]
+};
+var RUST = {
+  id: "rust",
+  ...C_COMMENTS,
+  strings: [{ open: '"', close: '"', escapes: true, multiline: true }],
+  rustChars: true
+};
+var PYTHON = {
+  id: "python",
+  lineComments: ["#"],
+  blockComments: [],
+  strings: [
+    { open: '"""', close: '"""', escapes: true, multiline: true },
+    { open: "'''", close: "'''", escapes: true, multiline: true },
+    DQ,
+    SQ
+  ]
+};
+var SHELL = {
+  id: "shell",
+  lineComments: ["#"],
+  blockComments: [],
+  strings: [
+    { open: '"', close: '"', escapes: true, multiline: true },
+    { open: "'", close: "'", escapes: false, multiline: true }
+  ],
+  hashNeedsBoundary: true
+};
+var RUBY = {
+  id: "ruby",
+  lineComments: ["#"],
+  blockComments: [],
+  strings: [
+    { open: '"', close: '"', escapes: true, multiline: true },
+    { open: "'", close: "'", escapes: true, multiline: true }
+  ]
+};
+var LEX_SPECS = Object.freeze({
+  ".ts": JS,
+  ".tsx": JS,
+  ".mts": JS,
+  ".cts": JS,
+  ".js": JS,
+  ".jsx": JS,
+  ".mjs": JS,
+  ".cjs": JS,
+  ".c": C,
+  ".h": C,
+  ".cc": C,
+  ".cpp": C,
+  ".hpp": C,
+  ".cs": C,
+  ".dart": C,
+  ".m": C,
+  ".mm": C,
+  ".go": GO,
+  ".java": JVM,
+  ".kt": JVM,
+  ".kts": JVM,
+  ".scala": JVM,
+  ".groovy": JVM,
+  ".swift": SWIFT,
+  ".rs": RUST,
+  ".py": PYTHON,
+  ".pyi": PYTHON,
+  ".sh": SHELL,
+  ".bash": SHELL,
+  ".zsh": SHELL,
+  ".rb": RUBY
+});
+function lexSpecFor(path) {
+  const ext = extname(path).toLowerCase();
+  return Object.prototype.hasOwnProperty.call(LEX_SPECS, ext) ? LEX_SPECS[ext] : null;
+}
+var RUST_CHAR_RE = /^'(?:\\(?:u\{[0-9a-fA-F]{1,6}\}|x[0-9a-fA-F]{2}|.)|[^\\'\n])'/;
+var IDENT_CHAR_RE = /[A-Za-z0-9_$]/;
+var SHELL_WORD_BREAK = /* @__PURE__ */ new Set([" ", "	", ";", "|", "&", "(", ")"]);
+var REGEX_AFTER_KEYWORD = /* @__PURE__ */ new Set([
+  "return",
+  "typeof",
+  "case",
+  "in",
+  "of",
+  "delete",
+  "void",
+  "throw",
+  "new",
+  "yield",
+  "await",
+  "else",
+  "do"
+]);
+function regexLiteralLength(line, i, lastSig) {
+  if (lastSig === ")" || lastSig === "]") return 0;
+  if (lastSig !== "" && IDENT_CHAR_RE.test(lastSig)) {
+    const m = /([A-Za-z_$][A-Za-z0-9_$]*)\s*$/.exec(line.slice(0, i));
+    if (!m || !REGEX_AFTER_KEYWORD.has(m[1])) return 0;
+  }
+  let inClass = false;
+  for (let j = i + 1; j < line.length; j++) {
+    const ch = line[j];
+    if (ch === "\\") {
+      j++;
+      continue;
+    }
+    if (inClass) {
+      if (ch === "]") inClass = false;
+      continue;
+    }
+    if (ch === "[") {
+      inClass = true;
+      continue;
+    }
+    if (ch === "/") return j - i + 1;
+  }
+  return 0;
+}
+function projectLine(line, spec, st) {
+  const out = line.split("");
+  const blank = (from, len) => {
+    for (let k = from; k < from + len && k < out.length; k++) out[k] = " ";
+  };
+  let i = 0;
+  while (i < line.length) {
+    const mode = st.mode;
+    if (mode.kind === "block") {
+      if (line.startsWith(mode.close, i)) {
+        blank(i, mode.close.length);
+        i += mode.close.length;
+        st.mode = { kind: "code" };
+      } else {
+        blank(i, 1);
+        i++;
+      }
+      continue;
+    }
+    if (mode.kind === "string") {
+      const r = mode.rule;
+      if (r.escapes && line[i] === "\\") {
+        blank(i, 2);
+        i += 2;
+        continue;
+      }
+      if (r.interpolation && line.startsWith("${", i)) {
+        blank(i, 2);
+        i += 2;
+        st.holes.push(0);
+        st.mode = { kind: "code" };
+        st.lastSig = "";
+        continue;
+      }
+      if (line.startsWith(r.close, i)) {
+        blank(i, r.close.length);
+        i += r.close.length;
+        st.mode = { kind: "code" };
+        st.lastSig = '"';
+        continue;
+      }
+      blank(i, 1);
+      i++;
+      continue;
+    }
+    const ch = line[i];
+    if (st.holes.length > 0) {
+      const top = st.holes.length - 1;
+      if (ch === "{") st.holes[top]++;
+      else if (ch === "}") {
+        if (st.holes[top] === 0) {
+          st.holes.pop();
+          blank(i, 1);
+          i++;
+          st.mode = { kind: "string", rule: spec.strings.find((s) => s.interpolation) };
+          continue;
+        }
+        st.holes[top]--;
+      }
+    }
+    const lc = spec.lineComments.find((m) => line.startsWith(m, i));
+    if (lc && (!spec.hashNeedsBoundary || i === 0 || SHELL_WORD_BREAK.has(line[i - 1]))) {
+      blank(i, line.length - i);
+      break;
+    }
+    const bc = spec.blockComments.find(([open]) => line.startsWith(open, i));
+    if (bc) {
+      blank(i, bc[0].length);
+      i += bc[0].length;
+      st.mode = { kind: "block", close: bc[1] };
+      continue;
+    }
+    if (spec.rustChars && ch === "'") {
+      const m = RUST_CHAR_RE.exec(line.slice(i));
+      if (m) {
+        blank(i, m[0].length);
+        i += m[0].length;
+        st.lastSig = "'";
+        continue;
+      }
+      i++;
+      continue;
+    }
+    const sr = spec.strings.find((s) => line.startsWith(s.open, i));
+    if (sr) {
+      blank(i, sr.open.length);
+      i += sr.open.length;
+      st.mode = { kind: "string", rule: sr };
+      continue;
+    }
+    if (spec.regexLiterals && ch === "/") {
+      const len = regexLiteralLength(line, i, st.lastSig);
+      if (len > 0) {
+        blank(i, len);
+        i += len;
+        st.lastSig = "/";
+        continue;
+      }
+    }
+    if (ch !== " " && ch !== "	") st.lastSig = ch;
+    i++;
+  }
+  if (st.mode.kind === "string" && !st.mode.rule.multiline) st.mode = { kind: "code" };
+  return out.join("");
+}
+function projectCode(lines, spec) {
+  const st = { mode: { kind: "code" }, holes: [], lastSig: "" };
+  return lines.map((l) => projectLine(l, spec, st));
+}
+function unquoteGitPath(p) {
+  const s = p.startsWith('"') && p.endsWith('"') ? p.slice(1, -1) : p;
+  return s.startsWith("b/") ? s.slice(2) : s;
+}
+function diffCodeView(diff, opts = {}) {
+  const files = [];
+  let cur = null;
+  let hunk = null;
+  let newLine = 0;
+  let inHeader = false;
+  const startFile = (path) => {
+    const f = { path, hunks: [], removed: [] };
+    files.push(f);
+    return f;
+  };
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      cur = startFile("");
+      hunk = null;
+      inHeader = true;
+      continue;
+    }
+    if (inHeader && line.startsWith("+++ ")) {
+      const p = line.slice(4).trim();
+      if (cur) cur.path = p === "/dev/null" ? "" : unquoteGitPath(p);
+      continue;
+    }
+    if (inHeader && (line.startsWith("--- ") || !line.startsWith("@@"))) continue;
+    const hh = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (hh) {
+      inHeader = false;
+      if (!cur) cur = startFile("");
+      hunk = { newSide: [], addedAt: [] };
+      cur.hunks.push(hunk);
+      newLine = parseInt(hh[1], 10);
+      continue;
+    }
+    if (!cur) cur = startFile("");
+    if (!hunk) {
+      hunk = { newSide: [], addedAt: [] };
+      cur.hunks.push(hunk);
+      newLine = 1;
+    }
+    if (line.startsWith("+")) {
+      hunk.addedAt.push({ idx: hunk.newSide.length, lineNo: newLine });
+      hunk.newSide.push(line.slice(1));
+      newLine++;
+    } else if (line.startsWith("-")) {
+      cur.removed.push(line.slice(1));
+    } else if (line.startsWith(" ")) {
+      hunk.newSide.push(line.slice(1));
+      newLine++;
+    }
+  }
+  return files.map((f) => {
+    const spec = f.path ? lexSpecFor(f.path) : null;
+    const rawAdded = f.hunks.flatMap(
+      (h) => h.addedAt.map((a) => ({ lineNo: a.lineNo, raw: h.newSide[a.idx] }))
+    );
+    if (!spec) {
+      return { path: f.path, mode: "raw", added: rawAdded.map((a) => ({ ...a, code: a.raw })), removed: f.removed };
+    }
+    const text = opts.postImage ? opts.postImage(f.path) : null;
+    if (text !== null && text !== void 0) {
+      const post = text.split(/\r\n|\n|\r/);
+      if (rawAdded.every((a) => post[a.lineNo - 1] === a.raw)) {
+        const proj = projectCode(post, spec);
+        return {
+          path: f.path,
+          mode: "post-image",
+          added: rawAdded.map((a) => ({ ...a, code: proj[a.lineNo - 1] })),
+          removed: f.removed
+        };
+      }
+    }
+    const added = [];
+    for (const h of f.hunks) {
+      const proj = projectCode(h.newSide, spec);
+      for (const a of h.addedAt) added.push({ lineNo: a.lineNo, raw: h.newSide[a.idx], code: proj[a.idx] });
+    }
+    return { path: f.path, mode: "hunk", added, removed: f.removed };
+  });
+}
+
 // src/hooks/lib/write-hook-message.ts
 var HOOK_EVENTS = [
   "UserPromptSubmit",
@@ -4120,8 +4456,16 @@ var FIX_HEURISTICS = [
     // `if.*nil` / `if.*None` were DROPPED here, and that is deduplication rather than a silent
     // narrowing: `nil_handling_fix` below already matches exactly that shape
     // (`= nil|= None|is None|!= nil|is not None`), so a nil check scored twice under one banner.
+    // Scored on each added line's CODE projection (`lib/code-spans.ts`), the same lexer the
+    // Stop hook uses: a keyword in a string literal or a comment is not error handling. The
+    // per-edit diff carries its `diff --git` header, so the file's language is known here
+    // without threading a path through this table. A language with no lexer is judged raw.
     test: (diff) => {
-      const added = (diff.match(/^\+.*\b(try|except|catch|guard|validate|assert|raise|throw)\b/gm) || []).length;
+      const re = /^\+.*\b(try|except|catch|guard|validate|assert|raise|throw)\b/;
+      let added = 0;
+      for (const view of diffCodeView(diff)) {
+        for (const a of view.added) if (re.test(`+${a.code}`)) added++;
+      }
       return added > 2;
     }
   },

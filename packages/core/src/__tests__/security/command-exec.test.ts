@@ -422,7 +422,7 @@ describe('Cmd exec — RSS watchdog kills sustained over-budget LSP (F-015)', ()
 
     wd.stop();
     expect(killed).toBe(true);
-  }, 5_000);
+  });
 
   it('_startRssWatchdog does NOT kill when RSS stays under budget', async () => {
     const child = spawn('sleep', ['2'], { stdio: 'ignore' });
@@ -443,5 +443,5 @@ describe('Cmd exec — RSS watchdog kills sustained over-budget LSP (F-015)', ()
     // Process exits naturally on its own from `sleep 2`, but NOT via SIGKILL.
     try { child.kill(); } catch { /* clean up if still alive */ }
     expect(killedBySignal).toBe(false);
-  }, 5_000);
+  });
 });

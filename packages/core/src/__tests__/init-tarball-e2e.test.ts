@@ -127,7 +127,7 @@ describe.skipIf(!ENABLED)('init end-to-end against the BUILT tarball', () => {
     if (installResult.status !== 0) {
       throw new Error(`npm install <tarball> failed: ${installResult.stderr}`);
     }
-  }, 600_000);
+  });
 
   afterAll(() => {
     if (TARBALL_PATH) {
@@ -208,8 +208,8 @@ describe.skipIf(!ENABLED)('init end-to-end against the BUILT tarball', () => {
     }
   });
 
-  // 30_000ms is granted to the packed-CLI subprocess below; match the test's own bound.
-  it('tarball: <bin>/massu --version prints package.json.version', { timeout: 30_000 }, () => {
+  // The packed-CLI subprocess's own 30_000ms timeout is the only bound here (no per-test ceiling).
+  it('tarball: <bin>/massu --version prints package.json.version', () => {
     const cliBin = join(SHARED_INSTALL_DIR!, 'node_modules/.bin/massu');
     const pkgJsonPath = join(SHARED_INSTALL_DIR!, 'node_modules/@massu/core/package.json');
     expect(existsSync(cliBin), `bin not found at ${cliBin}`).toBe(true);
@@ -280,6 +280,6 @@ describe.skipIf(!ENABLED)('init end-to-end against the BUILT tarball', () => {
       } finally {
         rmSync(fixtureRoot, { recursive: true, force: true });
       }
-    }, 180_000);
+    });
   }
 });

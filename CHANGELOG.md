@@ -10,6 +10,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.4.0] - 2026-07-31
+
+### Fixed
+
+- **Hooks silently lost telemetry whenever two sessions wrote at once — `db-driver.ts` never
+  armed `PRAGMA busy_timeout`, so SQLite's default of 0ms made a blocked writer fail
+  INSTANTLY.** Both engine paths (`openNodeSqlite`, `openBetterSqlite3`) opened a connection
+  and handed it out without a busy-timeout, so a writer that met a competing writer's lock
+  got `SQLITE_BUSY` ("database is locked") with no wait at all. Every hook catches that,
+  appends to `.massu/hook-failures.jsonl`, and **exits 0** — so the observation, cost, or
+  session row was gone with no failing signal anywhere. Measured before the fix across two
+  active workspaces: **2,169 lost rows in one and 156 in the other**, still accruing. In one
+  of them the throw landed in `session-start`'s `createSession`, which also skipped
+  `pullTeamPromotions` further down the same `try` — so team/enterprise promotions silently
+  stopped pulling on any session that lost the race. Concurrency is the NORMAL state whenever
+  more than one agent session shares a repo, not an edge case.
+
+  `PRAGMA busy_timeout` is set — rather than the ctor `timeout` option — because it is
+  engine-agnostic across `node:sqlite` and better-sqlite3, connection-local, and needs no
+  lock of its own. It is applied in `db-driver.ts`, the CR-69 sole open chokepoint, so
+  **every** opener (hooks, MCP server, CLI) inherits it. Default **5000ms**, overridable via
+  `MASSU_DB_BUSY_TIMEOUT_MS`; `0` is legal and restores the old fail-instantly behaviour,
+  which is how the tests prove they can still go RED. A malformed value falls back to the
+  default rather than disabling the wait (fail-safe, not fail-open).
+
+  Semver MINOR, not PATCH: `resolveBusyTimeoutMs()`, `DEFAULT_BUSY_TIMEOUT_MS` and
+  `DB_BUSY_TIMEOUT_ENV` are new exports. This release also carries the unpublished 2.3.2.
+
+  Proof it can fail (CR-72, planted in the real tree, restored byte-identical by sha256):
+  removing the pragma from `openNodeSqlite` turns the behavioural test RED
+  (`db-busy-timeout.test.ts` — a `worker_threads` lock-holder, because the plan audit proved
+  a same-thread holder is impossible: SQLite's busy-wait blocks the event loop, so the
+  release timer never fires); removing it from `openBetterSqlite3` turns drift-guard clause
+  (e) RED; hard-coding the value turns clause (e2) RED.
+  New gate registered in `scripts/lib/gate-registry.json` (416 → 417).
+  Incident: `docs/incidents/2026-07-23-hook-db-busy-timeout-silent-loss.md`.
+  (plan-2026-07-23-hook-latency-silent-loss-fixes, P1)
+
 ## [2.3.2] - 2026-07-24
 
 ### Fixed

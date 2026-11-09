@@ -157,6 +157,71 @@ if $LIST_ONLY; then
   exit 0
 fi
 
+# --- Release tags: the mirror carries the SAME vX.Y.Z the private repo does -------
+# The public repo stopped receiving release tags after v2.3.1 because nothing in the
+# sync ever created one; tagging was a step a human had to remember (2026-11-08).
+# Derived, never typed in: every mirror commit names its source in its subject
+# ("sync: Update from massu-internal (<sha>)"), and the private repo knows which
+# source commits are releases. A mirror commit is tagged vX.Y.Z only when it was
+# synced from EXACTLY the commit vX.Y.Z points at, because only then is it the
+# release's tree. A release synced from a later commit has no truthful public tag,
+# and is reported, not approximated. An existing public tag is NEVER moved: one at
+# the wrong commit is reported, and is fatal only when it is THIS sync's release.
+INTERNAL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+assert_repo "$INTERNAL_ROOT"
+
+publish_release_tags() {
+  local current_source="${1:-}" scanned=0 releases=0 created=0 correct=0 conflict=0 fatal=0
+  local mirror_sha subject src full tag want have msg
+  local remote_tags; remote_tags="$(git -C "$REPO_DIR" ls-remote --tags "$REMOTE")"
+  echo ""
+  echo "─── Release tags ───"
+  while IFS=' ' read -r mirror_sha subject; do
+    scanned=$((scanned + 1))
+    src="$(printf '%s' "$subject" | sed -nE 's/^sync: Update from massu-internal \(([0-9a-f]{7,40})\)$/\1/p')"
+    [ -n "$src" ] || continue
+    full="$(git -C "$INTERNAL_ROOT" rev-parse --verify --quiet "${src}^{commit}")" || continue
+    while IFS= read -r tag; do
+      [ -n "$tag" ] || continue
+      releases=$((releases + 1))
+      want="$mirror_sha"
+      have="$(printf '%s\n' "$remote_tags" | awk -v r="refs/tags/${tag}^{}" '$2==r {print $1}')"
+      [ -n "$have" ] || have="$(printf '%s\n' "$remote_tags" | awk -v r="refs/tags/${tag}" '$2==r {print $1}')"
+      if [ "$have" = "$want" ]; then
+        correct=$((correct + 1))
+      elif [ -n "$have" ]; then
+        conflict=$((conflict + 1))
+        echo "  CONFLICT : $tag is already public at ${have:0:12}; the release's sync is ${want:0:12}. Not moved."
+        [ "$full" = "$current_source" ] && fatal=1
+      elif $DRY_RUN; then
+        echo "  would tag: $tag -> ${want:0:12}"
+      else
+        msg="$(git -C "$INTERNAL_ROOT" tag -l --format='%(contents)' "$tag")"
+        [ -n "$msg" ] || msg="$tag"
+        git -C "$REPO_DIR" tag -a "$tag" -m "$msg" "$want"
+        git -C "$REPO_DIR" push "$REMOTE" "refs/tags/$tag"
+        have="$(git -C "$REPO_DIR" ls-remote "$REMOTE" "refs/tags/${tag}^{}" | awk '{print $1}')"
+        if [ "$have" != "$want" ]; then
+          echo "FATAL: pushed $tag but $REMOTE serves '${have:-nothing}', expected $want" >&2
+          exit 1
+        fi
+        created=$((created + 1))
+        echo "  tagged   : $tag -> ${want:0:12} (verified on $REMOTE)"
+      fi
+    done < <(git -C "$INTERNAL_ROOT" tag --points-at "$full" -l 'v[0-9]*.[0-9]*.[0-9]*')
+  done < <(git -C "$REPO_DIR" log --format='%H %s' "$REMOTE/main")
+  [ "$scanned" -gt 0 ] || { echo "FATAL: read 0 mirror commits — cannot judge tags (blind, not clean)" >&2; exit 1; }
+  echo "  scanned $scanned mirror commit(s): $releases release sync(s), $created tagged now, $correct already correct, $conflict conflict(s)"
+  echo "  (a release absent here was never synced at its exact commit, so it has no truthful public tag)"
+  [ "$fatal" -eq 0 ] || { echo "FATAL: this sync's own release tag conflicts with an existing public tag." >&2; exit 1; }
+}
+
+source_of() {
+  git -C "$REPO_DIR" log -1 --format=%s "$1" \
+    | sed -nE 's/^sync: Update from massu-internal \(([0-9a-f]{7,40})\)$/\1/p' \
+    | xargs -I{} git -C "$INTERNAL_ROOT" rev-parse --verify --quiet "{}^{commit}" || true
+}
+
 # --- What are we publishing? ------------------------------------------------
 HEAD_SHA="$(git -C "$REPO_DIR" rev-parse HEAD)"
 SUBJECT="$(git -C "$REPO_DIR" log -1 --pretty=%s)"
@@ -175,7 +240,9 @@ fi
 
 # Idempotent: already published is a reported NO-OP, never an error.
 if [ "$HEAD_SHA" = "$REMOTE_MAIN" ]; then
-  echo "Already published — $REMOTE/main is already $HEAD_SHA. Nothing to do."
+  echo "Already published — $REMOTE/main is already $HEAD_SHA."
+  git -C "$REPO_DIR" fetch --quiet "$REMOTE" main
+  publish_release_tags "$(source_of "$HEAD_SHA")"
   exit 0
 fi
 
@@ -332,5 +399,7 @@ if [ "$MERGED_SUBJECT" != "$SUBJECT" ]; then
   echo "WARNING: merged subject '$MERGED_SUBJECT' differs from '$SUBJECT'." >&2
   echo "         Source-of-Truth Discipline scans commit subjects — check it stayed green." >&2
 fi
+
+publish_release_tags "$(source_of "$FINAL")"
 
 echo "Published: $SLUG main = $FINAL"

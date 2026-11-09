@@ -114,7 +114,7 @@ Rotation procedure:
 3. Append the new RAW-bytes sha256 to `KNOWN_PUBKEY_FINGERPRINTS` in
    `scripts/bundle-pubkey.mjs` (DO NOT remove the old entry — rotation
    grace window).
-4. Run `bash scripts/bundle-pubkey.mjs` to regenerate
+4. Run `node scripts/bundle-pubkey.mjs` to regenerate
    `packages/core/src/security/registry-pubkey.generated.ts`.
 5. Sign a transition manifest **countersigned by both old AND new keys**
    so consumers running pre-rotation `@massu/core` can still verify

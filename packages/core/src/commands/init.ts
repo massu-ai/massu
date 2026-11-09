@@ -38,6 +38,7 @@ import { closeSync, existsSync, fsyncSync, openSync, readFileSync, writeFileSync
 import { resolve, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
+import { execFileSync } from 'child_process';
 import { stringify as yamlStringify, parse as yamlParse } from 'yaml';
 import { backfillMemoryFiles } from '../memory-file-ingest.ts';
 import { getConfig, resetConfig } from '../config.ts';
@@ -1038,12 +1039,21 @@ export function registerMcpServer(projectRoot: string): boolean {
   // P-002: pin the version so customers don't drift onto unpinned `@massu/core`
   // (which resolves to the latest dist-tag on every spawn). Closes the structural
   // class flagged by feedback_mcp_pin_version_in_mcp_json (precedent: 0b60916).
+  //
+  // CR-70 L3-1 SYMMETRY, amended by plan-2026-08-01 phase B: this emitter and
+  // `hookCmd`/`buildHooksConfig` must share ONE launch mechanism. Both now read the SAME
+  // `resolveMassuRuntimeCli(version)`, so they cannot diverge by construction. Previously
+  // they were kept in step only by both hard-coding `npx` — which the drift-guard asserted
+  // as a LITERAL, so it pinned an implementation detail rather than the property. Real
+  // divergence was still reachable by hand-edit and was found live in one workspace
+  // (a `bash -c` shim exporting a pinned Node bin dir onto PATH and
+  // exec'ing npx at an older pin, as the server, vs
+  // bare-npx hooks) — the asymmetry that masked the 2026-07-22 native-ABI incident.
   const version = getInstallerVersion();
-  servers.massu = {
-    type: 'stdio',
-    command: 'npx',
-    args: ['-y', `@massu/core@${version}`],
-  };
+  const shim = resolveMassuShim();
+  servers.massu = shim !== null
+    ? { type: 'stdio', command: shim, args: [version] }
+    : { type: 'stdio', command: 'npx', args: ['-y', `@massu/core@${version}`] };
 
   existing.mcpServers = servers;
 
@@ -1091,13 +1101,200 @@ export function resolveHooksDir(): string {
   return 'node_modules/@massu/core/dist/hooks';
 }
 
+// ============================================================
+// Massu runtime resolution (plan-2026-08-01, phase B)
+// ============================================================
+//
+// WHY. `npx -y @massu/core@<v> …` costs ~0.86 s of npm BOOTSTRAP on each hook invocation.
+// Measured interleaved, min-of-5, same host:
+//
+//     npx -y @massu/core@2.4.0   0.97 s
+//     npx --offline -y ...       0.88 s   <- --offline recovers just 0.11 s
+//     node <dist/cli.js>         0.11 s
+//
+// The cost is npm starting up, NOT the registry — so no npx flag fixes it; not invoking
+// npx is what fixes it. Resolving once at INSTALL time and emitting an absolute `node`
+// command makes a hook ~9x cheaper (re-measured post-implementation: 0.11 vs 1.07).
+//
+// THE PATH IS MASSU-OWNED AND VERSION-KEYED, deliberately NOT npm's `~/.npm/_npx/<hash>/`:
+// that hash is content-derived, changes on a version bump, and npm may garbage-collect it.
+// Version-keying also lets two differently-pinned repos coexist.
+//
+// FAIL-SAFE IS THE WHOLE DESIGN. Claude Code does not report a missing or failing hook
+// command, so a wrong path kills the repo's hooks SILENTLY — the exact failure class this
+// plan exists to end. node-direct is therefore an OPTIMISATION that must never produce a
+// broken registration: the resolver hands back a path only after PROBING that it runs
+// (CR-67 — success is not a receipt), and callers fall back to the always-works npx form on
+// any doubt. A failed materialisation degrades to "slower", never to "dead".
+
+/** Root of the massu-owned, version-keyed runtime tree. */
+export function massuRuntimeDir(version: string): string {
+  return resolve(homedir(), '.massu', 'runtime', version);
+}
+
+/** Where the CLI lands inside a materialised runtime. */
+export function massuRuntimeCliPath(version: string): string {
+  return resolve(massuRuntimeDir(version), 'node_modules', '@massu', 'core', 'dist', 'cli.js');
+}
+
 /**
- * Build a single hook-command line. P-003: emits `npx -y @massu/core@<version>
- * hook-runner <name>` so the hook file is resolved dynamically at fire-time
- * rather than baked as an absolute path. Pins the version (CR-49-class fix)
- * so customers don't drift onto unpinned `@massu/core` between hook fires.
+ * Return a VERIFIED-RUNNABLE absolute cli.js path for `version`, or `null`.
+ *
+ * Never throws, never installs. `null` means "use npx" — the safe default.
+ * `MASSU_NO_NODE_DIRECT=1` forces npx (G11: a mitigation needs a named, provable OFF
+ * switch). Tests set it so their result cannot depend on machine state.
  */
-function hookCmd(version: string, hookName: string): string {
+export function resolveMassuRuntimeCli(version: string): string | null {
+  if (process.env.MASSU_NO_NODE_DIRECT === '1') return null;
+  const cli = massuRuntimeCliPath(version);
+  if (!existsSync(cli)) return null;
+  try {
+    // EXISTENCE IS NOT RUNNABILITY: a truncated or partial install leaves the file present
+    // and the hook dead. Probe before trusting it.
+    execFileSync(process.execPath, [cli, '--version'], { stdio: 'ignore', timeout: 20_000 });
+    return cli;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Materialise the runtime for `version` if absent. Returns true only when the result
+ * PROBES runnable. Never throws — a false return keeps the caller on npx.
+ */
+export function materializeMassuRuntime(version: string): boolean {
+  if (process.env.MASSU_NO_NODE_DIRECT === '1') return false;
+  if (resolveMassuRuntimeCli(version) !== null) return true; // idempotent no-op
+  const dir = massuRuntimeDir(version);
+  try {
+    mkdirSync(dir, { recursive: true });
+    execFileSync(
+      'npm',
+      ['install', '--prefix', dir, `@massu/core@${version}`, '--no-audit', '--no-fund', '--loglevel=error'],
+      { stdio: 'ignore', timeout: 300_000 },
+    );
+  } catch {
+    return false; // network down, registry 404, disk full — each degrades to npx
+  }
+  // Re-probe: `npm install` exiting 0 is not proof the CLI runs (CR-67).
+  return resolveMassuRuntimeCli(version) !== null;
+}
+
+// ------------------------------------------------------------------
+// The VERSION-STABLE launcher shim
+// ------------------------------------------------------------------
+//
+// WHY A SHIM AND NOT A BAKED PATH. P-003 (v1.9.4, `init-hook-paths-no-absolute.test.ts`)
+// moved hooks to npx expressly to eliminate baked absolute paths, because such a path is
+// "invalidated by cache clears, global-install relocations, or npx upgrades — silently
+// 404-ing the hooks ... without any visible signal to the customer." Emitting
+// `node ~/.massu/runtime/<version>/…/cli.js` would reintroduce exactly that: a probe at
+// EMIT time says nothing about INVALIDATION AFTER EMIT, and deleting the runtime would
+// silently kill the hooks of any repo pinned to it.
+//
+// The shim resolves that conflict rather than trading it away. Its path NEVER changes
+// across version bumps, and it re-resolves AT FIRE TIME, falling back to npx when the
+// runtime is absent. So a stale registration degrades to "slower" and self-heals the
+// moment the runtime reappears — instead of dying.
+//
+// THREE FAIL-SAFE LAYERS, so no single missing artifact is fatal:
+//   shim missing at EMIT     -> emit npx                     (today's behaviour)
+//   runtime missing at FIRE  -> shim execs npx               (self-healing)
+//   both present             -> fast path (~9x: 0.11 vs 1.07 s, measured)
+//
+// win32 is deliberately excluded: the shim is POSIX sh, so Windows keeps the npx form.
+
+/** Stable, version-independent shim path. Never changes across upgrades. */
+export function massuShimPath(): string {
+  return resolve(homedir(), '.massu', 'bin', 'massu-hook');
+}
+
+/**
+ * The shim body. Resolves the runtime at FIRE time and falls back to npx.
+ *
+ * `exec` in both branches so stdin, stdout, stderr and the exit code pass through
+ * untouched — a hook that swallowed its exit code or truncated stdout would be a new
+ * silent-failure class (CR-70 L2-6, re-exec fidelity).
+ */
+export function massuShimBody(): string {
+  return `#!/bin/sh
+# massu launcher shim — GENERATED, do not edit. Recreated by \`massu install-hooks\`.
+#
+# usage: massu-hook <version> <subcommand...>
+#
+# Resolves the massu runtime AT FIRE TIME so a deleted/moved runtime degrades to npx
+# instead of silently 404-ing the hook (the P-003 failure class). exec preserves stdin,
+# stdout, stderr and the exit code.
+set -u
+if [ "$#" -lt 1 ]; then
+  echo "massu-hook: missing <version> argument" >&2
+  exit 2
+fi
+MASSU_VERSION="$1"
+shift
+MASSU_CLI="\${HOME}/.massu/runtime/\${MASSU_VERSION}/node_modules/@massu/core/dist/cli.js"
+if [ -f "\$MASSU_CLI" ]; then
+  exec node "\$MASSU_CLI" "\$@"
+fi
+exec npx -y "@massu/core@\${MASSU_VERSION}" "\$@"
+`;
+}
+
+/**
+ * Write (or refresh) the shim. Returns true only when it EXISTS AND EXECUTES.
+ * Never throws — false simply keeps callers on npx.
+ */
+export function installMassuShim(): boolean {
+  if (process.env.MASSU_NO_NODE_DIRECT === '1') return false;
+  if (process.platform === 'win32') return false;
+  const shim = massuShimPath();
+  try {
+    mkdirSync(dirname(shim), { recursive: true });
+    writeFileSync(shim, massuShimBody(), 'utf-8');
+    chmodSync(shim, 0o755);
+  } catch {
+    return false;
+  }
+  try {
+    // WRITING IS NOT WORKING (CR-67). Run it: a bogus version must still exit non-fatally
+    // via the npx branch, but `--help`-less probing would spawn npx, so probe the ARG
+    // GUARD instead — no args must exit 2 with the usage line. That proves the file is
+    // present, executable, and running our body, without touching the network.
+    execFileSync(shim, [], { stdio: 'ignore', timeout: 10_000 });
+    return false; // exit 0 with no args means this is NOT our shim
+  } catch (e) {
+    const status = (e as { status?: number }).status;
+    return status === 2; // our guard fired => shim is live
+  }
+}
+
+/** The shim path if it is present and executable, else null. */
+export function resolveMassuShim(): string | null {
+  if (process.env.MASSU_NO_NODE_DIRECT === '1') return null;
+  if (process.platform === 'win32') return null;
+  const shim = massuShimPath();
+  if (!existsSync(shim)) return null;
+  try {
+    execFileSync(shim, [], { stdio: 'ignore', timeout: 10_000 });
+    return null; // exit 0 on no args => not our shim
+  } catch (e) {
+    return (e as { status?: number }).status === 2 ? shim : null;
+  }
+}
+
+/**
+ * Build a single hook-command line.
+ *
+ * Emits `"<shim>" <version> hook-runner <name>` when the stable shim is live, otherwise
+ * the historical `npx -y @massu/core@<version> hook-runner <name>`. Both forms end in
+ * `hook-runner <name>`, which is what `massuHookIdentity` keys on — so switching between
+ * them REPLACES the registration rather than adding a second (phase A).
+ *
+ * The version stays VISIBLE in the emitted command (rather than hidden in shim state) so
+ * `.claude/settings.local.json` remains auditable at a glance and the shim stays stateless.
+ */
+function hookCmd(version: string, hookName: string, shim: string | null): string {
+  if (shim !== null) return `"${shim}" ${version} hook-runner ${hookName}`;
   return `npx -y @massu/core@${version} hook-runner ${hookName}`;
 }
 
@@ -1116,11 +1313,14 @@ function getHookTimeout(name: string): number {
  */
 export function buildHooksConfig(_hooksDir?: string): HooksConfig {
   const version = getInstallerVersion();
+  // Resolve ONCE per build, not per hook: the probe spawns a process, and 16 probes would
+  // reintroduce exactly the per-invocation cost this phase removes.
+  const shim = resolveMassuShim();
   return {
     SessionStart: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'session-start'), timeout: getHookTimeout('session-start') },
+          { type: 'command', command: hookCmd(version, 'session-start', shim), timeout: getHookTimeout('session-start') },
         ],
       },
     ],
@@ -1135,26 +1335,26 @@ export function buildHooksConfig(_hooksDir?: string): HooksConfig {
       {
         matcher: 'Bash|Write|Edit',
         hooks: [
-          { type: 'command', command: hookCmd(version, 'pre-tool-use-gate'), timeout: getHookTimeout('pre-tool-use-gate') },
+          { type: 'command', command: hookCmd(version, 'pre-tool-use-gate', shim), timeout: getHookTimeout('pre-tool-use-gate') },
         ],
       },
     ],
     PostToolUse: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'post-tool-use'), timeout: getHookTimeout('post-tool-use') },
-          { type: 'command', command: hookCmd(version, 'quality-event'), timeout: getHookTimeout('quality-event') },
-          { type: 'command', command: hookCmd(version, 'cost-tracker'), timeout: getHookTimeout('cost-tracker') },
+          { type: 'command', command: hookCmd(version, 'post-tool-use', shim), timeout: getHookTimeout('post-tool-use') },
+          { type: 'command', command: hookCmd(version, 'quality-event', shim), timeout: getHookTimeout('quality-event') },
+          { type: 'command', command: hookCmd(version, 'cost-tracker', shim), timeout: getHookTimeout('cost-tracker') },
         ],
       },
       {
         matcher: 'Edit|Write',
         hooks: [
-          { type: 'command', command: hookCmd(version, 'post-edit-context'), timeout: getHookTimeout('post-edit-context') },
+          { type: 'command', command: hookCmd(version, 'post-edit-context', shim), timeout: getHookTimeout('post-edit-context') },
           // Auto-learning pipeline — classifies failures and detects fixes on
           // file changes. See Phase 5-6 of the autodetect plan.
-          { type: 'command', command: hookCmd(version, 'fix-detector'), timeout: getHookTimeout('fix-detector') },
-          { type: 'command', command: hookCmd(version, 'classify-failure'), timeout: getHookTimeout('classify-failure') },
+          { type: 'command', command: hookCmd(version, 'fix-detector', shim), timeout: getHookTimeout('fix-detector') },
+          { type: 'command', command: hookCmd(version, 'classify-failure', shim), timeout: getHookTimeout('classify-failure') },
         ],
       },
       {
@@ -1162,35 +1362,35 @@ export function buildHooksConfig(_hooksDir?: string): HooksConfig {
         hooks: [
           // Incident + rule enforcement pipelines fire on Write-only (incidents
           // are authored as .md files; rules are enforced after new-file drops).
-          { type: 'command', command: hookCmd(version, 'incident-pipeline'), timeout: getHookTimeout('incident-pipeline') },
-          { type: 'command', command: hookCmd(version, 'rule-enforcement-pipeline'), timeout: getHookTimeout('rule-enforcement-pipeline') },
+          { type: 'command', command: hookCmd(version, 'incident-pipeline', shim), timeout: getHookTimeout('incident-pipeline') },
+          { type: 'command', command: hookCmd(version, 'rule-enforcement-pipeline', shim), timeout: getHookTimeout('rule-enforcement-pipeline') },
         ],
       },
     ],
     Stop: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'session-end'), timeout: getHookTimeout('session-end') },
+          { type: 'command', command: hookCmd(version, 'session-end', shim), timeout: getHookTimeout('session-end') },
           // Session-end auto-learning aggregation (failure-class roll-up).
-          { type: 'command', command: hookCmd(version, 'auto-learning-pipeline'), timeout: getHookTimeout('auto-learning-pipeline') },
+          { type: 'command', command: hookCmd(version, 'auto-learning-pipeline', shim), timeout: getHookTimeout('auto-learning-pipeline') },
         ],
       },
     ],
     PreCompact: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'pre-compact'), timeout: getHookTimeout('pre-compact') },
+          { type: 'command', command: hookCmd(version, 'pre-compact', shim), timeout: getHookTimeout('pre-compact') },
         ],
       },
     ],
     UserPromptSubmit: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'user-prompt'), timeout: getHookTimeout('user-prompt') },
-          { type: 'command', command: hookCmd(version, 'intent-suggester'), timeout: getHookTimeout('intent-suggester') },
+          { type: 'command', command: hookCmd(version, 'user-prompt', shim), timeout: getHookTimeout('user-prompt') },
+          { type: 'command', command: hookCmd(version, 'intent-suggester', shim), timeout: getHookTimeout('intent-suggester') },
           // plan-living-memory-slice-1 P3-002: automatic relevant-recall.
           // Injects a compact "🧠 Relevant memory" block; fails open (empty).
-          { type: 'command', command: hookCmd(version, 'memory-recall'), timeout: getHookTimeout('memory-recall') },
+          { type: 'command', command: hookCmd(version, 'memory-recall', shim), timeout: getHookTimeout('memory-recall') },
         ],
       },
     ],
@@ -1266,29 +1466,82 @@ export function mergeHooksConfig(
 }
 
 /**
- * Merge two arrays of hook entries, deduplicating by `command`. Customer
- * entries (any command NOT matching the Massu canonical prefix) are
- * always preserved.
+ * The stable IDENTITY of a Massu-emitted hook registration, or `null` for any
+ * entry Massu does not own.
+ *
+ * WHY THIS EXISTS (plan-2026-08-01, phase A). `mergeHookEntries` used to dedup by
+ * EXACT COMMAND STRING. The emitted command embeds the version, so
+ *
+ *     npx -y @massu/core@1.16.2 hook-runner user-prompt
+ *     npx -y @massu/core@2.4.0  hook-runner user-prompt
+ *
+ * were two different strings => two different hooks => BOTH kept. The command was
+ * simultaneously the payload and the identity, so every payload change forged a new
+ * identity and the installer ADDED where it meant to REPLACE. Measured consequences:
+ * one workspace carried 1.15.5 x16 + 1.15.2 x15 with 15 hooks firing twice per event, and
+ * the fleet stayed stranded on a pre-2.0.0 version because upgrading duplicated —
+ * another accumulated 26,119 NODE_MODULE_VERSION failures as a result.
+ * Incident (internal): 2026-08-01-installer-adds-hook-registrations-instead-of-replacing
+ *
+ * IDENTITY IS THE `hook-runner` SUBCOMMAND, which is a stable CLI contract (`cli.ts`
+ * dispatches on exactly this token) rather than an incidental substring. It is invariant
+ * under BOTH mutations this plan makes: a version bump AND the npx -> node-direct launch
+ * change, since every form ends `... hook-runner <name>`.
+ *
+ * DEVIATION FROM THE PLAN'S D-1, recorded deliberately: D-1 specified an EXPLICIT identity
+ * key written into the entry. Rejected at implementation on evidence — an enumeration of all
+ * 345 hook entries on this machine found exactly two key sets (`command,type` and
+ * `command,timeout,type`) and ZERO precedent for a non-standard field. Writing an unknown key
+ * into `settings.local.json` risks Claude Code rejecting the block, which would silently kill
+ * every hook in the repo — the exact catastrophic-and-silent failure this plan exists to end.
+ * The subcommand token achieves the same replace-not-add property with no wire-format change.
+ */
+export function massuHookIdentity(command: string): string | null {
+  // Must look like a Massu launcher: the npm spec (npx form) or a massu runtime path
+  // (node-direct form, phase B). A customer command merely containing "hook-runner" is
+  // NOT ours and must keep exact-command semantics.
+  if (!/@massu\/core|[/\\]\.?massu[/\\]/.test(command)) return null;
+  const m = /\bhook-runner\s+([A-Za-z0-9._-]+)/.exec(command);
+  return m ? m[1] : null;
+}
+
+/**
+ * Merge two arrays of hook entries.
+ *
+ * Massu-owned entries dedup by IDENTITY (the `hook-runner` name), so re-pinning a version
+ * or changing the launch mechanism REPLACES rather than adds. Every other entry keeps the
+ * historical exact-command semantics, so a customer's own hooks are never touched or
+ * collapsed. Additions are taken first, so the freshly-emitted Massu entry wins and any
+ * older-generation Massu entry for the same hook is dropped.
  */
 function mergeHookEntries(
   existing: HookEntry[],
   additions: HookEntry[],
 ): HookEntry[] {
-  const seen = new Set<string>();
+  const seenCommands = new Set<string>();
+  const seenIdentities = new Set<string>();
   const result: HookEntry[] = [];
+
+  const take = (entry: HookEntry): void => {
+    if (!entry || typeof entry.command !== 'string') return;
+    const identity = massuHookIdentity(entry.command);
+    if (identity !== null) {
+      // A Massu registration: one entry per hook name, whatever the command looks like.
+      if (seenIdentities.has(identity)) return;
+      seenIdentities.add(identity);
+      seenCommands.add(entry.command);
+      result.push(entry);
+      return;
+    }
+    // Not ours — preserve verbatim, dedup only on an exact repeat.
+    if (seenCommands.has(entry.command)) return;
+    seenCommands.add(entry.command);
+    result.push(entry);
+  };
+
   // Additions go first so Massu's canonical pipeline order is deterministic.
-  for (const entry of additions ?? []) {
-    if (!entry || typeof entry.command !== 'string') continue;
-    if (seen.has(entry.command)) continue;
-    seen.add(entry.command);
-    result.push(entry);
-  }
-  for (const entry of existing ?? []) {
-    if (!entry || typeof entry.command !== 'string') continue;
-    if (seen.has(entry.command)) continue;
-    seen.add(entry.command);
-    result.push(entry);
-  }
+  for (const entry of additions ?? []) take(entry);
+  for (const entry of existing ?? []) take(entry);
   return result;
 }
 

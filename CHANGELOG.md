@@ -10,6 +10,109 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.5.0] - 2026-08-01
+
+### Fixed
+
+- **`install-hooks` ADDED a hook registration instead of REPLACING it, so every version bump
+  doubled the hooks — and that defect BLOCKED ITS OWN REMEDY.** `mergeHookEntries` deduped by
+  EXACT COMMAND STRING, and the emitted command embeds the version, so
+  `npx -y @massu/core@1.16.2 hook-runner user-prompt` and the `@2.4.0` form were two different
+  strings, two different hooks, BOTH kept. The command was simultaneously the payload and the
+  identity, so any payload change forged a new identity.
+
+  Measured, not theoretical: one workspace carried `1.15.5` x16 **and** `1.15.2` x15 at once,
+  with 15 hook names firing TWICE per event and writing double telemetry indefinitely. Worse,
+  because upgrading duplicated, nobody upgraded — 9 of 10 workspaces on this machine sat on a
+  pre-2.0.0 version whose `better-sqlite3` ABI did not match the running Node, and one had
+  **26,119 `NODE_MODULE_VERSION` hook failures**: a total massu outage. It stayed invisible
+  because a crashing hook still **exits 0**.
+
+  Registration identity is now the `hook-runner` subcommand — a stable CLI contract (`cli.ts`
+  dispatches on exactly that token), invariant under both a version bump and a launch-mechanism
+  change. Non-massu entries keep the historical exact-command semantics, so a customer's own
+  hooks are never touched or collapsed.
+
+  Proof it can fail (CR-72, planted in the real tree, restored byte-identical by sha256):
+  reverting the identity branch to exact-command dedup turns
+  `installer-registration-identity-drift-guard.test.ts` RED — that guard drives the REAL
+  `installHooks()` over a real temp project seeded with an older-version block, a node-direct
+  block and a customer hook.
+
+### Added
+
+- **A version-stable launcher shim, cutting ~0.86s of npm bootstrap off each hook fire.**
+  `npx -y @massu/core@<v> …` spends ~0.86s starting npm before any massu code runs. Measured
+  interleaved, min-of-5: `npx` 0.97s, `npx --offline` 0.88s, `node <cli.js>` 0.11s — so the
+  cost is npm's own startup, NOT the registry, and no npx flag addresses it.
+
+  `install-hooks` now writes `~/.massu/bin/massu-hook` and emits
+  `"~/.massu/bin/massu-hook" <version> hook-runner <name>`. That path is VERSION-STABLE, and
+  the shim re-resolves the runtime AT FIRE TIME, exec'ing npx when it is absent.
+
+  This deliberately does NOT bake a versioned absolute path, which would reintroduce the class
+  P-003 (v1.9.4) eliminated: such a path is "invalidated by cache clears, global-install
+  relocations, or npx upgrades — silently 404-ing the hooks". Probing at emit time says nothing
+  about invalidation after emit. Three fail-safe layers instead — shim missing at emit emits
+  npx; runtime missing at fire execs npx; both present takes the fast path — so no single
+  missing artifact is fatal and a stale registration self-heals.
+
+  Measured after: fast path **0.11s vs npx 1.07s (9.7x)**. The fallback is mutation-proven — a
+  shim with its npx branch removed FAILS the same no-runtime case (exit 27), so the test is not
+  vacuous. `exec` in both branches preserves stdin, stdout and the exit code.
+
+  Semver MINOR: `massuHookIdentity`, `massuShimPath`, `massuShimBody`, `installMassuShim`,
+  `resolveMassuShim`, `massuRuntimeDir`, `massuRuntimeCliPath`, `resolveMassuRuntimeCli` and
+  `materializeMassuRuntime` are new exports. `MASSU_NO_NODE_DIRECT=1` forces the npx form.
+
+### Changed
+
+- **CR-70 Layer 3 amended: installer symmetry is no longer npx-specific.** Both emitters read
+  one resolver and agree on mechanism AND pinned version. The drift-guard previously asserted
+  the literal `'npx'`, which pinned an implementation detail rather than the property — it
+  would go RED on a correct mechanism change and GREEN on a wrong one that used npx on both
+  sides. Three assertions were amended on the same grounds
+  (`init-hook-paths-no-absolute`, `init-mcp-json-pin`, `cli.test.ts`); each keeps its original
+  protection of a visible pinned version and a known launch mechanism.
+
+## [2.4.0] - 2026-07-31
+
+### Fixed
+
+- **Hooks silently lost telemetry whenever two sessions wrote at once — `db-driver.ts` never
+  armed `PRAGMA busy_timeout`, so SQLite's default of 0ms made a blocked writer fail
+  INSTANTLY.** Both engine paths (`openNodeSqlite`, `openBetterSqlite3`) opened a connection
+  and handed it out without a busy-timeout, so a writer that met a competing writer's lock
+  got `SQLITE_BUSY` ("database is locked") with no wait at all. Every hook catches that,
+  appends to `.massu/hook-failures.jsonl`, and **exits 0** — so the observation, cost, or
+  session row was gone with no failing signal anywhere. Measured before the fix across two
+  active workspaces: **2,169 lost rows in one and 156 in the other**, still accruing. In one
+  of them the throw landed in `session-start`'s `createSession`, which also skipped
+  `pullTeamPromotions` further down the same `try` — so team/enterprise promotions silently
+  stopped pulling on any session that lost the race. Concurrency is the NORMAL state whenever
+  more than one agent session shares a repo, not an edge case.
+
+  `PRAGMA busy_timeout` is set — rather than the ctor `timeout` option — because it is
+  engine-agnostic across `node:sqlite` and better-sqlite3, connection-local, and needs no
+  lock of its own. It is applied in `db-driver.ts`, the CR-69 sole open chokepoint, so
+  **every** opener (hooks, MCP server, CLI) inherits it. Default **5000ms**, overridable via
+  `MASSU_DB_BUSY_TIMEOUT_MS`; `0` is legal and restores the old fail-instantly behaviour,
+  which is how the tests prove they can still go RED. A malformed value falls back to the
+  default rather than disabling the wait (fail-safe, not fail-open).
+
+  Semver MINOR, not PATCH: `resolveBusyTimeoutMs()`, `DEFAULT_BUSY_TIMEOUT_MS` and
+  `DB_BUSY_TIMEOUT_ENV` are new exports. This release also carries the unpublished 2.3.2.
+
+  Proof it can fail (CR-72, planted in the real tree, restored byte-identical by sha256):
+  removing the pragma from `openNodeSqlite` turns the behavioural test RED
+  (`db-busy-timeout.test.ts` — a `worker_threads` lock-holder, because the plan audit proved
+  a same-thread holder is impossible: SQLite's busy-wait blocks the event loop, so the
+  release timer never fires); removing it from `openBetterSqlite3` turns drift-guard clause
+  (e) RED; hard-coding the value turns clause (e2) RED.
+  New gate registered in `scripts/lib/gate-registry.json` (416 → 417).
+  Incident: `docs/incidents/2026-07-23-hook-db-busy-timeout-silent-loss.md`.
+  (plan-2026-07-23-hook-latency-silent-loss-fixes, P1)
+
 ## [2.3.2] - 2026-07-24
 
 ### Fixed

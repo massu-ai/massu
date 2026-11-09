@@ -16,6 +16,7 @@ import { resolve } from 'path';
 import { existsSync } from 'fs';
 import { getFeatureImpact } from '../sentinel-db.ts';
 import { getProjectRoot, getResolvedPaths } from '../config.ts';
+import { isUnderSourceDir } from '../lib/source-layout.ts';
 import { t } from '../lib/sql-table-names.ts';
 import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
 
@@ -106,8 +107,8 @@ function extractDeletedFiles(input: HookInput): string[] {
     if (rmMatch) {
       const paths = rmMatch[1].split(/\s+/).filter(p => !p.startsWith('-'));
       for (const p of paths) {
-        const relPath = p.startsWith('src/') ? p : p.replace(PROJECT_ROOT + '/', '');
-        if (relPath.startsWith('src/') || relPath.endsWith('.py')) {
+        const relPath = isUnderSourceDir(p) ? p : p.replace(PROJECT_ROOT + '/', '');
+        if (isUnderSourceDir(relPath) || relPath.endsWith('.py')) {
           files.push(relPath);
         }
       }
@@ -119,7 +120,7 @@ function extractDeletedFiles(input: HookInput): string[] {
     const content = input.tool_input.content || '';
     if (content.trim().length === 0) {
       const relPath = input.tool_input.file_path.replace(PROJECT_ROOT + '/', '');
-      if (relPath.startsWith('src/') || relPath.endsWith('.py')) {
+      if (isUnderSourceDir(relPath) || relPath.endsWith('.py')) {
         files.push(relPath);
       }
     }

@@ -16,10 +16,36 @@ import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { findWallClockBudgets, type WallClockHit } from './helpers/wall-clock-detector.ts';
+import {
+  findWallClockBudgets,
+  findSleepThenAssert,
+  findCompetingTimeouts,
+  type WallClockHit,
+} from './helpers/wall-clock-detector.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../../../..');
+
+/**
+ * The effective per-test wall-clock budget, read from the CONFIG rather than assumed.
+ *
+ * This number lives in a different file from every test it governs, which is precisely why
+ * the class recurred with this guard green: auditing a test file alone can never surface it.
+ * Fail closed — if the config cannot be read or states no `testTimeout`, use vitest's own
+ * documented default (5000) rather than guessing something permissive, because a too-large
+ * assumption here makes the third path silently stop firing (M2).
+ */
+function configuredTestTimeout(): number {
+  const VITEST_DEFAULT = 5000;
+  try {
+    const cfg = readFileSync(join(REPO_ROOT, 'packages/core/vitest.config.ts'), 'utf-8');
+    const m = /\btestTimeout\s*:\s*([0-9_]+)/.exec(cfg);
+    return m ? Number(m[1].replace(/_/g, '')) : VITEST_DEFAULT;
+  } catch {
+    return VITEST_DEFAULT;
+  }
+}
+const TEST_TIMEOUT = configuredTestTimeout();
 
 /**
  * Legitimate wall-clock budgets, each with a cited reason.
@@ -84,6 +110,13 @@ function sweep(): Sweep {
     }
     parsed++;
     for (const h of findWallClockBudgets(rel, source)) hits.push(h);
+    // Second path: sleep-a-fixed-span-then-assert. Same defect class, different shape —
+    // it binds no duration, so the path above is structurally blind to it.
+    for (const h of findSleepThenAssert(rel, source)) hits.push(h);
+    // Third path: two competing timeouts, where the smaller silently wins. Binds no
+    // duration AND does not sleep, so both paths above are blind to it — which is how the
+    // class reached occurrence #4 with this guard green.
+    for (const h of findCompetingTimeouts(rel, source, TEST_TIMEOUT)) hits.push(h);
   }
   return { listed: files.length, parsed, unreadable, hits, files };
 }
@@ -169,6 +202,112 @@ describe('wall-clock assertion drift-guard', () => {
     expect(
       fire('const n = list.length; expect(n).toBeLessThan(10);'),
       'plain numeric assertion',
+    ).toBe(0);
+  });
+
+  // ── THIRD PATH: two competing timeouts, smaller silently wins ───────────────────────
+  //
+  // The must-fire case is the 2026-08-12 defect VERBATIM: `reality-gate-r3-liveness-drift-
+  // guard` granted spawnSync 300_000ms while vitest.config.ts capped the test at 20000ms, so
+  // the test died at 20s under coverage load and the declared intent was unreachable.
+  //
+  // The must-stay-SILENT cases matter more than usual here, because the obvious over-broad
+  // rule ("flag test timeouts") would fire on every legitimate long test and get this guard
+  // ignored (CR-83). G27 explicitly SANCTIONS an explicit timeout as the second detection
+  // path — so a generous bound that actually governs is correct, not a defect.
+  it('detector fixtures: fires only when an inner budget outlives its test', () => {
+    const fire = (src: string, dflt = 20000): number =>
+      findCompetingTimeouts('f.test.ts', src, dflt).length;
+
+    // FIRES: the defect verbatim — subprocess budget > config testTimeout, no override.
+    expect(
+      fire("it('x', () => { const p = spawnSync(c, a, { encoding: 'utf-8', timeout: 300_000 }); });"),
+      'spawnSync 300s under a 20s testTimeout',
+    ).toBe(1);
+    // FIRES: AbortSignal.timeout() outliving the test.
+    expect(
+      fire("it('x', async () => { await fetch(u, { signal: AbortSignal.timeout(60000) }); });"),
+      'AbortSignal.timeout beyond the test budget',
+    ).toBe(1);
+    // FIRES: an explicit per-test override that is STILL smaller than the inner budget.
+    expect(
+      fire("it('x', () => { run(c, { timeout: 90000 }); }, 30000);"),
+      'explicit override still exceeded',
+    ).toBe(1);
+
+    // SILENT: an explicit override that genuinely covers the inner budget. This is the
+    // SANCTIONED form (G27) and the shape the 2026-08-12 fix produced — flagging it would
+    // punish the repair.
+    expect(
+      fire("it('x', () => { const p = spawnSync(c, a, { timeout: 300_000 }); }, 300_000);"),
+      'override that actually covers the inner budget',
+    ).toBe(0);
+    // SILENT: an inner budget well under the test's bound — no contradiction to report.
+    expect(
+      fire("it('x', () => { run(c, { timeout: 50 }); });"),
+      'inner budget below the test budget',
+    ).toBe(0);
+    // SILENT: a timeout with no enclosing test — config/helper code is not this rule's job.
+    expect(
+      fire('export const opts = { timeout: 600000 };'),
+      'timeout outside any test',
+    ).toBe(0);
+    // SILENT: `timeout` that is not a duration literal cannot be compared, and guessing is
+    // how a rule starts crying wolf.
+    expect(
+      fire("it('x', () => { run(c, { timeout: SOME_CONST }); });"),
+      'non-literal timeout',
+    ).toBe(0);
+  });
+
+  // ── SECOND PATH: sleep-then-assert ──────────────────────────────────────────────────
+  //
+  // One fixture per branch of the predicate, each demanded to FIRE or to STAY SILENT for
+  // its own reason. The must-fire case is the EXACT shape that escaped this guard and took
+  // real-chokidar.test.ts red in the 2026-08-11 battery — a regression test cannot find a
+  // false negative, so the fixture is the defect verbatim, not a paraphrase of it.
+  it('detector fixtures: fires on sleep-then-assert, silent on polls and bare waits', () => {
+    const fire = (src: string): number => findSleepThenAssert('f.test.ts', src).length;
+
+    // FIRES: the real defect. A flat sleep, then an assertion that depends on it having
+    // been long enough.
+    expect(
+      fire('await new Promise((r) => setTimeout(r, 1_000)); expect(fired).toBeGreaterThanOrEqual(1);'),
+      'the verbatim real-chokidar defect',
+    ).toBe(1);
+
+    // FIRES: a named sleep helper is the same defect wearing a nicer API.
+    expect(fire('await sleep(500); expect(rows.length).toBe(2);'), 'named sleep helper').toBe(1);
+
+    // SILENT: a POLL. The loop is what makes it wait for the CONDITION rather than the
+    // clock, so the assertion no longer depends on a fixed span elapsing.
+    expect(
+      fire(
+        'const deadline = Date.now() + 6000;' +
+          'while (fired < 1 && Date.now() < deadline) { await new Promise((r) => setTimeout(r, 25)); }' +
+          'expect(fired).toBeGreaterThanOrEqual(1);',
+      ),
+      'bounded poll — the sanctioned repair',
+    ).toBe(0);
+
+    // SILENT: a bootstrap wait with no assertion after it. Its failure mode is a retry,
+    // not a false verdict.
+    expect(
+      fire('await new Promise((r) => setTimeout(r, 200)); await handle.stop();'),
+      'bare wait, nothing asserted afterwards',
+    ).toBe(0);
+
+    // SILENT: a sleep INSIDE a poll body, where the enclosing block asserts nothing.
+    expect(
+      fire('while (!done) { await new Promise((r) => setTimeout(r, 25)); }'),
+      'sleep inside a poll body',
+    ).toBe(0);
+
+    // SILENT: no fixed span at all — the delay is computed, so there is no constant to encode
+    // an expectation into.
+    expect(
+      fire('await new Promise((r) => setTimeout(r, backoffMs)); expect(ok).toBe(true);'),
+      'computed delay, not a fixed span',
     ).toBe(0);
   });
 });

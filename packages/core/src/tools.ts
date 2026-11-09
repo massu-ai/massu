@@ -50,6 +50,7 @@ import { getConfig, getProjectRoot, getResolvedPaths } from './config.ts';
 import { supportsRouter, supportsOrm } from './lib/framework-supports.ts';
 import { getCurrentTier, getToolTier, isToolAllowed, annotateToolDefinitions, getLicenseToolDefinitions, isLicenseTool, handleLicenseToolCall, isCloudFeatureAvailable } from './license.ts';
 import { t } from './lib/sql-table-names.ts';
+import { componentsPredicate, pagesPredicate } from './lib/source-layout.ts';
 
 export interface ToolDefinition {
   name: string;
@@ -430,7 +431,7 @@ export async function handleToolCall(
 
     // Route knowledge layer tools
     if (isKnowledgeTool(name)) {
-      return withKnowledgeDb((kdb) => handleKnowledgeToolCall(name, args, kdb));
+      return withKnowledgeDb((kdb) => handleKnowledgeToolCall(name, args, kdb, 'ensure-fresh'));
     }
 
     // Route Python tools (uses dataDb only; codegraphDb not required).
@@ -927,10 +928,14 @@ function handleCouplingCheck(args: Record<string, unknown>, dataDb: Database.Dat
   }
 
   // LIMIT 10000 caps page-file scan (P-DG-001) — Next.js app-router page
-  // count realistically caps in the hundreds.
+  // count realistically caps in the hundreds. The predicate itself comes from
+  // `lib/source-layout.ts`: this was a verbatim second copy of the one in
+  // page-deps.ts:160, so the layout had two authoring sites and one of them
+  // would eventually be fixed alone.
+  const pagesPred = pagesPredicate();
   const allPages = codegraphDb.prepare(
-    "SELECT path FROM files WHERE path LIKE 'src/app/%/page.tsx' OR path = 'src/app/page.tsx' LIMIT 10000"
-  ).all() as { path: string }[];
+    `SELECT path FROM files WHERE ${pagesPred.sql} LIMIT 10000`
+  ).all(...pagesPred.params) as { path: string }[];
 
   const pageImports = new Set<string>();
   for (const page of allPages) {
@@ -946,10 +951,13 @@ function handleCouplingCheck(args: Record<string, unknown>, dataDb: Database.Dat
   let componentFiles: { path: string }[];
   if (stagedFiles) {
     const placeholders = stagedFiles.map(() => '?').join(',');
-    // LIMIT 10000 caps staged-file intersection (P-DG-001).
+    // LIMIT 10000 caps staged-file intersection (P-DG-001). Components dir is
+    // declared (`paths.components`, falling back to `<paths.source>/components`)
+    // rather than compiled in.
+    const componentsPred = componentsPredicate();
     componentFiles = codegraphDb.prepare(
-      `SELECT path FROM files WHERE path LIKE 'src/components/%' AND path IN (${placeholders}) LIMIT 10000`
-    ).all(...stagedFiles) as { path: string }[];
+      `SELECT path FROM files WHERE ${componentsPred.sql} AND path IN (${placeholders}) LIMIT 10000`
+    ).all(...componentsPred.params, ...stagedFiles) as { path: string }[];
   } else {
     componentFiles = [];
   }

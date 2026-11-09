@@ -14,6 +14,7 @@ import { openDatabase } from '../db-driver.ts';
 import { matchRules } from '../rules.ts';
 import { isInMiddlewareTree } from '../middleware-tree.ts';
 import { getResolvedPaths, getProjectRoot } from '../config.ts';
+import { isUnderSourceDir } from '../lib/source-layout.ts';
 import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
 
 /** Registered on PostToolUse. Asserted against `.claude/settings.json` by
@@ -44,8 +45,10 @@ async function main(): Promise<void> {
     const root = getProjectRoot();
     const rel = filePath.startsWith(root + '/') ? filePath.slice(root.length + 1) : filePath;
 
-    // Only process src/ files
-    if (!rel.startsWith('src/') && !rel.endsWith('.py')) {
+    // Only process files under a DECLARED source dir. This was `src/`, which in
+    // any layout that is not single-package matches nothing — so the hook exited
+    // silently on every edit and looked exactly like a hook with nothing to say.
+    if (!isUnderSourceDir(rel) && !rel.endsWith('.py')) {
       process.exit(0);
       return;
     }

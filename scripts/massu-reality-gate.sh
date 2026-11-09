@@ -125,20 +125,36 @@ check_stores () {
   fi
 
   # Memory corpus: files on disk must equal rows in the DB (S-2).
-  local mdir files rows
-  mdir="$HOME/.claude/projects/$(echo "$ROOT" | sed 's|/|-|g')/memory"
+  #
+  # THE STORE ROOT IS THE SAME KNOB THE HOOK USES. This line was a THIRD independent
+  # resolver for one path — hardcoded root plus an inline re-implementation of the
+  # encoder — alongside `scripts/hooks/memory-integrity-check.sh` and the TS
+  # `resolveMemoryDir()`. Three resolvers for one path is three chances to drift, and a
+  # drifted reader reports on a directory nobody else is talking about.
+  #
+  # This one only READS, so it never polluted the live store the way the hook's test did.
+  # It still honours the override, and — because a redirected reader would otherwise report
+  # "corpus ingested" about a scratch directory in a voice that sounds authoritative — it
+  # NAMES the root it actually read in every verdict below.
+  local mdir files rows store_root
+  store_root="${MASSU_MEMORY_STORE_ROOT:-$HOME/.claude/projects}"
+  if [ -z "$store_root" ]; then
+    fail "MASSU_MEMORY_STORE_ROOT is set but empty — refusing to resolve a memory dir from it"
+    return 0
+  fi
+  mdir="$store_root/$(echo "$ROOT" | sed 's|/|-|g')/memory"
   if [ -d "$mdir" ]; then
     files=$(find "$mdir" -name '*.md' ! -name 'MEMORY.md' | wc -l | tr -d ' ')
     rows=$(sqlite3 "$db" 'SELECT COUNT(*) FROM memory_files;' 2>/dev/null || echo 0)
     if [ "$files" -gt 0 ] && [ "$rows" -eq 0 ]; then
-      fail "MEMORY CORPUS NOT INGESTED: $files files on disk -> $rows rows (auto-recall searches an EMPTY table)"
+      fail "MEMORY CORPUS NOT INGESTED: $files files on disk -> $rows rows (auto-recall searches an EMPTY table) [store=$mdir]"
     elif [ "$rows" -lt "$files" ]; then
-      fail "memory corpus partially ingested: $files files -> $rows rows"
+      fail "memory corpus partially ingested: $files files -> $rows rows [store=$mdir]"
     else
-      pass "memory corpus ingested: $files files -> $rows rows"
+      pass "memory corpus ingested: $files files -> $rows rows [store=$mdir]"
     fi
   else
-    skip "R-2 memory corpus (no memory dir for this project)"
+    skip "R-2 memory corpus (no memory dir at $mdir)"
   fi
 
   # CodeGraph: present-but-EMPTY is the failure the -32001 guard cannot see (M-2).
@@ -157,30 +173,196 @@ check_stores () {
 }
 
 # -----------------------------------------------------------------------------
-# R-3 — NO HOOK IS FAILING SILENTLY.
+# R-3 — IS A HOOK FAILING *NOW*?  (F1 / plan-2026-08-11 Phase B, B-001..B-003)
 #
-# G-2 gave every hook a durable failure channel. This asserts the channel is EMPTY.
-# A non-empty hook-failures.jsonl BREAKS THE BUILD — that is the entire point:
-# a failure that nobody looks at is the same as no signal at all.
+# THE PREDICATE IS RECENCY, NOT HISTORY. The previous implementation failed on the
+# LIFETIME row count of .massu/hook-failures.jsonl. That log is append-only and
+# retained on purpose (CR-66), so once one failure had ever been recorded the gate was
+# red forever and could only be greened by DESTROYING the evidence it exists to
+# preserve — a gate with no legal ordering, which is a gate people learn to ignore.
+#
+# So: FAIL when a failure occurred inside a bounded window (default 24h,
+# MASSU_HOOK_FAILURE_WINDOW_HOURS overrides), regardless of how many historical rows
+# precede it. The backlog is REPORTED as context and never truncated (B-002).
+#
+# FAIL-CLOSED WITH A DENOMINATOR (B-003, M1/M2): an unreadable or unparseable log is an
+# ERROR, never a pass. "Scanned 0 rows, found 0 failures" is exactly what a check that
+# COULD NOT LOOK also reports.
+#
+# ABSENT IS NOT UNREADABLE — B-003 AMENDED 2026-08-12, MEASURED, OPERATOR-APPROVED.
+# The plan said absent => ERROR. Measured, that bricks two environments:
+#   * .massu/hook-failures.jsonl is gitignored (.gitignore:87) and untracked, so it is
+#     ABSENT in every CI checkout — and reality.yml's last step runs this gate with no
+#     `|| true`, so the nightly job would be red forever with no action able to green it;
+#   * hook-failure-signal.ts creates the log LAZILY (appendFileSync on first failure), so
+#     a fresh, healthy install has no file until a hook first fails.
+# Both are the very no-legal-ordering shape this rewrite removes (G10). Instead, absence
+# is CORROBORATED against the independent `hook_health` DB channel that the same writer
+# populates (recordHookHealthRow): rows there prove failures were recorded in this
+# checkout, so a missing file means the evidence was destroyed => FAIL. No rows (or no DB
+# to ask) means there is nothing to measure here => SKIP, loudly named, matching R-2's
+# existing precedent for absent runtime state. A SKIP is counted and printed; it is not
+# a pass, so the blind-gate law is honoured.
+#
+# An explicitly-set MASSU_HOOK_FAILURE_LOG is different again: the caller named a path,
+# so an absent file there is a broken invocation and always FAILs. That is also what
+# gives B-004 its fail-closed proof.
+#
+# Reads the A-001 seam (MASSU_HOOK_FAILURE_LOG) so B-004's OPENS half can point it at a
+# backlog copy — the real log's window state depends on whether the live §1.8 family
+# happened to fire, and a proof must not be a coin flip.
 # -----------------------------------------------------------------------------
 check_hook_health () {
   echo
-  echo "R-3  HOOKS — is anything failing quietly?"
-  local log="$ROOT/.massu/hook-failures.jsonl"
-  if [ ! -f "$log" ] || [ ! -s "$log" ]; then
-    pass "no hook failures recorded"
+  echo "R-3  HOOKS — is anything failing RIGHT NOW?"
+  local seam="${MASSU_HOOK_FAILURE_LOG:-}"
+  local log="${seam:-$ROOT/.massu/hook-failures.jsonl}"
+  local hours="${MASSU_HOOK_FAILURE_WINDOW_HOURS:-24}"
+
+  if [ ! -f "$log" ]; then
+    # The caller named this path explicitly — an absent file is a broken invocation.
+    if [ -n "$seam" ]; then
+      fail "hook-failure log ABSENT at MASSU_HOOK_FAILURE_LOG=$log — a check that cannot look must not report clean"
+      return
+    fi
+    # Default path. Ask the independent DB channel whether failures were EVER recorded
+    # here; if they were, the file's absence means the evidence was destroyed (CR-66).
+    # ASK THROUGH `node:sqlite`, NEVER THE `sqlite3` CLI.
+    #
+    # This read used to be `dbrows=$(sqlite3 "$db" '...' 2>/dev/null)` behind a
+    # `command -v sqlite3` guard. `sqlite3` is NOT installed on the GitHub runner, so the
+    # guard fell through, `dbrows` kept its initial EMPTY STRING, and the `''|0` arm below
+    # reported "no corroborating hook_health rows — nothing has run here". That is the
+    # blind-gate law verbatim: "I could not ask" and "I asked and it said zero" produced the
+    # SAME value, and that value was the non-failing one — while the message ASSERTED A CAUSE
+    # THE GATE HAD NOT DETERMINED. CR-69 makes node:sqlite the product's own default engine,
+    # so this asks through the same path the product reads through and needs no external
+    # tool. Precedent: scripts/hooks/memory-integrity-check.sh section 6.
+    #
+    # THE PROBE NEVER PRINTS THE EMPTY STRING. It prints a count, or UNCHECKABLE:<reason>,
+    # so cannot-measure can never again be spelled the same way as measured-zero.
+    local db="$ROOT/.massu/memory.db" dbrows=""
+    if [ ! -f "$db" ]; then
+      dbrows=0                              # no DB at all: nothing was ever recorded here
+    elif ! command -v node >/dev/null 2>&1; then
+      dbrows="UNCHECKABLE:node-not-on-PATH"
+    else
+      dbrows=$(node -e '
+        const { DatabaseSync } = require("node:sqlite");
+        let db;
+        try {
+          db = new DatabaseSync(process.argv[1], { readOnly: true });
+          // ASK sqlite_master FIRST, and let it answer BOTH questions at once: it succeeds
+          // only if the file really is a readable database, and it reports whether the table
+          // exists. A bare try/catch around `SELECT COUNT(*) FROM hook_health` cannot tell
+          // "no such table" (a measured zero) from "file is not a database" (blind) — the
+          // first draft of this fix did exactly that and reported a corrupt DB as
+          // "nothing has run here", reproducing the very defect being repaired.
+          //
+          // BOUND PARAMETERS, not quoted literals: SQLite reads "hook_health" in double
+          // quotes as an IDENTIFIER, and single quotes cannot appear inside this
+          // single-quoted shell heredoc at all.
+          const present = db.prepare(
+            "SELECT count(*) c FROM sqlite_master WHERE type = ? AND name = ?"
+          ).get("table", "hook_health").c;
+          if (!present) {
+            // The channel never recorded anything in this checkout: a MEASURED zero.
+            process.stdout.write("0");
+          } else {
+            process.stdout.write(String(db.prepare("SELECT COUNT(*) c FROM hook_health").get().c));
+          }
+        } catch (err) {
+          const m = String(err && err.message ? err.message : err).replace(/\s+/g, " ");
+          process.stdout.write("UNCHECKABLE:" + m.slice(0, 80));
+        } finally {
+          try { if (db) db.close(); } catch { /* already closed */ }
+        }
+      ' "$db" 2>/dev/null)
+      # A probe that produced nothing is UNKNOWN, never zero (M2 — fail closed).
+      [ -n "$dbrows" ] || dbrows="UNCHECKABLE:probe-produced-no-output"
+    fi
+    case "$dbrows" in
+      0)
+        skip "R-3 hooks (no hook-failure log at $log, and no corroborating hook_health rows — nothing has run here)"
+        ;;
+      ''|*[!0-9]*)
+        skip "R-3 hooks (no hook-failure log at $log; hook_health could not be read (${dbrows:-no-output}), so absence could not be corroborated)"
+        ;;
+      *)
+        fail "hook-failure log ABSENT at $log but hook_health records $dbrows failure(s) — the evidence was destroyed (CR-66)"
+        ;;
+    esac
     return
   fi
-  local n; n=$(wc -l < "$log" | tr -d ' ')
-  fail "$n hook failure(s) recorded in .massu/hook-failures.jsonl"
-  node -e "
-    const fs=require('fs');
-    const c={};
-    for(const l of fs.readFileSync('$log','utf8').trim().split('\n')){
-      try{const o=JSON.parse(l); const k=o.hook+': '+o.error.slice(0,60); c[k]=(c[k]||0)+1;}catch{}
+  if [ ! -r "$log" ]; then
+    fail "hook-failure log UNREADABLE at $log — a check that cannot look must not report clean"
+    return
+  fi
+
+  local out rc
+  out=$(MASSU_R3_LOG="$log" MASSU_R3_HOURS="$hours" node -e '
+    const fs = require("fs");
+    const path = process.env.MASSU_R3_LOG;
+    const hours = Number(process.env.MASSU_R3_HOURS);
+    if (!Number.isFinite(hours) || hours <= 0) {
+      console.log("ERROR\tinvalid window: " + process.env.MASSU_R3_HOURS); process.exit(2);
     }
-    for(const [k,v] of Object.entries(c)) console.log('          '+v+'x  '+k);
-  " 2>/dev/null
+    let raw;
+    try { raw = fs.readFileSync(path, "utf8"); }
+    catch (e) { console.log("ERROR\tunreadable: " + e.message); process.exit(2); }
+    const lines = raw.split("\n").filter((l) => l.trim() !== "");
+    const cutoff = Date.now() - hours * 3600 * 1000;
+    let scanned = 0, unparseable = 0, newest = null;
+    const inWindow = [];
+    for (const l of lines) {
+      scanned++;
+      let o;
+      try { o = JSON.parse(l); } catch { unparseable++; continue; }
+      const ts = Date.parse(o.timestamp || "");
+      if (!Number.isFinite(ts)) { unparseable++; continue; }
+      if (newest === null || ts > newest) newest = ts;
+      if (ts >= cutoff) {
+        inWindow.push({
+          ts: o.timestamp,
+          hook: o.hook || "(no hook)",
+          error: String(o.error || "").replace(/\s+/g, " ").slice(0, 70),
+        });
+      }
+    }
+    // Bytes present but NOTHING parseable means the reader or the format is broken.
+    // Reporting that as "0 failures in window" would be the blind-gate value.
+    if (scanned > 0 && scanned === unparseable) {
+      console.log("ERROR\t" + scanned + " row(s) present but NONE parseable — reader or format is broken");
+      process.exit(2);
+    }
+    console.log(["OK", scanned, unparseable, inWindow.length,
+      newest === null ? "none" : new Date(newest).toISOString()].join("\t"));
+    for (const r of inWindow.slice(0, 10)) console.log(["ROW", r.ts, r.hook, r.error].join("\t"));
+  ' 2>&1)
+  rc=$?
+
+  if [ "$rc" -ne 0 ]; then
+    fail "hook-failure log could not be measured: $(printf '%s' "$out" | head -1 | cut -f2-)"
+    return
+  fi
+
+  local head scanned unparseable nwin newest
+  head=$(printf '%s' "$out" | head -1)
+  scanned=$(printf '%s' "$head" | cut -f2)
+  unparseable=$(printf '%s' "$head" | cut -f3)
+  nwin=$(printf '%s' "$head" | cut -f4)
+  newest=$(printf '%s' "$head" | cut -f5)
+
+  # M1: the denominator prints on EVERY run, pass or fail, so a silent drop to zero rows
+  # scanned is visible rather than indistinguishable from a clean log.
+  note "scanned $scanned row(s); $unparseable unparseable; newest $newest; window ${hours}h"
+
+  if [ "$nwin" -eq 0 ]; then
+    pass "no hook failure in the last ${hours}h ($scanned historical row(s) retained, newest $newest)"
+    return
+  fi
+  fail "$nwin hook failure(s) in the last ${hours}h — a hook is failing NOW ($scanned historical row(s) retained)"
+  printf '%s' "$out" | awk -F'\t' '$1=="ROW"{printf "          %s  %s  %s\n",$2,$3,$4}'
 }
 
 # -----------------------------------------------------------------------------

@@ -16,15 +16,46 @@
  * `(d)` therefore executes the real shim against a version with NO runtime and demands it
  * still succeed, and `(e)` mutates the runtime probe to prove the branch is reachable.
  */
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { installMassuShim, resolveMassuShim, massuShimPath, massuShimBody } from '../commands/init.ts';
 
 const isWin = process.platform === 'win32';
 const d = isWin ? describe.skip : describe;
+
+/**
+ * EVERY install in this file goes into a SANDBOX home, never the operator's.
+ *
+ * This suite used to call `installMassuShim()` with no argument, which resolved `homedir()`
+ * and wrote a live `~/.massu/bin/massu-hook` onto the developer's machine every time
+ * `npm test` ran. Measured 2026-08-11: the real shim carried an mtime from the middle of a
+ * test run. The file already isolated HOME for RUNNING the shim (see `runShim` below) and
+ * missed the INSTALL — the write half is the half that gets missed.
+ *
+ * That write was not merely untidy. Once the shim exists, `resolveMassuShim()` returns
+ * non-null, `hookCmd` takes the shim branch, and the anti-vacuity plant aimed at the npx
+ * branch stops reaching any emitted command — which is exactly how
+ * `init-hook-paths-no-absolute.test.ts` was found to be DECORATION. A test that mutates the
+ * machine can silently change which code path every OTHER test exercises.
+ *
+ * Same class as `d76ab2c8` (memory-store root), one commit earlier in the same repo.
+ */
+let SANDBOX_HOME: string;
+
+/** Existence + mtime of the operator's REAL shim, captured before anything runs. */
+let realShimBefore: { existed: boolean; mtimeMs: number };
+
+function realShimState(): { existed: boolean; mtimeMs: number } {
+  const p = massuShimPath(homedir());
+  try {
+    return { existed: true, mtimeMs: statSync(p).mtimeMs };
+  } catch {
+    return { existed: false, mtimeMs: 0 };
+  }
+}
 
 /** Run a shim copy in an isolated HOME so the real runtime tree is never consulted. */
 function runShim(shimPath: string, args: string[], home: string): { status: number; stdout: string } {
@@ -43,23 +74,45 @@ function runShim(shimPath: string, args: string[], home: string): { status: numb
 
 d('phase B — version-stable launcher shim', () => {
   beforeAll(() => {
-    expect(installMassuShim(), 'installMassuShim() did not self-verify').toBe(true);
+    realShimBefore = realShimState();
+    SANDBOX_HOME = mkdtempSync(join(tmpdir(), 'massu-shim-sandbox-'));
+    expect(installMassuShim(SANDBOX_HOME), 'installMassuShim() did not self-verify').toBe(true);
+  });
+
+  afterAll(() => {
+    if (SANDBOX_HOME) rmSync(SANDBOX_HOME, { recursive: true, force: true });
   });
 
   it('(a) the shim path is VERSION-STABLE (contains no version token)', () => {
     // The whole point: a bump must not invalidate the emitted command.
-    const p = massuShimPath();
+    const p = massuShimPath(SANDBOX_HOME);
     expect(p).toMatch(/\.massu[/\\]bin[/\\]massu-hook$/);
     expect(p, 'shim path embeds a version — it would rot on the next bump').not.toMatch(/\d+\.\d+\.\d+/);
   });
 
   it('(b) it is installed, executable, and resolves', () => {
-    expect(existsSync(massuShimPath())).toBe(true);
-    expect(resolveMassuShim()).toBe(massuShimPath());
+    expect(existsSync(massuShimPath(SANDBOX_HOME))).toBe(true);
+    expect(resolveMassuShim(SANDBOX_HOME)).toBe(massuShimPath(SANDBOX_HOME));
+  });
+
+  it('(h) BLAST RADIUS: this suite installs a shim, and NOT into the real home', () => {
+    // POSITIVE CONTROL FIRST. "The real home was untouched" is also what a suite that
+    // installed NOTHING would report, so assert the write actually happened somewhere
+    // before asserting where it did not happen (M1 — prove it looked).
+    const sandboxShim = massuShimPath(SANDBOX_HOME);
+    expect(existsSync(sandboxShim), 'no shim was installed anywhere — the check below is vacuous').toBe(true);
+    expect(sandboxShim.startsWith(SANDBOX_HOME), 'the sandbox shim escaped its sandbox root').toBe(true);
+
+    // Now the property: this run neither created nor rewrote the operator's shim.
+    const after = realShimState();
+    expect(after.existed, 'this suite CREATED a shim in the real home').toBe(realShimBefore.existed);
+    if (realShimBefore.existed) {
+      expect(after.mtimeMs, 'this suite REWROTE the shim in the real home').toBe(realShimBefore.mtimeMs);
+    }
   });
 
   it('(c) the arg guard fires: no version argument exits 2', () => {
-    const r = runShim(massuShimPath(), [], process.env.HOME ?? '');
+    const r = runShim(massuShimPath(SANDBOX_HOME), [], process.env.HOME ?? '');
     expect(r.status).toBe(2);
   });
 
@@ -67,7 +120,7 @@ d('phase B — version-stable launcher shim', () => {
     // Isolated HOME => ~/.massu/runtime/<v> cannot exist => the npx branch MUST carry it.
     const home = mkdtempSync(join(tmpdir(), 'massu-shim-home-'));
     try {
-      const r = runShim(massuShimPath(), ['2.4.0', '--version'], home);
+      const r = runShim(massuShimPath(SANDBOX_HOME), ['2.4.0', '--version'], home);
       expect(r.status, 'the shim FAILED when the runtime was absent — a stale registration would die silently').toBe(0);
       expect(r.stdout).toContain('massu');
     } finally {
@@ -98,12 +151,12 @@ d('phase B — version-stable launcher shim', () => {
   }, 60_000);
 
   it('(f) exit-code fidelity: a failing subcommand propagates a non-zero status', () => {
-    const r = runShim(massuShimPath(), ['2.4.0', 'definitely-not-a-subcommand'], process.env.HOME ?? '');
+    const r = runShim(massuShimPath(SANDBOX_HOME), ['2.4.0', 'definitely-not-a-subcommand'], process.env.HOME ?? '');
     expect(r.status).not.toBe(0);
   }, 120_000);
 
   it('(g) idempotent: reinstalling is a no-op that still verifies', () => {
-    expect(installMassuShim()).toBe(true);
-    expect(installMassuShim()).toBe(true);
+    expect(installMassuShim(SANDBOX_HOME)).toBe(true);
+    expect(installMassuShim(SANDBOX_HOME)).toBe(true);
   });
 });

@@ -209,8 +209,34 @@ for g in gates:
         p = g.get("path", g.get("id", "")); reg_guard_paths.add(p)
         recipe = g.get("recipe", "")
         if recipe in ("companion", "self-proving"):
-            has_proof = bool(g.get("companion_script") or g.get("proof_script"))
-            why = "companion/self-proving gate names no companion_script/proof_script"
+            # G28/CR-91 — a scope predicate must BE the property, not a correlate of it.
+            # This was `bool(companion_script or proof_script)`: ANY truthy string satisfied
+            # it, so the two recipes were indistinguishable to the only check that reads them.
+            # `companion` MEANS "a DISTINCT artifact proves me" — every one of the 11 companion
+            # rows names a separate live-fire, and exempt-reasons.json rules those live-fires
+            # NON-GUARD precisely because re-registering one as `self-proving` "would run it
+            # twice". A companion row that named ITSELF would silently collapse into
+            # self-proving and be accepted here AND by _run_guard_defeat.py:158, which branches
+            # on the two recipes jointly. Enforce each recipe's own semantics, BOTH directions.
+            script = g.get("companion_script") or g.get("proof_script")
+            if not script:
+                has_proof = False
+                why = "companion/self-proving gate names no companion_script/proof_script"
+            elif not os.path.exists(os.path.join(repo, script)):
+                # The executor also checks this, but only for gates it is SELECTED to run;
+                # completeness classifies the whole registry, so a dangling proof must be
+                # hollow here rather than wait for a sweep that happens to select it.
+                has_proof = False
+                why = f"names a proof script that does not exist: {script}"
+            elif recipe == "companion" and script == p:
+                has_proof = False
+                why = f"recipe=companion must name a DISTINCT artifact — it names itself ({script})"
+            elif recipe == "self-proving" and script != p:
+                has_proof = False
+                why = f"recipe=self-proving must name ITSELF — it names {script} (declare recipe=companion)"
+            else:
+                has_proof = True
+                why = ""
         elif recipe in ("source-plant", "dist-artifact", "plant"):
             has_proof = bool(g.get("plant")) and bool(g.get("oracle")) and (recipe == "plant" or g.get("test"))
             why = "plant recipe needs a non-empty plant + oracle (+ test for vitest kinds)"

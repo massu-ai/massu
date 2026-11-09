@@ -41,6 +41,21 @@ interface FixSignal {
 }
 
 // Fix detection heuristics — each returns true if the pattern matches
+/**
+ * Path patterns whose files are pipeline OUTPUT, not subjects of bug-fix classification.
+ * Exported so the drift-guard binds to this source of truth and executes these exact
+ * patterns — a test that re-implements its subject drifts into agreeing with its bugs.
+ */
+export const TEST_OR_FIXTURE_PATH_PATTERNS: readonly RegExp[] = [
+  /(^|\/)(__tests__|__fixtures__|tests?|fixtures?|spec)\//,
+  /\.(test|spec)\.[cm]?[jt]sx?$/,
+  /(^|\/)(test_[^/]+|[^/]+_test)\.py$/,
+];
+
+export function isTestOrFixturePath(filePath: string): boolean {
+  return TEST_OR_FIXTURE_PATH_PATTERNS.some((re) => re.test(filePath));
+}
+
 const FIX_HEURISTICS: Array<{ name: string; test: (diff: string) => boolean }> = [
   {
     name: 'removed_broken_code',
@@ -182,6 +197,32 @@ async function main(): Promise<void> {
     const incidentDir = config.autoLearning?.incidentDir ?? 'docs/incidents';
     const memoryDir = config.autoLearning?.memoryDir ?? 'memory';
     if (filePath.includes(incidentDir) || filePath.includes(memoryDir) || filePath.includes('MEMORY.md')) {
+      process.exit(0);
+      return;
+    }
+
+    // Skip TESTS and FIXTURES — pipeline output too, for exactly the reason above.
+    //
+    // A test is the ENFORCEMENT ARTIFACT the retro pipeline asks for. Classifying it as a new
+    // bug fix demands an incident for the artifact that closed the previous incident, which is
+    // circular: the only way to satisfy it is to invent a defect. A session in a sibling private
+    // repo hit this on `test_redact_lib.py` and correctly refused rather than write a fictitious incident into
+    // the corpus future sessions read as ground truth.
+    //
+    // The heuristics score CONTENT with no notion of a file's ROLE, so they read discussion of
+    // a thing as the thing: `added_error_handling` fires on any test with three asserts,
+    // `auth_fix` on any file containing the word "token". A test about credential redaction
+    // cannot NOT match. Measured by simulating every tracked test file as a new diff:
+    //
+    //   massu-internal  544 test files -> 85% match >=1 signal
+    //   sibling repo    887 test files -> 99% match >=1 signal  (precision ~1%)
+    //
+    // A gate that fires on compliant work gets disabled, and then nothing is enforced (CR-72).
+    // The retro law is load-bearing; this was training us to ignore it.
+    //
+    // Role-gate BEFORE scoring content — the same shape `nil_handling_fix` and
+    // `async_pattern_fix` already use to avoid misfiring (both require a paired removal).
+    if (isTestOrFixturePath(filePath)) {
       process.exit(0);
       return;
     }

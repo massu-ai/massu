@@ -56,13 +56,13 @@ describe('Full Pipeline: Index -> Query -> Verify', () => {
     expect(stats.chunksCreated).toBeGreaterThan(0);
 
     // Step 2: Query for something we know exists in CLAUDE.md
-    const result = handleKnowledgeToolCall('massu_knowledge_rule', { rule_id: 'CR-1' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_rule', { rule_id: 'CR-1' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('CR-1');
     expect(text).toContain('Never claim state without proof');
 
     // Step 3: Verify VR types are indexed from CLAUDE.md
-    const vrResult = handleKnowledgeToolCall('massu_knowledge_verification', { vr_type: 'VR-BUILD' }, db);
+    const vrResult = handleKnowledgeToolCall('massu_knowledge_verification', { vr_type: 'VR-BUILD' }, db, 'ensure-fresh');
     const vrText = vrResult.content[0].text;
     expect(vrText).toContain('VR-BUILD');
   });
@@ -133,7 +133,7 @@ describe('Edge Traversal: Multi-Hop', () => {
         entity_type: 'cr',
         entity_id: crWithEdge.source_id,
         depth: 2,
-      }, db);
+      }, db, 'ensure-fresh');
 
       const text = result.content[0].text;
       expect(text).toContain('Knowledge Graph');
@@ -151,7 +151,7 @@ describe('FTS5 Full-Text Search Quality', () => {
     if (docCount === 0) indexAllKnowledge(db);
 
     // Search for "verification" -- should find VR-related content
-    const result = handleKnowledgeToolCall('massu_knowledge_search', { query: 'verification' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_search', { query: 'verification' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     // Should find something related to verification
     expect(text).toContain('Knowledge Search');
@@ -159,7 +159,7 @@ describe('FTS5 Full-Text Search Quality', () => {
 
   it('handles FTS5 special characters gracefully', () => {
     // Queries with special chars should not crash
-    const result = handleKnowledgeToolCall('massu_knowledge_search', { query: 'config.ts' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_search', { query: 'config.ts' }, db, 'ensure-fresh');
     expect(result.content[0].text).toBeTruthy();
   });
 });
@@ -168,7 +168,7 @@ describe('Graceful Degradation', () => {
   it('handles empty search results gracefully', () => {
     // The ensureKnowledgeIndexed call auto-indexes if data is stale,
     // so we test degradation via an impossible search term instead
-    const result = handleKnowledgeToolCall('massu_knowledge_search', { query: 'xyznonexistent99999' }, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_search', { query: 'xyznonexistent99999' }, db, 'ensure-fresh');
     const text = result.content[0].text;
     expect(text).toContain('Knowledge Search');
     // Should show "No matches" or similar, not crash
@@ -176,7 +176,7 @@ describe('Graceful Degradation', () => {
   });
 
   it('handles unknown tool name gracefully', () => {
-    const result = handleKnowledgeToolCall('massu_knowledge_nonexistent', {}, db);
+    const result = handleKnowledgeToolCall('massu_knowledge_nonexistent', {}, db, 'ensure-fresh');
     expect(result.content[0].text).toContain('Unknown knowledge tool');
   });
 });

@@ -1190,6 +1190,13 @@ var init_config = __esm({
     });
     LanguageFrameworkEntrySchema = z2.object({
       framework: z2.string().optional(),
+      // `source_dirs` is emitted by `init` (commands/init.ts:417) and existence-checked
+      // by config validation (init.ts:868-876), but until 2026-08-14 it survived only via
+      // `.passthrough()` — declared in the file, untyped in the schema. `lib/source-layout.ts`
+      // derives the index builders' candidate set from it, so it is typed here rather than
+      // read as an unknown: a consumer that has to shape-check its own SoT is one branch away
+      // from silently contributing `undefined` to a path predicate.
+      source_dirs: z2.array(z2.string()).optional(),
       test_framework: z2.string().optional(),
       test: z2.string().optional(),
       runtime: z2.string().optional(),

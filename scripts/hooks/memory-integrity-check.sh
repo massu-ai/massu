@@ -94,7 +94,25 @@ if [ -z "$ENCODED_PATH" ] || [ "$ENCODED_PATH" = "-" ]; then
   exit 0
 fi
 
-MEMORY_DIR="$HOME/.claude/projects/${ENCODED_PATH}/memory"
+# The STORE ROOT is injectable so this hook can be pointed at a scratch tree.
+#
+# It was hardcoded to `$HOME/.claude/projects`. That let the mutation test redirect the
+# PROJECT dir (CLAUDE_PROJECT_DIR) but not the STORE, so every sandbox project it invented
+# materialised a real directory inside the operator's LIVE memory store — the directory a
+# burst deletion destroyed on 2026-07-26. Six were still present when this was measured,
+# the newest from that same week, and they inflate every fleet-wide census that globs this
+# root (17 stores discovered, 6 of them fixtures).
+#
+# EMPTY is refused rather than defaulted: an empty root would widen MEMORY_DIR to
+# `/${ENCODED_PATH}/memory` — G17, an empty component widens a path to its parent. `set -u`
+# does not fire on set-but-empty, so the test has to be explicit.
+MEMORY_STORE_ROOT="${MASSU_MEMORY_STORE_ROOT:-$HOME/.claude/projects}"
+if [ -z "$MEMORY_STORE_ROOT" ]; then
+  printf '\n[MEMORY INTEGRITY] UNCHECKABLE — MASSU_MEMORY_STORE_ROOT is set but empty.\n\n'
+  exit 0
+fi
+
+MEMORY_DIR="$MEMORY_STORE_ROOT/${ENCODED_PATH}/memory"
 MEMORY_FILE="$MEMORY_DIR/MEMORY.md"
 DB_FILE="$PROJECT_ROOT/.massu/memory.db"
 

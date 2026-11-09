@@ -7,6 +7,12 @@ import type Database from 'better-sqlite3';
 import { getConfig, getProjectRoot } from './config.ts';
 import { ensureWithinRoot } from './security-utils.ts';
 import { t } from './lib/sql-table-names.ts';
+import {
+  assertSourceCandidateSet,
+  getSourceLayout,
+  isUnderSourceDir,
+  pagesPredicate,
+} from './lib/source-layout.ts';
 
 export interface PageChain {
   page: string;
@@ -20,12 +26,19 @@ export interface PageChain {
 
 /**
  * Derive the URL route from a Next.js page file path.
- * e.g., src/app/orders/page.tsx -> /orders
- * e.g., src/app/orders/[id]/page.tsx -> /orders/[id]
+ * e.g., <pagesDir>/orders/page.tsx -> /orders
+ * e.g., <pagesDir>/orders/[id]/page.tsx -> /orders/[id]
+ *
+ * The prefix stripped here is the SAME declared pages dir the page query
+ * selects on (`lib/source-layout.ts`). It used to be a compiled-in `src/app`,
+ * which in any layout that is not single-package produced routes still
+ * carrying the directory prefix.
  */
 export function deriveRoute(pageFile: string): string {
+  const pagesDir = getSourceLayout().pagesDir;
+  const prefix = pagesDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   let route = pageFile
-    .replace(/^src\/app/, '')
+    .replace(new RegExp(`^${prefix}`), '')
     .replace(/\/page\.tsx?$/, '')
     .replace(/\/page\.jsx?$/, '');
   return route || '/';
@@ -76,8 +89,10 @@ function traceImports(
       hooks.add(target);
     }
 
-    // Recurse into local imports (not node_modules)
-    if (target.startsWith('src/')) {
+    // Recurse into local imports (not node_modules). Shares ONE definition of
+    // "local" with the SQL predicate that selected these files, so widening the
+    // query cannot leave this guard behind.
+    if (isUnderSourceDir(target)) {
       traceImports(target, dataDb, visited, components, hooks, maxDepth - 1);
     }
   }
@@ -150,15 +165,23 @@ function findTablesFromRouters(routerNames: string[], dataDb: Database.Database)
  * Build page dependency chains for all page.tsx files.
  */
 export function buildPageDeps(dataDb: Database.Database, codegraphDb: Database.Database): number {
+  // Asserted before the DELETE, for the same reason as buildImportIndex. Note
+  // the LEVEL: this checks the shared source-dir candidate set, not "pages > 0".
+  // A library-only repo legitimately has no pages, and a rule that fired there
+  // would be red by design in the state it exists to tolerate.
+  assertSourceCandidateSet(codegraphDb, 'buildPageDeps');
+
   // Clear existing data
   dataDb.exec(`DELETE FROM ${t('page_deps')}`);
 
-  // Find all page.tsx files from CodeGraph. LIMIT 10000 is far above the
-  // largest project we expect (Next.js app router with 10k page routes is
-  // hypothetical). LIMIT is required by P-DG-001 (massu/no-unbounded-sql-all).
+  // Page files from CodeGraph, under the DECLARED pages dir (`paths.pages`,
+  // falling back to `<paths.source>/app`). LIMIT 10000 is far above the largest
+  // project we expect (Next.js app router with 10k page routes is hypothetical).
+  // LIMIT is required by P-DG-001 (massu/no-unbounded-sql-all).
+  const pagesPred = pagesPredicate();
   const pages = codegraphDb.prepare(
-    "SELECT path FROM files WHERE path LIKE 'src/app/%/page.tsx' OR path = 'src/app/page.tsx' LIMIT 10000"
-  ).all() as { path: string }[];
+    `SELECT path FROM files WHERE ${pagesPred.sql} LIMIT 10000`
+  ).all(...pagesPred.params) as { path: string }[];
 
   const insertStmt = dataDb.prepare(
     `INSERT INTO ${t('page_deps')} (page_file, route, portal, components, hooks, routers, tables_touched) VALUES (?, ?, ?, ?, ?, ?, ?)`

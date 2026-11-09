@@ -10,9 +10,86 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
-## [2.5.2] - 2026-08-10
+## [2.5.2] - 2026-08-14
 
 ### Fixed
+
+- **The code-intelligence index was empty, and an empty index looked exactly like a project
+  with no imports.** Ten places across seven modules each answered "where does this project's
+  source live?" with the literal `src/`. In any layout that is not single-package every one of
+  them matched nothing: the import index consumed **0 of 1266** indexed files, the page index
+  found **0 of 69** real pages, cross-domain analysis saw one package of four, and two hooks
+  exited silently on every edit and every deletion. Nothing reported it, because a builder that
+  reads no rows returns `0` and the caller prints that as a normal result.
+
+  The layout now declares itself in `massu.config.yaml` and every consumer asks one module.
+  Everything is derived from declarations that already existed — `paths.source`,
+  `paths.monorepo_roots`, `framework.languages.*.source_dirs`, `paths.pages`,
+  `paths.components` — and one definition feeds both the SQL predicates and the in-JS path
+  guards, so widening a query cannot leave its recursion guard behind. A builder whose declared
+  source dirs match **0 rows of a non-empty** file table now raises an error naming the
+  denominator, the declaration, and the prefixes actually present. The contract is `0-of-N`,
+  never `0`: a repo with an empty or not-yet-built index legitimately matches nothing and must
+  not trip it.
+
+  Measured after, on the same corpus: 1128 of 1266 files consumed, 1096 import edges where the
+  table had been empty, 69 pages indexed, and every downstream read site non-empty.
+
+- **A failed knowledge re-index was indistinguishable from a successful one.** The helper that
+  refreshes the markdown corpus caught every exception without binding it and returned a boolean
+  the only call site discarded. A corrupt database, a permissions error and a search-index
+  failure therefore produced byte-identical output to a healthy rebuild: the tool answered from
+  whatever the index held before and said nothing.
+
+  The error is now bound and recorded, and a failed refresh prepends a notice to the response so
+  the caller knows the answer may be stale. Loud is not fatal — the tool still answers from the
+  index it has, because turning a degradation into an outage for all twelve knowledge tools is
+  what the "degrade gracefully" contract exists to avoid.
+
+  The rebuild itself is no longer a side effect of dispatching. It cost 677 documents / 11,954
+  chunks on any file-modification under four scanned roots, and no caller had asked for it;
+  callers now state their intent explicitly, with no default, so an unrequested full rebuild
+  cannot happen by omission.
+
+- **The session-end fix reminder fired on other sessions' work, and could not be discharged.**
+  Three defects compounded. Documentation was excluded from two of the three git reads but not
+  from the one whose text is actually scored, so the exclusion held only when a diff was
+  documentation-only — change any code file and prose was scored as code again. The diff was
+  read over the whole working tree with no notion of who made the changes, so on a machine where
+  several sessions hold one repository at once the reminder routinely demanded an artifact for
+  work the blocked session had not done. And the `autoLearning.fixDetection.enabled` switch,
+  which reads as the control for fix detection, never reached this reminder at all.
+
+  All three git reads now carry the documentation exclusion; the scan is intersected with files
+  the acting session actually touched, including the body read and not merely the gate; and the
+  switch gates both halves. When the actor cannot be established the reminder stays **silent** —
+  a demand that no legal action can discharge is one people route around, after which nothing is
+  enforced. The verdict carries a reason and a scanned-file count, so a negative result is never
+  an unexplained silence.
+
+- **The reality gate's hook check was red forever, and the only way to green it was to
+  destroy its own evidence.** R-3 failed on the LIFETIME row count of
+  `.massu/hook-failures.jsonl`, an append-only log retained on purpose. From the first
+  failure ever recorded the gate stayed red permanently — at 11,116 rows it had long since
+  stopped carrying information, and a gate whose sole remedy is deleting its input is one
+  people learn to route around.
+
+  The predicate is now RECENCY: the check fails when a failure lies inside a bounded window
+  (default 24h, `MASSU_HOOK_FAILURE_WINDOW_HOURS`) and names the offending row's timestamp
+  and hook, while the historical backlog is reported as context and never truncated. The
+  denominator prints on every run, so "scanned 0 rows, found 0 failures" can never be
+  mistaken for a clean log.
+
+  An absent log is no longer collapsed into either answer. It is corroborated against the
+  independent `hook_health` table the same writer populates: rows there prove failures were
+  recorded in this checkout, so a missing file means the evidence was destroyed and the gate
+  fails; no rows means there is nothing to measure and the check skips with the reason
+  named. Treating absence as an error — as originally specified — would have made the
+  nightly gate permanently red in CI, where the log is gitignored, and on every fresh
+  install, where it is created lazily on first failure.
+
+  Not a package change: `scripts/` is not in the published `files` array.
+  Plan `plan-2026-08-11-hook-failure-signal-truthfulness`.
 
 - **The release verifier reported FAIL on a publish that had fully succeeded.** It slept two
   seconds, read the npm registry once, and treated "the replica has not caught up" and "the
@@ -30,6 +107,78 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   receipt; only the timeout was wrong.
 
   Not a package change: `scripts/` is not in the published `files` array.
+
+- **`require()` of a TypeScript specifier held CI red in both repos for two days.** A
+  `require()` is resolved by whatever loader is running — not by `tsc`, and not by the vitest
+  transform. Node only gained require-of-TypeScript in 22.18; `packages/core` declares
+  `engines.node >= 22.16.0` and CI pins exactly that floor, so three such calls in
+  `hooks-stdout-convention.test.ts` passed on a Node 26 dev machine and threw
+  `SyntaxError: Unexpected identifier 'as'` on every runner. Replaced with a static ESM import
+  and guarded by a new drift-guard, which is a static property of the source and so goes red on
+  any Node version. A fourth call site in production code was found by enumerating the tree
+  rather than the failure, and stays: `require()` defers evaluation while a static import is
+  eager, and that laziness is what keeps a database load failure from silencing the hook-failure
+  signal it records.
+
+- **Publication to the public mirror now goes through a pull request.** A direct push to the
+  mirror's `main` cannot be gated by its required status checks — checks have not run on a
+  commit that does not exist yet — so every sync reported `Bypassed rule violations` and landed
+  regardless. That is what hid the above for two days. `scripts/ops/publish-public-mirror.sh`
+  derives the required contexts from the live ruleset, polls each to a deadline, treats a
+  cancelled or missing verdict as *not* a pass, and merges by rebase only when every one is
+  SUCCESS. It enforces the verdict itself rather than relying on the ruleset, because the
+  ruleset grants the pushing account a standing bypass.
+
+- **A bcrypt cost factor was a wall-clock budget in disguise.** `generateApiKey()` hashes at
+  cost 12 — ~350ms of deliberate CPU — in three tests that do not test hashing, which blew
+  vitest's 5000ms timeout under the concurrent coverage run while passing in isolation. Lowering
+  the cost factor would have been a security regression with nothing in the tree to catch it, so
+  `BCRYPT_COST` is now named and the property is asserted directly: the configured cost reaches
+  bcrypt, with the full key and never the plaintext-stored prefix.
+
+- **Importing any of 18 hook modules executed the hook.** A bare `main()` at module scope means
+  importing the module reads stdin, does its work, and exits the host process. Enumerating the
+  tree found 15 with no guard and 2 more guarded by a filename suffix — invisible to a sweep for
+  "unguarded", and disarmed silently by a rename. All 18 now share one
+  `isDirectInvocation(import.meta.url)` helper, proven behaviourally against the built bundles.
+
+- **A live destructive-path defect was hiding behind a permanently-red CI job.** Three sites in a
+  test harness widened to the filesystem root when a variable was empty, one of them under the
+  memory-store tree. The guard had been reporting it correctly on every run for long enough that
+  its redness stopped carrying information. Destructive paths there now go through a chokepoint
+  that cannot express the unsafe form. (Plan
+  `plan-2026-08-08-incident-coverage-range-discharge`: the CR-62 linkage ratchet shipped
+  2026-08-09 gains its real-history differential, which shows all 10 post-ratchet obligated
+  commits discharging via containment or citation and none via the legacy fallback.)
+
+  None of these are package changes: `scripts/` and `__tests__/` are not in the published
+  `files` array, and `website/` is not published.
+
+- **`massu watch` could start a file watcher that was dead for its entire lifetime.** chokidar
+  can return a watcher that emits `ready`, emits no `error`, and then delivers nothing, ever.
+  Interleaved A/B in a single load window: fsevents **8 of 60** dead against **0 of 60** for the
+  same directories with polling (Fisher's exact ≈ 0.006). The consequence for a user is silent
+  staleness — `.claude/` stops refreshing, `massu watch --status` looks healthy, and nothing is
+  logged. Nothing in the daemon would ever have noticed: its only reconcile trigger was a tick
+  gap over 30s, whose predicate is *"did the clock jump?"* while the property is *"might we have
+  missed events?"*, and a watcher dead from birth produces no tick gap at all.
+
+  The tick now writes a sentinel the watcher itself must echo back. Silence is treated as death:
+  log loudly, reconcile, and after two consecutive dead intervals close and re-watch. Escalation
+  fires on powers of two of the dead streak, so a permanently dead watcher cannot trade a
+  silent-staleness bug for a full refresh plus a watcher rebuild every ten seconds forever.
+  Polling was rejected as the fix — it trades a correctness bug for a battery-life bug.
+
+  Two constants here are claims about the outside world and were measured rather than assumed.
+  The canary shares ONE recursive FSEvents stream with the watched source directories (verified
+  by recording the paths streams are actually opened on — a canary on its own stream could have
+  been alive while the source watcher was dead), and its grace floor is set from measured echo
+  latency: ~48ms median, but a tail to 941ms under contention.
+  `scripts/ops/measure-canary-echo-latency.mjs` ships so the number can be re-checked instead of
+  trusted. Plan `plan-2026-08-12-watch-daemon-silent-dead-watcher`.
+
+  This one IS a package change: `packages/core/src/watch/daemon.ts` and the new
+  `packages/core/src/watch/canary.ts` are published.
 
 ## [2.5.1] - 2026-08-09
 

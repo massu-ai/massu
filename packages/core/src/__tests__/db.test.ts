@@ -3,7 +3,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { isDataStale, updateBuildTimestamp } from '../db.ts';
+import { isDataStale, updateBuildTimestamp, codegraphIndexedAtToEpochMs } from '../db.ts';
 import { unlinkSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { tmpdir } from 'os';
@@ -105,6 +105,62 @@ describe('Database Module', () => {
 
       const stale = isDataStale(dataDb, codegraphDb);
       expect(stale).toBe(false);
+    });
+
+    // THE FIXTURES ABOVE INSERT SECONDS. THE INSTALLED ENGINE WRITES MILLISECONDS.
+    //
+    // That mismatch is why the shipped defect was invisible: the suite asserted BOTH
+    // verdicts and passed, because the fixture agreed with the code's assumption rather
+    // than with the data source. Measured 2026-08-13 against the real
+    // `.codegraph/codegraph.db`: max(indexed_at) = 1783961298985, which is 2026-07-13
+    // as milliseconds and the year 58501 as seconds.
+    //
+    // Against millisecond input the old `latest * 1000` could not return false at all —
+    // it answered `true` correctly and `false` never. These cases model the real format,
+    // and each unit is asserted in BOTH directions so neither can go one-way again.
+    describe('millisecond indexed_at — the format the installed engine actually writes', () => {
+      it('returns true when the codegraph index is NEWER than the last build', () => {
+        dataDb.prepare(`INSERT INTO massu_meta (key, value) VALUES ('last_build_time', ?)`).run(
+          new Date(Date.now() - 60_000).toISOString()
+        );
+        codegraphDb.prepare(`INSERT INTO files (path, indexed_at) VALUES ('test.ts', ?)`).run(Date.now());
+
+        expect(isDataStale(dataDb, codegraphDb)).toBe(true);
+      });
+
+      it('returns FALSE when the last build is newer than the codegraph index', () => {
+        codegraphDb.prepare(`INSERT INTO files (path, indexed_at) VALUES ('test.ts', ?)`).run(Date.now() - 60_000);
+        dataDb.prepare(`INSERT INTO massu_meta (key, value) VALUES ('last_build_time', ?)`).run(
+          new Date().toISOString()
+        );
+
+        // The load-bearing assertion: the pre-fix implementation returned true here.
+        expect(isDataStale(dataDb, codegraphDb)).toBe(false);
+      });
+    });
+
+    describe('codegraphIndexedAtToEpochMs — the unit is detected, not assumed', () => {
+      it('passes milliseconds through unchanged', () => {
+        const ms = Date.now() - 5_000;
+        expect(codegraphIndexedAtToEpochMs(ms)).toBe(ms);
+      });
+
+      it('scales seconds up to milliseconds', () => {
+        const secs = Math.floor((Date.now() - 5_000) / 1000);
+        expect(codegraphIndexedAtToEpochMs(secs)).toBe(secs * 1000);
+      });
+
+      it('THROWS on a value implausible under both readings rather than guessing', () => {
+        // 1e17 is far future as ms and absurd as seconds — an unrecognised format.
+        expect(() => codegraphIndexedAtToEpochMs(1e17)).toThrow(/implausible as both milliseconds/);
+        // 0 / tiny values are not timestamps under either reading.
+        expect(() => codegraphIndexedAtToEpochMs(42)).toThrow(/implausible as both milliseconds/);
+      });
+
+      it('names the offending value and both interpretations in the error', () => {
+        expect(() => codegraphIndexedAtToEpochMs(1e17)).toThrow(/1e\+17|100000000000000000/);
+        expect(() => codegraphIndexedAtToEpochMs(1e17)).toThrow(/do not guess the unit/);
+      });
     });
 
     it('returns true when no files in codegraph', () => {

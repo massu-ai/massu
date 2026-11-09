@@ -322,19 +322,67 @@ function initDataSchema(db: Database.Database): void {
   `);
 }
 
+/** Lower plausibility bound for a CodeGraph index timestamp: 2020-01-01T00:00:00Z. */
+const CODEGRAPH_TS_FLOOR_MS = 1577836800000;
+/** Upper plausibility slack: an index may be stamped slightly ahead of us by clock skew. */
+const CODEGRAPH_TS_SKEW_MS = 86400000;
+
+/**
+ * Normalise CodeGraph's `files.indexed_at` to epoch MILLISECONDS.
+ *
+ * THE UNIT IS DETECTED AND ASSERTED, NOT ASSUMED. CodeGraph does not declare it,
+ * and it has differed by engine version: this code previously multiplied by 1000
+ * with the comment "CodeGraph stores indexed_at as unix timestamp (integer)",
+ * while the installed engine writes milliseconds. Measured 2026-08-13 against
+ * `.codegraph/codegraph.db`: `max(indexed_at) = 1783961298985`, which read as
+ * SECONDS is the year 58501 and as MILLISECONDS is 2026-07-13T16:48.
+ *
+ * The consequence of assuming was not a wrong number but a DEAD PREDICATE:
+ * `raw * 1000` exceeds every real timestamp, so `isDataStale` returned `true`
+ * unconditionally and the staleness gate never gated. A comment cannot catch that;
+ * a range check can.
+ *
+ * @throws when the value is implausible under BOTH readings — an unrecognised
+ *   format must be loud, never silently coerced into whichever branch is closer.
+ */
+export function codegraphIndexedAtToEpochMs(raw: number): number {
+  const ceiling = Date.now() + CODEGRAPH_TS_SKEW_MS;
+  const asMs = raw;
+  const asSeconds = raw * 1000;
+
+  if (asMs >= CODEGRAPH_TS_FLOOR_MS && asMs <= ceiling) return asMs;
+  if (asSeconds >= CODEGRAPH_TS_FLOOR_MS && asSeconds <= ceiling) return asSeconds;
+
+  // Both interpretations must be rendered defensively: JS Date is undefined beyond
+  // ±8.64e15 ms, and `new Date(x).toISOString()` THROWS "Invalid time value" there.
+  // Formatting the diagnostic unguarded would replace this error with that one —
+  // losing the message precisely for the inputs furthest out of range.
+  const describe = (ms: number): string =>
+    Number.isFinite(ms) && Math.abs(ms) <= 8.64e15 ? new Date(ms).toISOString() : 'out of representable range';
+
+  throw new Error(
+    `CodeGraph files.indexed_at=${raw} is implausible as both milliseconds ` +
+      `(${describe(asMs)}) and seconds (${describe(asSeconds)}). ` +
+      `Expected a timestamp between ${new Date(CODEGRAPH_TS_FLOOR_MS).toISOString()} and now. ` +
+      `The CodeGraph engine's timestamp format may have changed — do not guess the unit.`,
+  );
+}
+
 /**
  * Check if Massu indexes are stale compared to CodeGraph timestamps.
+ *
+ * Both verdicts are reachable and both are covered by tests. A one-direction test
+ * passed against the defect this replaced, which answered `true` correctly and
+ * `false` never.
  */
 export function isDataStale(dataDb: Database.Database, codegraphDb: Database.Database): boolean {
   const lastBuild = dataDb.prepare(`SELECT value FROM ${t('meta')} WHERE key = 'last_build_time'`).get() as { value: string } | undefined;
   if (!lastBuild) return true;
 
-  // CodeGraph stores indexed_at as unix timestamp (integer)
   const latestIndexed = codegraphDb.prepare("SELECT MAX(indexed_at) as latest FROM files").get() as { latest: number } | undefined;
   if (!latestIndexed?.latest) return true;
 
-  // Convert CodeGraph's unix timestamp to ms and compare with our ISO date
-  return (latestIndexed.latest * 1000) > new Date(lastBuild.value).getTime();
+  return codegraphIndexedAtToEpochMs(latestIndexed.latest) > new Date(lastBuild.value).getTime();
 }
 
 /**

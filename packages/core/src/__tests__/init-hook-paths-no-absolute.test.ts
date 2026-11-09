@@ -68,16 +68,61 @@ function assertNoAbsolutePaths(command: string): void {
   }
 }
 
+/**
+ * BOTH command forms, always — never whichever one this machine happens to produce.
+ *
+ * `buildHooksConfig()` used to resolve the shim internally, so the shape it emitted was a
+ * function of ambient machine state: a developer with `~/.massu/bin/massu-hook` present got
+ * the shim form and NEVER exercised the npx form, and vice versa. That is not a style
+ * problem — it made this guard DECORATION. The anti-vacuity plant targets the npx branch of
+ * `hookCmd`; on any machine with a live shim that branch is never evaluated, the planted
+ * absolute path never reaches a command, and the guard stayed GREEN with the defect
+ * installed (measured by the 2026-08-11 sweep: "stayed GREEN with the defect planted +
+ * ORACLE-confirmed. IT IS DECORATION.").
+ *
+ * Worse, the shim's presence was itself caused by the test suite — `massu-shim-drift-guard`
+ * installed one into the real `$HOME` on every run — so the guard disarmed itself.
+ *
+ * Enumerating both forms makes the property hold regardless of what is installed, and makes
+ * a plant on EITHER branch fire (G18 — the candidate set IS the gate; G27 — assert the
+ * property, not a correlate of it).
+ */
+const SHIM_FORMS: Array<{ label: string; shim: string | null }> = [
+  { label: 'npx form (no shim installed)', shim: null },
+  { label: 'shim form (shim installed)', shim: '/tmp/massu-test-shim/massu-hook' },
+];
+
 describe('P-003: hook commands contain no absolute paths', () => {
-  it('buildHooksConfig output has no forbidden absolute paths', () => {
+  for (const { label, shim } of SHIM_FORMS) {
+    it(`buildHooksConfig output has no forbidden absolute paths — ${label}`, () => {
+      const hooksConfig = buildHooksConfig(undefined, shim);
+
+      // M1 — prove it looked. A zero-command config would satisfy every assertion below.
+      let commands = 0;
+      for (const event of Object.keys(hooksConfig)) {
+        for (const group of hooksConfig[event]) {
+          for (const entry of group.hooks) {
+            commands++;
+            assertNoAbsolutePaths(entry.command);
+          }
+        }
+      }
+      expect(commands, 'buildHooksConfig emitted NO commands — this check is vacuous').toBeGreaterThan(0);
+    });
+  }
+
+  it('buildHooksConfig output has no forbidden absolute paths (ambient machine state)', () => {
     const hooksConfig = buildHooksConfig();
+    let commands = 0;
     for (const event of Object.keys(hooksConfig)) {
       for (const group of hooksConfig[event]) {
         for (const entry of group.hooks) {
+          commands++;
           assertNoAbsolutePaths(entry.command);
         }
       }
     }
+    expect(commands, 'buildHooksConfig emitted NO commands — this check is vacuous').toBeGreaterThan(0);
   });
 
   it('installHooks writes settings.local.json with no forbidden absolute paths', () => {
@@ -94,11 +139,16 @@ describe('P-003: hook commands contain no absolute paths', () => {
     }
   });
 
-  it('all hook commands use the hook-runner subcommand (dynamic resolution)', () => {
-    const hooksConfig = buildHooksConfig();
+  // Parametrised over BOTH forms for the same reason as the absolute-path checks above:
+  // an assertion that only ever sees the shape this machine happens to emit cannot be
+  // relied on to fail when the OTHER shape regresses.
+  it.each(SHIM_FORMS)('all hook commands use the hook-runner subcommand — $label', ({ shim }) => {
+    const hooksConfig = buildHooksConfig(undefined, shim);
+    let commands = 0;
     for (const event of Object.keys(hooksConfig)) {
       for (const group of hooksConfig[event]) {
         for (const entry of group.hooks) {
+          commands++;
           // Every Massu canonical command must use `hook-runner` so the hook
           // file is resolved at fire-time rather than at install-time.
           expect(entry.command).toContain('hook-runner ');
@@ -123,5 +173,6 @@ describe('P-003: hook commands contain no absolute paths', () => {
         }
       }
     }
+    expect(commands, 'buildHooksConfig emitted NO commands — this check is vacuous').toBeGreaterThan(0);
   });
 });

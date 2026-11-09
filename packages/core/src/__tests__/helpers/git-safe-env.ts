@@ -32,27 +32,9 @@
  * and friends. Those set commit METADATA, not the target repository, and tests legitimately
  * pin them for deterministic history. Stripping them would silently break those tests.
  */
-export const GIT_ENV_LEAKS = [
-  'GIT_DIR',
-  'GIT_WORK_TREE',
-  'GIT_INDEX_FILE',
-  'GIT_OBJECT_DIRECTORY',
-  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
-  'GIT_COMMON_DIR',
-  'GIT_PREFIX',
-] as const
-
 /**
- * A copy of `process.env` with every repository-redirecting git variable REMOVED.
- *
- * Unset, never override: a temp sandbox belongs to no repository, and git must see that
- * plainly rather than being pointed somewhere else. `extra` is applied BEFORE the strip,
- * so a caller can add its own vars without being able to reintroduce a leak by accident.
+ * RE-EXPORT ONLY. The list and the strip now live in `src/hooks/lib/git-safe-env.ts` so
+ * production code that shells out to git shares this exact definition rather than carrying
+ * a second copy — which is the drift this module was created to prevent in the first place.
  */
-export function gitSafeEnv(
-  extra: Record<string, string | undefined> = {},
-): NodeJS.ProcessEnv {
-  const e: NodeJS.ProcessEnv = { ...process.env, ...extra }
-  for (const k of GIT_ENV_LEAKS) delete e[k]
-  return e
-}
+export { GIT_ENV_LEAKS, gitSafeEnv } from '../../hooks/lib/git-safe-env.ts'

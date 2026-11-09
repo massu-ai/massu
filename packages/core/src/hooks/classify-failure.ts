@@ -25,6 +25,7 @@ import { tmpdir } from 'os';
 import { join, basename } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
 import { getMemoryDb, scoreFailureClasses } from '../memory-db.ts';
+import { isTestOrFixturePath } from './fix-detector.ts';
 import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
 
 /** Registered on PostToolUse. Asserted against `.claude/settings.json` by
@@ -123,6 +124,26 @@ async function main(): Promise<void> {
     const memoryDir = config.autoLearning?.memoryDir ?? 'memory';
     const relPath = filePath.startsWith(root + '/') ? filePath.slice(root.length + 1) : filePath;
     if (relPath.startsWith(incidentDir) || relPath.includes(memoryDir) || relPath.includes('MEMORY.md')) {
+      process.exit(0);
+      return;
+    }
+
+    // Skip TESTS and FIXTURES — pipeline output too, for exactly the reason above.
+    //
+    // SECOND SITE of the role-gate landed in `fix-detector.ts` on 2026-08-13 (incident
+    // 2026-08-13). These two hooks are the same decision — "does this edit look like a bug
+    // fix, and must the author therefore file an incident?" — scored by the same kind of
+    // content heuristics over the same `old_string`/`new_string`. The gate was applied to
+    // one of them and not the other, so the class stayed live at half its sites (CR-74: a
+    // fix is a set of SITES, not an edit).
+    //
+    // It was still firing: writing the drift-guard for the FIRST site tripped THIS hook on
+    // the test file being written, demanding an incident for the artifact that closed the
+    // previous incident — the same circular demand, satisfiable only by inventing a defect.
+    //
+    // Binds to `fix-detector.ts`'s exported patterns rather than re-listing them here; two
+    // copies of a path predicate is how the sites drift apart in the first place.
+    if (isTestOrFixturePath(relPath) || isTestOrFixturePath(filePath)) {
       process.exit(0);
       return;
     }

@@ -106,7 +106,9 @@ afterAll(() => {
 });
 
 describe('auto-learning pipeline bounded-diff (DG-2)', () => {
-  it('SKIPS the full-diff scan when the working tree exceeds the cap', () => {
+  // The spawned hook is given 30_000ms below; vitest's global testTimeout is 20000, so
+  // without this the smaller bound silently won and the declared budget was unreachable.
+  it('SKIPS the full-diff scan when the working tree exceeds the cap', { timeout: 30_000 }, () => {
     const hookPath = resolve(__dirname, '../../dist/hooks/auto-learning-pipeline.js');
 
     // FAIL CLOSED (G-1, plan-2026-07-26-anti-vacuity-9-unproven-gates): the hook not
@@ -162,7 +164,8 @@ describe('auto-learning pipeline bounded-diff (DG-2)', () => {
     expect(result.stdout).not.toContain('MASSU AUTO-LEARNING PIPELINE');
   });
 
-  it('still detects fix patterns on small diffs (regression guard)', () => {
+  // Same 30_000ms subprocess budget as above — matched here so one authority governs.
+  it('still detects fix patterns on small diffs (regression guard)', { timeout: 30_000 }, () => {
     const hookPath = resolve(__dirname, '../../dist/hooks/auto-learning-pipeline.js');
     expect(
       existsSync(hookPath),
@@ -196,6 +199,19 @@ describe('auto-learning pipeline bounded-diff (DG-2)', () => {
         'project:\n  name: test\nframework:\n  type: typescript\n',
       );
 
+      // The scan is SESSION-SCOPED: a diff this session cannot be shown to have made
+      // raises no demand on it, because a demand nobody can discharge gets routed around.
+      // This fixture therefore has to supply the actor it is asserting about. Before that
+      // scoping existed, `transcript_path: '/tmp/dummy'` was enough — the hook banner-ed on
+      // any uncommitted diff, whoever wrote it.
+      const transcript = join(smallRepo, 'transcript.jsonl');
+      writeFileSync(
+        transcript,
+        JSON.stringify({
+          message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: join(smallRepo, 'a.ts') } }] },
+        }) + '\n',
+      );
+
       const result = spawnSync(
         'node',
         [hookPath],
@@ -203,7 +219,7 @@ describe('auto-learning pipeline bounded-diff (DG-2)', () => {
           cwd: smallRepo,
           input: JSON.stringify({
             session_id: 'test-session-small-diff',
-            transcript_path: '/tmp/dummy',
+            transcript_path: transcript,
             cwd: smallRepo,
           }),
           timeout: 30_000,

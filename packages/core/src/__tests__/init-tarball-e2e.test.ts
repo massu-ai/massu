@@ -208,7 +208,8 @@ describe.skipIf(!ENABLED)('init end-to-end against the BUILT tarball', () => {
     }
   });
 
-  it('tarball: <bin>/massu --version prints package.json.version', () => {
+  // 30_000ms is granted to the packed-CLI subprocess below; match the test's own bound.
+  it('tarball: <bin>/massu --version prints package.json.version', { timeout: 30_000 }, () => {
     const cliBin = join(SHARED_INSTALL_DIR!, 'node_modules/.bin/massu');
     const pkgJsonPath = join(SHARED_INSTALL_DIR!, 'node_modules/@massu/core/package.json');
     expect(existsSync(cliBin), `bin not found at ${cliBin}`).toBe(true);

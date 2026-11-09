@@ -23,18 +23,50 @@
  *
  * ROBUSTNESS
  * ----------
- * Each size is measured `repeats` times and the MINIMUM is kept. Contention can
- * only ADD time, never remove it, so the minimum is the least-contaminated
- * estimator available — far better behaved under load than a mean.
+ * Each size is measured `repeats` times and the least-contaminated PAIR is kept
+ * (see `measureScalingRatio`). Contention can only ADD cost, never remove it.
+ *
+ * THE CLOCK IS CPU TIME, NOT WALL TIME — AND THAT IS THE WHOLE ROBUSTNESS ARGUMENT.
+ * ------------------------------------------------------------------------------
+ * A ratio of two WALL measurements is still two clock readings. It narrows the
+ * variance a bare budget has, but it does not remove the machine from the claim:
+ * under N-way fork parallelism the process is DESCHEDULED mid-measurement, so wall
+ * time inflates for work that did not change. `process.cpuUsage()` counts only CPU
+ * this process actually burned, so being descheduled cannot inflate it.
+ *
+ * This helper was introduced to replace a wall-clock BUDGET, and its wall-clock
+ * RATIO then flaked twice anyway — 10.02 / 10.84 against a bound of 8 in the
+ * pre-push battery on 2026-07-29, and 41.91 in the sync-check mirror on
+ * 2026-08-13, both while the subject measured cleanly linear in isolation.
+ * Generation three is this: stop reading the wall clock.
+ *
+ * MEASURED 2026-08-13, `renderTemplate` 100k -> 400k tokens (true ratio 4.0),
+ * 20 samples under 84 spawned CPU hogs at loadavg 172.91:
+ *
+ *            min     max    median   samples failing the `< 8` bound
+ *   WALL     0.22   38.68    4.04    2 / 20
+ *   CPU      4.03    4.87    4.23    0 / 20
+ *
+ * Note the wall MINIMUM of 0.22. A ratio below 1 is physically impossible for a
+ * 4x input step; it means the small side absorbed more contention than the large
+ * one. That value PASSES a `< 8` bound — so the wall clock failed in BOTH
+ * directions at once, manufacturing false REDs and meaningless GREENs from the
+ * same run. CPU time never left a tight band around the true value.
  *
  * Callers MUST assert `smallNs` clears {@link MIN_MEASURABLE_NS}. If the small
- * case is too fast to time, the ratio is timer noise and asserting on it is its
+ * case is too fast to measure, the ratio is noise and asserting on it is its
  * own blind gate — a meaningless number that passes.
  */
 
 /**
- * Floor below which a measurement is indistinguishable from timer granularity.
- * 50µs is ~3 orders of magnitude above `process.hrtime.bigint()` resolution.
+ * Floor below which a measurement is indistinguishable from clock granularity.
+ *
+ * `process.cpuUsage()` reports MICROseconds, so this 50µs floor is 50 ticks —
+ * coarser headroom than the nanosecond wall clock this helper used to read, and
+ * deliberately kept at the same value so callers' baselines did not silently
+ * change meaning. A baseline under the floor makes the caller's assertion go RED
+ * with "too fast to measure", which is the correct fail direction: it refuses to
+ * judge rather than passing vacuously.
  */
 export const MIN_MEASURABLE_NS = 50_000n;
 
@@ -47,11 +79,21 @@ export interface ScalingMeasurement {
   ratio: number;
 }
 
-/** Time one invocation of `fn`, in nanoseconds. */
+/**
+ * Cost of one invocation of `fn`, in nanoseconds of CPU time consumed by this
+ * process (user + system).
+ *
+ * NOT `process.hrtime.bigint()`. That reads the wall clock, which counts time the
+ * process spent DESCHEDULED waiting for a core — time the code under test did not
+ * cause and cannot control. `process.cpuUsage()` reports microseconds, scaled to
+ * nanoseconds here so the unit matches {@link MIN_MEASURABLE_NS} and the
+ * `ScalingMeasurement` fields.
+ */
 function elapsedNs(fn: () => unknown): bigint {
-  const start = process.hrtime.bigint();
+  const start = process.cpuUsage();
   fn();
-  return process.hrtime.bigint() - start;
+  const delta = process.cpuUsage(start);
+  return BigInt(delta.user + delta.system) * 1_000n;
 }
 
 /**

@@ -60,14 +60,39 @@ SANDBOX="$(mktemp -d)"
 # silently kill this cleanup.
 trap 'rm -rf "$SANDBOX"' EXIT INT TERM
 
+# SANDBOX STORES LIVE INSIDE $SANDBOX, so the EXIT trap above removes them.
+#
+# They used to be written into the operator's LIVE store, because the hook hardcoded
+# `$HOME/.claude/projects` and this harness had to mirror that to put fixtures where the
+# hook would look. Two consequences, both measured 2026-08-11:
+#   * SIX fixture directories were still sitting in the live store — five named
+#     `…-absent-db` (case 5) because the end-of-run cleanup enumerated S1/S3/S5/S6 and
+#     omitted S4, a hand-maintained list that drifted from the cases it covers;
+#   * cleanup ran at the END, so any abort leaked every fixture, since the EXIT trap
+#     only ever covered $SANDBOX.
+# Injecting the root fixes both at once and DELETES the hand-maintained list rather than
+# adding S4 to it — the list is the defect, not its contents.
+SANDBOX_STORE_ROOT="$SANDBOX/store"
+mkdir -p "$SANDBOX_STORE_ROOT"
+REAL_STORE_ROOT="$HOME/.claude/projects"
+
 # `verdict <output>` — extract the closed-vocabulary verdict token.
 verdict() { printf '%s' "$1" | sed -n 's/.*\[MEMORY INTEGRITY\] \([A-Z]*\).*/\1/p' | head -1; }
+
+# memdir_for <project-root> [store-root] — mirrors the hook's resolution.
+# The store root defaults to the SANDBOX, so a caller that forgets it cannot accidentally
+# address the live store; case 1 passes the real root explicitly, on purpose.
+memdir_for() {
+  local r="$1" sr="${2:-$SANDBOX_STORE_ROOT}"
+  local e="${r//\//-}"
+  printf '%s' "$sr/${e}/memory"
+}
+sandbox_memdir_for() { memdir_for "$@"; }
 
 # Build a healthy sandbox store: memory dir + MEMORY.md + a real sqlite DB.
 build_sandbox() {
   local root="$1"
-  local enc="${root//\//-}"
-  local memdir="$HOME/.claude/projects/${enc}/memory"
+  local memdir; memdir="$(memdir_for "$root")"
   mkdir -p "$memdir" "$root/.massu"
   printf '# Memory Index\n\n- [example](example.md) — a memory\n' > "$memdir/MEMORY.md"
   printf -- '---\nname: example\n---\n\nbody\n' > "$memdir/example.md"
@@ -83,14 +108,22 @@ build_sandbox() {
   printf '%s' "$memdir"
 }
 
-sandbox_memdir_for() { local r="$1"; local e="${r//\//-}"; printf '%s' "$HOME/.claude/projects/${e}/memory"; }
-
 printf '\n=== MUTATION TEST: memory-integrity-check.sh ===\n\n'
+
+# Denominator for the blast-radius assertion at the end (M1): what the live store held
+# BEFORE this run. Captured here, before a single hook invocation.
+LIVE_STORE_BEFORE="$(find "$REAL_STORE_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | LC_ALL=C sort)"
+LIVE_COUNT_BEFORE="$(printf '%s\n' "$LIVE_STORE_BEFORE" | grep -c . || true)"
+printf '  live store root: %s (%s project dir(s) before this run)\n' \
+       "$REAL_STORE_ROOT" "$LIVE_COUNT_BEFORE"
 
 # ---------- 1. CONTROL, against the REAL store (read-only) ---------------- #
 printf -- '--- 1. control: the REAL store must report OK ---\n'
 REAL_ROOT="$(cd "$(dirname "$HOOK")/../.." && pwd)"
-REAL_MEM="$(sandbox_memdir_for "$REAL_ROOT")"
+# Explicitly the REAL store root — this one case is meant to read the live store, and it
+# runs BEFORE the sandbox override is exported below, so the hook resolves it the same way
+# a real SessionStart would.
+REAL_MEM="$(memdir_for "$REAL_ROOT" "$REAL_STORE_ROOT")"
 REAL_INDEX="$REAL_MEM/MEMORY.md"
 REAL_SHA_BEFORE=""
 [ -f "$REAL_INDEX" ] && REAL_SHA_BEFORE="$(shasum -a 256 "$REAL_INDEX" | cut -d' ' -f1)"
@@ -102,6 +135,20 @@ check "real store verdict is OK"            "$([ "$(verdict "$CTRL_OUT")" = "OK"
 check "real store exit code is 0"           "$([ "$CTRL_EXIT" -eq 0 ] && echo yes || echo no)"
 check "real store reports db=ok"            "$(printf '%s' "$CTRL_OUT" | grep -q 'db=ok' && echo yes || echo no)"
 check "real denominator is non-trivial"     "$(printf '%s' "$CTRL_OUT" | grep -qE 'corpus=[1-9][0-9]* files' && echo yes || echo no)"
+
+# FROM HERE ON, EVERY hook invocation is redirected into the sandbox. Exported once,
+# immediately after the only case that is supposed to read the live store, so a case added
+# later inherits the redirect by default instead of having to remember it.
+export MASSU_MEMORY_STORE_ROOT="$SANDBOX_STORE_ROOT"
+printf '  sandbox store root exported: %s\n' "$MASSU_MEMORY_STORE_ROOT"
+# Positive control: prove the redirect is REAL before trusting the blast-radius assertion.
+# Without this, "nothing was written to the live store" is also what a no-op run prints.
+_probe="$SANDBOX/redirect-probe"; mkdir -p "$_probe"
+build_sandbox "$_probe" >/dev/null || { printf 'FATAL: redirect probe build failed\n' >&2; exit 2; }
+check "redirect control: fixture landed under the SANDBOX store root" \
+      "$([ -d "$SANDBOX_STORE_ROOT/${_probe//\//-}/memory" ] && echo yes || echo no)"
+check "redirect control: fixture did NOT land in the live store" \
+      "$([ ! -d "$REAL_STORE_ROOT/${_probe//\//-}/memory" ] && echo yes || echo no)"
 
 # ---------- 2. Sandbox healthy: the gate must OPEN ------------------------ #
 printf -- '\n--- 2. sandbox healthy: the gate must OPEN (a brick gets deleted) ---\n'
@@ -199,26 +246,26 @@ REAL_SHA_AFTER=""
 check "real MEMORY.md sha256 unchanged"     "$([ "$REAL_SHA_BEFORE" = "$REAL_SHA_AFTER" ] && echo yes || echo no)"
 check "real MEMORY.md still exists"         "$([ -f "$REAL_INDEX" ] && echo yes || echo no)"
 
-# Sandbox memory dirs live under ~/.claude/projects/ (the encoder puts them
-# there), so remove them explicitly — the EXIT trap only covers $SANDBOX.
-# The `case` below matched a COMPOSED path, which is always non-empty because of
-# its literal prefix — it could not see a hole in $HOME or in the encoded segment.
-# The chokepoint validates each COMPONENT before assembly and refuses anything that
-# is not strictly inside the projects root, so the widened form is unrepresentable.
-PROJECTS_ROOT="$HOME/.claude/projects"
-require_path_component 'HOME' "${HOME-}" || exit 2
-for s in "$S1" "$S3" "$S5" "$S6"; do
-  d="$(capture_required_output "sandbox memdir for $s" sandbox_memdir_for "$s")" || exit 2
-  case "$d" in
-    "$PROJECTS_ROOT/"*"/memory")
-      # Remove the per-project directory, i.e. the PARENT of .../memory — which is
-      # exactly one level below the projects root, and nothing shallower.
-      SSP_MIN_DEPTH=1 rm_under_root_safely "$PROJECTS_ROOT" "${d%/memory}" \
-        || { printf '  WARN  chokepoint refused: %s\n' "$d"; }
-      ;;
-    *) printf '  WARN  refusing to remove unexpected path: %s\n' "$d" ;;
-  esac
-done
+# The sandbox stores are inside $SANDBOX, so the EXIT trap removes them and there is no
+# per-case cleanup list to maintain. The list that used to live here enumerated S1/S3/S5/S6
+# and silently omitted S4 — which is why five `…-absent-db` fixture directories were found
+# sitting in the live store on 2026-08-11. Adding S4 would have been the N+1th entry in a
+# hand-maintained list; redirecting the root deletes the list instead.
+
+# ---------- 10. The live store gained NOTHING ----------------------------- #
+printf -- '\n--- 10. blast radius: the live store gained no directories ---\n'
+LIVE_STORE_AFTER="$(find "$REAL_STORE_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | LC_ALL=C sort)"
+LIVE_COUNT_AFTER="$(printf '%s\n' "$LIVE_STORE_AFTER" | grep -c . || true)"
+LEAKED="$(comm -13 <(printf '%s\n' "$LIVE_STORE_BEFORE") <(printf '%s\n' "$LIVE_STORE_AFTER"))"
+printf '      live project dirs: %s before -> %s after\n' "$LIVE_COUNT_BEFORE" "$LIVE_COUNT_AFTER"
+[ -n "$LEAKED" ] && printf '      LEAKED: %s\n' "$LEAKED"
+check "live store directory count unchanged" \
+      "$([ "$LIVE_COUNT_BEFORE" = "$LIVE_COUNT_AFTER" ] && echo yes || echo no)"
+check "no new directory appeared in the live store" \
+      "$([ -z "$LEAKED" ] && echo yes || echo no)"
+# M1: a comparison against an EMPTY before-list would pass no matter what leaked.
+check "blast-radius denominator is non-zero" \
+      "$([ "${LIVE_COUNT_BEFORE:-0}" -gt 0 ] && echo yes || echo no)"
 
 printf '\n=== RESULT: %d passed, %d failed ===\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

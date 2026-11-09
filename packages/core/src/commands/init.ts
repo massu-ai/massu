@@ -1127,14 +1127,22 @@ export function resolveHooksDir(): string {
 // (CR-67 — success is not a receipt), and callers fall back to the always-works npx form on
 // any doubt. A failed materialisation degrades to "slower", never to "dead".
 
-/** Root of the massu-owned, version-keyed runtime tree. */
-export function massuRuntimeDir(version: string): string {
-  return resolve(homedir(), '.massu', 'runtime', version);
+/**
+ * Root of the massu-owned, version-keyed runtime tree.
+ *
+ * `home` is INJECTABLE — the repo-wide convention (`credentials.ts`, `db-backup.ts`,
+ * `memory-backup.ts`, `memory-authorship.ts`, `security/local-share-signer.ts`,
+ * `shared-memory-transport.ts`, …). A default of `homedir()` keeps every production caller
+ * unchanged while giving a test a root it can point somewhere harmless. See the note on
+ * `massuShimPath` for the incident that made this non-optional.
+ */
+export function massuRuntimeDir(version: string, home: string = homedir()): string {
+  return resolve(home, '.massu', 'runtime', version);
 }
 
 /** Where the CLI lands inside a materialised runtime. */
-export function massuRuntimeCliPath(version: string): string {
-  return resolve(massuRuntimeDir(version), 'node_modules', '@massu', 'core', 'dist', 'cli.js');
+export function massuRuntimeCliPath(version: string, home: string = homedir()): string {
+  return resolve(massuRuntimeDir(version, home), 'node_modules', '@massu', 'core', 'dist', 'cli.js');
 }
 
 /**
@@ -1144,9 +1152,9 @@ export function massuRuntimeCliPath(version: string): string {
  * `MASSU_NO_NODE_DIRECT=1` forces npx (G11: a mitigation needs a named, provable OFF
  * switch). Tests set it so their result cannot depend on machine state.
  */
-export function resolveMassuRuntimeCli(version: string): string | null {
+export function resolveMassuRuntimeCli(version: string, home: string = homedir()): string | null {
   if (process.env.MASSU_NO_NODE_DIRECT === '1') return null;
-  const cli = massuRuntimeCliPath(version);
+  const cli = massuRuntimeCliPath(version, home);
   if (!existsSync(cli)) return null;
   try {
     // EXISTENCE IS NOT RUNNABILITY: a truncated or partial install leaves the file present
@@ -1162,10 +1170,10 @@ export function resolveMassuRuntimeCli(version: string): string | null {
  * Materialise the runtime for `version` if absent. Returns true only when the result
  * PROBES runnable. Never throws — a false return keeps the caller on npx.
  */
-export function materializeMassuRuntime(version: string): boolean {
+export function materializeMassuRuntime(version: string, home: string = homedir()): boolean {
   if (process.env.MASSU_NO_NODE_DIRECT === '1') return false;
-  if (resolveMassuRuntimeCli(version) !== null) return true; // idempotent no-op
-  const dir = massuRuntimeDir(version);
+  if (resolveMassuRuntimeCli(version, home) !== null) return true; // idempotent no-op
+  const dir = massuRuntimeDir(version, home);
   try {
     mkdirSync(dir, { recursive: true });
     execFileSync(
@@ -1177,7 +1185,7 @@ export function materializeMassuRuntime(version: string): boolean {
     return false; // network down, registry 404, disk full — each degrades to npx
   }
   // Re-probe: `npm install` exiting 0 is not proof the CLI runs (CR-67).
-  return resolveMassuRuntimeCli(version) !== null;
+  return resolveMassuRuntimeCli(version, home) !== null;
 }
 
 // ------------------------------------------------------------------
@@ -1204,9 +1212,29 @@ export function materializeMassuRuntime(version: string): boolean {
 //
 // win32 is deliberately excluded: the shim is POSIX sh, so Windows keeps the npx form.
 
-/** Stable, version-independent shim path. Never changes across upgrades. */
-export function massuShimPath(): string {
-  return resolve(homedir(), '.massu', 'bin', 'massu-hook');
+/**
+ * Stable, version-independent shim path. Never changes across upgrades.
+ *
+ * `home` IS INJECTABLE, AND THAT IS LOAD-BEARING, NOT COSMETIC (2026-08-11).
+ * This resolved `homedir()` unconditionally, so `installMassuShim()` could only ever write
+ * into the operator's REAL home — and `massu-shim-drift-guard.test.ts` calls it in a
+ * `beforeAll`. Running `npm test` therefore INSTALLED a live shim on the developer's
+ * machine. Measured: `~/.massu/bin/massu-hook` carried an mtime from the middle of a test
+ * run. That test already isolated HOME for RUNNING the shim ("so the real runtime tree is
+ * never consulted") and missed the INSTALL — the write half is the one that gets missed.
+ *
+ * It also had a second-order effect that hid a dead gate: once the shim exists,
+ * `resolveMassuShim()` is non-null, so `hookCmd` takes the shim branch and the
+ * anti-vacuity plant aimed at the npx branch became INERT —
+ * `init-hook-paths-no-absolute.test.ts` was reported DECORATION by the sweep. A test that
+ * mutates the machine can silently change which code path every other test exercises.
+ *
+ * Same class as `d76ab2c8` (the memory-store root), which is why this is a parameter
+ * rather than a new env var: `home = homedir()` is the convention already used by ~20
+ * modules here, and a second mechanism beside them would be the N+1th.
+ */
+export function massuShimPath(home: string = homedir()): string {
+  return resolve(home, '.massu', 'bin', 'massu-hook');
 }
 
 /**
@@ -1244,10 +1272,10 @@ exec npx -y "@massu/core@\${MASSU_VERSION}" "\$@"
  * Write (or refresh) the shim. Returns true only when it EXISTS AND EXECUTES.
  * Never throws — false simply keeps callers on npx.
  */
-export function installMassuShim(): boolean {
+export function installMassuShim(home: string = homedir()): boolean {
   if (process.env.MASSU_NO_NODE_DIRECT === '1') return false;
   if (process.platform === 'win32') return false;
-  const shim = massuShimPath();
+  const shim = massuShimPath(home);
   try {
     mkdirSync(dirname(shim), { recursive: true });
     writeFileSync(shim, massuShimBody(), 'utf-8');
@@ -1269,10 +1297,10 @@ export function installMassuShim(): boolean {
 }
 
 /** The shim path if it is present and executable, else null. */
-export function resolveMassuShim(): string | null {
+export function resolveMassuShim(home: string = homedir()): string | null {
   if (process.env.MASSU_NO_NODE_DIRECT === '1') return null;
   if (process.platform === 'win32') return null;
-  const shim = massuShimPath();
+  const shim = massuShimPath(home);
   if (!existsSync(shim)) return null;
   try {
     execFileSync(shim, [], { stdio: 'ignore', timeout: 10_000 });
@@ -1311,11 +1339,28 @@ function getHookTimeout(name: string): number {
  * instead of `node <abs-path>` (see P-003). The parameter is retained
  * for backward-compatible call sites (existing tests pass a dir).
  */
-export function buildHooksConfig(_hooksDir?: string): HooksConfig {
-  const version = getInstallerVersion();
+/**
+ * `shim` is INJECTABLE so a caller can build EITHER command form on demand.
+ *
+ * It used to be resolved internally with no seam, which made the emitted form a function of
+ * ambient machine state: shim present => the shim branch, shim absent => the npx branch.
+ * A drift-guard over these commands then only ever saw ONE of the two shapes, and which one
+ * depended on the developer's machine. That is how `init-hook-paths-no-absolute.test.ts`
+ * became DECORATION — the anti-vacuity plant targeted the npx branch while every local run
+ * took the shim branch, so the planted absolute path never reached a command and the guard
+ * stayed GREEN (2026-08-11 sweep).
+ *
+ * The default preserves every production call site exactly (default parameters are
+ * evaluated per call, so `resolveMassuShim()` still runs once per build, not at module
+ * load). Passing `null` forces the npx form; passing a path forces the shim form.
+ */
+export function buildHooksConfig(
+  _hooksDir?: string,
   // Resolve ONCE per build, not per hook: the probe spawns a process, and 16 probes would
   // reintroduce exactly the per-invocation cost this phase removes.
-  const shim = resolveMassuShim();
+  shim: string | null = resolveMassuShim(),
+): HooksConfig {
+  const version = getInstallerVersion();
   return {
     SessionStart: [
       {

@@ -487,15 +487,77 @@ function main() {
   if (testTs.length === 0) fatal('discovered ZERO *.test.ts — refusing to report an empty candidate set (M1).');
   if (shellGates.length === 0) fatal('discovered ZERO scripts/tests/*.sh — refusing to report an empty candidate set (M1).');
 
-  // No-token sub-channel watch (R11-2 / CL-31): NO vitest.config.* may declare setupFiles/globalSetup.
+  // No-token sub-channel (R11-2 / CL-31) — ENUMERATED, no longer merely watched.
+  //
+  // Until 2026-08-12 this channel was empty and the discoverer FAILED CLOSED the moment any
+  // vitest.config.* declared setupFiles/globalSetup. F2 filled it: the hook-failure-log seam
+  // is declared once in packages/core/vitest.config.ts precisely so no per-test roster can rot.
+  // The fatal's own instruction was "enumerate that setup module's reads before this can pass",
+  // which is what happens here.
+  //
+  // WHY THE ATTRIBUTION IS BROAD. A setup module runs before EVERY test in its project, so its
+  // first-party touches belong to all of them. A test whose body carries no token is exactly the
+  // case the fatal warned about — it would be dropped silently. Following this file's own
+  // doctrine (over-inclusion is safe, under-inclusion is the disease), every test in scope
+  // inherits the setup module's mechanisms and is RULED downstream, rather than being classified
+  // on its own body alone.
+  //
+  // The setup modules are ALSO emitted as candidates in their own right: they are first-party
+  // code that can act as a guard (hook-log-untouched.ts fails the run when the evidence log
+  // changes), and nothing else in this discoverer's globs would ever see them.
   const vitestConfigs = lsFilesGlob(repoRoot, '*vitest.config.*');
+  const setupModules = [];      // repo-relative, deduped, deterministic
+  const inheritedByDir = [];    // { dir, mechanisms:Set, modules:[rel] } — dir is repo-relative
   for (const c of vitestConfigs) {
     let t;
     try { t = readFileSync(path.join(repoRoot, c), 'utf8'); }
     catch (e) { fatal(`cannot read ${c}: ${e.message}`); }
-    if (/\b(setupFiles|globalSetup)\b\s*:/.test(t)) {
-      fatal(`${c} declares setupFiles/globalSetup — the no-token sub-channel is no longer empty (R11-2). A guard whose first-party touch lives in a setup module carries no token in its own body; the discoverer must be extended to enumerate that setup module's reads before this can pass. Refusing to under-count.`);
+
+    // Pull the string literals out of each setupFiles/globalSetup declaration. Array or scalar.
+    const declared = [];
+    for (const m of t.matchAll(/\b(setupFiles|globalSetup)\b\s*:\s*(\[[^\]]*\]|'[^']*'|"[^"]*")/g)) {
+      for (const s of m[2].matchAll(/['"]([^'"]+)['"]/g)) declared.push(s[1]);
     }
+    if (declared.length === 0) {
+      // Fail closed: the config mentions the key but we could not extract a path. Silently
+      // enumerating nothing here is the exact under-count this block exists to prevent.
+      if (/\b(setupFiles|globalSetup)\b\s*:/.test(t)) {
+        fatal(`${c} declares setupFiles/globalSetup but no module path could be extracted from it (R11-2). Refusing to under-count — extend the extractor rather than dropping the channel.`);
+      }
+      continue;
+    }
+
+    const cfgDir = path.dirname(c) === '.' ? '' : path.dirname(c);
+    const mechs = new Set();
+    const mods = [];
+    for (const spec of declared) {
+      const rel = repoRel(repoRoot, path.resolve(repoRoot, cfgDir, spec));
+      if (!tracked.has(rel)) {
+        fatal(`${c} declares setup module '${spec}' -> '${rel}', which is NOT a tracked file (R11-2). A setup module that git does not carry cannot be ruled, and an unresolvable one must never be skipped.`);
+      }
+      // Reuse the SAME classifier the tests go through. A second implementation here would
+      // drift into agreeing with its own bugs.
+      const cls = classifyTest(repoRoot, tracked, trackedDirs, rel);
+      for (const m of cls.mechanisms) mechs.add(m);
+      for (const f of cls.flags) mechs.add(f);
+      if (!mods.includes(rel)) mods.push(rel);
+      if (!setupModules.includes(rel)) setupModules.push(rel);
+    }
+    if (mechs.size > 0) inheritedByDir.push({ dir: cfgDir, mechanisms: mechs, modules: mods });
+  }
+  setupModules.sort();
+
+  /** Mechanisms a test at `rel` inherits from the setup modules of the config governing it. */
+  function inheritedFor(rel) {
+    const out = new Set();
+    const from = [];
+    for (const e of inheritedByDir) {
+      if (e.dir === '' || rel === e.dir || rel.startsWith(e.dir + '/')) {
+        for (const m of e.mechanisms) out.add(m);
+        for (const mod of e.modules) if (!from.includes(mod)) from.push(mod);
+      }
+    }
+    return { mechanisms: out, from };
   }
 
   const crNamed = clauseA(repoRoot, tracked);
@@ -506,17 +568,36 @@ function main() {
   for (const rel of testTs) {
     const cls = classifyTest(repoRoot, tracked, trackedDirs, rel);
     const isCrNamed = crNamed.has(rel);
-    if (cls.isCandidate || isCrNamed) {
+    // R11-2: a setup module's first-party touches run before this test, so they are this
+    // test's touches too. Without this, a test carrying no token of its own is dropped.
+    const inh = inheritedFor(rel);
+    const mechanisms = [...new Set([...cls.mechanisms, ...inh.mechanisms])].sort();
+    if (cls.isCandidate || isCrNamed || inh.mechanisms.size > 0) {
       candidates.push({
         kind: 'vitest-guard',
         path: rel,
         cr_named: isCrNamed,
-        mechanisms: cls.mechanisms,
+        mechanisms,
         flags: cls.flags,
-        hits: cls.hits,
+        hits: inh.from.length ? [...cls.hits, { m: 'M-setup-module', from: inh.from }] : cls.hits,
       });
       seen.set(rel, true);
     }
+  }
+  // The setup modules themselves — first-party code no other glob here would ever see.
+  for (const rel of setupModules) {
+    if (seen.has(rel)) continue;
+    const cls = classifyTest(repoRoot, tracked, trackedDirs, rel);
+    candidates.push({
+      kind: 'vitest-guard',
+      path: rel,
+      cr_named: crNamed.has(rel),
+      mechanisms: cls.mechanisms,
+      flags: cls.flags,
+      hits: cls.hits,
+      setup_module: true,
+    });
+    seen.set(rel, true);
   }
   // Every CR-named guard MUST be a candidate (0 dropped — CL-20/CL-24). Enforce.
   for (const rel of crNamed) {

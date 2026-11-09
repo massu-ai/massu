@@ -1167,6 +1167,13 @@ var init_config = __esm({
     });
     LanguageFrameworkEntrySchema = z2.object({
       framework: z2.string().optional(),
+      // `source_dirs` is emitted by `init` (commands/init.ts:417) and existence-checked
+      // by config validation (init.ts:868-876), but until 2026-08-14 it survived only via
+      // `.passthrough()` — declared in the file, untyped in the schema. `lib/source-layout.ts`
+      // derives the index builders' candidate set from it, so it is typed here rather than
+      // read as an unknown: a consumer that has to shape-check its own SoT is one branch away
+      // from silently contributing `undefined` to a path predicate.
+      source_dirs: z2.array(z2.string()).optional(),
       test_framework: z2.string().optional(),
       test: z2.string().optional(),
       runtime: z2.string().optional(),
@@ -4016,6 +4023,53 @@ function t(suffix) {
   return `${getConfig().toolPrefix}_${suffix}`;
 }
 
+// src/lib/source-layout.ts
+init_config();
+function normalizeDir(raw) {
+  if (typeof raw !== "string") return null;
+  const posix = raw.replace(/\\/g, "/");
+  if (posix.startsWith("/") || /^[A-Za-z]:\//.test(posix)) return null;
+  const parts = posix.split("/").filter((p) => p !== "" && p !== ".");
+  if (parts.some((p) => p === "..")) return null;
+  if (parts.length === 0) return ".";
+  return parts.join("/");
+}
+function declaredLanguageSourceDirs() {
+  const languages = getConfig().framework.languages;
+  if (!languages) return [];
+  const out = [];
+  for (const entry of Object.values(languages)) {
+    if (Array.isArray(entry.source_dirs)) out.push(...entry.source_dirs);
+  }
+  return out;
+}
+function getSourceLayout() {
+  const config = getConfig();
+  const paths = config.paths;
+  const declared = [
+    paths.source,
+    ...paths.monorepo_roots ?? [],
+    ...declaredLanguageSourceDirs()
+  ];
+  const normalized = declared.map(normalizeDir).filter((d) => d !== null);
+  const includesRoot = normalized.includes(".");
+  const sourceDirs = includesRoot ? [] : [...new Set(normalized)].sort();
+  const source = normalizeDir(paths.source) ?? ".";
+  const under = (child) => source === "." ? child : `${source}/${child}`;
+  return {
+    sourceDirs,
+    includesRoot,
+    extensions: getResolvedPaths().extensions,
+    pagesDir: normalizeDir(paths.pages ?? under("app")) ?? under("app"),
+    componentsDir: normalizeDir(paths.components ?? under("components")) ?? under("components")
+  };
+}
+function isUnderSourceDir(path, layout = getSourceLayout()) {
+  if (normalizeDir(path) === null) return false;
+  if (layout.includesRoot) return true;
+  return layout.sourceDirs.some((d) => path.startsWith(`${d}/`));
+}
+
 // src/middleware-tree.ts
 function isInMiddlewareTree(dataDb, file) {
   const result = dataDb.prepare(`SELECT 1 FROM ${t("middleware_tree")} WHERE file = ?`).get(file);
@@ -4088,7 +4142,7 @@ async function main() {
     }
     const root = getProjectRoot();
     const rel = filePath.startsWith(root + "/") ? filePath.slice(root.length + 1) : filePath;
-    if (!rel.startsWith("src/") && !rel.endsWith(".py")) {
+    if (!isUnderSourceDir(rel) && !rel.endsWith(".py")) {
       process.exit(0);
       return;
     }

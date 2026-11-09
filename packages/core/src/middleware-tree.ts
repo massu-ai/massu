@@ -6,6 +6,7 @@ import { getConfig } from './config.ts';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { t } from './lib/sql-table-names.ts';
+import { isUnderSourceDir } from './lib/source-layout.ts';
 
 /**
  * Build the middleware import tree by tracing all transitive imports
@@ -35,7 +36,9 @@ export function buildMiddlewareTree(dataDb: Database.Database): number {
     ).all(current) as { target_file: string }[];
 
     for (const imp of imports) {
-      if (!visited.has(imp.target_file) && imp.target_file.startsWith('src/')) {
+      // Shares ONE definition of "a local source file" with the import index
+      // that produced these edges (`lib/source-layout.ts`).
+      if (!visited.has(imp.target_file) && isUnderSourceDir(imp.target_file)) {
         visited.add(imp.target_file);
         queue.push(imp.target_file);
       }

@@ -697,6 +697,13 @@ var init_config = __esm({
     });
     LanguageFrameworkEntrySchema = z2.object({
       framework: z2.string().optional(),
+      // `source_dirs` is emitted by `init` (commands/init.ts:417) and existence-checked
+      // by config validation (init.ts:868-876), but until 2026-08-14 it survived only via
+      // `.passthrough()` — declared in the file, untyped in the schema. `lib/source-layout.ts`
+      // derives the index builders' candidate set from it, so it is typed here rather than
+      // read as an unknown: a consumer that has to shape-check its own SoT is one branch away
+      // from silently contributing `undefined` to a path predicate.
+      source_dirs: z2.array(z2.string()).optional(),
       test_framework: z2.string().optional(),
       test: z2.string().optional(),
       runtime: z2.string().optional(),
@@ -3988,7 +3995,7 @@ var init_hook_failure_signal = __esm({
 // src/hooks/auto-learning-pipeline.ts
 init_config();
 import { execFileSync } from "child_process";
-import { existsSync as existsSync9, readFileSync as readFileSync6, unlinkSync as unlinkSync2, readdirSync as readdirSync2, statSync as statSync2 } from "fs";
+import { existsSync as existsSync10, readFileSync as readFileSync7, unlinkSync as unlinkSync2, readdirSync as readdirSync2, statSync as statSync2 } from "fs";
 import { tmpdir as tmpdir2 } from "os";
 import { join as join6 } from "path";
 
@@ -4042,18 +4049,202 @@ function isDirectInvocation(moduleUrl) {
   }
 }
 
+// src/hooks/lib/session-touched-files.ts
+import { readFileSync as readFileSync6, existsSync as existsSync9, realpathSync } from "fs";
+import { relative, isAbsolute, resolve as resolve5 } from "path";
+var FILE_WRITING_TOOLS = Object.freeze({
+  Edit: ["file_path"],
+  Write: ["file_path"],
+  MultiEdit: ["file_path"],
+  NotebookEdit: ["notebook_path", "file_path"]
+});
+function canonical(p) {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+function toRepoRelative(root, filePath) {
+  if (typeof filePath !== "string" || filePath === "") return null;
+  const absRaw = isAbsolute(filePath) ? filePath : resolve5(root, filePath);
+  const canonicalRoot = canonical(root);
+  const abs = resolve5(canonical(resolve5(absRaw, "..")), absRaw.split("/").pop() ?? "");
+  const rel = relative(canonicalRoot, abs).split("\\").join("/");
+  if (rel === "" || rel.startsWith("../")) return null;
+  return rel;
+}
+function transcriptTouchedFiles(root, transcriptPath) {
+  let raw;
+  try {
+    raw = readFileSync6(transcriptPath, "utf-8");
+  } catch {
+    return null;
+  }
+  const out = /* @__PURE__ */ new Set();
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const message = entry.message;
+    const content = message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (!block || typeof block !== "object") continue;
+      const b = block;
+      if (b.type !== "tool_use") continue;
+      const keys = b.name ? FILE_WRITING_TOOLS[b.name] : void 0;
+      if (!keys || !b.input) continue;
+      for (const key of keys) {
+        const rel = toRepoRelative(root, b.input[key]);
+        if (rel) out.add(rel);
+      }
+    }
+  }
+  return out;
+}
+function flagFileTouchedFiles(root, flagPath) {
+  if (!existsSync9(flagPath)) return null;
+  let raw;
+  try {
+    raw = readFileSync6(flagPath, "utf-8");
+  } catch {
+    return null;
+  }
+  const out = /* @__PURE__ */ new Set();
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const rel = toRepoRelative(root, JSON.parse(line).file ?? "");
+      if (rel) out.add(rel);
+    } catch {
+      continue;
+    }
+  }
+  return out;
+}
+function sessionTouchedFiles(opts) {
+  const sources = [];
+  if (opts.transcriptPath) sources.push(transcriptTouchedFiles(opts.root, opts.transcriptPath));
+  if (opts.flagPath) sources.push(flagFileTouchedFiles(opts.root, opts.flagPath));
+  const readable = sources.filter((s) => s !== null);
+  if (readable.length === 0) return null;
+  const union = /* @__PURE__ */ new Set();
+  for (const s of readable) for (const f of s) union.add(f);
+  return union;
+}
+
+// src/hooks/lib/git-safe-env.ts
+var GIT_ENV_LEAKS = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_PREFIX"
+];
+function gitSafeEnv(extra = {}, source = process.env) {
+  const e = { ...source, ...extra };
+  for (const k of GIT_ENV_LEAKS) delete e[k];
+  return e;
+}
+
 // src/hooks/auto-learning-pipeline.ts
 var HOOK_EVENT = "Stop";
 var MAX_FULL_DIFF_BYTES = 2 * 1024 * 1024;
+var DOC_EXCLUDE_PATHSPEC = [
+  ":(exclude)*.md",
+  ":(exclude)*.markdown",
+  ":(exclude)*.mdx",
+  ":(exclude)*.rst",
+  ":(exclude)*.adoc",
+  ":(exclude)*.txt",
+  ":(exclude)docs/**",
+  // massu's OWN runtime artifacts: agent-result JSONL, workflow logs, rule candidates.
+  // Audit findings quote source lines verbatim, so leaving these in scope re-creates the
+  // prose-as-code false positive with the hook's own output as the input.
+  ":(exclude).massu/**"
+];
+var CODE_ONLY_PATHSPEC = ["--", ".", ...DOC_EXCLUDE_PATHSPEC];
+var MAX_SESSION_PATHSPEC_FILES = 500;
+var FIX_PATTERN_RE = /^\+.*(?:\b(?:try|except|catch|guard|throw|raise|assert|validate)\b|\bif\b.*\b(?:null|nil|None|undefined)\b)/gm;
+var REMOVED_BROKEN_RE = /^-.*\b(?:bug|broken|crash|wrong|incorrect|typo|fail|error|miss|stale)\b/gm;
 function getSessionFlagPath(sessionId) {
   return join6(tmpdir2(), "massu-auto-learning", `fixes-${sessionId.slice(0, 12)}.jsonl`);
+}
+var RECENT_INCIDENT_WINDOW_MS = 12 * 60 * 60 * 1e3;
+function recentIncidentFiles(dir, nowMs = Date.now()) {
+  try {
+    return readdirSync2(dir).filter((f) => f.endsWith(".md")).filter((f) => {
+      try {
+        return nowMs - statSync2(join6(dir, f)).mtimeMs <= RECENT_INCIDENT_WINDOW_MS;
+      } catch {
+        return false;
+      }
+    }).sort();
+  } catch {
+    return [];
+  }
+}
+function scanUncommittedForFix(opts) {
+  const git = opts.git ?? ((args, t, m) => execFileSync("git", [...args], {
+    cwd: opts.root,
+    // `cwd` does NOT scope git: GIT_DIR in the environment outranks it, and a leaked one
+    // would make this read a different repository while looking correct. This hook runs
+    // at Stop and is never reachable from a git hook, so nothing here depends on the
+    // index a commit-time hook is handed — the variables are removed rather than asserted.
+    env: gitSafeEnv(),
+    timeout: t,
+    encoding: "utf-8",
+    maxBuffer: m
+  }));
+  if (opts.sessionTouched === null) {
+    return { uncommittedFix: false, reason: "unattributable", filesScanned: 0 };
+  }
+  if (opts.sessionTouched.size === 0) {
+    return { uncommittedFix: false, reason: "not-this-session", filesScanned: 0 };
+  }
+  try {
+    const nameOnly = git(["diff", "--name-only", ...CODE_ONLY_PATHSPEC], 3e3, 1024 * 1024);
+    const changed = nameOnly.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (changed.length === 0) {
+      return { uncommittedFix: false, reason: "no-changes", filesScanned: 0 };
+    }
+    const mine = changed.filter((f) => opts.sessionTouched.has(f));
+    if (mine.length === 0) {
+      return { uncommittedFix: false, reason: "not-this-session", filesScanned: 0 };
+    }
+    const scoped = mine.length <= MAX_SESSION_PATHSPEC_FILES ? ["--", ...mine, ...DOC_EXCLUDE_PATHSPEC] : [...CODE_ONLY_PATHSPEC];
+    const shortstat = git(["diff", "--shortstat", ...scoped], 2e3, 64 * 1024);
+    const insertions = parseInt(shortstat.match(/(\d+) insertion/)?.[1] ?? "0", 10);
+    const deletions = parseInt(shortstat.match(/(\d+) deletion/)?.[1] ?? "0", 10);
+    if ((insertions + deletions) * 80 > MAX_FULL_DIFF_BYTES) {
+      return { uncommittedFix: false, reason: "over-cap", filesScanned: mine.length };
+    }
+    const fullDiff = git(["diff", ...scoped], 5e3, MAX_FULL_DIFF_BYTES);
+    const fixPatterns = (fullDiff.match(FIX_PATTERN_RE) || []).length;
+    const removedBroken = (fullDiff.match(REMOVED_BROKEN_RE) || []).length;
+    const hit = fixPatterns > 3 || removedBroken > 1;
+    return {
+      uncommittedFix: hit,
+      reason: hit ? "fix-detected" : "no-signal",
+      filesScanned: mine.length
+    };
+  } catch {
+    return { uncommittedFix: false, reason: "git-unavailable", filesScanned: 0 };
+  }
 }
 async function main() {
   try {
     const input = await readStdin();
     const hookInput = JSON.parse(input);
     const config = getConfig();
-    if (config.autoLearning?.enabled === false) {
+    if (config.autoLearning?.enabled === false || config.autoLearning?.fixDetection?.enabled === false) {
       process.exit(0);
       return;
     }
@@ -4063,46 +4254,20 @@ async function main() {
     const autoLearn = config.autoLearning;
     const flagPath = getSessionFlagPath(hookInput.session_id);
     let sessionFixes = [];
-    if (existsSync9(flagPath)) {
+    if (existsSync10(flagPath)) {
       try {
-        sessionFixes = readFileSync6(flagPath, "utf-8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+        sessionFixes = readFileSync7(flagPath, "utf-8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
       } catch {
       }
     }
-    let uncommittedFix = false;
-    try {
-      const nameOnly = execFileSync("git", ["diff", "--name-only"], {
-        cwd: root,
-        timeout: 3e3,
-        encoding: "utf-8",
-        maxBuffer: 1024 * 1024
-      });
-      if (nameOnly.trim()) {
-        const shortstat = execFileSync("git", ["diff", "--shortstat"], {
-          cwd: root,
-          timeout: 2e3,
-          encoding: "utf-8",
-          maxBuffer: 64 * 1024
-        });
-        const insertions = parseInt(shortstat.match(/(\d+) insertion/)?.[1] ?? "0", 10);
-        const deletions = parseInt(shortstat.match(/(\d+) deletion/)?.[1] ?? "0", 10);
-        const estimatedBytes = (insertions + deletions) * 80;
-        if (estimatedBytes <= MAX_FULL_DIFF_BYTES) {
-          const fullDiff = execFileSync("git", ["diff"], {
-            cwd: root,
-            timeout: 5e3,
-            encoding: "utf-8",
-            maxBuffer: MAX_FULL_DIFF_BYTES
-          });
-          const fixPatterns = (fullDiff.match(/^\+.*(try|except|catch|guard|throw|raise|assert|validate|if.*null|if.*nil|if.*None|if.*undefined)/gm) || []).length;
-          const removedBroken = (fullDiff.match(/^-.*(bug|broken|crash|wrong|incorrect|typo|fail|error|miss|stale)/gm) || []).length;
-          if (fixPatterns > 3 || removedBroken > 1) {
-            uncommittedFix = true;
-          }
-        }
-      }
-    } catch {
-    }
+    const uncommittedFix = scanUncommittedForFix({
+      root,
+      sessionTouched: sessionTouchedFiles({
+        root,
+        transcriptPath: hookInput.transcript_path,
+        flagPath
+      })
+    }).uncommittedFix;
     if (sessionFixes.length === 0 && !uncommittedFix) {
       cleanup(flagPath);
       process.exit(0);
@@ -4131,10 +4296,18 @@ async function main() {
       lines.push("");
       lines.push("  Additional uncommitted fix patterns detected in git diff.");
     }
+    const todaysIncidents = recentIncidentFiles(join6(root, incidentDir));
     lines.push("");
-    lines.push("  Complete these steps before this session ends:");
+    if (todaysIncidents.length > 0) {
+      lines.push("  ALREADY SATISFIED TODAY (verify these cover the fixes above):");
+      for (const f of todaysIncidents.slice(0, 5)) lines.push(`    - ${incidentDir}/${f}`);
+      lines.push("");
+      lines.push("  If they do, nothing further is required. Otherwise:");
+    } else {
+      lines.push("  Complete these steps before this session ends:");
+    }
     lines.push("");
-    if (autoLearn?.pipeline?.requireIncidentReport !== false) {
+    if (autoLearn?.pipeline?.requireIncidentReport !== false && todaysIncidents.length === 0) {
       lines.push("  STEP 1: INCIDENT REPORT");
       lines.push(`    For each distinct bug fixed, create: ${incidentDir}/YYYY-MM-DD-<slug>.md`);
       lines.push("    Include: Date, Severity, Symptoms, Root Cause, Fix, Files Changed, Prevention Rules");
@@ -4171,9 +4344,9 @@ async function main() {
 }
 function cleanup(flagPath) {
   try {
-    if (existsSync9(flagPath)) unlinkSync2(flagPath);
+    if (existsSync10(flagPath)) unlinkSync2(flagPath);
     const dir = join6(tmpdir2(), "massu-auto-learning");
-    if (existsSync9(dir)) {
+    if (existsSync10(dir)) {
       const now = Date.now();
       for (const file of readdirSync2(dir)) {
         const fullPath = join6(dir, file);
@@ -4190,19 +4363,27 @@ function cleanup(flagPath) {
   }
 }
 function readStdin() {
-  return new Promise((resolve5) => {
+  return new Promise((resolve6) => {
     let data = "";
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (chunk) => {
       data += chunk;
     });
-    process.stdin.on("end", () => resolve5(data));
-    setTimeout(() => resolve5(data), 5e3);
+    process.stdin.on("end", () => resolve6(data));
+    setTimeout(() => resolve6(data), 5e3);
   });
 }
 if (isDirectInvocation(import.meta.url)) {
   main();
 }
 export {
-  MAX_FULL_DIFF_BYTES
+  CODE_ONLY_PATHSPEC,
+  DOC_EXCLUDE_PATHSPEC,
+  FIX_PATTERN_RE,
+  MAX_FULL_DIFF_BYTES,
+  MAX_SESSION_PATHSPEC_FILES,
+  RECENT_INCIDENT_WINDOW_MS,
+  REMOVED_BROKEN_RE,
+  recentIncidentFiles,
+  scanUncommittedForFix
 };

@@ -45,7 +45,7 @@ check() {
 [ -f "$VICTIM_ABS" ] || { echo "FATAL: plant target missing: $VICTIM" >&2; exit 1; }
 
 BEFORE_SHA="$(shasum -a 256 "$VICTIM_ABS" | awk '{print $1}')"
-BACKUP="$(mktemp -t require-ts-guard-mutation)"
+BACKUP="$(mktemp -t require-ts-guard-mutation-XXXXXX)"
 cp "$VICTIM_ABS" "$BACKUP"
 
 restore() {
@@ -63,7 +63,7 @@ run_guard() {
 }
 
 echo '== 1/4  baseline must be GREEN (a permanently-red gate gets deleted) =='
-BASE_LOG="$(mktemp -t require-ts-guard-base)"
+BASE_LOG="$(mktemp -t require-ts-guard-base-XXXXXX)"
 BASE_RC="$(run_guard "$BASE_LOG")"
 check "baseline exits 0 (rc=$BASE_RC)" "$([ "$BASE_RC" = "0" ] && echo 1 || echo 0)"
 [ "$BASE_RC" = "0" ] || sed -n '1,40p' "$BASE_LOG"
@@ -76,7 +76,7 @@ PLANT_SHA="$(shasum -a 256 "$VICTIM_ABS" | awk '{print $1}')"
 check "the plant actually changed the file (negative control)" \
   "$([ "$PLANT_SHA" != "$BEFORE_SHA" ] && echo 1 || echo 0)"
 
-PLANT_LOG="$(mktemp -t require-ts-guard-plant)"
+PLANT_LOG="$(mktemp -t require-ts-guard-plant-XXXXXX)"
 PLANT_RC="$(run_guard "$PLANT_LOG")"
 check "planted tree exits NON-ZERO (rc=$PLANT_RC)" \
   "$([ "$PLANT_RC" != "0" ] && echo 1 || echo 0)"
@@ -112,7 +112,7 @@ AFTER_SHA="$(shasum -a 256 "$VICTIM_ABS" | awk '{print $1}')"
 check "restored sha256 == original ($BEFORE_SHA)" \
   "$([ "$AFTER_SHA" = "$BEFORE_SHA" ] && echo 1 || echo 0)"
 
-RESTORED_LOG="$(mktemp -t require-ts-guard-restored)"
+RESTORED_LOG="$(mktemp -t require-ts-guard-restored-XXXXXX)"
 RESTORED_RC="$(run_guard "$RESTORED_LOG")"
 check "guard GREEN again after restore (rc=$RESTORED_RC)" \
   "$([ "$RESTORED_RC" = "0" ] && echo 1 || echo 0)"

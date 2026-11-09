@@ -52,12 +52,39 @@ esac
 # Clean up state files older than 24 hours
 find "$STATE_DIR" -name "pass-*" -mmin +1440 -delete 2>/dev/null || true
 
-# Record current state
-git diff --stat > "$STATE_DIR/pass-${PASS_NUM}-diff.txt" 2>/dev/null || true
+# Record current state.
+#
+# `git diff` SEES ONLY TRACKED FILES. A pass whose entire output was NEW files produced a
+# byte-identical capture to the pass before it, so the stagnation detector below scored it
+# as "no progress" and marched toward bailing out — on the passes that did the most work.
+# Creating files is the normal shape of implementation work, so this was not an edge case.
+# Untracked entries are therefore captured explicitly, WITH their byte size, so that a new
+# file GROWING between passes also registers as progress (a bare name list would not).
+#
+# LC_ALL=C sort is load-bearing, not hygiene: two sources are concatenated here and these
+# files are compared byte-for-byte between passes, so an unstable order would manufacture
+# "progress" on a pass that changed nothing (G9).
+{
+    git diff --stat 2>/dev/null || true
+    git ls-files -o --exclude-standard 2>/dev/null | LC_ALL=C sort | while IFS= read -r f; do
+        printf '?? %s %s\n' "$f" "$(wc -c < "$f" 2>/dev/null || echo 0)"
+    done
+} > "$STATE_DIR/pass-${PASS_NUM}-diff.txt" 2>/dev/null || true
 
-# Capture current build/type errors (lightweight check via git diff)
-# Avoid full tsc --noEmit here as it can take 30+ seconds on large codebases
-git diff --name-only 2>/dev/null | grep -E '\.(ts|tsx)$' | head -20 > "$STATE_DIR/pass-${PASS_NUM}-errors.txt" 2>/dev/null || true
+# Capture the changed-source signature (lightweight; a full tsc --noEmit costs 30+ seconds).
+# Same blindness, same fix: brand-new .ts/.tsx files are exactly what a loop iteration
+# produces, and they were invisible here.
+{
+    git diff --name-only 2>/dev/null || true
+    git ls-files -o --exclude-standard 2>/dev/null || true
+} | grep -E '\.(ts|tsx)$' | LC_ALL=C sort -u > "$STATE_DIR/pass-${PASS_NUM}-errors-all.txt" 2>/dev/null || true
+
+# REPORT THE DENOMINATOR (M1/G12). `head -20` is a silent cap: without this line a run that
+# touched 400 files and one that touched 20 leave identical evidence on disk.
+CHANGED_TS_TOTAL=$(wc -l < "$STATE_DIR/pass-${PASS_NUM}-errors-all.txt" 2>/dev/null | tr -d ' ')
+CHANGED_TS_TOTAL=${CHANGED_TS_TOTAL:-0}
+head -20 "$STATE_DIR/pass-${PASS_NUM}-errors-all.txt" > "$STATE_DIR/pass-${PASS_NUM}-errors.txt" 2>/dev/null || true
+echo "CIRCUIT_BREAKER_CHANGED_TS: $CHANGED_TS_TOTAL (signature capped at 20)"
 
 # Read or initialize circuit breaker state
 CB_FILE="$STATE_DIR/circuit-breaker.json"
@@ -96,7 +123,15 @@ if [ "$PASS_NUM" -gt 1 ]; then
         PREV_SIG=$(sort "$PREV_ERRORS" 2>/dev/null | md5 2>/dev/null || sort "$PREV_ERRORS" 2>/dev/null | md5sum 2>/dev/null | cut -d' ' -f1)
         CURR_SIG=$(sort "$CURR_ERRORS" 2>/dev/null | md5 2>/dev/null || sort "$CURR_ERRORS" 2>/dev/null | md5sum 2>/dev/null | cut -d' ' -f1)
 
-        if [ "$PREV_SIG" = "$CURR_SIG" ] && [ -n "$PREV_SIG" ]; then
+        # M1 — "scanned nothing" must never read as "found the same thing".
+        # `[ -n "$PREV_SIG" ]` guards the SIGNATURE, and the md5 of an empty file is a
+        # perfectly non-empty string, so two EMPTY captures compared equal and incremented
+        # SAME_ERROR_COUNT toward a bail-out. Empty means the capture could not see
+        # anything — which is exactly what a broken capture also produces — so it is never
+        # evidence of stagnation. Guard the INPUT, not the digest of it.
+        if [ ! -s "$PREV_ERRORS" ] || [ ! -s "$CURR_ERRORS" ]; then
+            SAME_ERROR_COUNT=0
+        elif [ "$PREV_SIG" = "$CURR_SIG" ] && [ -n "$PREV_SIG" ]; then
             SAME_ERROR_COUNT=$((SAME_ERROR_COUNT + 1))
         else
             SAME_ERROR_COUNT=0

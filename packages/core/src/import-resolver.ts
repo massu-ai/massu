@@ -7,6 +7,7 @@ import type Database from 'better-sqlite3';
 import { getResolvedPaths, getProjectRoot } from './config.ts';
 import { ensureWithinRoot } from './security-utils.ts';
 import { t } from './lib/sql-table-names.ts';
+import { assertSourceCandidateSet, sourceFilePredicate } from './lib/source-layout.ts';
 
 interface ImportEdge {
   source_file: string;
@@ -161,8 +162,29 @@ function toRelative(absPath: string): string {
  * Stores results in massu_imports table.
  */
 export function buildImportIndex(dataDb: Database.Database, codegraphDb: Database.Database): number {
-  // Get all files from CodeGraph
-  const files = codegraphDb.prepare("SELECT path FROM files WHERE path LIKE 'src/%'").all() as { path: string }[];
+  // The candidate set is asserted BEFORE any work and before the DELETE below,
+  // so a misconfigured layout leaves the previous index intact instead of
+  // replacing it with an empty one that reads as "this project has no imports".
+  assertSourceCandidateSet(codegraphDb, 'buildImportIndex');
+
+  // Source files from CodeGraph, under the layout the config DECLARES rather
+  // than a compiled-in `src/%` (which matched 0 of 1266 files in a monorepo).
+  // LIMIT 200000 is a runaway bound, not a scope decision (P-DG-001): the
+  // largest repo we index is ~1.3k files, and `truncated` below refuses to
+  // report a silently-capped build as a complete one.
+  const filesPredicate = sourceFilePredicate();
+  const FILE_SCAN_LIMIT = 200_000;
+  const files = codegraphDb
+    .prepare(`SELECT path FROM files WHERE ${filesPredicate.sql} LIMIT ${FILE_SCAN_LIMIT}`)
+    .all(...filesPredicate.params) as { path: string }[];
+
+  if (files.length === FILE_SCAN_LIMIT) {
+    throw new Error(
+      `buildImportIndex: candidate set hit the ${FILE_SCAN_LIMIT}-row scan limit, so the ` +
+        `import index would be built from a truncated file list. Narrow the declared source ` +
+        `dirs in massu.config.yaml, or raise FILE_SCAN_LIMIT deliberately.`,
+    );
+  }
 
   // Clear existing import edges
   dataDb.exec(`DELETE FROM ${t('imports')}`);

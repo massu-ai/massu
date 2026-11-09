@@ -6,6 +6,7 @@ import { globMatch } from './rules.ts';
 import { getConfig, getResolvedPaths } from './config.ts';
 import type { DomainConfig } from './config.ts';
 import { t } from './lib/sql-table-names.ts';
+import { sourceDirPredicate } from './lib/source-layout.ts';
 
 // Re-export for backward compatibility
 export type { DomainConfig };
@@ -103,13 +104,16 @@ export function findCrossDomainImports(dataDb: Database.Database): {
   allowed: boolean;
 }[] {
   const domains = getDomains();
-  const config = getConfig();
-  const srcPrefix = config.paths.source;
 
-  const srcPattern = srcPrefix + '/%';
+  // `paths.source` alone is ONE of several declared source dirs — in a monorepo
+  // it named a single package, so cross-domain edges anywhere else were invisible
+  // here while the import index itself covered them. Both sides now ask
+  // `lib/source-layout.ts` the same question.
+  const srcSource = sourceDirPredicate('source_file');
+  const srcTarget = sourceDirPredicate('target_file');
   const imports = dataDb.prepare(
-    `SELECT source_file, target_file FROM ${t('imports')} WHERE source_file LIKE ? AND target_file LIKE ? LIMIT 10000`
-  ).all(srcPattern, srcPattern) as { source_file: string; target_file: string }[];
+    `SELECT source_file, target_file FROM ${t('imports')} WHERE ${srcSource.sql} AND ${srcTarget.sql} LIMIT 10000`
+  ).all(...srcSource.params, ...srcTarget.params) as { source_file: string; target_file: string }[];
 
   const crossings: {
     source: string; target: string;
@@ -155,11 +159,15 @@ export function getFilesInDomain(dataDb: Database.Database, codegraphDb: Databas
   const domain = domains.find(d => d.name === domainName);
   if (!domain) return { routers: [], pages: [], components: [] };
 
-  const srcPrefix = config.paths.source;
   const routersPath = config.paths.routers ?? 'src/server/api/routers';
 
-  const srcPattern = srcPrefix + '/%';
-  const allFiles = codegraphDb.prepare('SELECT path FROM files WHERE path LIKE ?').all(srcPattern) as { path: string }[];
+  // Same correction as findCrossDomainImports: the declared source dirs, not
+  // `paths.source` alone. LIMIT 200000 is a runaway bound (P-DG-001), well above
+  // any repo we index.
+  const srcPred = sourceDirPredicate();
+  const allFiles = codegraphDb
+    .prepare(`SELECT path FROM files WHERE ${srcPred.sql} LIMIT 200000`)
+    .all(...srcPred.params) as { path: string }[];
 
   const routers: string[] = [];
   const pages: string[] = [];

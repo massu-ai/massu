@@ -28,7 +28,7 @@ import { existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
-import { REGISTERED_HOOKS } from '../lib/hook-registry.ts';
+import { REGISTERED_HOOKS, DECISION_HOOKS } from '../lib/hook-registry.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -89,6 +89,21 @@ export function resolveHookFile(hookName: string): string {
 }
 
 /**
+ * A deciding hook's exit code is its verdict, and only 0 and 2 are verdicts. A crash at
+ * import exits 1 and a killed hook reports 128; Claude Code would treat either as a
+ * non-blocking error and RUN the call. So for a decision hook, anything else denies.
+ * Non-deciding hooks keep their own code: their failures must never block a session.
+ */
+export function decisionExitCode(hookName: string, code: number): number {
+  if (!(DECISION_HOOKS as readonly string[]).includes(hookName) || code === 0 || code === 2) return code;
+  process.stderr.write(
+    `MASSU SECURITY GATE — BLOCKED\n\nThe ${hookName} hook ended without a verdict (exit ${code}). ` +
+      `A gate that did not decide has not approved this call.\n`,
+  );
+  return 2;
+}
+
+/**
  * Subcommand entrypoint. Spawns `node <resolved-hook-file>` as a child
  * with stdin/stdout/stderr piped through, so the hook receives the same
  * JSON-on-stdin contract Claude Code expects, and stdout/stderr surface
@@ -124,14 +139,10 @@ export async function runHookRunner(args: string[]): Promise<{ exitCode: number 
       env: { ...process.env, MASSU_HOOK_RUNTIME: '1' },
     });
     child.on('exit', (code, signal) => {
-      if (signal) {
-        // Mirror typical shell convention: 128 + signal number; signals are not
-        // easily mapped to numbers here without an explicit table, so we just
-        // report 128 as a sentinel "killed by signal".
-        resolvePromise({ exitCode: 128 });
-        return;
-      }
-      resolvePromise({ exitCode: code ?? 0 });
+      // Mirror typical shell convention: 128 + signal number; signals are not
+      // easily mapped to numbers here without an explicit table, so we just
+      // report 128 as a sentinel "killed by signal".
+      resolvePromise({ exitCode: decisionExitCode(hookName, signal ? 128 : (code ?? 0)) });
     });
     child.on('error', (err) => {
       process.stderr.write(`massu hook-runner: failed to spawn hook "${hookName}": ${err.message}\n`);

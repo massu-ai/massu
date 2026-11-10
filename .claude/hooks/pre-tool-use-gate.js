@@ -1619,6 +1619,77 @@ var init_rule_candidate_store = __esm({
   }
 });
 
+// src/hooks/lib/hook-failure-signal.ts
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync5, existsSync as existsSync6 } from "fs";
+import { join as join4, dirname as dirname5 } from "path";
+function resolveFailureLogPath() {
+  const explicit = process.env.MASSU_HOOK_FAILURE_LOG;
+  if (explicit) return explicit;
+  let dir = process.cwd();
+  for (let i = 0; i < 12; i++) {
+    if (existsSync6(join4(dir, ".massu")) || existsSync6(join4(dir, "massu.config.yaml"))) {
+      return join4(dir, ".massu", "hook-failures.jsonl");
+    }
+    const parent = dirname5(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return join4(process.cwd(), ".massu", "hook-failures.jsonl");
+}
+function recordHookFailure(hook, error, context) {
+  const record = {
+    hook,
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack?.split("\n").slice(0, 6).join("\n") : void 0,
+    context,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  let wroteSomething = false;
+  try {
+    const path = resolveFailureLogPath();
+    mkdirSync5(dirname5(path), { recursive: true });
+    appendFileSync2(path, JSON.stringify(record) + "\n", "utf-8");
+    wroteSomething = true;
+  } catch {
+  }
+  try {
+    process.stderr.write(
+      `[massu] HOOK FAILURE in ${hook}: ${record.error}
+[massu]   This is a bug in Massu, not in your code. See .massu/hook-failures.jsonl
+`
+    );
+    wroteSomething = true;
+  } catch {
+  }
+  try {
+    recordHookHealthRow(record);
+  } catch {
+  }
+  return wroteSomething;
+}
+function recordHookHealthRow(record) {
+  const { getMemoryDb: getMemoryDb2 } = (init_memory_db(), __toCommonJS(memory_db_exports));
+  const db = getMemoryDb2();
+  try {
+    db.prepare(
+      `INSERT INTO hook_health (hook, error, context_json, occurred_at)
+       VALUES (?, ?, ?, ?)`
+    ).run(
+      record.hook,
+      record.error,
+      record.context ? JSON.stringify(record.context) : null,
+      record.timestamp
+    );
+  } finally {
+    db.close();
+  }
+}
+var init_hook_failure_signal = __esm({
+  "src/hooks/lib/hook-failure-signal.ts"() {
+    "use strict";
+  }
+});
+
 // src/memory-embedder-tokenizer.ts
 import { readFileSync as readFileSync5 } from "fs";
 function loadVocab(vocabPath) {
@@ -1742,8 +1813,8 @@ var init_memory_embedder_tokenizer = __esm({
 
 // src/memory-embedder.ts
 import { fileURLToPath } from "url";
-import { dirname as dirname5, join as join4 } from "path";
-import { existsSync as existsSync6 } from "fs";
+import { dirname as dirname6, join as join5 } from "path";
+import { existsSync as existsSync7 } from "fs";
 import { createRequire as createRequire3 } from "module";
 function getActiveEmbedModel() {
   return _activeModel;
@@ -1765,21 +1836,21 @@ function embeddingsDisabled() {
 }
 function resolveModelDir() {
   try {
-    let dir = dirname5(fileURLToPath(import.meta.url));
+    let dir = dirname6(fileURLToPath(import.meta.url));
     let root = null;
     for (let i = 0; i < 8; i++) {
-      if (existsSync6(join4(dir, "package.json"))) {
+      if (existsSync7(join5(dir, "package.json"))) {
         root = dir;
         break;
       }
-      const parent = dirname5(dir);
+      const parent = dirname6(dir);
       if (parent === dir) break;
       dir = parent;
     }
     if (!root) return null;
     for (const rel of ["dist/embedder", "assets/embedder"]) {
-      const candidate = join4(root, rel);
-      if (existsSync6(join4(candidate, "model_quantized.onnx"))) return candidate;
+      const candidate = join5(root, rel);
+      if (existsSync7(join5(candidate, "model_quantized.onnx"))) return candidate;
     }
     return null;
   } catch {
@@ -1789,8 +1860,8 @@ function resolveModelDir() {
 function resolveWasmDir() {
   try {
     const req3 = createRequire3(import.meta.url);
-    const main4 = req3.resolve(ORT_PKG);
-    return dirname5(main4);
+    const main2 = req3.resolve(ORT_PKG);
+    return dirname6(main2);
   } catch {
     return null;
   }
@@ -1810,8 +1881,8 @@ async function getSession() {
       ort.env.wasm.proxy = false;
       ort.env.wasm.wasmPaths = wasmDir.endsWith("/") ? wasmDir : wasmDir + "/";
       _ortTensor = ort.Tensor;
-      const modelPath = join4(modelDir, "model_quantized.onnx");
-      const vocabPath = join4(modelDir, "vocab.txt");
+      const modelPath = join5(modelDir, "model_quantized.onnx");
+      const vocabPath = join5(modelDir, "vocab.txt");
       _vocab = loadVocab(vocabPath);
       const session = await ort.InferenceSession.create(modelPath, {
         executionProviders: ["wasm"],
@@ -2151,8 +2222,8 @@ __export(memory_db_exports, {
   upsertObservationEmbedding: () => upsertObservationEmbedding,
   usageWarmupElapsed: () => usageWarmupElapsed
 });
-import { dirname as dirname6, basename as basename2 } from "path";
-import { existsSync as existsSync7, mkdirSync as mkdirSync5 } from "fs";
+import { dirname as dirname7, basename as basename2 } from "path";
+import { existsSync as existsSync8, mkdirSync as mkdirSync6 } from "fs";
 function sanitizeFts5Query(raw) {
   const trimmed = raw.trim();
   if (!trimmed) return '""';
@@ -2168,11 +2239,11 @@ function sanitizeFts5QueryOr(raw) {
 }
 function getMemoryDb() {
   const dbPath = getResolvedPaths().memoryDbPath;
-  const dir = dirname6(dbPath);
-  if (!existsSync7(dir)) {
-    mkdirSync5(dir, { recursive: true });
+  const dir = dirname7(dbPath);
+  if (!existsSync8(dir)) {
+    mkdirSync6(dir, { recursive: true });
   }
-  const preExisting = existsSync7(dbPath);
+  const preExisting = existsSync8(dbPath);
   const db = openDatabase2(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
@@ -3983,129 +4054,7 @@ var init_memory_db = __esm({
   }
 });
 
-// src/hooks/lib/hook-failure-signal.ts
-import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync6, existsSync as existsSync8 } from "fs";
-import { join as join5, dirname as dirname7 } from "path";
-function resolveFailureLogPath() {
-  const explicit = process.env.MASSU_HOOK_FAILURE_LOG;
-  if (explicit) return explicit;
-  let dir = process.cwd();
-  for (let i = 0; i < 12; i++) {
-    if (existsSync8(join5(dir, ".massu")) || existsSync8(join5(dir, "massu.config.yaml"))) {
-      return join5(dir, ".massu", "hook-failures.jsonl");
-    }
-    const parent = dirname7(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return join5(process.cwd(), ".massu", "hook-failures.jsonl");
-}
-function recordHookFailure(hook, error, context) {
-  const record = {
-    hook,
-    error: error instanceof Error ? error.message : String(error),
-    stack: error instanceof Error ? error.stack?.split("\n").slice(0, 6).join("\n") : void 0,
-    context,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  let wroteSomething = false;
-  try {
-    const path = resolveFailureLogPath();
-    mkdirSync6(dirname7(path), { recursive: true });
-    appendFileSync2(path, JSON.stringify(record) + "\n", "utf-8");
-    wroteSomething = true;
-  } catch {
-  }
-  try {
-    process.stderr.write(
-      `[massu] HOOK FAILURE in ${hook}: ${record.error}
-[massu]   This is a bug in Massu, not in your code. See .massu/hook-failures.jsonl
-`
-    );
-    wroteSomething = true;
-  } catch {
-  }
-  try {
-    recordHookHealthRow(record);
-  } catch {
-  }
-  return wroteSomething;
-}
-function recordHookHealthRow(record) {
-  const { getMemoryDb: getMemoryDb2 } = (init_memory_db(), __toCommonJS(memory_db_exports));
-  const db = getMemoryDb2();
-  try {
-    db.prepare(
-      `INSERT INTO hook_health (hook, error, context_json, occurred_at)
-       VALUES (?, ?, ?, ?)`
-    ).run(
-      record.hook,
-      record.error,
-      record.context ? JSON.stringify(record.context) : null,
-      record.timestamp
-    );
-  } finally {
-    db.close();
-  }
-}
-var init_hook_failure_signal = __esm({
-  "src/hooks/lib/hook-failure-signal.ts"() {
-    "use strict";
-  }
-});
-
-// src/hooks/lib/write-hook-message.ts
-var HOOK_EVENTS = [
-  "UserPromptSubmit",
-  "UserPromptExpansion",
-  "SessionStart",
-  "PreToolUse",
-  "PostToolUse",
-  "Stop",
-  "SubagentStop",
-  "PreCompact"
-];
-var ADDITIONAL_CONTEXT_MAX_CHARS = 1e4;
-function isHookEvent(value) {
-  return typeof value === "string" && HOOK_EVENTS.includes(value);
-}
-function writeHookContext(hookEventName, message) {
-  if (!isHookEvent(hookEventName)) {
-    process.stderr.write(
-      `[massu] writeHookContext: refusing to emit \u2014 unrecognised hook event ${JSON.stringify(hookEventName)}. Known: ${HOOK_EVENTS.join(", ")}.
-`
-    );
-    return;
-  }
-  if (typeof message !== "string" || message.length === 0) return;
-  let additionalContext = message;
-  if (additionalContext.length > ADDITIONAL_CONTEXT_MAX_CHARS) {
-    const marker = `
-[massu] \u2026truncated at ${ADDITIONAL_CONTEXT_MAX_CHARS} chars (spec cap).`;
-    additionalContext = additionalContext.slice(0, ADDITIONAL_CONTEXT_MAX_CHARS - marker.length) + marker;
-  }
-  process.stdout.write(
-    JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext } }) + "\n"
-  );
-}
-
-// src/hooks/security-gate.ts
-init_hook_failure_signal();
-
-// src/hooks/lib/is-direct-invocation.ts
-import { pathToFileURL } from "url";
-function isDirectInvocation(moduleUrl) {
-  const entry = process.argv[1];
-  if (!entry) return false;
-  try {
-    return moduleUrl === pathToFileURL(entry).href;
-  } catch {
-    return false;
-  }
-}
-
-// src/hooks/security-gate.ts
-var HOOK_EVENT = "PreToolUse";
+// src/hooks/lib/security-gate-checks.ts
 var DANGEROUS_BASH_PATTERNS = [
   // BLOCK — destructive and irreversible, or arbitrary remote code execution.
   { pattern: /rm\s+-[a-z]*r[a-z]*f[a-z]*\s+\/(?:\s|$)/, label: "rm -rf /", severity: "block" },
@@ -4157,6 +4106,7 @@ var SECRET_EXACT_BASENAMES = [
 ];
 var CREDENTIALS_PATH_SUFFIX = "/credentials";
 var DOTENV = ".env";
+var SECRET_DATA_EXTENSIONS = ["yaml", "yml", "json", "toml", "ini", "env", "conf", "properties", "txt"];
 function looksLikeCode(token) {
   return /[()[\]{};=`$<>|&*?!"']/.test(token) || /\s/.test(token);
 }
@@ -4175,8 +4125,13 @@ function namesSecretFile(token) {
     return DOTENV_TEMPLATE_SUFFIXES.includes(suffix) ? null : `${base} file`;
   }
   if (base.endsWith(DOTENV) && clean.includes("/")) return `${base} file`;
-  for (const ext of SECRET_BASENAME_EXTENSIONS) {
-    if (base.endsWith(`.${ext}`)) return `${base} file`;
+  for (const ext2 of SECRET_BASENAME_EXTENSIONS) {
+    if (base.endsWith(`.${ext2}`)) return `${base} file`;
+  }
+  const parts = base.toLowerCase().split(".");
+  const ext = parts.length > 1 ? parts[parts.length - 1] : "";
+  if (SECRET_DATA_EXTENSIONS.includes(ext) && parts.slice(0, -1).some((p) => p === "secret" || p === "secrets")) {
+    return `${base} file`;
   }
   return null;
 }
@@ -4335,38 +4290,8 @@ Review carefully before proceeding.`
   }
   return findings;
 }
-function runSecurityGateChecks(hookInput) {
-  return runSecurityGateFindings(hookInput).map((f) => f.message);
-}
-async function main() {
-  try {
-    const input = await readStdin();
-    const hookInput = JSON.parse(input);
-    const messages = runSecurityGateChecks(hookInput);
-    for (const msg of messages) writeHookContext(HOOK_EVENT, msg);
-  } catch (err) {
-    recordHookFailure("security-gate", err);
-    process.stderr.write("MASSU SECURITY GATE \u2014 BLOCKED (gate could not evaluate this call)\n");
-    process.exit(2);
-  }
-  process.exit(0);
-}
-function readStdin() {
-  return new Promise((resolve5) => {
-    let data = "";
-    process.stdin.setEncoding("utf-8");
-    process.stdin.on("data", (chunk) => {
-      data += chunk;
-    });
-    process.stdin.on("end", () => resolve5(data));
-    setTimeout(() => resolve5(data), 400);
-  });
-}
-if (isDirectInvocation(import.meta.url)) {
-  main();
-}
 
-// src/hooks/pre-delete-check.ts
+// src/hooks/lib/pre-delete-checks.ts
 init_db_driver();
 import { existsSync as existsSync9 } from "fs";
 
@@ -4462,7 +4387,7 @@ function getFeatureImpact(db, filePaths) {
   };
 }
 
-// src/hooks/pre-delete-check.ts
+// src/hooks/lib/pre-delete-checks.ts
 init_config();
 
 // src/lib/source-layout.ts
@@ -4512,9 +4437,7 @@ function isUnderSourceDir(path, layout = getSourceLayout()) {
   return layout.sourceDirs.some((d) => path.startsWith(`${d}/`));
 }
 
-// src/hooks/pre-delete-check.ts
-init_hook_failure_signal();
-var HOOK_EVENT2 = "PreToolUse";
+// src/hooks/lib/pre-delete-checks.ts
 var PROJECT_ROOT2 = getProjectRoot();
 var KNOWLEDGE_PROTECTED_FILES = [
   "knowledge-db.ts",
@@ -4653,32 +4576,40 @@ function runPreDeleteChecks(hookInput) {
   }
   return messages;
 }
-async function main2() {
-  try {
-    const input = await readStdin2();
-    const hookInput = JSON.parse(input);
-    const messages = runPreDeleteChecks(hookInput);
-    for (const msg of messages) writeHookContext(HOOK_EVENT2, msg);
-  } catch (err) {
-    recordHookFailure("pre-delete-check", err);
-    process.stderr.write("MASSU SECURITY GATE \u2014 BLOCKED (gate could not evaluate this call)\n");
-    process.exit(2);
+
+// src/hooks/lib/write-hook-message.ts
+var HOOK_EVENTS = [
+  "UserPromptSubmit",
+  "UserPromptExpansion",
+  "SessionStart",
+  "PreToolUse",
+  "PostToolUse",
+  "Stop",
+  "SubagentStop",
+  "PreCompact"
+];
+var ADDITIONAL_CONTEXT_MAX_CHARS = 1e4;
+function isHookEvent(value) {
+  return typeof value === "string" && HOOK_EVENTS.includes(value);
+}
+function writeHookContext(hookEventName, message) {
+  if (!isHookEvent(hookEventName)) {
+    process.stderr.write(
+      `[massu] writeHookContext: refusing to emit \u2014 unrecognised hook event ${JSON.stringify(hookEventName)}. Known: ${HOOK_EVENTS.join(", ")}.
+`
+    );
+    return;
   }
-  process.exit(0);
-}
-function readStdin2() {
-  return new Promise((resolve5) => {
-    let data = "";
-    process.stdin.setEncoding("utf-8");
-    process.stdin.on("data", (chunk) => {
-      data += chunk;
-    });
-    process.stdin.on("end", () => resolve5(data));
-    setTimeout(() => resolve5(data), 400);
-  });
-}
-if (isDirectInvocation(import.meta.url)) {
-  main2();
+  if (typeof message !== "string" || message.length === 0) return;
+  let additionalContext = message;
+  if (additionalContext.length > ADDITIONAL_CONTEXT_MAX_CHARS) {
+    const marker = `
+[massu] \u2026truncated at ${ADDITIONAL_CONTEXT_MAX_CHARS} chars (spec cap).`;
+    additionalContext = additionalContext.slice(0, ADDITIONAL_CONTEXT_MAX_CHARS - marker.length) + marker;
+  }
+  process.stdout.write(
+    JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext } }) + "\n"
+  );
 }
 
 // src/hooks/lib/read-stdin.ts
@@ -4716,9 +4647,8 @@ function readStdinToEof(deadlineMs = 4e3) {
   });
 }
 
-// src/hooks/pre-tool-use-gate.ts
+// src/hooks/lib/pre-tool-use-decision.ts
 init_hook_failure_signal();
-var HOOK_EVENT3 = "PreToolUse";
 var EXIT_DENY = 2;
 var EXIT_ALLOW = 0;
 function deny(reason, detail) {
@@ -4734,19 +4664,22 @@ The gate denies by default when it cannot verify a command is safe.
   );
   process.exit(EXIT_DENY);
 }
-async function main3() {
+async function runPreToolUseDecision(hookName, event) {
   let hookInput;
+  let input = "";
   try {
-    const input = await readStdinToEof();
+    input = await readStdinToEof();
     if (!input.trim()) {
-      recordHookFailure("pre-tool-use-gate", new Error("empty stdin payload"));
-      deny(
-        "The gate received an EMPTY payload and could not determine what tool call was requested."
-      );
+      recordHookFailure(hookName, new Error("empty stdin payload"));
+      deny("The gate received an EMPTY payload and could not determine what tool call was requested.");
     }
     hookInput = JSON.parse(input);
   } catch (err) {
-    recordHookFailure("pre-tool-use-gate", err, { phase: "read-parse" });
+    recordHookFailure(hookName, err, {
+      phase: "read-parse",
+      bytesRead: input.length,
+      endsWithBrace: input.trimEnd().endsWith("}")
+    });
     deny(
       "The gate could not READ or PARSE the tool-call payload, so it cannot know what it was being asked to approve.",
       err instanceof Error ? `Cause: ${err.message}` : void 0
@@ -4755,26 +4688,42 @@ async function main3() {
   let findings;
   try {
     const security = runSecurityGateFindings(hookInput);
-    const deletes = runPreDeleteChecks(
-      hookInput
-    ).map((message) => ({ severity: "warn", message }));
+    const deletes = runPreDeleteChecks(hookInput).map(
+      (message) => ({ severity: "warn", message })
+    );
     findings = [...security, ...deletes];
   } catch (err) {
-    recordHookFailure("pre-tool-use-gate", err, { phase: "evaluate" });
+    recordHookFailure(hookName, err, { phase: "evaluate" });
     deny(
       "A security check CRASHED while evaluating this tool call. A check that did not run has not passed.",
       err instanceof Error ? `Cause: ${err.message}` : void 0
     );
   }
-  const blocking = findings.filter((f) => f.severity === "block");
   for (const f of findings.filter((x) => x.severity === "warn")) {
-    writeHookContext(HOOK_EVENT3, f.message);
+    writeHookContext(event, f.message);
   }
-  if (blocking.length > 0) {
-    deny(blocking.map((f) => f.message).join("\n\n"));
-  }
+  const blocking = findings.filter((f) => f.severity === "block");
+  if (blocking.length > 0) deny(blocking.map((f) => f.message).join("\n\n"));
   process.exit(EXIT_ALLOW);
 }
+
+// src/hooks/lib/is-direct-invocation.ts
+import { pathToFileURL } from "url";
+function isDirectInvocation(moduleUrl) {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return moduleUrl === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
+}
+
+// src/hooks/pre-tool-use-gate.ts
+var HOOK_EVENT = "PreToolUse";
+async function main() {
+  await runPreToolUseDecision("pre-tool-use-gate", HOOK_EVENT);
+}
 if (isDirectInvocation(import.meta.url)) {
-  main3();
+  main();
 }

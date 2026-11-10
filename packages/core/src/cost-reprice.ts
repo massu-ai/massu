@@ -14,7 +14,10 @@
 import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import type Database from 'better-sqlite3';
-import { getResolvedPaths } from './config.ts';
+import { getResolvedPaths, getProjectRoot } from './config.ts';
+import { getDataDb } from './db.ts';
+import { attributeSessionCost } from './feature-cost-attribution.ts';
+import { recordHookFailure } from './hooks/lib/hook-failure-signal.ts';
 import { getMemoryMeta, setMemoryMeta, tryAcquireMetaLease, releaseMetaLease } from './memory-db.ts';
 import { parseTranscriptFrom } from './transcript-parser.ts';
 import { costTranscriptEntries, storeSessionCost, markSessionCostUnknown } from './cost-tracker.ts';
@@ -37,6 +40,7 @@ export async function updateSessionCost(
   db: Database.Database,
   sessionId: string,
   transcriptPath: string,
+  attribute: Attributor = attributeFeatureCosts,
 ): Promise<void> {
   const row = db.prepare('SELECT pricing_version FROM session_costs WHERE session_id = ?')
     .get(sessionId) as { pricing_version: number } | undefined;
@@ -50,7 +54,28 @@ export async function updateSessionCost(
   storeSessionCost(db, sessionId, slice, incremental ? 'add' : 'replace');
   setMemoryMeta(db, cursorKey(sessionId), String(totalLines));
   if (slice.lastMessageId) setMemoryMeta(db, lastIdKey(sessionId), slice.lastMessageId);
+  attribute(db, sessionId);
 }
+
+/** How a session's cost is split across features after it changes. Injectable for tests. */
+export type Attributor = (db: Database.Database, sessionId: string) => void;
+
+/**
+ * Default attributor: rewrite this session's feature_costs (feature-cost-attribution.ts).
+ * A failure is RECORDED, never thrown — the cost row it derives from is already stored and
+ * must not be reported as failed because the split could not be computed.
+ */
+export const attributeFeatureCosts: Attributor = (db, sessionId) => {
+  let dataDb: Database.Database | null = null;
+  try {
+    dataDb = getDataDb();
+    attributeSessionCost(db, dataDb, sessionId, getProjectRoot());
+  } catch (err) {
+    recordHookFailure('cost:feature-attribution', err, { sessionId });
+  } finally {
+    dataDb?.close();
+  }
+};
 
 /** Where Claude Code keeps this project's session transcripts: beside its memory dir. */
 export function defaultTranscriptFor(sessionId: string): string | null {
@@ -77,7 +102,7 @@ export interface RepriceResult {
  */
 export async function repriceStoredSessions(
   db: Database.Database,
-  opts: { deadlineAt?: number; findTranscript?: (sid: string) => string | null; batch?: number } = {},
+  opts: { deadlineAt?: number; findTranscript?: (sid: string) => string | null; batch?: number; attribute?: Attributor } = {},
 ): Promise<RepriceResult> {
   const deadlineAt = opts.deadlineAt ?? Infinity;
   const find = opts.findTranscript ?? defaultTranscriptFor;
@@ -102,10 +127,11 @@ export async function repriceStoredSessions(
       try {
         const path = find(sid);
         if (path) {
-          await updateSessionCost(db, sid, path);
+          await updateSessionCost(db, sid, path, opts.attribute);
           out.repriced++;
         } else {
           markSessionCostUnknown(db, sid);
+          (opts.attribute ?? attributeFeatureCosts)(db, sid); // unknown cost -> no feature rows
           out.markedUnknown++;
         }
       } catch (err) {

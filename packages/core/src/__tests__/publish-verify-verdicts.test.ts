@@ -32,6 +32,10 @@ const VERSION = '9.9.9-test';
 
 let work: string;
 let stubDir: string;
+
+const DECIDING_GATE =
+  "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const c=JSON.parse(d).tool_input.command;" +
+  "process.exit(c==='echo hello'?0:2);});\n";
 let pkgDir: string;
 
 const STUB_NPM = `#!/usr/bin/env bash
@@ -78,6 +82,9 @@ beforeAll(() => {
     join(pkgDir, 'dist', 'hooks', 'h.js'),
     'function f(){ process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "X", additionalContext: "" } })); }\n',
   );
+  // A gate that DECIDES, so the pre-publish exit-code check passes: it denies the release
+  // script's two must-deny commands and allows its control.
+  writeFileSync(join(pkgDir, 'dist', 'hooks', 'pre-tool-use-gate.js'), DECIDING_GATE);
 });
 
 afterAll(() => rmSync(work, { recursive: true, force: true }));
@@ -104,6 +111,19 @@ describe('publish-and-verify-release.sh verdicts', () => {
     expect(r.out).toContain('refused the write');
     expect(r.out).toContain('RESULT: FAIL');
     expect(r.status).toBe(1);
+  });
+
+  it('a local gate that does not DENY refuses the publish before npm is asked', () => {
+    const gate = join(pkgDir, 'dist', 'hooks', 'pre-tool-use-gate.js');
+    writeFileSync(gate, "process.stdin.resume().on('end',()=>process.exit(0));\n");
+    try {
+      const r = run(['--publish'], { FAKE_NPM_PUBLISH_RC: '0' });
+      expect(r.out).toContain('refusing to publish a security gate that does not deny');
+      expect(r.out).not.toContain('npm publish exited');
+      expect(r.status).toBe(1);
+    } finally {
+      writeFileSync(gate, DECIDING_GATE);
+    }
   });
 
   it('--verify-only with the version absent -> FAIL (exit 1), not PENDING', () => {

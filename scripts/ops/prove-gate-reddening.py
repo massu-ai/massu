@@ -378,8 +378,9 @@ def main():
             test_paths.add(g["test"])
     in_scope = plant_paths | test_paths
     staged_only = lambda l: len(l) >= 2 and l[0] not in " ?" and l[1] == " "
-    blocking = [(l, pth) for (l, pth) in dirty
-                if pth in plant_paths or (pth in test_paths and not staged_only(l))]
+    # Plant targets too, since 2026-11-09: the executor now requires each one restored to the
+    # SAME porcelain and the SAME bytes, so a staged-only target cannot hide a leaked plant.
+    blocking = [(l, pth) for (l, pth) in dirty if pth in in_scope and not staged_only(l)]
     print(f"dirty paths                    : {len(dirty)} "
           f"(in scope for this run: {len(blocking)} of {len(in_scope)} touched path(s))")
     if blocking:

@@ -47,6 +47,7 @@ import { installAll } from './install-commands.ts';
 import { readSettingsLocal, writeSettingsLocalAtomic } from '../lib/settings-local.ts';
 import { encodeMemoryDirName } from '../lib/memory-path.ts';
 import { HOOK_TIMEOUTS, BACKGROUND_HOOKS } from '../lib/hook-timeouts.ts';
+import { DECISION_HOOKS } from '../lib/hook-registry.ts';
 import {
   runDetection,
   type DetectionResult,
@@ -1093,6 +1094,14 @@ interface HookEntry {
   timeout: number;
   /** Run in the background: Claude Code does not wait for it (and enforces no timeout). */
   async?: true;
+  /**
+   * Claude Code (>= 2.1.295): "block" makes a hook that cannot start, exits other than 0/2,
+   * times out, or prints invalid JSON behave like exit 2. Set on every DECISION hook, because
+   * without it each of those failures RUNS the call (code.claude.com/docs/en/hooks,
+   * "Block the action when a hook fails"). Older Claude Code ignores the field; the shim and
+   * hook-runner map a crash to exit 2 there.
+   */
+  onFailure?: 'block';
 }
 
 interface HookGroup {
@@ -1285,6 +1294,22 @@ fi
 MASSU_VERSION="$1"
 shift
 MASSU_CLI="\${HOME}/.massu/runtime/\${MASSU_VERSION}/node_modules/@massu/core/dist/cli.js"
+# A DECIDING hook's exit code is its verdict: 0 allows, 2 denies. If the launch itself fails
+# (a runtime that cannot load exits 1), Claude Code would RUN the call, so for these hooks
+# any other status becomes a deny. Every other subcommand keeps the exec path below.
+if [ "\${1:-}" = hook-runner ]; then
+  case "\${2:-}" in
+    ${DECISION_HOOKS.join('|')})
+      if [ -f "\$MASSU_CLI" ]; then node "\$MASSU_CLI" "\$@"; else npx -y "@massu/core@\${MASSU_VERSION}" "\$@"; fi
+      st=\$?
+      if [ "\$st" -ne 0 ] && [ "\$st" -ne 2 ]; then
+        echo "MASSU SECURITY GATE — BLOCKED: the \$2 hook ended without a verdict (exit \$st)" >&2
+        exit 2
+      fi
+      exit "\$st"
+      ;;
+  esac
+fi
 if [ -f "\$MASSU_CLI" ]; then
   exec node "\$MASSU_CLI" "\$@"
 fi
@@ -1365,6 +1390,7 @@ function getHookTimeout(name: string): number {
 function hookEntry(version: string, name: string, shim: Parameters<typeof hookCmd>[2]): HookEntry {
   const entry: HookEntry = { type: 'command', command: hookCmd(version, name, shim), timeout: getHookTimeout(name) };
   if (BACKGROUND_HOOKS.has(name)) entry.async = true;
+  if ((DECISION_HOOKS as readonly string[]).includes(name)) entry.onFailure = 'block';
   return entry;
 }
 

@@ -49,13 +49,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/packages/core/dist/hooks/security-gate.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/packages/core/dist/hooks/pre-delete-check.js\"",
-            "timeout": 5
+            "command": "node \"$CLAUDE_PROJECT_DIR/packages/core/dist/hooks/pre-tool-use-gate.js\"",
+            "timeout": 5,
+            "onFailure": "block"
           }
         ]
       },

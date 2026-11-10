@@ -392,14 +392,17 @@ function handleCostFeature(args: Record<string, unknown>, db: Database.Database)
   `).all(`-${days} days`) as Array<Record<string, unknown>>;
 
   if (rows.length === 0) {
-    return text(`No feature cost data found in the last ${days} days. Feature costs are attributed automatically when sessions work on registered features. Ensure features are registered, then costs are tracked per-session. Try: ${p('cost_trend')} { days: 30 } for session-level cost trends instead.`);
+    return text(`No feature cost data found in the last ${days} days. Each session's priced cost is allocated across registered features (massu_sentinel_register) by the files it touched; sessions with unknown cost are skipped. Try: ${p('cost_trend')} { days: 30 } for session-level cost trends instead.`);
   }
 
   const totalCost = rows.reduce((sum, r) => sum + (r.total_cost as number), 0);
 
   const lines = [
     `## Feature Cost Attribution (${days} days)`,
-    `Total: $${totalCost.toFixed(2)} across ${rows.length} features`,
+    `Total: $${totalCost.toFixed(2)} across ${rows.length} feature row(s)`,
+    "Each session's priced cost is ALLOCATED across the registered features whose files it touched, " +
+      'in proportion to those touches. It is an allocation by activity, not a measured per-feature cost. ' +
+      'Sessions with unknown cost are not included.',
     '',
     '| Feature | Cost | Tokens | Sessions | % of Total |',
     '|---------|------|--------|----------|------------|',

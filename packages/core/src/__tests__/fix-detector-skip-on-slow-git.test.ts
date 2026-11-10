@@ -117,7 +117,9 @@ describe('classify-failure role-gate — the second site of the same class', () 
   it('calls the shared predicate rather than re-listing the patterns', () => {
     // Two copies of a path predicate is how the two sites drifted apart to begin with.
     expect(CF_SRC, 'classify-failure no longer imports the shared role-gate')
-      .toMatch(/import\s*\{[^}]*isTestOrFixturePath[^}]*\}\s*from\s*'\.\/fix-detector\.ts'/);
+      // From hooks/lib, not from fix-detector.ts: importing a hook ENTRY bundles its main()
+      // into classify-failure.js (hook-bundle-single-entry.test.ts).
+      .toMatch(/import\s*\{[^}]*isTestOrFixturePath[^}]*\}\s*from\s*'\.\/lib\/test-or-fixture-path\.ts'/);
     expect(CF_SRC, 'classify-failure no longer calls the shared role-gate')
       .toContain('isTestOrFixturePath(');
     // A second literal pattern list here would be the drift this binding exists to stop.

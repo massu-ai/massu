@@ -10,6 +10,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.5.6] - 2026-11-09
+
+### Security
+
+- **The safety gate blocks again.** In 2.5.2 through 2.5.5 the PreToolUse gate that `massu init`
+  installs warned about everything it should have blocked and then let the call run: commands
+  that read `.env` and other secret files, piping a download into a shell, `rm -rf /`, disk
+  formatting and writes to `/etc/passwd`. Claude Code blocks a tool call only when the hook exits
+  with code 2; the gate printed "BLOCKED" and exited 0. It now exits 2 for every blocking
+  finding. **Upgrade, then run `massu init` again** so your settings pick up the change below.
+- **A gate that fails now blocks.** `massu init` sets Claude Code's `"onFailure": "block"`
+  (Claude Code 2.1.295 or later) on the gate, so a gate that crashes, times out or prints invalid
+  output blocks the call instead of letting it through. On older Claude Code, the `massu-hook`
+  launcher and `hook-runner` turn a crashed gate into a block.
+- **The older hook names decide too.** Settings written before 1.12.0 may still name the
+  `security-gate` and `pre-delete-check` hooks. They used to warn only; they now make the same
+  decision as the gate.
+- **More secret files are recognised:** secrets data files under any name, such as
+  `config.secrets.yaml` or `app.secret.json`. Source files such as `secrets.ts` are still allowed.
+
+### Fixed
+
+- **The gate no longer refuses good calls under load.** A slow-arriving tool call could be
+  denied as "Unexpected end of JSON input" and pass on retry. The gate now reads its whole
+  input before deciding.
+
+### Added
+
+- **`massu_cost_feature` reports real data.** Each session's priced cost is split across the
+  registered features whose files it touched, in proportion to those touches; activity on files
+  that belong to no registered feature is shown as `(no registered feature)`, so the rows add up
+  to the sessions' total. Sessions whose cost is unknown are left out.
+
 ## [2.5.5] - 2026-11-09
 
 ### Fixed

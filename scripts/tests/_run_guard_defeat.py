@@ -149,8 +149,18 @@ def run(reg_path, repo, gid):
         if "delete" in g["plant"]: touched += g["plant"]["delete"]
 
     dirty0 = porcelain(repo, touched)
-    if dirty0:
-        print(f"FATAL: target tree already dirty before the proof:\n{dirty0}", file=sys.stderr); return 2
+    # A STAGED target whose worktree equals the index (porcelain `X `) is allowed (2026-11-09):
+    # moving code a plant targets stales its proof, the drift guard reds the suite, the commit
+    # gate blocks — and a clean-only check left no order to land it in. What makes a leak
+    # detectable is not "clean" but "identical": the restore below now requires the same
+    # porcelain AND the same bytes as before, which a staged file satisfies exactly.
+    unstaged = [l for l in dirty0.splitlines() if len(l) < 2 or l[0] == "?" or l[1] != " "]
+    if unstaged:
+        print(f"FATAL: target tree already dirty before the proof:\n{chr(10).join(unstaged)}", file=sys.stderr); return 2
+    bytes0 = {}
+    for rel in touched:
+        fp = os.path.join(repo, rel)
+        bytes0[rel] = open(fp, "rb").read() if os.path.exists(fp) else None
 
     snap = Snap(repo)
     try:
@@ -264,7 +274,10 @@ def run(reg_path, repo, gid):
         return 2
     finally:
         snap.restore()
-        leak = porcelain(repo, touched)
+        after = porcelain(repo, touched)
+        changed = [rel for rel in touched
+                   if (open(os.path.join(repo, rel), "rb").read() if os.path.exists(os.path.join(repo, rel)) else None) != bytes0.get(rel)]
+        leak = "" if (after == dirty0 and not changed) else (after or "") + ("\n(bytes differ: " + ", ".join(changed) + ")" if changed else "")
         snap.cleanup()
         if leak:
             print(f"FATAL: the proof LEAKED changes into the working tree (restore incomplete):\n{leak}", file=sys.stderr)

@@ -367,6 +367,31 @@ else
   bad "4c/4d: the test file was not restored"
 fi
 
+echo "--- 4e. a STAGED edit to a PLANT TARGET is proved, and restored byte-identical and still staged ---"
+# 2026-11-09: moving code a plant targets had the same no-legal-ordering cycle as 4c/4d. The
+# executor now accepts a staged-only target and requires the SAME porcelain and SAME bytes after
+# restore, which is what makes a leaked plant detectable — not a clean tree.
+printf '\n// live-fire 4e probe edit\n' >> "${TARGET}"
+git add -- "${TARGET}" || exit 2
+SHA_STAGED="$(sha "${TARGET}")"
+POUT="$(python3 scripts/ops/prove-gate-reddening.py --gates "${GATE}" --all 2>&1)"; PRC=$?
+STILL_STAGED="$(git diff --cached --name-only -- "${TARGET}")"
+SHA_AFTER="$(sha "${TARGET}")"
+git reset -q -- "${TARGET}" || exit 2
+cp "${BK}/target" "${TARGET}" || exit 2
+cp "${BK}/ledger" "${LEDGER}" || exit 2
+if [ "${PRC}" -eq 0 ] && printf '%s' "${POUT}" | grep -qE 'proved RED : 1'; then
+  ok "4e: a staged plant target is proved"
+else
+  bad "4e: prover exited ${PRC} on a staged plant target — expected a proof" "${POUT}"
+fi
+if [ "${SHA_AFTER}" = "${SHA_STAGED}" ] && [ -n "${STILL_STAGED}" ]; then
+  ok "4e: the staged target came back byte-identical and still staged"
+else
+  bad "4e: the staged target was altered by the proof (sha ${SHA_STAGED} -> ${SHA_AFTER}, staged='${STILL_STAGED}')"
+fi
+if [ "$(sha "${TARGET}")" = "${SHA_TARGET}" ]; then ok "4e: target restored to its original bytes"; else bad "4e: target not restored"; fi
+
 echo "--- 4b. an IGNORED (build-artifact) plant target withdrawn -> PLANT TARGET ABSENT ---"
 # `.bundle-shasums.json` is matched by `.gitignore:2:dist/`, verified with
 # `git check-ignore -v`, so withdrawing it leaves the tree clean and the prover reaches the

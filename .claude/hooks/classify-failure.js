@@ -4,12 +4,6 @@ var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
-  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
-}) : x)(function(x) {
-  if (typeof require !== "undefined") return require.apply(this, arguments);
-  throw Error('Dynamic require of "' + x + '" is not supported');
-});
 var __esm = (fn, res, err) => function __init() {
   if (err) throw err[0];
   try {
@@ -1866,8 +1860,8 @@ function resolveModelDir() {
 function resolveWasmDir() {
   try {
     const req3 = createRequire3(import.meta.url);
-    const main3 = req3.resolve(ORT_PKG);
-    return dirname6(main3);
+    const main2 = req3.resolve(ORT_PKG);
+    return dirname6(main2);
   } catch {
     return null;
   }
@@ -4063,351 +4057,18 @@ var init_memory_db = __esm({
 // src/hooks/classify-failure.ts
 init_config();
 init_memory_db();
-import { existsSync as existsSync10, readFileSync as readFileSync7, readdirSync as readdirSync2, unlinkSync as unlinkSync2, writeFileSync as writeFileSync3 } from "fs";
-import { tmpdir as tmpdir3 } from "os";
-import { join as join7, basename as basename3 } from "path";
-
-// src/hooks/fix-detector.ts
-init_config();
-import { execFileSync } from "child_process";
-import { existsSync as existsSync9, appendFileSync as appendFileSync3, mkdirSync as mkdirSync7, readFileSync as readFileSync6 } from "fs";
+import { existsSync as existsSync9, readFileSync as readFileSync6, readdirSync as readdirSync2, unlinkSync as unlinkSync2, writeFileSync as writeFileSync3 } from "fs";
 import { tmpdir as tmpdir2 } from "os";
-import { join as join6 } from "path";
+import { join as join6, basename as basename3 } from "path";
 
-// src/hooks/lib/code-spans.ts
-import { extname } from "path";
-var DQ = { open: '"', close: '"', escapes: true, multiline: false };
-var SQ = { open: "'", close: "'", escapes: true, multiline: false };
-var C_COMMENTS = { lineComments: ["//"], blockComments: [["/*", "*/"]] };
-var JS = {
-  id: "js",
-  ...C_COMMENTS,
-  strings: [DQ, SQ, { open: "`", close: "`", escapes: true, multiline: true, interpolation: true }],
-  regexLiterals: true
-};
-var C = { id: "c", ...C_COMMENTS, strings: [DQ, SQ] };
-var GO = {
-  id: "go",
-  ...C_COMMENTS,
-  strings: [DQ, SQ, { open: "`", close: "`", escapes: false, multiline: true }]
-};
-var JVM = {
-  id: "jvm",
-  ...C_COMMENTS,
-  strings: [{ open: '"""', close: '"""', escapes: true, multiline: true }, DQ, SQ]
-};
-var SWIFT = {
-  id: "swift",
-  ...C_COMMENTS,
-  strings: [{ open: '"""', close: '"""', escapes: true, multiline: true }, DQ]
-};
-var RUST = {
-  id: "rust",
-  ...C_COMMENTS,
-  strings: [{ open: '"', close: '"', escapes: true, multiline: true }],
-  rustChars: true
-};
-var PYTHON = {
-  id: "python",
-  lineComments: ["#"],
-  blockComments: [],
-  strings: [
-    { open: '"""', close: '"""', escapes: true, multiline: true },
-    { open: "'''", close: "'''", escapes: true, multiline: true },
-    DQ,
-    SQ
-  ]
-};
-var SHELL = {
-  id: "shell",
-  lineComments: ["#"],
-  blockComments: [],
-  strings: [
-    { open: '"', close: '"', escapes: true, multiline: true },
-    { open: "'", close: "'", escapes: false, multiline: true }
-  ],
-  hashNeedsBoundary: true
-};
-var RUBY = {
-  id: "ruby",
-  lineComments: ["#"],
-  blockComments: [],
-  strings: [
-    { open: '"', close: '"', escapes: true, multiline: true },
-    { open: "'", close: "'", escapes: true, multiline: true }
-  ]
-};
-var LEX_SPECS = Object.freeze({
-  ".ts": JS,
-  ".tsx": JS,
-  ".mts": JS,
-  ".cts": JS,
-  ".js": JS,
-  ".jsx": JS,
-  ".mjs": JS,
-  ".cjs": JS,
-  ".c": C,
-  ".h": C,
-  ".cc": C,
-  ".cpp": C,
-  ".hpp": C,
-  ".cs": C,
-  ".dart": C,
-  ".m": C,
-  ".mm": C,
-  ".go": GO,
-  ".java": JVM,
-  ".kt": JVM,
-  ".kts": JVM,
-  ".scala": JVM,
-  ".groovy": JVM,
-  ".swift": SWIFT,
-  ".rs": RUST,
-  ".py": PYTHON,
-  ".pyi": PYTHON,
-  ".sh": SHELL,
-  ".bash": SHELL,
-  ".zsh": SHELL,
-  ".rb": RUBY
-});
-function lexSpecFor(path) {
-  const ext = extname(path).toLowerCase();
-  return Object.prototype.hasOwnProperty.call(LEX_SPECS, ext) ? LEX_SPECS[ext] : null;
-}
-var RUST_CHAR_RE = /^'(?:\\(?:u\{[0-9a-fA-F]{1,6}\}|x[0-9a-fA-F]{2}|.)|[^\\'\n])'/;
-var IDENT_CHAR_RE = /[A-Za-z0-9_$]/;
-var SHELL_WORD_BREAK = /* @__PURE__ */ new Set([" ", "	", ";", "|", "&", "(", ")"]);
-var REGEX_AFTER_KEYWORD = /* @__PURE__ */ new Set([
-  "return",
-  "typeof",
-  "case",
-  "in",
-  "of",
-  "delete",
-  "void",
-  "throw",
-  "new",
-  "yield",
-  "await",
-  "else",
-  "do"
-]);
-function regexLiteralLength(line, i, lastSig) {
-  if (lastSig === ")" || lastSig === "]") return 0;
-  if (lastSig !== "" && IDENT_CHAR_RE.test(lastSig)) {
-    const m = /([A-Za-z_$][A-Za-z0-9_$]*)\s*$/.exec(line.slice(0, i));
-    if (!m || !REGEX_AFTER_KEYWORD.has(m[1])) return 0;
-  }
-  let inClass = false;
-  for (let j = i + 1; j < line.length; j++) {
-    const ch = line[j];
-    if (ch === "\\") {
-      j++;
-      continue;
-    }
-    if (inClass) {
-      if (ch === "]") inClass = false;
-      continue;
-    }
-    if (ch === "[") {
-      inClass = true;
-      continue;
-    }
-    if (ch === "/") return j - i + 1;
-  }
-  return 0;
-}
-function projectLine(line, spec, st) {
-  const out = line.split("");
-  const blank = (from, len) => {
-    for (let k = from; k < from + len && k < out.length; k++) out[k] = " ";
-  };
-  let i = 0;
-  while (i < line.length) {
-    const mode = st.mode;
-    if (mode.kind === "block") {
-      if (line.startsWith(mode.close, i)) {
-        blank(i, mode.close.length);
-        i += mode.close.length;
-        st.mode = { kind: "code" };
-      } else {
-        blank(i, 1);
-        i++;
-      }
-      continue;
-    }
-    if (mode.kind === "string") {
-      const r = mode.rule;
-      if (r.escapes && line[i] === "\\") {
-        blank(i, 2);
-        i += 2;
-        continue;
-      }
-      if (r.interpolation && line.startsWith("${", i)) {
-        blank(i, 2);
-        i += 2;
-        st.holes.push(0);
-        st.mode = { kind: "code" };
-        st.lastSig = "";
-        continue;
-      }
-      if (line.startsWith(r.close, i)) {
-        blank(i, r.close.length);
-        i += r.close.length;
-        st.mode = { kind: "code" };
-        st.lastSig = '"';
-        continue;
-      }
-      blank(i, 1);
-      i++;
-      continue;
-    }
-    const ch = line[i];
-    if (st.holes.length > 0) {
-      const top = st.holes.length - 1;
-      if (ch === "{") st.holes[top]++;
-      else if (ch === "}") {
-        if (st.holes[top] === 0) {
-          st.holes.pop();
-          blank(i, 1);
-          i++;
-          st.mode = { kind: "string", rule: spec.strings.find((s) => s.interpolation) };
-          continue;
-        }
-        st.holes[top]--;
-      }
-    }
-    const lc = spec.lineComments.find((m) => line.startsWith(m, i));
-    if (lc && (!spec.hashNeedsBoundary || i === 0 || SHELL_WORD_BREAK.has(line[i - 1]))) {
-      blank(i, line.length - i);
-      break;
-    }
-    const bc = spec.blockComments.find(([open]) => line.startsWith(open, i));
-    if (bc) {
-      blank(i, bc[0].length);
-      i += bc[0].length;
-      st.mode = { kind: "block", close: bc[1] };
-      continue;
-    }
-    if (spec.rustChars && ch === "'") {
-      const m = RUST_CHAR_RE.exec(line.slice(i));
-      if (m) {
-        blank(i, m[0].length);
-        i += m[0].length;
-        st.lastSig = "'";
-        continue;
-      }
-      i++;
-      continue;
-    }
-    const sr = spec.strings.find((s) => line.startsWith(s.open, i));
-    if (sr) {
-      blank(i, sr.open.length);
-      i += sr.open.length;
-      st.mode = { kind: "string", rule: sr };
-      continue;
-    }
-    if (spec.regexLiterals && ch === "/") {
-      const len = regexLiteralLength(line, i, st.lastSig);
-      if (len > 0) {
-        blank(i, len);
-        i += len;
-        st.lastSig = "/";
-        continue;
-      }
-    }
-    if (ch !== " " && ch !== "	") st.lastSig = ch;
-    i++;
-  }
-  if (st.mode.kind === "string" && !st.mode.rule.multiline) st.mode = { kind: "code" };
-  return out.join("");
-}
-function projectCode(lines, spec) {
-  const st = { mode: { kind: "code" }, holes: [], lastSig: "" };
-  return lines.map((l) => projectLine(l, spec, st));
-}
-function unquoteGitPath(p) {
-  const s = p.startsWith('"') && p.endsWith('"') ? p.slice(1, -1) : p;
-  return s.startsWith("b/") ? s.slice(2) : s;
-}
-function diffCodeView(diff, opts = {}) {
-  const files = [];
-  let cur = null;
-  let hunk = null;
-  let newLine = 0;
-  let inHeader = false;
-  const startFile = (path) => {
-    const f = { path, hunks: [], removed: [] };
-    files.push(f);
-    return f;
-  };
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("diff --git ")) {
-      cur = startFile("");
-      hunk = null;
-      inHeader = true;
-      continue;
-    }
-    if (inHeader && line.startsWith("+++ ")) {
-      const p = line.slice(4).trim();
-      if (cur) cur.path = p === "/dev/null" ? "" : unquoteGitPath(p);
-      continue;
-    }
-    if (inHeader && (line.startsWith("--- ") || !line.startsWith("@@"))) continue;
-    const hh = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
-    if (hh) {
-      inHeader = false;
-      if (!cur) cur = startFile("");
-      hunk = { newSide: [], addedAt: [] };
-      cur.hunks.push(hunk);
-      newLine = parseInt(hh[1], 10);
-      continue;
-    }
-    if (!cur) cur = startFile("");
-    if (!hunk) {
-      hunk = { newSide: [], addedAt: [] };
-      cur.hunks.push(hunk);
-      newLine = 1;
-    }
-    if (line.startsWith("+")) {
-      hunk.addedAt.push({ idx: hunk.newSide.length, lineNo: newLine });
-      hunk.newSide.push(line.slice(1));
-      newLine++;
-    } else if (line.startsWith("-")) {
-      cur.removed.push(line.slice(1));
-    } else if (line.startsWith(" ")) {
-      hunk.newSide.push(line.slice(1));
-      newLine++;
-    }
-  }
-  return files.map((f) => {
-    const spec = f.path ? lexSpecFor(f.path) : null;
-    const rawAdded = f.hunks.flatMap(
-      (h) => h.addedAt.map((a) => ({ lineNo: a.lineNo, raw: h.newSide[a.idx] }))
-    );
-    if (!spec) {
-      return { path: f.path, mode: "raw", added: rawAdded.map((a) => ({ ...a, code: a.raw })), removed: f.removed };
-    }
-    const text = opts.postImage ? opts.postImage(f.path) : null;
-    if (text !== null && text !== void 0) {
-      const post = text.split(/\r\n|\n|\r/);
-      if (rawAdded.every((a) => post[a.lineNo - 1] === a.raw)) {
-        const proj = projectCode(post, spec);
-        return {
-          path: f.path,
-          mode: "post-image",
-          added: rawAdded.map((a) => ({ ...a, code: proj[a.lineNo - 1] })),
-          removed: f.removed
-        };
-      }
-    }
-    const added = [];
-    for (const h of f.hunks) {
-      const proj = projectCode(h.newSide, spec);
-      for (const a of h.addedAt) added.push({ lineNo: a.lineNo, raw: h.newSide[a.idx], code: proj[a.idx] });
-    }
-    return { path: f.path, mode: "hunk", added, removed: f.removed };
-  });
+// src/hooks/lib/test-or-fixture-path.ts
+var TEST_OR_FIXTURE_PATH_PATTERNS = [
+  /(^|\/)(__tests__|__fixtures__|tests?|fixtures?|spec)\//,
+  /\.(test|spec)\.[cm]?[jt]sx?$/,
+  /(^|\/)(test_[^/]+|[^/]+_test)\.py$/
+];
+function isTestOrFixturePath(filePath) {
+  return TEST_OR_FIXTURE_PATH_PATTERNS.some((re) => re.test(filePath));
 }
 
 // src/hooks/lib/write-hook-message.ts
@@ -4445,7 +4106,7 @@ function writeHookContext(hookEventName, message) {
   );
 }
 
-// src/hooks/fix-detector.ts
+// src/hooks/classify-failure.ts
 init_hook_failure_signal();
 
 // src/hooks/lib/is-direct-invocation.ts
@@ -4460,296 +4121,8 @@ function isDirectInvocation(moduleUrl) {
   }
 }
 
-// src/hooks/fix-detector.ts
-var HOOK_EVENT = "PostToolUse";
-var TEST_OR_FIXTURE_PATH_PATTERNS = [
-  /(^|\/)(__tests__|__fixtures__|tests?|fixtures?|spec)\//,
-  /\.(test|spec)\.[cm]?[jt]sx?$/,
-  /(^|\/)(test_[^/]+|[^/]+_test)\.py$/
-];
-function isTestOrFixturePath(filePath) {
-  return TEST_OR_FIXTURE_PATH_PATTERNS.some((re) => re.test(filePath));
-}
-var FIX_HEURISTICS = [
-  {
-    name: "removed_broken_code",
-    test: (diff) => /^-.*\b(bug|broken|wrong|incorrect|typo|crash|error|fail|miss|stale)\b/m.test(diff)
-  },
-  {
-    name: "added_error_handling",
-    // `if.*nil` / `if.*None` were DROPPED here, and that is deduplication rather than a silent
-    // narrowing: `nil_handling_fix` below already matches exactly that shape
-    // (`= nil|= None|is None|!= nil|is not None`), so a nil check scored twice under one banner.
-    // Scored on each added line's CODE projection (`lib/code-spans.ts`), the same lexer the
-    // Stop hook uses: a keyword in a string literal or a comment is not error handling. The
-    // per-edit diff carries its `diff --git` header, so the file's language is known here
-    // without threading a path through this table. A language with no lexer is judged raw.
-    test: (diff) => {
-      const re = /^\+.*\b(try|except|catch|guard|validate|assert|raise|throw)\b/;
-      let added = 0;
-      for (const view of diffCodeView(diff)) {
-        for (const a of view.added) if (re.test(`+${a.code}`)) added++;
-      }
-      return added > 2;
-    }
-  },
-  // ⛔ `method_name_correction` WAS RETIRED HERE 2026-08-20, and the measurement is why.
-  //
-  //   test: (diff) => {
-  //     const removed = diff.match(/^-.*\.([a-z_]+)\(/m);   // FIRST removed method call
-  //     const added   = diff.match(/^\+.*\.([a-z_]+)\(/m);  // FIRST added method call
-  //     return !!(removed && added && removed[1] !== added[1]);
-  //   }
-  //
-  // It compared the FIRST removed call against the FIRST added call, anywhere in the diff.
-  // The two need no relationship to each other, so it fired whenever a diff contained any
-  // two differently-named method calls — which is nearly every diff that touches code.
-  //
-  // Measured over the last 250 commits repo-wide:
-  //     shipped predicate                                            29 firings (12%)
-  //     one requiring the two lines to be identical but for the name  0 firings
-  // Eleven firings read by hand over packages/core/src: `.push()`->`.includes()`,
-  // `.call()`->`.system()`, `.trim()`->`.stringify()`, `.all()`->`.cwd()`, `.now()`->`.push()`,
-  // `.on()`->`.sort()`, `.test()`->`.split()` … NOT ONE was a rename. Precision 0 of 29.
-  //
-  // RETIRED RATHER THAN REPAIRED, on the same numbers: a correct implementation fires ZERO
-  // times in 250 commits, so repairing it buys a branch that never runs — dead weight with a
-  // maintenance cost (CR-71 in spirit: a detector that cannot fire is not a detector). It was
-  // not free while it lived: signals feed `sessionFixes`, which drives the ACTION REQUIRED
-  // banner demanding incidents, so this put noise directly on the retro pipeline — the one
-  // banner that must not cry wolf (CR-83).
-  //
-  // Kept as a comment, not deleted outright, so the next author who reaches for
-  // "detect a method rename from a diff" finds the measurement instead of rebuilding it.
-  //
-  // ⛔ THE FULL WRITE-UP IS DELIBERATELY NOT LINKED FROM HERE. This file SYNCS TO THE PUBLIC
-  // MIRROR and the incident corpus does not, so a path citation would point at something
-  // that does not exist there — and the leak guard refuses it, correctly. It caught exactly
-  // this line. The measurement above is self-contained for that reason; search the internal
-  // incident corpus for "a summary counted signals and listed files" if you need the rest.
-  // (Memory: a-retro-citation-is-publishable-content.)
-  {
-    name: "auth_fix",
-    // `authn`/`authz` are spelled out because `\bauth\b` no longer reaches them, and the
-    // trailing `s?` keeps plurals (`tokens`, `credential`+`s`) that the boundary would drop.
-    //
-    // ⚠️ Backticks, not double quotes, and the plural is split — deliberately. CR-59's
-    // drift-guard forbids a quoted `credentials` segment literal outside credentials.ts via
-    // /['"]credentials['"]/, which cannot tell a string literal in CODE from quotation marks
-    // in PROSE. Writing the word normally here turns that guard red. That is the SAME defect
-    // class this file's own boundary fix addresses, in a second detector — recorded in the
-    // incident rather than fixed here, because widening a security-adjacent guard is its own
-    // change with its own blast radius.
-    test: (diff) => /^\+.*\b(token|auth|authn|authz|header|X-Service|Bearer|credential)s?\b/im.test(diff)
-  },
-  {
-    name: "nil_handling_fix",
-    test: (diff) => /^\+.*(= nil|= None|\.isNil|is None|!= nil|is not None|guard let|if let|optional)/m.test(diff) && /^-/m.test(diff)
-  },
-  {
-    name: "concurrency_fix",
-    // `rate[-_. ]limit` — the original `rate.limit` used an UNESCAPED dot, so `.` matched any
-    // character and the alternative fired on "corporate_limits". The class is now explicit
-    // about which separators are intended.
-    test: (diff) => /^\+.*\b(timeout|semaphore|lock|mutex|throttle|rate[-_. ]limit|max_conn)\b/im.test(diff)
-  }
-  // ⛔ `async_pattern_fix` AND `added_missing_import` WERE RETIRED HERE 2026-08-20.
-  //
-  //   async_pattern_fix:
-  //     test: (diff) => /^\+.*(@MainActor|async with|asyncio\.timeout|\.await)/.test(diff)
-  //                     && /^-/m.test(diff),
-  //   added_missing_import:
-  //     test: (diff) => /^\+.*(import|from.*import|require)/.test(diff)
-  //                     && !/^-.*(import|from.*import|require)/m.test(diff),
-  //
-  // Both fire ZERO times across the last 250 commits — measured on the same run that produced
-  // the boundary numbers above, over the 87 commits touching non-test source:
-  //
-  //     async_pattern_fix     0 / 87
-  //     added_missing_import  0 / 87
-  //
-  // This is the identical finding that retired `method_name_correction` below, and it is
-  // retired for the identical reason: a detector that never fires is not a detector, and it
-  // still costs review attention and maintenance on every pass over this table (CR-71 in
-  // spirit — a zero-caller chokepoint is a dead feature).
-  //
-  // WHY THEY CANNOT FIRE HERE, so the next author does not "fix" them back in: their tokens are
-  // largely foreign to this codebase. `@MainActor` is Swift; `async with` is Python. Neither
-  // appears in a TypeScript monorepo. `added_missing_import` requires added imports with NO
-  // removed import anywhere in the same diff, which any edit touching an import block violates.
-  // If this table is ever pointed at a Swift or Python corpus, re-measure before reinstating —
-  // do not reinstate on the assumption that the language mix changed.
-  //
-  // Kept as comments rather than deleted so the measurement travels with the code, and so a
-  // future author reaching for "detect an async-pattern fix" finds the number first.
-  // (Same reasoning, and same publication constraint, as the block below: this file syncs to
-  // the public mirror, so no internal path citations.)
-];
-function getSessionFlagPath(sessionId) {
-  const dir = join6(tmpdir2(), "massu-auto-learning");
-  if (!existsSync9(dir)) {
-    mkdirSync7(dir, { recursive: true });
-  }
-  return join6(dir, `fixes-${sessionId.slice(0, 12)}.jsonl`);
-}
-function _stateDir() {
-  const dir = join6(tmpdir2(), "massu-fix-detector-state");
-  if (!existsSync9(dir)) {
-    mkdirSync7(dir, { recursive: true });
-  }
-  return dir;
-}
-function _cwdHash(cwd) {
-  let h = 5381;
-  for (let i = 0; i < cwd.length; i++) {
-    h = (h << 5) + h + cwd.charCodeAt(i) | 0;
-  }
-  return Math.abs(h).toString(36);
-}
-function isGitWorkTreeFast(cwd) {
-  try {
-    const cachePath = join6(_stateDir(), `worktree-${_cwdHash(cwd)}.json`);
-    if (existsSync9(cachePath)) {
-      const cached = JSON.parse(readFileSync6(cachePath, "utf-8"));
-      const ageMs = Date.now() - cached.ts;
-      if (ageMs < 36e5) return cached.isWorkTree;
-    }
-    let isWorkTree = false;
-    try {
-      execFileSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd, timeout: 500, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
-      isWorkTree = true;
-    } catch {
-      isWorkTree = false;
-    }
-    try {
-      appendFileSync3(cachePath, "");
-      const fs = __require("fs");
-      fs.writeFileSync(cachePath, JSON.stringify({ isWorkTree, ts: Date.now() }));
-    } catch {
-    }
-    return isWorkTree;
-  } catch {
-    return false;
-  }
-}
-function _disabledFlagPath(sessionId) {
-  return join6(_stateDir(), `disabled-${sessionId.slice(0, 12)}.flag`);
-}
-function isSessionAutoDisabled(sessionId) {
-  try {
-    return existsSync9(_disabledFlagPath(sessionId));
-  } catch {
-    return false;
-  }
-}
-function markSessionAutoDisabled(sessionId, elapsedMs) {
-  try {
-    const fs = __require("fs");
-    fs.writeFileSync(_disabledFlagPath(sessionId), `disabled: previous git diff took ${elapsedMs}ms
-`);
-  } catch {
-  }
-}
-async function main() {
-  try {
-    const input = await readStdin();
-    const hookInput = JSON.parse(input);
-    const filePath = hookInput.tool_input?.file_path;
-    if (!filePath || !existsSync9(filePath)) {
-      process.exit(0);
-      return;
-    }
-    if (!/\.(py|swift|ts|tsx|js|jsx|rs|go|rb|sh)$/.test(filePath)) {
-      process.exit(0);
-      return;
-    }
-    const config = getConfig();
-    const incidentDir = config.autoLearning?.incidentDir ?? "docs/incidents";
-    const memoryDir = config.autoLearning?.memoryDir ?? "memory";
-    if (filePath.includes(incidentDir) || filePath.includes(memoryDir) || filePath.includes("MEMORY.md")) {
-      process.exit(0);
-      return;
-    }
-    if (isTestOrFixturePath(filePath)) {
-      process.exit(0);
-      return;
-    }
-    if (config.autoLearning?.enabled === false || config.autoLearning?.fixDetection?.enabled === false) {
-      process.exit(0);
-      return;
-    }
-    const root = getProjectRoot();
-    if (!isGitWorkTreeFast(root) || isSessionAutoDisabled(hookInput.session_id)) {
-      process.exit(0);
-      return;
-    }
-    let diff = "";
-    try {
-      const startMs = Date.now();
-      diff = execFileSync("git", ["diff", "--", filePath], { cwd: root, timeout: 3e3, encoding: "utf-8" });
-      if (!diff) {
-        diff = execFileSync("git", ["diff", "HEAD", "--", filePath], { cwd: root, timeout: 3e3, encoding: "utf-8" });
-      }
-      const elapsedMs = Date.now() - startMs;
-      if (elapsedMs > 2e3) {
-        markSessionAutoDisabled(hookInput.session_id, elapsedMs);
-      }
-    } catch {
-      process.exit(0);
-      return;
-    }
-    if (!diff) {
-      process.exit(0);
-      return;
-    }
-    const enabledSignals = new Set(config.autoLearning?.fixDetection?.signals ?? FIX_HEURISTICS.map((h) => h.name));
-    const detected = [];
-    for (const heuristic of FIX_HEURISTICS) {
-      if (enabledSignals.has(heuristic.name) && heuristic.test(diff)) {
-        detected.push(heuristic.name);
-      }
-    }
-    if (detected.length === 0) {
-      process.exit(0);
-      return;
-    }
-    const signal = {
-      file: filePath,
-      signals: detected,
-      timestamp: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    const flagPath = getSessionFlagPath(hookInput.session_id);
-    appendFileSync3(flagPath, JSON.stringify(signal) + "\n");
-    const lines = readFileSync6(flagPath, "utf-8").split("\n").filter(Boolean);
-    if (lines.length === 1) {
-      writeHookContext(
-        HOOK_EVENT,
-        `[Massu Auto-Learning] Bug fix detected in ${filePath} (signals: ${detected.join(", ")}). The auto-learning pipeline will prompt you at session end to create an incident report, derive a prevention rule, and add enforcement.`
-      );
-    }
-  } catch (err) {
-    recordHookFailure("fix-detector", err);
-  }
-  process.exit(0);
-}
-function readStdin() {
-  return new Promise((resolve5) => {
-    let data = "";
-    process.stdin.setEncoding("utf-8");
-    process.stdin.on("data", (chunk) => {
-      data += chunk;
-    });
-    process.stdin.on("end", () => resolve5(data));
-    setTimeout(() => resolve5(data), 3e3);
-  });
-}
-if (isDirectInvocation(import.meta.url)) {
-  main();
-}
-
 // src/hooks/classify-failure.ts
-init_hook_failure_signal();
-var HOOK_EVENT2 = "PostToolUse";
+var HOOK_EVENT = "PostToolUse";
 var BUG_FIX_INDICATORS = [
   /\b(catch|error|throw|fail|fix|bug|broken|missing|crash|wrong|typo|incorrect)\b/i
 ];
@@ -4757,7 +4130,7 @@ var CODE_EXTENSIONS = /\.(ts|tsx|js|jsx|py|swift|rs|go|rb|sh)$/;
 function getDedupeMarkerPath(sessionId, filePath) {
   const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const hash = simpleHash(filePath);
-  return join7(tmpdir3(), `massu-classify-${day}-${sessionId.slice(0, 8)}-${hash}`);
+  return join6(tmpdir2(), `massu-classify-${day}-${sessionId.slice(0, 8)}-${hash}`);
 }
 function simpleHash(str) {
   let h = 0;
@@ -4767,13 +4140,13 @@ function simpleHash(str) {
   return Math.abs(h).toString(36);
 }
 function readFailureContextFiles() {
-  const dir = tmpdir3();
+  const dir = tmpdir2();
   let context = "";
   try {
     const files = readdirSync2(dir).filter((f) => f.startsWith("massu-failure-context-"));
     for (const file of files) {
       try {
-        context += " " + readFileSync7(join7(dir, file), "utf-8");
+        context += " " + readFileSync6(join6(dir, file), "utf-8");
       } catch {
       }
     }
@@ -4782,21 +4155,21 @@ function readFailureContextFiles() {
   return context.trim();
 }
 function cleanupFailureContextFiles() {
-  const dir = tmpdir3();
+  const dir = tmpdir2();
   try {
     const files = readdirSync2(dir).filter((f) => f.startsWith("massu-failure-context-"));
     for (const file of files) {
       try {
-        unlinkSync2(join7(dir, file));
+        unlinkSync2(join6(dir, file));
       } catch {
       }
     }
   } catch {
   }
 }
-async function main2() {
+async function main() {
   try {
-    const input = await readStdin2();
+    const input = await readStdin();
     const hookInput = JSON.parse(input);
     const filePath = hookInput.tool_input?.file_path;
     if (!filePath) {
@@ -4853,7 +4226,7 @@ async function main2() {
       return;
     }
     const dedupeMarker = getDedupeMarkerPath(hookInput.session_id, filePath);
-    if (existsSync10(dedupeMarker)) {
+    if (existsSync9(dedupeMarker)) {
       process.exit(0);
       return;
     }
@@ -4895,7 +4268,7 @@ function outputKnownPattern(match) {
     lines.push(`  Covered by: ${match.rules.join(", ")}`);
   }
   lines.push("  No new rules needed. Reference existing incident if logging.");
-  writeHookContext(HOOK_EVENT2, lines.join("\n"));
+  writeHookContext(HOOK_EVENT, lines.join("\n"));
 }
 function outputSimilarPattern(match) {
   const lines = [];
@@ -4905,7 +4278,7 @@ function outputSimilarPattern(match) {
     lines.push(`  Check if existing rules cover this case: ${match.rules.join(", ")}`);
   }
   lines.push("  If genuinely new: create incident + prevention rule + enforcement.");
-  writeHookContext(HOOK_EVENT2, lines.join("\n"));
+  writeHookContext(HOOK_EVENT, lines.join("\n"));
 }
 function outputNewPattern(fileName, match) {
   const lines = [];
@@ -4919,9 +4292,9 @@ function outputNewPattern(fileName, match) {
   lines.push("    1. INCIDENT REPORT");
   lines.push("    2. PREVENTION RULE (if new failure pattern)");
   lines.push("    3. ENFORCEMENT (hook or static check)");
-  writeHookContext(HOOK_EVENT2, lines.join("\n"));
+  writeHookContext(HOOK_EVENT, lines.join("\n"));
 }
-function readStdin2() {
+function readStdin() {
   return new Promise((resolve5) => {
     let data = "";
     process.stdin.setEncoding("utf-8");
@@ -4933,5 +4306,5 @@ function readStdin2() {
   });
 }
 if (isDirectInvocation(import.meta.url)) {
-  main2();
+  main();
 }

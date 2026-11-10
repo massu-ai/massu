@@ -111,7 +111,8 @@ describe('P-M-004 hooks stdout convention drift-guard', () => {
     const bad: string[] = [];
     for (const file of hookFiles()) {
       const src = readFileSync(file, 'utf-8');
-      if (!/writeHookContext\(/.test(stripCommentsAndStrings(src))) continue;
+      // A PreToolUse entry emits through the shared decision, handing it HOOK_EVENT.
+      if (!/writeHookContext\(|runPreToolUseDecision\(/.test(stripCommentsAndStrings(src))) continue;
       const m = src.match(/const HOOK_EVENT:\s*HookEvent\s*=\s*'([^']+)'/);
       if (!m) {
         bad.push(`${file}: calls writeHookContext but declares no HOOK_EVENT`);
@@ -188,14 +189,25 @@ describe('P-M-004 hooks stdout convention drift-guard', () => {
     for (const file of hookFiles()) {
       if (file.endsWith('write-hook-message.ts')) continue;
       const raw = readFileSync(file, 'utf-8');
-      if (/\bwriteHookContext\s*\(/.test(stripCommentsAndStrings(raw))) {
+      const stripped = stripCommentsAndStrings(raw);
+      if (/\bwriteHookContext\s*\(/.test(stripped)) {
         emitters += 1;
         if (!/from\s+['"]\.\/lib\/write-hook-message(?:\.ts)?['"]/.test(raw)) {
+          offenders.push(file);
+        }
+      } else if (/\brunPreToolUseDecision\s*\(/.test(stripped)) {
+        // Emits through hooks/lib/pre-tool-use-decision.ts, which imports the helper itself.
+        emitters += 1;
+        if (!/from\s+['"]\.\/lib\/pre-tool-use-decision(?:\.ts)?['"]/.test(raw)) {
           offenders.push(file);
         }
       }
     }
     expect(emitters, 'hooks emitting context — 0 would make this check vacuous').toBeGreaterThan(8);
     expect(offenders, `missing import: ${offenders.join(', ')}`).toEqual([]);
+    const decision = readFileSync(join(HOOKS_DIR, 'lib', 'pre-tool-use-decision.ts'), 'utf-8');
+    expect(decision, 'the shared PreToolUse decision must emit via the helper').toMatch(
+      /from\s+['"]\.\/write-hook-message(?:\.ts)?['"]/,
+    );
   });
 });

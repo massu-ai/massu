@@ -40,6 +40,17 @@ export const REGISTERED_HOOKS = [
 
 export type RegisteredHook = (typeof REGISTERED_HOOKS)[number];
 
+/**
+ * Hooks whose exit code IS a decision: the PreToolUse gate and the two back-compat entries
+ * that run the same decision (`hooks/lib/pre-tool-use-decision.ts`). For these, any exit
+ * other than 0 (allow) or 2 (deny) — a crash at import, a signal — must become a DENY:
+ * Claude Code treats other codes as a non-blocking error and runs the call.
+ *
+ * Asserted equal to the set of hook entries that call `runPreToolUseDecision` by
+ * `hook-runner-decision-fail-closed.test.ts`, so a new deciding entry cannot be missed.
+ */
+export const DECISION_HOOKS: readonly RegisteredHook[] = ['pre-delete-check', 'pre-tool-use-gate', 'security-gate'];
+
 export function getExpectedHookFiles(): readonly string[] {
   return REGISTERED_HOOKS.map((name) => `${name}.js`);
 }

@@ -227,37 +227,34 @@ claude-sonnet-4-5: $6.85 (15%)
 
 ### `massu_cost_feature`
 
-**What it does:** Attribute costs to features based on which files were touched during sessions. Shows which features are most expensive to develop and maintain.
-
-**Usage:**
-
-```
-massu_cost_feature
-massu_cost_feature --feature_key "orders.create"
-```
-
-**Example output:**
-
-```
-## Cost by Feature
-
-### Top 5 by Cost
-1. orders.create: $8.45 (5 sessions)
-2. auth.sso: $6.20 (3 sessions)
-3. reports.pdf-export: $5.80 (4 sessions)
-4. users.profile: $3.10 (2 sessions)
-5. dashboard.analytics: $2.90 (2 sessions)
-
-### Total attributed: $36.45 / $45.35 (80%)
-Unattributed: $8.90 (infrastructure, debugging)
-```
+**What it does:** Splits each session's priced cost across the registered features whose files the session touched, in proportion to those touches, and totals it per feature. It is an allocation by activity, not a measured per-feature cost. Register features with `massu_sentinel_register`; activity on files that belong to no registered feature is reported as `(no registered feature)`, so the rows add up to the sessions' total. Sessions whose cost is unknown are left out.
 
 **Parameters:**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `feature_key` | string | no | Specific feature to drill into |
-| `days` | number | no | Lookback period (default: 30) |
+| `days` | number | no | Lookback period in days (default: 30) |
+
+**Usage:**
+
+```
+massu_cost_feature
+massu_cost_feature --days 7
+```
+
+**Example output:**
+
+```
+## Feature Cost Attribution (30 days)
+Total: $41.20 across 3 feature row(s)
+Each session's priced cost is ALLOCATED across the registered features whose files it touched, in proportion to those touches. It is an allocation by activity, not a measured per-feature cost. Sessions with unknown cost are not included.
+
+| Feature | Cost | Tokens | Sessions | % of Total |
+|---------|------|--------|----------|------------|
+| orders.create | $18.40 | 6,210,000 | 5 | 44.7% |
+| (no registered feature) | $14.90 | 5,030,000 | 9 | 36.2% |
+| auth.sso | $7.90 | 2,670,000 | 3 | 19.2% |
+```
 
 ## Prompt Effectiveness Tools
 

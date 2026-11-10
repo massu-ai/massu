@@ -1619,6 +1619,77 @@ var init_rule_candidate_store = __esm({
   }
 });
 
+// src/hooks/lib/hook-failure-signal.ts
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync5, existsSync as existsSync6 } from "fs";
+import { join as join4, dirname as dirname5 } from "path";
+function resolveFailureLogPath() {
+  const explicit = process.env.MASSU_HOOK_FAILURE_LOG;
+  if (explicit) return explicit;
+  let dir = process.cwd();
+  for (let i = 0; i < 12; i++) {
+    if (existsSync6(join4(dir, ".massu")) || existsSync6(join4(dir, "massu.config.yaml"))) {
+      return join4(dir, ".massu", "hook-failures.jsonl");
+    }
+    const parent = dirname5(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return join4(process.cwd(), ".massu", "hook-failures.jsonl");
+}
+function recordHookFailure(hook, error, context) {
+  const record = {
+    hook,
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack?.split("\n").slice(0, 6).join("\n") : void 0,
+    context,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  let wroteSomething = false;
+  try {
+    const path = resolveFailureLogPath();
+    mkdirSync5(dirname5(path), { recursive: true });
+    appendFileSync2(path, JSON.stringify(record) + "\n", "utf-8");
+    wroteSomething = true;
+  } catch {
+  }
+  try {
+    process.stderr.write(
+      `[massu] HOOK FAILURE in ${hook}: ${record.error}
+[massu]   This is a bug in Massu, not in your code. See .massu/hook-failures.jsonl
+`
+    );
+    wroteSomething = true;
+  } catch {
+  }
+  try {
+    recordHookHealthRow(record);
+  } catch {
+  }
+  return wroteSomething;
+}
+function recordHookHealthRow(record) {
+  const { getMemoryDb: getMemoryDb2 } = (init_memory_db(), __toCommonJS(memory_db_exports));
+  const db = getMemoryDb2();
+  try {
+    db.prepare(
+      `INSERT INTO hook_health (hook, error, context_json, occurred_at)
+       VALUES (?, ?, ?, ?)`
+    ).run(
+      record.hook,
+      record.error,
+      record.context ? JSON.stringify(record.context) : null,
+      record.timestamp
+    );
+  } finally {
+    db.close();
+  }
+}
+var init_hook_failure_signal = __esm({
+  "src/hooks/lib/hook-failure-signal.ts"() {
+    "use strict";
+  }
+});
+
 // src/memory-embedder-tokenizer.ts
 import { readFileSync as readFileSync5 } from "fs";
 function loadVocab(vocabPath) {
@@ -1719,13 +1790,13 @@ function encode(text, vocab, opts = {}) {
   const maxLen = opts.maxLen ?? 256;
   const basic = basicTokenize(text);
   const wpTokens = [];
-  for (const t of basic) {
-    for (const sub of wordpieceTokenize(t, vocab)) wpTokens.push(sub);
+  for (const t2 of basic) {
+    for (const sub of wordpieceTokenize(t2, vocab)) wpTokens.push(sub);
   }
   const truncated = wpTokens.slice(0, maxLen - 2);
   const tokens = [CLS, ...truncated, SEP];
   const unkId = vocab.get(UNK) ?? 100;
-  const input_ids = tokens.map((t) => vocab.get(t) ?? unkId);
+  const input_ids = tokens.map((t2) => vocab.get(t2) ?? unkId);
   const attention_mask = tokens.map(() => 1);
   const token_type_ids = tokens.map(() => 0);
   return { tokens, input_ids, attention_mask, token_type_ids };
@@ -1742,8 +1813,8 @@ var init_memory_embedder_tokenizer = __esm({
 
 // src/memory-embedder.ts
 import { fileURLToPath } from "url";
-import { dirname as dirname5, join as join4 } from "path";
-import { existsSync as existsSync6 } from "fs";
+import { dirname as dirname6, join as join5 } from "path";
+import { existsSync as existsSync7 } from "fs";
 import { createRequire as createRequire3 } from "module";
 function getActiveEmbedModel() {
   return _activeModel;
@@ -1765,21 +1836,21 @@ function embeddingsDisabled() {
 }
 function resolveModelDir() {
   try {
-    let dir = dirname5(fileURLToPath(import.meta.url));
+    let dir = dirname6(fileURLToPath(import.meta.url));
     let root = null;
     for (let i = 0; i < 8; i++) {
-      if (existsSync6(join4(dir, "package.json"))) {
+      if (existsSync7(join5(dir, "package.json"))) {
         root = dir;
         break;
       }
-      const parent = dirname5(dir);
+      const parent = dirname6(dir);
       if (parent === dir) break;
       dir = parent;
     }
     if (!root) return null;
     for (const rel of ["dist/embedder", "assets/embedder"]) {
-      const candidate = join4(root, rel);
-      if (existsSync6(join4(candidate, "model_quantized.onnx"))) return candidate;
+      const candidate = join5(root, rel);
+      if (existsSync7(join5(candidate, "model_quantized.onnx"))) return candidate;
     }
     return null;
   } catch {
@@ -1790,7 +1861,7 @@ function resolveWasmDir() {
   try {
     const req3 = createRequire3(import.meta.url);
     const main2 = req3.resolve(ORT_PKG);
-    return dirname5(main2);
+    return dirname6(main2);
   } catch {
     return null;
   }
@@ -1810,8 +1881,8 @@ async function getSession() {
       ort.env.wasm.proxy = false;
       ort.env.wasm.wasmPaths = wasmDir.endsWith("/") ? wasmDir : wasmDir + "/";
       _ortTensor = ort.Tensor;
-      const modelPath = join4(modelDir, "model_quantized.onnx");
-      const vocabPath = join4(modelDir, "vocab.txt");
+      const modelPath = join5(modelDir, "model_quantized.onnx");
+      const vocabPath = join5(modelDir, "vocab.txt");
       _vocab = loadVocab(vocabPath);
       const session = await ort.InferenceSession.create(modelPath, {
         executionProviders: ["wasm"],
@@ -1827,11 +1898,11 @@ async function getSession() {
 function meanPool(hidden, mask, seqLen, hiddenSize) {
   const out = new Float32Array(hiddenSize);
   let maskSum = 0;
-  for (let t = 0; t < seqLen; t++) {
-    const m = mask[t];
+  for (let t2 = 0; t2 < seqLen; t2++) {
+    const m = mask[t2];
     if (m === 0) continue;
     maskSum += m;
-    const base = t * hiddenSize;
+    const base = t2 * hiddenSize;
     for (let h = 0; h < hiddenSize; h++) out[h] += hidden[base + h] * m;
   }
   const denom = Math.max(maskSum, 1e-9);
@@ -1839,16 +1910,16 @@ function meanPool(hidden, mask, seqLen, hiddenSize) {
   return out;
 }
 function chunkForEmbedding(text) {
-  const t = text.trim();
-  if (!t) return [];
-  if (t.length <= CHUNK_TARGET_CHARS) return [t];
+  const t2 = text.trim();
+  if (!t2) return [];
+  if (t2.length <= CHUNK_TARGET_CHARS) return [t2];
   const chunks = [];
   let start = 0;
-  while (start < t.length && chunks.length < MAX_CHUNKS_PER_RECORD) {
-    let end = Math.min(start + CHUNK_TARGET_CHARS, t.length);
-    if (end < t.length) {
+  while (start < t2.length && chunks.length < MAX_CHUNKS_PER_RECORD) {
+    let end = Math.min(start + CHUNK_TARGET_CHARS, t2.length);
+    if (end < t2.length) {
       const floor = start + Math.floor(CHUNK_TARGET_CHARS / 2);
-      const slice = t.slice(start, end);
+      const slice = t2.slice(start, end);
       const para = slice.lastIndexOf("\n\n");
       const sent = Math.max(slice.lastIndexOf(". "), slice.lastIndexOf(".\n"));
       const space = slice.lastIndexOf(" ");
@@ -1860,9 +1931,9 @@ function chunkForEmbedding(text) {
         }
       }
     }
-    const chunk = t.slice(start, end).trim();
+    const chunk = t2.slice(start, end).trim();
     if (chunk) chunks.push(chunk);
-    if (end >= t.length) break;
+    if (end >= t2.length) break;
     start = Math.max(end - CHUNK_OVERLAP_CHARS, start + 1);
   }
   return chunks;
@@ -1932,17 +2003,17 @@ async function embedBatch(texts) {
   const settings = loadEmbedSettings();
   if (!settings.enabled) return texts.map(() => null);
   const results = [];
-  for (const t of texts) {
-    if (!t || !t.trim()) {
+  for (const t2 of texts) {
+    if (!t2 || !t2.trim()) {
       results.push(null);
       continue;
     }
     try {
       let vec = null;
       if (settings.endpoint) {
-        vec = await embedTier0(t, settings);
+        vec = await embedTier0(t2, settings);
       }
-      if (!vec) vec = await embedTier1(t);
+      if (!vec) vec = await embedTier1(t2);
       results.push(vec);
     } catch {
       results.push(null);
@@ -2151,28 +2222,28 @@ __export(memory_db_exports, {
   upsertObservationEmbedding: () => upsertObservationEmbedding,
   usageWarmupElapsed: () => usageWarmupElapsed
 });
-import { dirname as dirname6, basename as basename2 } from "path";
-import { existsSync as existsSync7, mkdirSync as mkdirSync5 } from "fs";
+import { dirname as dirname7, basename as basename2 } from "path";
+import { existsSync as existsSync8, mkdirSync as mkdirSync6 } from "fs";
 function sanitizeFts5Query(raw) {
   const trimmed = raw.trim();
   if (!trimmed) return '""';
   const tokens = trimmed.replace(/"/g, "").split(/\s+/).filter(Boolean);
-  return tokens.map((t) => `"${t}"`).join(" ");
+  return tokens.map((t2) => `"${t2}"`).join(" ");
 }
 function sanitizeFts5QueryOr(raw) {
   const trimmed = raw.trim();
   if (!trimmed) return '""';
-  const tokens = trimmed.replace(/"/g, "").split(/\s+/).filter((t) => t.replace(/[^a-zA-Z0-9]/g, "").length >= 3);
+  const tokens = trimmed.replace(/"/g, "").split(/\s+/).filter((t2) => t2.replace(/[^a-zA-Z0-9]/g, "").length >= 3);
   if (tokens.length === 0) return '""';
-  return tokens.map((t) => `"${t}"`).join(" OR ");
+  return tokens.map((t2) => `"${t2}"`).join(" OR ");
 }
 function getMemoryDb() {
   const dbPath = getResolvedPaths().memoryDbPath;
-  const dir = dirname6(dbPath);
-  if (!existsSync7(dir)) {
-    mkdirSync5(dir, { recursive: true });
+  const dir = dirname7(dbPath);
+  if (!existsSync8(dir)) {
+    mkdirSync6(dir, { recursive: true });
   }
-  const preExisting = existsSync7(dbPath);
+  const preExisting = existsSync8(dbPath);
   const db = openDatabase2(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
@@ -3110,9 +3181,9 @@ function upsertObservationEmbedding(db, observationId, vec, modelId, dim) {
   ).run(observationId, modelId, dim, float32ToBlob(vec));
 }
 function observationEmbedText(title, detail) {
-  const t = (title ?? "").trim();
+  const t2 = (title ?? "").trim();
   const d = (detail ?? "").trim();
-  return d ? `${t}. ${d}` : t;
+  return d ? `${t2}. ${d}` : t2;
 }
 async function embedMissingObservations(db, opts = {}) {
   return runEmbedSweep(
@@ -3983,129 +4054,7 @@ var init_memory_db = __esm({
   }
 });
 
-// src/hooks/lib/hook-failure-signal.ts
-import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync6, existsSync as existsSync8 } from "fs";
-import { join as join5, dirname as dirname7 } from "path";
-function resolveFailureLogPath() {
-  const explicit = process.env.MASSU_HOOK_FAILURE_LOG;
-  if (explicit) return explicit;
-  let dir = process.cwd();
-  for (let i = 0; i < 12; i++) {
-    if (existsSync8(join5(dir, ".massu")) || existsSync8(join5(dir, "massu.config.yaml"))) {
-      return join5(dir, ".massu", "hook-failures.jsonl");
-    }
-    const parent = dirname7(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return join5(process.cwd(), ".massu", "hook-failures.jsonl");
-}
-function recordHookFailure(hook, error, context) {
-  const record = {
-    hook,
-    error: error instanceof Error ? error.message : String(error),
-    stack: error instanceof Error ? error.stack?.split("\n").slice(0, 6).join("\n") : void 0,
-    context,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  let wroteSomething = false;
-  try {
-    const path = resolveFailureLogPath();
-    mkdirSync6(dirname7(path), { recursive: true });
-    appendFileSync2(path, JSON.stringify(record) + "\n", "utf-8");
-    wroteSomething = true;
-  } catch {
-  }
-  try {
-    process.stderr.write(
-      `[massu] HOOK FAILURE in ${hook}: ${record.error}
-[massu]   This is a bug in Massu, not in your code. See .massu/hook-failures.jsonl
-`
-    );
-    wroteSomething = true;
-  } catch {
-  }
-  try {
-    recordHookHealthRow(record);
-  } catch {
-  }
-  return wroteSomething;
-}
-function recordHookHealthRow(record) {
-  const { getMemoryDb: getMemoryDb2 } = (init_memory_db(), __toCommonJS(memory_db_exports));
-  const db = getMemoryDb2();
-  try {
-    db.prepare(
-      `INSERT INTO hook_health (hook, error, context_json, occurred_at)
-       VALUES (?, ?, ?, ?)`
-    ).run(
-      record.hook,
-      record.error,
-      record.context ? JSON.stringify(record.context) : null,
-      record.timestamp
-    );
-  } finally {
-    db.close();
-  }
-}
-var init_hook_failure_signal = __esm({
-  "src/hooks/lib/hook-failure-signal.ts"() {
-    "use strict";
-  }
-});
-
-// src/hooks/lib/write-hook-message.ts
-var HOOK_EVENTS = [
-  "UserPromptSubmit",
-  "UserPromptExpansion",
-  "SessionStart",
-  "PreToolUse",
-  "PostToolUse",
-  "Stop",
-  "SubagentStop",
-  "PreCompact"
-];
-var ADDITIONAL_CONTEXT_MAX_CHARS = 1e4;
-function isHookEvent(value) {
-  return typeof value === "string" && HOOK_EVENTS.includes(value);
-}
-function writeHookContext(hookEventName, message) {
-  if (!isHookEvent(hookEventName)) {
-    process.stderr.write(
-      `[massu] writeHookContext: refusing to emit \u2014 unrecognised hook event ${JSON.stringify(hookEventName)}. Known: ${HOOK_EVENTS.join(", ")}.
-`
-    );
-    return;
-  }
-  if (typeof message !== "string" || message.length === 0) return;
-  let additionalContext = message;
-  if (additionalContext.length > ADDITIONAL_CONTEXT_MAX_CHARS) {
-    const marker = `
-[massu] \u2026truncated at ${ADDITIONAL_CONTEXT_MAX_CHARS} chars (spec cap).`;
-    additionalContext = additionalContext.slice(0, ADDITIONAL_CONTEXT_MAX_CHARS - marker.length) + marker;
-  }
-  process.stdout.write(
-    JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext } }) + "\n"
-  );
-}
-
-// src/hooks/security-gate.ts
-init_hook_failure_signal();
-
-// src/hooks/lib/is-direct-invocation.ts
-import { pathToFileURL } from "url";
-function isDirectInvocation(moduleUrl) {
-  const entry = process.argv[1];
-  if (!entry) return false;
-  try {
-    return moduleUrl === pathToFileURL(entry).href;
-  } catch {
-    return false;
-  }
-}
-
-// src/hooks/security-gate.ts
-var HOOK_EVENT = "PreToolUse";
+// src/hooks/lib/security-gate-checks.ts
 var DANGEROUS_BASH_PATTERNS = [
   // BLOCK — destructive and irreversible, or arbitrary remote code execution.
   { pattern: /rm\s+-[a-z]*r[a-z]*f[a-z]*\s+\/(?:\s|$)/, label: "rm -rf /", severity: "block" },
@@ -4157,6 +4106,7 @@ var SECRET_EXACT_BASENAMES = [
 ];
 var CREDENTIALS_PATH_SUFFIX = "/credentials";
 var DOTENV = ".env";
+var SECRET_DATA_EXTENSIONS = ["yaml", "yml", "json", "toml", "ini", "env", "conf", "properties", "txt"];
 function looksLikeCode(token) {
   return /[()[\]{};=`$<>|&*?!"']/.test(token) || /\s/.test(token);
 }
@@ -4175,8 +4125,13 @@ function namesSecretFile(token) {
     return DOTENV_TEMPLATE_SUFFIXES.includes(suffix) ? null : `${base} file`;
   }
   if (base.endsWith(DOTENV) && clean.includes("/")) return `${base} file`;
-  for (const ext of SECRET_BASENAME_EXTENSIONS) {
-    if (base.endsWith(`.${ext}`)) return `${base} file`;
+  for (const ext2 of SECRET_BASENAME_EXTENSIONS) {
+    if (base.endsWith(`.${ext2}`)) return `${base} file`;
+  }
+  const parts = base.toLowerCase().split(".");
+  const ext = parts.length > 1 ? parts[parts.length - 1] : "";
+  if (SECRET_DATA_EXTENSIONS.includes(ext) && parts.slice(0, -1).some((p) => p === "secret" || p === "secrets")) {
+    return `${base} file`;
   }
   return null;
 }
@@ -4338,29 +4293,439 @@ Review carefully before proceeding.`
 function runSecurityGateChecks(hookInput) {
   return runSecurityGateFindings(hookInput).map((f) => f.message);
 }
-async function main() {
-  try {
-    const input = await readStdin();
-    const hookInput = JSON.parse(input);
-    const messages = runSecurityGateChecks(hookInput);
-    for (const msg of messages) writeHookContext(HOOK_EVENT, msg);
-  } catch (err) {
-    recordHookFailure("security-gate", err);
-    process.stderr.write("MASSU SECURITY GATE \u2014 BLOCKED (gate could not evaluate this call)\n");
-    process.exit(2);
-  }
-  process.exit(0);
+
+// src/hooks/lib/pre-delete-checks.ts
+init_db_driver();
+import { existsSync as existsSync9 } from "fs";
+
+// src/sentinel-db.ts
+init_config();
+init_memory_db();
+
+// src/lib/sql-table-names.ts
+init_config();
+function t(suffix) {
+  return `${getConfig().toolPrefix}_${suffix}`;
 }
-function readStdin() {
-  return new Promise((resolve5) => {
+
+// src/sentinel-db.ts
+var PROJECT_ROOT = getProjectRoot();
+function parsePortalScope(raw) {
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+function toFeature(row) {
+  return {
+    id: row.id,
+    feature_key: row.feature_key,
+    domain: row.domain,
+    subdomain: row.subdomain || null,
+    title: row.title,
+    description: row.description || null,
+    status: row.status,
+    priority: row.priority,
+    portal_scope: parsePortalScope(row.portal_scope),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    removed_at: row.removed_at || null,
+    removed_reason: row.removed_reason || null
+  };
+}
+function getFeatureById(db, id) {
+  const row = db.prepare(`SELECT * FROM ${t("sentinel")} WHERE id = ?`).get(id);
+  return row ? toFeature(row) : null;
+}
+function getFeatureImpact(db, filePaths) {
+  const fileSet = new Set(filePaths);
+  const affectedFeatureIds = /* @__PURE__ */ new Set();
+  for (const filePath of filePaths) {
+    const links = db.prepare(
+      `SELECT feature_id FROM ${t("sentinel_components")} WHERE component_file = ? LIMIT 10000`
+    ).all(filePath);
+    for (const link of links) {
+      affectedFeatureIds.add(link.feature_id);
+    }
+  }
+  const orphaned = [];
+  const degraded = [];
+  const unaffected = [];
+  for (const featureId of affectedFeatureIds) {
+    const feature = getFeatureById(db, featureId);
+    if (!feature || feature.status !== "active") continue;
+    const allComponents = db.prepare(
+      `SELECT component_file, is_primary FROM ${t("sentinel_components")} WHERE feature_id = ? LIMIT 10000`
+    ).all(featureId);
+    const affected = allComponents.filter((c) => fileSet.has(c.component_file));
+    const remaining = allComponents.filter((c) => !fileSet.has(c.component_file));
+    const primaryAffected = affected.some((c) => c.is_primary);
+    const item = {
+      feature,
+      affected_files: affected.map((c) => c.component_file),
+      remaining_files: remaining.map((c) => c.component_file),
+      status: "unaffected"
+    };
+    if (primaryAffected && remaining.filter((c) => c.is_primary).length === 0) {
+      item.status = "orphaned";
+      orphaned.push(item);
+    } else if (affected.length > 0) {
+      item.status = "degraded";
+      degraded.push(item);
+    } else {
+      unaffected.push(item);
+    }
+  }
+  const hasCriticalOrphans = orphaned.some((o) => o.feature.priority === "critical");
+  const hasStandardOrphans = orphaned.some((o) => o.feature.priority === "standard");
+  return {
+    files_analyzed: filePaths,
+    orphaned,
+    degraded,
+    unaffected,
+    blocked: hasCriticalOrphans || hasStandardOrphans,
+    block_reason: hasCriticalOrphans ? `BLOCKED: ${orphaned.length} features would be orphaned (includes critical features). Create migration plan first.` : hasStandardOrphans ? `BLOCKED: ${orphaned.length} standard features would be orphaned. Create migration plan first.` : null
+  };
+}
+
+// src/hooks/lib/pre-delete-checks.ts
+init_config();
+
+// src/lib/source-layout.ts
+init_config();
+function normalizeDir(raw) {
+  if (typeof raw !== "string") return null;
+  const posix = raw.replace(/\\/g, "/");
+  if (posix.startsWith("/") || /^[A-Za-z]:\//.test(posix)) return null;
+  const parts = posix.split("/").filter((p) => p !== "" && p !== ".");
+  if (parts.some((p) => p === "..")) return null;
+  if (parts.length === 0) return ".";
+  return parts.join("/");
+}
+function declaredLanguageSourceDirs() {
+  const languages = getConfig().framework.languages;
+  if (!languages) return [];
+  const out = [];
+  for (const entry of Object.values(languages)) {
+    if (Array.isArray(entry.source_dirs)) out.push(...entry.source_dirs);
+  }
+  return out;
+}
+function getSourceLayout() {
+  const config = getConfig();
+  const paths = config.paths;
+  const declared = [
+    paths.source,
+    ...paths.monorepo_roots ?? [],
+    ...declaredLanguageSourceDirs()
+  ];
+  const normalized = declared.map(normalizeDir).filter((d) => d !== null);
+  const includesRoot = normalized.includes(".");
+  const sourceDirs = includesRoot ? [] : [...new Set(normalized)].sort();
+  const source = normalizeDir(paths.source) ?? ".";
+  const under = (child) => source === "." ? child : `${source}/${child}`;
+  return {
+    sourceDirs,
+    includesRoot,
+    extensions: getResolvedPaths().extensions,
+    pagesDir: normalizeDir(paths.pages ?? under("app")) ?? under("app"),
+    componentsDir: normalizeDir(paths.components ?? under("components")) ?? under("components")
+  };
+}
+function isUnderSourceDir(path, layout = getSourceLayout()) {
+  if (normalizeDir(path) === null) return false;
+  if (layout.includesRoot) return true;
+  return layout.sourceDirs.some((d) => path.startsWith(`${d}/`));
+}
+
+// src/hooks/lib/pre-delete-checks.ts
+var PROJECT_ROOT2 = getProjectRoot();
+var KNOWLEDGE_PROTECTED_FILES = [
+  "knowledge-db.ts",
+  "knowledge-indexer.ts",
+  "knowledge-tools.ts"
+];
+function getDataDb() {
+  const dbPath = getResolvedPaths().dataDbPath;
+  if (!existsSync9(dbPath)) return null;
+  try {
+    const db = openDatabase2(dbPath, { readonly: true, selfHeal: false });
+    db.pragma("journal_mode = WAL");
+    return db;
+  } catch {
+    return null;
+  }
+}
+function checkKnowledgeFileProtection(input) {
+  const candidateFiles = [];
+  if (input.tool_name === "Bash" && input.tool_input.command) {
+    const cmd = input.tool_input.command;
+    const rmMatch = cmd.match(/(?:rm|git\s+rm)\s+(?:-[rf]*\s+)*(.+)/);
+    if (rmMatch) {
+      const parts = rmMatch[1].split(/\s+/).filter((p) => !p.startsWith("-"));
+      candidateFiles.push(...parts);
+    }
+  }
+  if (input.tool_name === "Write" && input.tool_input.file_path) {
+    const content = input.tool_input.content || "";
+    if (content.trim().length === 0) {
+      candidateFiles.push(input.tool_input.file_path);
+    }
+  }
+  for (const f of candidateFiles) {
+    const basename3 = f.split("/").pop() ?? f;
+    if (KNOWLEDGE_PROTECTED_FILES.includes(basename3)) {
+      return `KNOWLEDGE SYSTEM PROTECTION: "${basename3}" is a core knowledge system file. Deleting it will break knowledge indexing and memory retrieval. Create a replacement before removing.`;
+    }
+  }
+  return null;
+}
+function extractDeletedFiles(input) {
+  const files = [];
+  if (input.tool_name === "Bash" && input.tool_input.command) {
+    const cmd = input.tool_input.command;
+    const rmMatch = cmd.match(/(?:rm|git\s+rm)\s+(?:-[rf]*\s+)*(.+)/);
+    if (rmMatch) {
+      const paths = rmMatch[1].split(/\s+/).filter((p) => !p.startsWith("-"));
+      for (const p of paths) {
+        const relPath = isUnderSourceDir(p) ? p : p.replace(PROJECT_ROOT2 + "/", "");
+        if (isUnderSourceDir(relPath) || relPath.endsWith(".py")) {
+          files.push(relPath);
+        }
+      }
+    }
+  }
+  if (input.tool_name === "Write" && input.tool_input.file_path) {
+    const content = input.tool_input.content || "";
+    if (content.trim().length === 0) {
+      const relPath = input.tool_input.file_path.replace(PROJECT_ROOT2 + "/", "");
+      if (isUnderSourceDir(relPath) || relPath.endsWith(".py")) {
+        files.push(relPath);
+      }
+    }
+  }
+  return files;
+}
+function runPreDeleteChecks(hookInput) {
+  const messages = [];
+  try {
+    const knowledgeWarning = checkKnowledgeFileProtection(hookInput);
+    if (knowledgeWarning) {
+      messages.push(knowledgeWarning);
+      return messages;
+    }
+    const deletedFiles = extractDeletedFiles(hookInput);
+    if (deletedFiles.length === 0) return messages;
+    const db = getDataDb();
+    if (!db) return messages;
+    const SENTINEL_TABLE = t("sentinel");
+    try {
+      const tableExists2 = db.prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name=?`
+      ).get(SENTINEL_TABLE);
+      if (!tableExists2) return messages;
+      const impact = getFeatureImpact(db, deletedFiles);
+      if (impact.blocked) {
+        const msg = [
+          `SENTINEL IMPACT WARNING: Deleting ${deletedFiles.length} file(s) would affect features:`,
+          ""
+        ];
+        if (impact.orphaned.length > 0) {
+          msg.push(`ORPHANED (${impact.orphaned.length} features - no primary components left):`);
+          for (const item of impact.orphaned) {
+            msg.push(`  - ${item.feature.feature_key} [${item.feature.priority}]: ${item.feature.title}`);
+          }
+        }
+        if (impact.degraded.length > 0) {
+          msg.push(`DEGRADED (${impact.degraded.length} features - some components removed):`);
+          for (const item of impact.degraded) {
+            msg.push(`  - ${item.feature.feature_key}: ${item.feature.title}`);
+          }
+        }
+        msg.push("");
+        msg.push("Create a migration plan before deleting these files.");
+        messages.push(msg.join("\n"));
+      }
+      const pyFiles = deletedFiles.filter((f) => f.endsWith(".py"));
+      if (pyFiles.length > 0) {
+        try {
+          for (const pyFile of pyFiles) {
+            const importers = db.prepare(
+              `SELECT source_file FROM ${t("py_imports")} WHERE target_file = ? LIMIT 10000`
+            ).all(pyFile);
+            const routes = db.prepare(
+              `SELECT method, path FROM ${t("py_routes")} WHERE file = ? LIMIT 10000`
+            ).all(pyFile);
+            const models = db.prepare(
+              `SELECT class_name FROM ${t("py_models")} WHERE file = ? LIMIT 10000`
+            ).all(pyFile);
+            if (importers.length > 0 || routes.length > 0 || models.length > 0) {
+              const parts = [];
+              if (importers.length > 0) parts.push(`imported by ${importers.length} files`);
+              if (routes.length > 0) parts.push(`defines ${routes.length} routes`);
+              if (models.length > 0) parts.push(`defines ${models.length} models`);
+              messages.push(`PYTHON IMPACT: "${pyFile}" ${parts.join(", ")}. Check dependents before deleting.`);
+            }
+          }
+        } catch {
+        }
+      }
+    } finally {
+      db.close();
+    }
+  } catch {
+  }
+  return messages;
+}
+
+// src/hooks/lib/write-hook-message.ts
+var HOOK_EVENTS = [
+  "UserPromptSubmit",
+  "UserPromptExpansion",
+  "SessionStart",
+  "PreToolUse",
+  "PostToolUse",
+  "Stop",
+  "SubagentStop",
+  "PreCompact"
+];
+var ADDITIONAL_CONTEXT_MAX_CHARS = 1e4;
+function isHookEvent(value) {
+  return typeof value === "string" && HOOK_EVENTS.includes(value);
+}
+function writeHookContext(hookEventName, message) {
+  if (!isHookEvent(hookEventName)) {
+    process.stderr.write(
+      `[massu] writeHookContext: refusing to emit \u2014 unrecognised hook event ${JSON.stringify(hookEventName)}. Known: ${HOOK_EVENTS.join(", ")}.
+`
+    );
+    return;
+  }
+  if (typeof message !== "string" || message.length === 0) return;
+  let additionalContext = message;
+  if (additionalContext.length > ADDITIONAL_CONTEXT_MAX_CHARS) {
+    const marker = `
+[massu] \u2026truncated at ${ADDITIONAL_CONTEXT_MAX_CHARS} chars (spec cap).`;
+    additionalContext = additionalContext.slice(0, ADDITIONAL_CONTEXT_MAX_CHARS - marker.length) + marker;
+  }
+  process.stdout.write(
+    JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext } }) + "\n"
+  );
+}
+
+// src/hooks/lib/read-stdin.ts
+var StdinTimeoutError = class extends Error {
+  bytesRead;
+  constructor(ms, bytesRead) {
+    super(
+      `stdin did not reach EOF within ${ms}ms (${bytesRead} bytes read). The payload is INCOMPLETE and must not be treated as valid input.`
+    );
+    this.name = "StdinTimeoutError";
+    this.bytesRead = bytesRead;
+  }
+};
+function readStdinToEof(deadlineMs = 4e3) {
+  return new Promise((resolve5, reject) => {
     let data = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new StdinTimeoutError(deadlineMs, data.length));
+    }, deadlineMs);
+    const finish = (fn) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (chunk) => {
       data += chunk;
     });
-    process.stdin.on("end", () => resolve5(data));
-    setTimeout(() => resolve5(data), 400);
+    process.stdin.on("end", () => finish(() => resolve5(data)));
+    process.stdin.on("error", (err) => finish(() => reject(err)));
   });
+}
+
+// src/hooks/lib/pre-tool-use-decision.ts
+init_hook_failure_signal();
+var EXIT_DENY = 2;
+var EXIT_ALLOW = 0;
+function deny(reason, detail) {
+  process.stderr.write(
+    `MASSU SECURITY GATE \u2014 BLOCKED
+
+${reason}
+` + (detail ? `
+${detail}
+` : "") + `
+The gate denies by default when it cannot verify a command is safe.
+`
+  );
+  process.exit(EXIT_DENY);
+}
+async function runPreToolUseDecision(hookName, event) {
+  let hookInput;
+  let input = "";
+  try {
+    input = await readStdinToEof();
+    if (!input.trim()) {
+      recordHookFailure(hookName, new Error("empty stdin payload"));
+      deny("The gate received an EMPTY payload and could not determine what tool call was requested.");
+    }
+    hookInput = JSON.parse(input);
+  } catch (err) {
+    recordHookFailure(hookName, err, {
+      phase: "read-parse",
+      bytesRead: input.length,
+      endsWithBrace: input.trimEnd().endsWith("}")
+    });
+    deny(
+      "The gate could not READ or PARSE the tool-call payload, so it cannot know what it was being asked to approve.",
+      err instanceof Error ? `Cause: ${err.message}` : void 0
+    );
+  }
+  let findings;
+  try {
+    const security = runSecurityGateFindings(hookInput);
+    const deletes = runPreDeleteChecks(hookInput).map(
+      (message) => ({ severity: "warn", message })
+    );
+    findings = [...security, ...deletes];
+  } catch (err) {
+    recordHookFailure(hookName, err, { phase: "evaluate" });
+    deny(
+      "A security check CRASHED while evaluating this tool call. A check that did not run has not passed.",
+      err instanceof Error ? `Cause: ${err.message}` : void 0
+    );
+  }
+  for (const f of findings.filter((x) => x.severity === "warn")) {
+    writeHookContext(event, f.message);
+  }
+  const blocking = findings.filter((f) => f.severity === "block");
+  if (blocking.length > 0) deny(blocking.map((f) => f.message).join("\n\n"));
+  process.exit(EXIT_ALLOW);
+}
+
+// src/hooks/lib/is-direct-invocation.ts
+import { pathToFileURL } from "url";
+function isDirectInvocation(moduleUrl) {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return moduleUrl === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
+}
+
+// src/hooks/security-gate.ts
+var HOOK_EVENT = "PreToolUse";
+async function main() {
+  await runPreToolUseDecision("security-gate", HOOK_EVENT);
 }
 if (isDirectInvocation(import.meta.url)) {
   main();

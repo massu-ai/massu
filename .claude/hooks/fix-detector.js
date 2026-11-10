@@ -4453,8 +4453,7 @@ function isDirectInvocation(moduleUrl) {
   }
 }
 
-// src/hooks/fix-detector.ts
-var HOOK_EVENT = "PostToolUse";
+// src/hooks/lib/test-or-fixture-path.ts
 var TEST_OR_FIXTURE_PATH_PATTERNS = [
   /(^|\/)(__tests__|__fixtures__|tests?|fixtures?|spec)\//,
   /\.(test|spec)\.[cm]?[jt]sx?$/,
@@ -4463,6 +4462,9 @@ var TEST_OR_FIXTURE_PATH_PATTERNS = [
 function isTestOrFixturePath(filePath) {
   return TEST_OR_FIXTURE_PATH_PATTERNS.some((re) => re.test(filePath));
 }
+
+// src/hooks/fix-detector.ts
+var HOOK_EVENT = "PostToolUse";
 var FIX_HEURISTICS = [
   {
     name: "removed_broken_code",

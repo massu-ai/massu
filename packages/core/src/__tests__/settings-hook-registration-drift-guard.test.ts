@@ -75,8 +75,9 @@ describe.runIf(IS_INTERNAL)('CR-62 — massu hooks registered in exactly one set
     // or pre-delete-check would disable a defensive gate with the suite still green.
     const present = new Set(hookScripts(resolve(CLAUDE_DIR, 'settings.json')));
     const REQUIRED = [
-      'security-gate',
-      'pre-delete-check',
+      // The consolidated gate: one spawn runs every PreToolUse check and decides. Before
+      // 2026-11-09 this list required the two back-compat entries, which then could only warn.
+      'pre-tool-use-gate',
       'post-tool-use',
       'session-start',
       'session-end',

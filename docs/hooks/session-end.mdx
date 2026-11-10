@@ -10,7 +10,13 @@ The session-end hook fires when a Claude Code session ends. It generates a struc
 
 ## Trigger Event
 
-Fires once when the Claude Code session stops (user exits or session times out).
+Fires on Claude Code's `Stop` event, at the end of every reply. It runs in the background
+(`"async": true`), so the reply does not wait for it.
+
+Because Claude Code sets no time limit on a background hook, the hook limits itself: each run
+has a 20-second budget (set `MASSU_SESSION_END_BUDGET_MS` to change it), skips and reports any
+step it has no time for, and is ended by a watchdog if it overruns. Two runs for the same
+session never overlap; a second run asks the first to go again when it finishes.
 
 ## What It Does
 
@@ -27,6 +33,7 @@ Fires once when the Claude Code session stops (user exits or session times out).
    - Verification results (VR pass/fail)
    - Plan progress tracking
 4. **Captures conversation data** by parsing the JSONL transcript (incremental -- only new lines)
+   and **records the session's cost**, pricing each new response at its own model's rates
 5. **Marks session as completed** in the database
 6. **Archives CURRENT.md** and generates a fresh one
 

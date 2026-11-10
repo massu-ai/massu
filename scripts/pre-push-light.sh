@@ -366,9 +366,11 @@ else
   fi
 fi
 
-# [11/22] Release Integrity (~3s) — CR-64, plan-2026-07-14-release-integrity-check.
+# [11/22] Release Integrity (~3s; ~15s when HEAD is past a published tag, because the gate then
+# builds, packs and compares what HEAD would ship) — CR-64, plan-2026-07-14-release-integrity-check.
 # A published npm version number is IMMUTABLE. FAILs if packages/core/package.json
-# version is already published on @massu/core but HEAD carries no matching vX.Y.Z tag
+# version is already published on @massu/core and HEAD is neither its vX.Y.Z tag nor a
+# descendant that ships byte-identical content (widened 2026-11-08)
 # (the "1.16.0 published with no tag, then reused for six undelivered commits that read
 # as SHIPPED" class; incident 2026-07-14-npm-publish-decoupled-from-release-ceremony).
 # Fail-closed (exit 3) when npm is unreachable. Override (logged inside the gate):
@@ -380,8 +382,8 @@ else
   echo "FAIL"
   echo "  See: /tmp/massu-release-integrity.log"
   grep -vE "^\s*$" /tmp/massu-release-integrity.log | head -12
-  echo "  REMEDY: bump packages/core/package.json version past the last published @massu/core version,"
-  echo "          OR tag HEAD with the matching vX.Y.Z. Override (logged): MASSU_SKIP_RELEASE_INTEGRITY_CHECK=1"
+  echo "  REMEDY: HEAD changes what the published version ships: bump packages/core/package.json"
+  echo "          past the last published @massu/core version. Override (logged): MASSU_SKIP_RELEASE_INTEGRITY_CHECK=1"
   FAILED=1
 fi
 

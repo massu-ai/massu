@@ -25,6 +25,13 @@ export interface TranscriptEntry {
 export interface TranscriptMessage {
   role: 'user' | 'assistant' | 'system';
   content: TranscriptContentBlock[];
+  /** Assistant turns: the API message id. One response is written as SEVERAL transcript
+   *  lines (one per content block), each repeating the same usage — dedupe on this. */
+  id?: string;
+  /** Assistant turns: the model that produced the turn. */
+  model?: string;
+  /** Assistant turns: the API's token usage for the turn (input/output/cache counts). */
+  usage?: Record<string, number>;
 }
 
 export type TranscriptContentBlock =
@@ -129,6 +136,14 @@ function parseEntry(raw: Record<string, unknown>): TranscriptEntry | null {
         role: (msgRaw.role as string ?? entryType) as 'user' | 'assistant',
         content: normalizeContent(msgRaw.content),
       };
+      // Keep what the cost tracker reads. These were dropped here from the first commit,
+      // so extractTokenUsage saw no usage on any entry and every session_costs row ever
+      // written held 0 tokens (measured: 524 of 524).
+      if (typeof msgRaw.id === 'string') base.message.id = msgRaw.id;
+      if (typeof msgRaw.model === 'string') base.message.model = msgRaw.model;
+      if (msgRaw.usage && typeof msgRaw.usage === 'object') {
+        base.message.usage = msgRaw.usage as Record<string, number>;
+      }
     }
   }
 
@@ -385,6 +400,7 @@ export function extractFailedAttempts(entries: TranscriptEntry[]): ExtractedFail
 export async function parseTranscriptFrom(filePath: string, startLine: number): Promise<{ entries: TranscriptEntry[]; totalLines: number }> {
   const entries: TranscriptEntry[] = [];
   let lineNumber = 0;
+  let lastUnparseableLine = 0;
 
   const rl = createInterface({
     input: createReadStream(filePath, { encoding: 'utf-8' }),
@@ -406,11 +422,20 @@ export async function parseTranscriptFrom(filePath: string, startLine: number): 
       }
     } catch (_e) {
       // Skip unparseable lines
+      lastUnparseableLine = lineNumber;
       continue;
     }
   }
 
-  return { entries, totalLines: lineNumber };
+  // A FINAL line that does not parse is most likely still being written: the session-end
+  // hook runs in the background while Claude Code appends the next turn. Counting it would
+  // move the caller's cursor past it and the line would never be read again. Leave the
+  // cursor before it; the next call re-reads it whole. A bad line in the MIDDLE is corrupt
+  // and stays skipped, as before.
+  const totalLines = lastUnparseableLine === lineNumber && lineNumber > startLine
+    ? lineNumber - 1
+    : lineNumber;
+  return { entries, totalLines };
 }
 
 /**

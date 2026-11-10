@@ -487,7 +487,8 @@ var init_config = __esm({
       input_per_million: z2.number(),
       output_per_million: z2.number(),
       cache_read_per_million: z2.number().optional(),
-      cache_write_per_million: z2.number().optional()
+      cache_write_per_million: z2.number().optional(),
+      cache_write_1h_per_million: z2.number().optional()
     });
     AnalyticsConfigSchema = z2.object({
       quality: z2.object({
@@ -2143,6 +2144,7 @@ __export(memory_db_exports, {
   pruneToolCostEvents: () => pruneToolCostEvents,
   recordRecallHits: () => recordRecallHits,
   recordTelemetry: () => recordTelemetry,
+  releaseMetaLease: () => releaseMetaLease,
   removePendingSync: () => removePendingSync,
   sanitizeFts5Query: () => sanitizeFts5Query,
   sanitizeFts5QueryOr: () => sanitizeFts5QueryOr,
@@ -2151,6 +2153,7 @@ __export(memory_db_exports, {
   searchObservations: () => searchObservations,
   setLastProcessedLine: () => setLastProcessedLine,
   setMemoryMeta: () => setMemoryMeta,
+  tryAcquireMetaLease: () => tryAcquireMetaLease,
   upsertObservationEmbedding: () => upsertObservationEmbedding,
   usageWarmupElapsed: () => usageWarmupElapsed
 });
@@ -2656,6 +2659,15 @@ function initMemorySchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_sc_session ON session_costs(session_id);
   `);
+  const costCols = db.prepare(`PRAGMA table_info(session_costs)`).all();
+  const addCostCol = (name, ddl) => {
+    if (!costCols.some((c) => c.name === name)) db.exec(`ALTER TABLE session_costs ADD COLUMN ${ddl}`);
+  };
+  addCostCol("cost_status", `cost_status TEXT NOT NULL DEFAULT 'unknown'`);
+  addCostCol("unpriced_models", `unpriced_models TEXT NOT NULL DEFAULT ''`);
+  addCostCol("priced_responses", `priced_responses INTEGER NOT NULL DEFAULT 0`);
+  addCostCol("unpriced_responses", `unpriced_responses INTEGER NOT NULL DEFAULT 0`);
+  addCostCol("pricing_version", `pricing_version INTEGER NOT NULL DEFAULT 0`);
   db.exec(`
     CREATE TABLE IF NOT EXISTS feature_costs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3084,6 +3096,18 @@ function getMemoryMeta(db, key) {
 }
 function setMemoryMeta(db, key, value) {
   db.prepare("INSERT OR REPLACE INTO memory_meta (key, value) VALUES (?, ?)").run(key, value);
+}
+function tryAcquireMetaLease(db, key, ttlSec, nowSec = Math.floor(Date.now() / 1e3)) {
+  const r = db.prepare(
+    `INSERT INTO memory_meta (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value
+       WHERE memory_meta.value = ''
+          OR CAST(substr(memory_meta.value, instr(memory_meta.value, ':') + 1) AS INTEGER) <= ?`
+  ).run(key, `${process.pid}:${nowSec + ttlSec}`, nowSec);
+  return Number(r.changes) === 1;
+}
+function releaseMetaLease(db, key) {
+  db.prepare(`UPDATE memory_meta SET value = '' WHERE key = ? AND value LIKE ?`).run(key, `${process.pid}:%`);
 }
 function upsertObservationEmbedding(db, observationId, vec, modelId, dim) {
   db.prepare(
@@ -3953,7 +3977,7 @@ var init_memory_db = __esm({
     init_rule_candidate_store();
     init_hook_failure_signal();
     init_memory_embed_sweep();
-    MEMORY_SCHEMA_VERSION = 1;
+    MEMORY_SCHEMA_VERSION = 2;
     TOOL_COST_EVENTS_RETENTION_DAYS = 90;
     MAX_DRAFT_TEXT_LEN = 16384;
     FUNNEL_EVENT_OUTBOX_CAP = 2e4;

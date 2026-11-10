@@ -337,6 +337,36 @@ else
 fi
 assert_ledger_untouched "4a" "${LEDGER_BEFORE}" "${LEDGER_AFTER}"
 
+echo "--- 4c/4d. an edit to the gate's TEST: refused while unstaged, allowed once staged ---"
+# 2026-11-09: editing a registered gate's test had NO legal ordering — the edit stales the
+# proof, the drift guard reds `npm test`, the pre-commit gate blocks the commit, and the
+# prover refused the uncommitted test file. The prover now accepts a test file that is
+# STAGED with the worktree equal to the index (a run only READS a test file). Both halves
+# are attacked: an unstaged edit must still be refused, and the staged edit must be proved.
+printf '\n// live-fire 4c/4d probe edit\n' >> "${TEST}"
+POUT="$(python3 scripts/ops/prove-gate-reddening.py --gates "${GATE}" --all 2>&1)"; PRC=$?
+if [ "${PRC}" -eq 2 ] && printf '%s' "${POUT}" | grep -qF "${S_DIRTY}"; then
+  ok "4c: an UNSTAGED test edit is still refused as a dirty tree"
+else
+  bad "4c: prover exited ${PRC} on an unstaged test edit without refusing it" "${POUT}"
+fi
+git add -- "${TEST}" || exit 2
+POUT="$(python3 scripts/ops/prove-gate-reddening.py --gates "${GATE}" --all 2>&1)"; PRC=$?
+git reset -q -- "${TEST}" || exit 2
+cp "${BK}/test" "${TEST}" || exit 2
+cp "${BK}/ledger" "${LEDGER}" || exit 2
+if [ "${PRC}" -eq 0 ] && ! printf '%s' "${POUT}" | grep -qF "${S_DIRTY}" \
+   && printf '%s' "${POUT}" | grep -qE 'proved RED : 1'; then
+  ok "4d: the same edit STAGED is proved (no dirty-tree refusal)"
+else
+  bad "4d: prover exited ${PRC} on a staged test edit — expected a proof" "${POUT}"
+fi
+if [ "$(sha "${TEST}")" = "${SHA_TEST}" ] && [ -z "$(git diff --cached --name-only -- "${TEST}")" ]; then
+  ok "4c/4d: test file restored byte-identical and unstaged"
+else
+  bad "4c/4d: the test file was not restored"
+fi
+
 echo "--- 4b. an IGNORED (build-artifact) plant target withdrawn -> PLANT TARGET ABSENT ---"
 # `.bundle-shasums.json` is matched by `.gitignore:2:dist/`, verified with
 # `git check-ignore -v`, so withdrawing it leaves the tree clean and the prover reaches the

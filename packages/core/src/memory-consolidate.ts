@@ -61,6 +61,8 @@ import {
   usageWarmupElapsed,
   getMemoryMeta,
   setMemoryMeta,
+  tryAcquireMetaLease,
+  releaseMetaLease,
   CONSOLIDATION_LESSON_EVIDENCE,
   MEMORY_FILE_TITLE_LIKE,
 } from './memory-db.ts';
@@ -133,21 +135,16 @@ function emptyResult(): ConsolidationResult {
  * Try to take the pass lease. Two consolidation passes must never run at once:
  * they share memory_meta cursors (each would advance the other past rows it
  * had not processed — a PERMANENT row skip) and they would contend for
- * SQLite's single writer slot.
+ * SQLite's single writer slot. The lease is the shared ATOMIC primitive in
+ * memory-db.ts; the read-then-write version that lived here could be won twice.
  */
 function acquireLease(db: Database.Database, now: number, ttlSec: number): boolean {
-  const raw = getMemoryMeta(db, LEASE_KEY);
-  if (raw) {
-    const expiry = Number(raw.split(':')[1]);
-    if (Number.isFinite(expiry) && expiry > now) return false; // still held
-  }
-  setMemoryMeta(db, LEASE_KEY, `${process.pid}:${now + ttlSec}`);
-  return true;
+  return tryAcquireMetaLease(db, LEASE_KEY, ttlSec, now);
 }
 
 function releaseLease(db: Database.Database): void {
   try {
-    setMemoryMeta(db, LEASE_KEY, '');
+    releaseMetaLease(db, LEASE_KEY);
   } catch {
     // Best-effort: a stale lease expires on its own TTL.
   }

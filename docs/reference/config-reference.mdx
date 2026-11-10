@@ -59,13 +59,14 @@ analytics:
       successful_verification: number  # Points for verification (default: 3)
     categories: string[]    # Quality categories to track
   cost:
-    models:                 # Model pricing (per million tokens)
-      string:               # Model name (e.g., "claude-opus-4-6")
+    models:                 # Optional overrides of the built-in price list (per million tokens)
+      string:               # Model id (e.g., "claude-opus-5-5"); overrides that model only
         input_per_million: number
         output_per_million: number
-        cache_read_per_million: number
-        cache_write_per_million: number
-    currency: string        # Currency code (default: "USD")
+        cache_read_per_million: number      # optional
+        cache_write_per_million: number     # optional, 5-minute cache writes
+        cache_write_1h_per_million: number  # optional, 1-hour cache writes
+    currency: string        # Display label (default: "USD")
   prompts:
     success_indicators: string[]    # Words indicating prompt success
     failure_indicators: string[]    # Words indicating prompt failure

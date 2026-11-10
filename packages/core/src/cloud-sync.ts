@@ -169,13 +169,39 @@ const SYNC_DEADLINE_MS = 20_000;
 const MIN_ATTEMPT_BUDGET_MS = 1_000;
 
 /**
+ * The least budget a QUEUED item must have left before the drain attempts it.
+ *
+ * Not a zero-check, on purpose: a failed attempt costs the item a retry credit, and
+ * `dequeuePendingSync` discards an item at `retry_count >= 10`. Attempting an item with
+ * a hopeless sliver of budget would convert "we ran out of time" into "the item failed"
+ * and walk it toward the shredder. Below this floor the item is SKIPPED with its
+ * retry_count untouched (plan-2026-07-23-hook-latency-silent-loss-fixes, P3-001 / D-3).
+ */
+export const MIN_SYNC_ATTEMPT_MS = 3_000;
+
+export interface SyncOptions {
+  /**
+   * Absolute epoch-ms deadline shared with the caller's other work. The call never runs
+   * past it, and never past its own SYNC_DEADLINE_MS either: the earlier of the two wins.
+   */
+  deadlineAt?: number;
+  /**
+   * Queue the payload in `pending_sync` when every attempt fails. Default true. The
+   * drain passes false: its payload is ALREADY a queued row, and queuing it again
+   * duplicated the row on every failed drain while the original's retry_count also rose.
+   */
+  enqueueOnFailure?: boolean;
+}
+
+/**
  * Sync data to the cloud endpoint.
  * Respects config flags for selective sync.
- * On failure after retries, enqueues payload for later retry.
+ * On failure after retries, enqueues payload for later retry (unless told not to).
  */
 export async function syncToCloud(
   db: Database.Database,
-  payload: SyncPayload
+  payload: SyncPayload,
+  opts: SyncOptions = {},
 ): Promise<SyncResult> {
   const config = getConfig();
   const cloud = config.cloud;
@@ -292,13 +318,13 @@ export async function syncToCloud(
   let lastError = '';
   const configuredTimeoutMs = (cloud as { requestTimeoutMs?: number }).requestTimeoutMs
     ?? DEFAULT_CLOUD_REQUEST_TIMEOUT_MS;
-  const deadlineAt = Date.now() + SYNC_DEADLINE_MS;
+  const deadlineAt = Math.min(Date.now() + SYNC_DEADLINE_MS, opts.deadlineAt ?? Infinity);
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     const remainingMs = deadlineAt - Date.now();
     if (remainingMs < MIN_ATTEMPT_BUDGET_MS) {
       // Out of budget. Stop cleanly and queue for later — never silently, and never
       // by blowing through the hook timeout (which would kill the process mid-write).
-      lastError = lastError || `sync deadline exceeded (${SYNC_DEADLINE_MS}ms)`;
+      lastError = lastError || 'sync deadline exceeded';
       break;
     }
     const requestTimeoutMs = Math.min(configuredTimeoutMs, remainingMs);
@@ -369,17 +395,19 @@ export async function syncToCloud(
   // contents after 10 failed retries, which is exactly how 17 of 18 real rules
   // were destroyed. Rules live in the outbound stores under the lease/ack
   // contract instead, so they are stripped from anything handed to this queue.
-  try {
-    enqueueSyncPayload(db, JSON.stringify(stripLearningFromPayload(payload)));
-  } catch (err) {
-    // S-9: non-throwing, but NEVER SILENT. A failure to queue is a failure to
-    // deliver, and an empty catch here is the exact idiom that made "broken" and
-    // "nothing to do" indistinguishable. The learned rules are unaffected — they
-    // were stripped out above and live under the lease/ack contract.
-    process.stderr.write(
-      `[massu] WARNING: could not queue sync payload for retry: ` +
-        `${err instanceof Error ? err.message : String(err)}\n`,
-    );
+  if (opts.enqueueOnFailure !== false) {
+    try {
+      enqueueSyncPayload(db, JSON.stringify(stripLearningFromPayload(payload)));
+    } catch (err) {
+      // S-9: non-throwing, but NEVER SILENT. A failure to queue is a failure to
+      // deliver, and an empty catch here is the exact idiom that made "broken" and
+      // "nothing to do" indistinguishable. The learned rules are unaffected — they
+      // were stripped out above and live under the lease/ack contract.
+      process.stderr.write(
+        `[massu] WARNING: could not queue sync payload for retry: ` +
+          `${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
   }
 
   return {
@@ -389,19 +417,40 @@ export async function syncToCloud(
   };
 }
 
+export interface DrainResult {
+  /** Items handed to syncToCloud. */
+  attempted: number;
+  /** Items left queued, retry_count untouched, because the deadline was too close. */
+  deferred: number;
+}
+
 /**
  * Drain the pending sync queue. Processes items oldest-first.
  * Successfully synced items are removed; failed items get their retry count incremented.
+ *
+ * With `deadlineAt`, an item is attempted only while at least MIN_SYNC_ATTEMPT_MS
+ * remains; the rest are DEFERRED (skip is not failure: no state change at all).
  */
-export async function drainSyncQueue(db: Database.Database): Promise<void> {
+export async function drainSyncQueue(
+  db: Database.Database,
+  deadlineAt?: number,
+): Promise<DrainResult> {
+  const out: DrainResult = { attempted: 0, deferred: 0 };
   const config = getConfig();
-  if (!config.cloud?.enabled || !config.cloud?.apiKey) return;
+  if (!config.cloud?.enabled || !config.cloud?.apiKey) return out;
 
   const pending = dequeuePendingSync(db, 10);
-  for (const item of pending) {
+  for (let i = 0; i < pending.length; i++) {
+    const item = pending[i];
+    const remaining = deadlineAt === undefined ? Infinity : deadlineAt - Date.now();
+    if (remaining < MIN_SYNC_ATTEMPT_MS) {
+      out.deferred = pending.length - i;
+      break;
+    }
+    out.attempted++;
     try {
       const payload = JSON.parse(item.payload) as SyncPayload;
-      const result = await syncToCloud(db, payload);
+      const result = await syncToCloud(db, payload, { deadlineAt, enqueueOnFailure: false });
       if (result.success) {
         removePendingSync(db, item.id);
       } else {
@@ -411,6 +460,7 @@ export async function drainSyncQueue(db: Database.Database): Promise<void> {
       incrementRetryCount(db, item.id, err instanceof Error ? err.message : String(err));
     }
   }
+  return out;
 }
 
 function sleep(ms: number): Promise<void> {

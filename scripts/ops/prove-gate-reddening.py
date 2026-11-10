@@ -362,12 +362,24 @@ def main():
     # modification to it cannot be confused with a leaked plant" — and that docstring already
     # names `_run_guard_defeat.py`'s per-plant before/after check as "the precise half of this
     # guarantee". That half is unchanged and still runs for every plant.
-    in_scope = set()
+    #
+    # ⛔ AND A TEST FILE MAY BE STAGED (2026-11-09). The scoping above gave REGISTERING a gate
+    # a legal ordering; EDITING a registered gate's test still had none: the edit makes the
+    # proof stale -> the drift guard fails `npm test` -> the pre-commit gate blocks the commit
+    # -> and this check refused because the test file was not committed. A run never WRITES a
+    # test file (plants go into plant targets only), so a staged test file cannot be confused
+    # with a leaked plant — and when the worktree matches the index (porcelain Y == ' '), the
+    # content proved is exactly the content about to be committed, so the proof key is right.
+    # Plant targets stay strictly clean: those ARE written, and the executor re-checks them.
+    plant_paths, test_paths = set(), set()
     for g, _k in todo:
-        in_scope.update(plant_targets(g))
+        plant_paths.update(plant_targets(g))
         if g.get("test"):
-            in_scope.add(g["test"])
-    blocking = [(l, pth) for (l, pth) in dirty if pth in in_scope]
+            test_paths.add(g["test"])
+    in_scope = plant_paths | test_paths
+    staged_only = lambda l: len(l) >= 2 and l[0] not in " ?" and l[1] == " "
+    blocking = [(l, pth) for (l, pth) in dirty
+                if pth in plant_paths or (pth in test_paths and not staged_only(l))]
     print(f"dirty paths                    : {len(dirty)} "
           f"(in scope for this run: {len(blocking)} of {len(in_scope)} touched path(s))")
     if blocking:

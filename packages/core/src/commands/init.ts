@@ -46,7 +46,7 @@ import { validateShippedTemplate } from '../shipped-template-schema.ts';
 import { installAll } from './install-commands.ts';
 import { readSettingsLocal, writeSettingsLocalAtomic } from '../lib/settings-local.ts';
 import { encodeMemoryDirName } from '../lib/memory-path.ts';
-import { HOOK_TIMEOUTS } from '../lib/hook-timeouts.ts';
+import { HOOK_TIMEOUTS, BACKGROUND_HOOKS } from '../lib/hook-timeouts.ts';
 import {
   runDetection,
   type DetectionResult,
@@ -1091,6 +1091,8 @@ interface HookEntry {
   type: 'command';
   command: string;
   timeout: number;
+  /** Run in the background: Claude Code does not wait for it (and enforces no timeout). */
+  async?: true;
 }
 
 interface HookGroup {
@@ -1356,6 +1358,17 @@ function getHookTimeout(name: string): number {
 }
 
 /**
+ * The ONE builder for an emitted hook entry, so a hook's execution policy (its timeout,
+ * whether it runs in the background) is read from its declaration in lib/hook-timeouts.ts
+ * at every emission site instead of being restated at each.
+ */
+function hookEntry(version: string, name: string, shim: Parameters<typeof hookCmd>[2]): HookEntry {
+  const entry: HookEntry = { type: 'command', command: hookCmd(version, name, shim), timeout: getHookTimeout(name) };
+  if (BACKGROUND_HOOKS.has(name)) entry.async = true;
+  return entry;
+}
+
+/**
  * Build the canonical Claude Code hooks configuration. The legacy
  * `hooksDir` parameter is now ignored; we emit `hook-runner` invocations
  * instead of `node <abs-path>` (see P-003). The parameter is retained
@@ -1387,7 +1400,7 @@ export function buildHooksConfig(
     SessionStart: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'session-start', shim), timeout: getHookTimeout('session-start') },
+          hookEntry(version, 'session-start', shim),
         ],
       },
     ],
@@ -1402,26 +1415,26 @@ export function buildHooksConfig(
       {
         matcher: 'Bash|Write|Edit',
         hooks: [
-          { type: 'command', command: hookCmd(version, 'pre-tool-use-gate', shim), timeout: getHookTimeout('pre-tool-use-gate') },
+          hookEntry(version, 'pre-tool-use-gate', shim),
         ],
       },
     ],
     PostToolUse: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'post-tool-use', shim), timeout: getHookTimeout('post-tool-use') },
-          { type: 'command', command: hookCmd(version, 'quality-event', shim), timeout: getHookTimeout('quality-event') },
-          { type: 'command', command: hookCmd(version, 'cost-tracker', shim), timeout: getHookTimeout('cost-tracker') },
+          hookEntry(version, 'post-tool-use', shim),
+          hookEntry(version, 'quality-event', shim),
+          hookEntry(version, 'cost-tracker', shim),
         ],
       },
       {
         matcher: 'Edit|Write',
         hooks: [
-          { type: 'command', command: hookCmd(version, 'post-edit-context', shim), timeout: getHookTimeout('post-edit-context') },
+          hookEntry(version, 'post-edit-context', shim),
           // Auto-learning pipeline — classifies failures and detects fixes on
           // file changes. See Phase 5-6 of the autodetect plan.
-          { type: 'command', command: hookCmd(version, 'fix-detector', shim), timeout: getHookTimeout('fix-detector') },
-          { type: 'command', command: hookCmd(version, 'classify-failure', shim), timeout: getHookTimeout('classify-failure') },
+          hookEntry(version, 'fix-detector', shim),
+          hookEntry(version, 'classify-failure', shim),
         ],
       },
       {
@@ -1429,35 +1442,35 @@ export function buildHooksConfig(
         hooks: [
           // Incident + rule enforcement pipelines fire on Write-only (incidents
           // are authored as .md files; rules are enforced after new-file drops).
-          { type: 'command', command: hookCmd(version, 'incident-pipeline', shim), timeout: getHookTimeout('incident-pipeline') },
-          { type: 'command', command: hookCmd(version, 'rule-enforcement-pipeline', shim), timeout: getHookTimeout('rule-enforcement-pipeline') },
+          hookEntry(version, 'incident-pipeline', shim),
+          hookEntry(version, 'rule-enforcement-pipeline', shim),
         ],
       },
     ],
     Stop: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'session-end', shim), timeout: getHookTimeout('session-end') },
+          hookEntry(version, 'session-end', shim),
           // Session-end auto-learning aggregation (failure-class roll-up).
-          { type: 'command', command: hookCmd(version, 'auto-learning-pipeline', shim), timeout: getHookTimeout('auto-learning-pipeline') },
+          hookEntry(version, 'auto-learning-pipeline', shim),
         ],
       },
     ],
     PreCompact: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'pre-compact', shim), timeout: getHookTimeout('pre-compact') },
+          hookEntry(version, 'pre-compact', shim),
         ],
       },
     ],
     UserPromptSubmit: [
       {
         hooks: [
-          { type: 'command', command: hookCmd(version, 'user-prompt', shim), timeout: getHookTimeout('user-prompt') },
-          { type: 'command', command: hookCmd(version, 'intent-suggester', shim), timeout: getHookTimeout('intent-suggester') },
+          hookEntry(version, 'user-prompt', shim),
+          hookEntry(version, 'intent-suggester', shim),
           // plan-living-memory-slice-1 P3-002: automatic relevant-recall.
           // Injects a compact "🧠 Relevant memory" block; fails open (empty).
-          { type: 'command', command: hookCmd(version, 'memory-recall', shim), timeout: getHookTimeout('memory-recall') },
+          hookEntry(version, 'memory-recall', shim),
         ],
       },
     ],

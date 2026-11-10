@@ -6,14 +6,14 @@ import Database from 'better-sqlite3';
 import {
   getCostToolDefinitions,
   isCostTool,
-  extractTokenUsage,
-  calculateCost,
+  costTranscriptEntries,
   storeSessionCost,
+  markSessionCostUnknown,
   backfillSessionCosts,
   handleCostToolCall,
-  type TokenUsage,
-  type CostResult,
+  type SessionCostSlice,
 } from '../cost-tracker.ts';
+import { PRICING_VERSION } from '../model-pricing.ts';
 import type { TranscriptEntry } from '../transcript-parser.ts';
 
 function createTestDb(): Database.Database {
@@ -38,7 +38,12 @@ function createTestDb(): Database.Database {
       cache_write_tokens INTEGER NOT NULL DEFAULT 0,
       total_tokens INTEGER NOT NULL DEFAULT 0,
       estimated_cost_usd REAL NOT NULL DEFAULT 0.0,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (datetime('now')),
+      cost_status TEXT NOT NULL DEFAULT 'unknown',
+      unpriced_models TEXT NOT NULL DEFAULT '',
+      priced_responses INTEGER NOT NULL DEFAULT 0,
+      unpriced_responses INTEGER NOT NULL DEFAULT 0,
+      pricing_version INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE feature_costs (
@@ -53,6 +58,17 @@ function createTestDb(): Database.Database {
 
   return db;
 }
+
+function slice(over: Partial<SessionCostSlice> = {}): SessionCostSlice {
+  return {
+    inputTokens: 1000, outputTokens: 500, cacheReadTokens: 200, cacheWriteTokens: 100, costUsd: 0.015,
+    pricedResponses: 1, unpricedResponses: 0, unpricedModels: [], model: 'claude-sonnet-4-5',
+    lastMessageId: 'msg_1', ...over,
+  };
+}
+
+const response = (id: string, model: string, usage: Record<string, unknown>): TranscriptEntry =>
+  ({ type: 'assistant', message: { role: 'assistant', content: [], id, model, usage } }) as unknown as TranscriptEntry;
 
 describe('cost-tracker', () => {
   let db: Database.Database;
@@ -103,144 +119,88 @@ describe('cost-tracker', () => {
     });
   });
 
-  describe('extractTokenUsage', () => {
-    it('should extract token usage from transcript entries', () => {
-      const entries: TranscriptEntry[] = [
-        {
-          type: 'assistant',
-          message: {
-            usage: {
-              input_tokens: 1000,
-              output_tokens: 500,
-              cache_read_input_tokens: 200,
-              cache_creation_input_tokens: 100,
-            },
-            model: 'claude-sonnet-4-5',
-          } as Record<string, unknown>,
-        } as TranscriptEntry,
-        {
-          type: 'assistant',
-          message: {
-            usage: {
-              input_tokens: 800,
-              output_tokens: 400,
-              cache_read_tokens: 50,
-              cache_write_tokens: 25,
-            },
-            model: 'claude-sonnet-4-5',
-          } as Record<string, unknown>,
-        } as TranscriptEntry,
-      ];
-
-      const usage = extractTokenUsage(entries);
-      expect(usage.inputTokens).toBe(1800);
-      expect(usage.outputTokens).toBe(900);
-      expect(usage.cacheReadTokens).toBe(250);
-      expect(usage.cacheWriteTokens).toBe(125);
-      expect(usage.model).toBe('claude-sonnet-4-5');
+  describe('costTranscriptEntries prices each response at its own model', () => {
+    it('Opus 5.5 with a 1-hour cache write: exact published rates', () => {
+      const out = costTranscriptEntries([
+        response('m1', 'claude-opus-5-5', {
+          input_tokens: 1_000_000, output_tokens: 100_000, cache_read_input_tokens: 1_000_000,
+          cache_creation_input_tokens: 1_000_000,
+          cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 1_000_000 },
+        }),
+      ]);
+      // $4 input + $2 output (0.1M x $20) + $0.20 cache read + $8 1h write
+      expect(out.costUsd).toBeCloseTo(14.2, 6);
+      expect(out.pricedResponses).toBe(1);
+      expect(out.cacheWriteTokens).toBe(1_000_000);
     });
 
-    it('should return zero tokens for empty entries', () => {
-      const usage = extractTokenUsage([]);
-      expect(usage.inputTokens).toBe(0);
-      expect(usage.outputTokens).toBe(0);
-      expect(usage.cacheReadTokens).toBe(0);
-      expect(usage.cacheWriteTokens).toBe(0);
-      expect(usage.model).toBe('unknown');
-    });
-  });
-
-  describe('calculateCost', () => {
-    it('should calculate cost from token usage', () => {
-      const usage: TokenUsage = {
-        inputTokens: 1_000_000,
-        outputTokens: 500_000,
-        cacheReadTokens: 200_000,
-        cacheWriteTokens: 100_000,
-        model: 'claude-sonnet-4-5',
-      };
-
-      const cost = calculateCost(usage);
-
-      expect(cost.totalCost).toBeGreaterThan(0);
-      expect(cost.inputCost).toBeGreaterThan(0);
-      expect(cost.outputCost).toBeGreaterThan(0);
-      // Cache costs may be 0 if pricing doesn't include cache_read/write rates
-      expect(cost.cacheReadCost).toBeGreaterThanOrEqual(0);
-      expect(cost.cacheWriteCost).toBeGreaterThanOrEqual(0);
-      expect(cost.currency).toBe('USD');
-      expect(cost.totalCost).toBe(
-        cost.inputCost + cost.outputCost + cost.cacheReadCost + cost.cacheWriteCost
-      );
+    it('counts a response once although the transcript repeats it on several lines', () => {
+      const u = { input_tokens: 1_000_000, output_tokens: 0 };
+      const out = costTranscriptEntries([
+        response('dup', 'claude-sonnet-4-6', u),
+        response('dup', 'claude-sonnet-4-6', u),
+        response('dup', 'claude-sonnet-4-6', u),
+      ]);
+      expect(out.inputTokens).toBe(1_000_000);
+      expect(out.costUsd).toBeCloseTo(3, 6);
     });
 
-    it('should use default pricing for unknown models', () => {
-      const usage: TokenUsage = {
-        inputTokens: 1_000_000,
-        outputTokens: 500_000,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        model: 'unknown-model',
-      };
-
-      const cost = calculateCost(usage);
-      expect(cost.totalCost).toBeGreaterThan(0);
+    it('skips the last response of the previous slice (a run can end between its lines)', () => {
+      const out = costTranscriptEntries([response('prev', 'claude-sonnet-4-6', { input_tokens: 5 })], { skipMessageId: 'prev' });
+      expect(out.inputTokens).toBe(0);
     });
 
-    it('should handle zero tokens', () => {
-      const usage: TokenUsage = {
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        model: 'claude-sonnet-4-5',
-      };
+    it('fast mode, US-only routing and a dated id', () => {
+      const fast = costTranscriptEntries([response('f', 'claude-opus-5-5', { input_tokens: 1_000_000, speed: 'fast' })]);
+      expect(fast.costUsd).toBeCloseTo(8, 6);
+      const us = costTranscriptEntries([response('u', 'claude-opus-5-5', { input_tokens: 1_000_000, inference_geo: 'us' })]);
+      expect(us.costUsd).toBeCloseTo(4.4, 6);
+      const dated = costTranscriptEntries([response('d', 'claude-sonnet-4-5-20250929', { input_tokens: 1_000_000 })]);
+      expect(dated.costUsd).toBeCloseTo(3, 6);
+    });
 
-      const cost = calculateCost(usage);
-      expect(cost.totalCost).toBe(0);
-      expect(cost.inputCost).toBe(0);
-      expect(cost.outputCost).toBe(0);
+    it('Haiku 5.5 over 100K prompt tokens pays the higher rates', () => {
+      const out = costTranscriptEntries([response('h', 'claude-haiku-5-5', { input_tokens: 150_000 })]);
+      expect(out.costUsd).toBeCloseTo(0.075, 9); // 0.15M x $0.50, not x $0.10
+    });
+
+    it('an unknown model is UNPRICED, never priced at a guessed default', () => {
+      const out = costTranscriptEntries([
+        response('k', 'claude-sonnet-4-6', { input_tokens: 1_000_000 }),
+        response('x', 'some-future-model', { input_tokens: 1_000_000 }),
+      ]);
+      expect(out.costUsd).toBeCloseTo(3, 6);
+      expect(out.unpricedResponses).toBe(1);
+      expect(out.unpricedModels).toEqual(['some-future-model']);
+    });
+
+    it('a zero-token entry (Claude Code\'s "<synthetic>") is free, not unpriced', () => {
+      const out = costTranscriptEntries([response('s', '<synthetic>', { input_tokens: 0, output_tokens: 0 })]);
+      expect(out).toMatchObject({ unpricedResponses: 0, unpricedModels: [], costUsd: 0 });
+    });
+
+    it('no responses: zero, and nothing unpriced', () => {
+      expect(costTranscriptEntries([])).toMatchObject({ costUsd: 0, pricedResponses: 0, unpricedResponses: 0, model: '' });
     });
   });
 
   describe('storeSessionCost', () => {
-    it('should store session cost in database', () => {
-      const sessionId = 'test-session-1';
-      db.prepare('INSERT INTO sessions (session_id, started_at, started_at_epoch) VALUES (?, ?, ?)').run(
-        sessionId,
-        new Date().toISOString(),
-        Math.floor(Date.now() / 1000)
-      );
+    it('stores one row, stamped with the pricing version, and accumulates on add', () => {
+      storeSessionCost(db, 's1', slice(), 'replace');
+      storeSessionCost(db, 's1', slice({ unpricedResponses: 1, unpricedModels: ['m-x'] }), 'add');
+      const rows = db.prepare('SELECT * FROM session_costs WHERE session_id = ?').all('s1') as Array<Record<string, unknown>>;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        input_tokens: 2000, output_tokens: 1000, total_tokens: 3600, cost_status: 'partial',
+        unpriced_models: 'm-x', priced_responses: 2, unpriced_responses: 1, pricing_version: PRICING_VERSION,
+      });
+      expect(rows[0].estimated_cost_usd as number).toBeCloseTo(0.03, 9);
+    });
 
-      const usage: TokenUsage = {
-        inputTokens: 1000,
-        outputTokens: 500,
-        cacheReadTokens: 200,
-        cacheWriteTokens: 100,
-        model: 'claude-sonnet-4-5',
-      };
-
-      const cost: CostResult = {
-        totalCost: 0.015,
-        inputCost: 0.003,
-        outputCost: 0.0075,
-        cacheReadCost: 0.0006,
-        cacheWriteCost: 0.00375,
-        currency: 'USD',
-      };
-
-      storeSessionCost(db, sessionId, usage, cost);
-
-      const stored = db.prepare('SELECT * FROM session_costs WHERE session_id = ?').get(sessionId) as Record<string, unknown>;
-      expect(stored).toBeDefined();
-      expect(stored.session_id).toBe(sessionId);
-      expect(stored.model).toBe('claude-sonnet-4-5');
-      expect(stored.input_tokens).toBe(1000);
-      expect(stored.output_tokens).toBe(500);
-      expect(stored.cache_read_tokens).toBe(200);
-      expect(stored.cache_write_tokens).toBe(100);
-      expect(stored.total_tokens).toBe(1800);
-      expect(stored.estimated_cost_usd).toBe(0.015);
+    it('markSessionCostUnknown records unknown, not $0 that reads as measured', () => {
+      storeSessionCost(db, 's2', slice());
+      markSessionCostUnknown(db, 's2');
+      expect(db.prepare('SELECT cost_status, total_tokens FROM session_costs').get()).toEqual({ cost_status: 'unknown', total_tokens: 0 });
     });
   });
 
@@ -267,24 +227,7 @@ describe('cost-tracker', () => {
         Math.floor(Date.now() / 1000)
       );
 
-      const usage: TokenUsage = {
-        inputTokens: 100,
-        outputTokens: 50,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        model: 'claude-sonnet-4-5',
-      };
-
-      const cost: CostResult = {
-        totalCost: 0.001,
-        inputCost: 0.0003,
-        outputCost: 0.00075,
-        cacheReadCost: 0,
-        cacheWriteCost: 0,
-        currency: 'USD',
-      };
-
-      storeSessionCost(db, sessionId, usage, cost);
+      storeSessionCost(db, sessionId, slice());
 
       const count = backfillSessionCosts(db);
       expect(count).toBe(0);
@@ -300,24 +243,7 @@ describe('cost-tracker', () => {
         Math.floor(Date.now() / 1000)
       );
 
-      const usage: TokenUsage = {
-        inputTokens: 1000,
-        outputTokens: 500,
-        cacheReadTokens: 100,
-        cacheWriteTokens: 50,
-        model: 'claude-sonnet-4-5',
-      };
-
-      const cost: CostResult = {
-        totalCost: 0.01,
-        inputCost: 0.003,
-        outputCost: 0.0075,
-        cacheReadCost: 0.0003,
-        cacheWriteCost: 0.0001875,
-        currency: 'USD',
-      };
-
-      storeSessionCost(db, sessionId, usage, cost);
+      storeSessionCost(db, sessionId, slice());
 
       const result = handleCostToolCall('massu_cost_session', { session_id: sessionId }, db);
 
@@ -325,8 +251,12 @@ describe('cost-tracker', () => {
       expect(result.content.length).toBeGreaterThan(0);
       expect(result.content[0].type).toBe('text');
       const text = result.content[0].text;
-      expect(text).toContain('Session Cost');
+      expect(text).toContain('Session Cost: $0.0150');
       expect(text).toContain('Token Usage');
+
+      markSessionCostUnknown(db, sessionId);
+      const unknown = handleCostToolCall('massu_cost_session', { session_id: sessionId }, db).content[0].text;
+      expect(unknown).toContain('Session Cost: unknown');
     });
 
     it('should return error for missing session_id', () => {

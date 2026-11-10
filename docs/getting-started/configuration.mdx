@@ -182,17 +182,7 @@ analytics:
       - rule_compliance
 
   cost:
-    models:
-      claude-opus-4-6:
-        input_per_million: 15
-        output_per_million: 75
-        cache_read_per_million: 1.5
-        cache_write_per_million: 3.75
-      claude-sonnet-4-5-20250929:
-        input_per_million: 3
-        output_per_million: 15
-        cache_read_per_million: 0.3
-        cache_write_per_million: 0.75
+    models: {}            # optional per-model price overrides; built-in prices cover current Claude models
     currency: USD
 
   prompts:

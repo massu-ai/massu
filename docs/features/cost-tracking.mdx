@@ -165,24 +165,30 @@ Side-by-side session analytics comparison showing cost, tokens, turns, and tool 
 
 ## Configuration
 
+You don't need to configure prices. Massu ships Anthropic's published price list and prices
+every response at its own model's rates: input, output, cache reads, 5-minute and 1-hour cache
+writes, fast mode, US-only routing, and Claude Haiku 5.5's higher rate for prompts over
+100,000 tokens. Each session shows whether its cost is **priced**, **partial** (a model it used
+has no known price) or **unknown** (no transcript was available). A model with no price is
+never guessed.
+
+To override one model's price, for example a negotiated rate, add only that model:
+
 ```yaml
 analytics:
   cost:
     models:
-      claude-opus-4-6:
-        input_per_million: 15
-        output_per_million: 75
-        cache_read_per_million: 1.5
-        cache_write_per_million: 3.75
-      claude-sonnet-4-5-20250929:
-        input_per_million: 3
-        output_per_million: 15
-        cache_read_per_million: 0.3
-        cache_write_per_million: 0.75
+      claude-opus-5-5:
+        input_per_million: 4
+        output_per_million: 20
+        cache_read_per_million: 0.2         # optional
+        cache_write_per_million: 5          # 5-minute cache writes, optional
+        cache_write_1h_per_million: 8       # 1-hour cache writes, optional
     currency: USD
 ```
 
-Add additional models to the `models` map as needed. Pricing values are per million tokens. The `currency` field is used for display only.
+An override replaces the built-in price for that model only; every other model keeps the
+built-in list. Prices are per million tokens, and `currency` is a display label.
 
 ## Tips
 

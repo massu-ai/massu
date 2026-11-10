@@ -10,6 +10,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.5.5] - 2026-11-09
+
+### Fixed
+
+- **Replies no longer wait for the session-end hook.** `massu init` ran the session-end
+  hook at the end of every reply, and it blocked: measured 11-15 seconds per reply (up to 21)
+  on a long session. It now runs in the background (Claude Code's `async` hook option) and
+  limits itself, because Claude Code sets no time limit on a background hook. Each run has a
+  20-second budget (`MASSU_SESSION_END_BUDGET_MS`) and skips, and reports, work it has no time
+  for. A watchdog ends a run that overruns. Two runs for the same session never overlap: the
+  second asks the first to go again. A run after the first in a session takes about 0.4 seconds.
+  Run `massu init` again to pick up the background setting.
+- **Session cost is now real.** Every stored session cost was 0 tokens. The transcript reader
+  dropped each response's token counts, and only the first reply of a session could be stored
+  at all. Cost is now calculated for each response at its own model's published price,
+  including 5-minute and 1-hour cache writes, fast mode, US-only routing, and Claude Haiku
+  5.5's higher rate for prompts over 100,000 tokens. Each response is counted once, though a
+  transcript repeats it across several lines. A model with no known price is reported as
+  unknown, never guessed; the old fallback charged $3/$15 and counted cache reads as free.
+- **Old cost records repair themselves.** Sessions whose transcripts are still on disk are
+  recalculated in the background; the rest show "unknown" instead of $0. `massu_cost_session`
+  and `massu_cost_trend` say which sessions are unknown or only partly priced.
+- **Price overrides add to the built-in list instead of replacing it.** An
+  `analytics.cost.models` entry in `massu.config.yaml` now overrides one model. Before, any
+  entry discarded the built-in prices, so every other model was charged the fallback rate. A
+  new optional `cache_write_1h_per_million` sets the 1-hour cache-write price.
+- **A failed cloud sync no longer queues a second copy of the item.** Retrying a queued item
+  that failed again added a duplicate to the queue each time. Items the time budget can't
+  reach now wait for the next run with their retry count unchanged.
+
+The memory database moves to schema version 2 (new cost columns). Massu backs the database up
+before changing its schema, as before.
+
 ## [2.5.4] - 2026-11-08
 
 ### Fixed

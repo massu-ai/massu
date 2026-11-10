@@ -16,7 +16,7 @@ const SECURITY_TMP_DIR = resolve(tmpdir(), 'massu-security-test-' + Math.random(
 // P1: Analytics
 import { calculateQualityScore, storeQualityScore, backfillQualityScores, type QualityBreakdown } from '../analytics.ts';
 // P1: Cost
-import { extractTokenUsage, calculateCost, type TokenUsage, type CostResult } from '../cost-tracker.ts';
+import { costTranscriptEntries } from '../cost-tracker.ts';
 import type { TranscriptEntry } from '../transcript-parser.ts';
 // P1: Prompt
 import { categorizePrompt, hashPrompt, detectOutcome } from '../prompt-analyzer.ts';
@@ -229,60 +229,28 @@ describe('PLAN-01: Memory Enhancements', () => {
   // P1-002: Cost Attribution
   // =================================================================
   describe('P1-002: Cost Tracking', () => {
-    it('extracts token usage from transcript entries with usage metadata', () => {
-      const entries: TranscriptEntry[] = [
-        {
-          type: 'assistant',
-          message: {
-            usage: {
-              input_tokens: 1000,
-              output_tokens: 500,
-            },
-            model: 'claude-sonnet-4-5',
-          } as Record<string, unknown>,
-        } as TranscriptEntry,
-      ];
-      const usage = extractTokenUsage(entries);
-      expect(usage.inputTokens).toBe(1000);
-      expect(usage.outputTokens).toBe(500);
+    it('prices transcript responses (detail in cost-tracker.test.ts)', () => {
+      const entries = [{
+        type: 'assistant',
+        message: { role: 'assistant', content: [], id: 'm', model: 'claude-sonnet-4-5-20250929',
+          usage: { input_tokens: 1_000_000, output_tokens: 100_000 } },
+      }] as unknown as TranscriptEntry[];
+      const out = costTranscriptEntries(entries);
+      // Sonnet 4.5: $3/M input + $15/M output = $3 + $1.5
+      expect(out.costUsd).toBeCloseTo(4.5, 6);
     });
 
     it('returns zero for entries without usage metadata', () => {
       const entries: TranscriptEntry[] = [
-        {
-          type: 'user',
-          message: { role: 'user', content: [{ type: 'text', text: 'hello' }] },
-        } as TranscriptEntry,
+        { type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'hello' }] } } as TranscriptEntry,
       ];
-      const usage = extractTokenUsage(entries);
-      expect(usage.inputTokens).toBe(0);
-      expect(usage.outputTokens).toBe(0);
+      expect(costTranscriptEntries(entries)).toMatchObject({ inputTokens: 0, outputTokens: 0, costUsd: 0 });
     });
 
-    it('calculates cost from token usage', () => {
-      const usage: TokenUsage = {
-        inputTokens: 1_000_000,
-        outputTokens: 100_000,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        model: 'claude-sonnet-4-5-20250929',
-      };
-      const result = calculateCost(usage);
-      // Sonnet: $3/M input + $15/M output = $3 + $1.5 = $4.5
-      expect(result.totalCost).toBeCloseTo(4.5, 1);
-      expect(result.currency).toBe('USD');
-    });
-
-    it('uses default pricing for unknown models', () => {
-      const usage: TokenUsage = {
-        inputTokens: 1_000_000,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        model: 'unknown-model',
-      };
-      const result = calculateCost(usage);
-      expect(result.totalCost).toBeGreaterThan(0);
+    it('an unknown model is unpriced, not priced at a default', () => {
+      const entries = [{ type: 'assistant', message: { role: 'assistant', content: [], id: 'u', model: 'unknown-model',
+        usage: { input_tokens: 1_000_000 } } }] as unknown as TranscriptEntry[];
+      expect(costTranscriptEntries(entries)).toMatchObject({ costUsd: 0, unpricedResponses: 1, unpricedModels: ['unknown-model'] });
     });
   });
 

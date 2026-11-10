@@ -292,12 +292,12 @@ function runRebuild(pkgDir, abiFrom, abiTo, start) {
   }
   const prebuildBin = resolveLocalBin(pkgDir, "prebuild-install");
   if (prebuildBin) {
-    const r = spawnSync(process.execPath, [prebuildBin], {
+    const r2 = spawnSync(process.execPath, [prebuildBin], {
       cwd: pkgDir,
       encoding: "utf-8",
       timeout: 12e4
     });
-    if (r.status === 0) {
+    if (r2.status === 0) {
       const res2 = { healed: true, method: "prebuild-install", abiFrom, abiTo, durationMs: Date.now() - start };
       recordHealEvent({ phase: "success", reason: "abi-mismatch", ...res2 });
       return res2;
@@ -305,12 +305,12 @@ function runRebuild(pkgDir, abiFrom, abiTo, start) {
   }
   const gypBin = resolveNodeGypBin();
   if (gypBin && hasCompiler()) {
-    const r = spawnSync(process.execPath, [gypBin, "rebuild", "--release"], {
+    const r2 = spawnSync(process.execPath, [gypBin, "rebuild", "--release"], {
       cwd: pkgDir,
       encoding: "utf-8",
       timeout: 3e5
     });
-    if (r.status === 0) {
+    if (r2.status === 0) {
       const res2 = { healed: true, method: "node-gyp", abiFrom, abiTo, durationMs: Date.now() - start };
       recordHealEvent({ phase: "success", reason: "abi-mismatch", ...res2 });
       return res2;
@@ -389,8 +389,8 @@ function resolveNodeGypBin() {
 function hasCompiler() {
   for (const cc of ["cc", "clang", "gcc"]) {
     try {
-      const r = spawnSync(cc, ["--version"], { encoding: "utf-8", timeout: 5e3 });
-      if (r.status === 0) return true;
+      const r2 = spawnSync(cc, ["--version"], { encoding: "utf-8", timeout: 5e3 });
+      if (r2.status === 0) return true;
     } catch {
     }
   }
@@ -464,10 +464,10 @@ function openNodeSqlite(dbPath, opts) {
     const st = raw.prepare(sql);
     return {
       run: (...p) => {
-        const r = st.run(...p);
+        const r2 = st.run(...p);
         return {
-          changes: typeof r.changes === "bigint" ? Number(r.changes) : r.changes,
-          lastInsertRowid: r.lastInsertRowid
+          changes: typeof r2.changes === "bigint" ? Number(r2.changes) : r2.changes,
+          lastInsertRowid: r2.lastInsertRowid
         };
       },
       get: (...p) => plainRow(st.get(...p)),
@@ -951,7 +951,8 @@ var init_config = __esm({
       input_per_million: z2.number(),
       output_per_million: z2.number(),
       cache_read_per_million: z2.number().optional(),
-      cache_write_per_million: z2.number().optional()
+      cache_write_per_million: z2.number().optional(),
+      cache_write_1h_per_million: z2.number().optional()
     });
     AnalyticsConfigSchema = z2.object({
       quality: z2.object({
@@ -1557,11 +1558,11 @@ function claimPage(db, table, pk, orderBy, limit, token, nowMs) {
   const placeholders = ids.map(() => "?").join(",");
   db.prepare(
     `UPDATE ${table} SET lease_token = ?, leased_at_ms = ? WHERE ${pk} IN (${placeholders})`
-  ).run(token, nowMs, ...ids.map((r) => r.k));
+  ).run(token, nowMs, ...ids.map((r2) => r2.k));
 }
 function columns(db, table) {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all();
-  return new Set(rows.map((r) => r.name));
+  return new Set(rows.map((r2) => r2.name));
 }
 function migrateRuleDelivery(db) {
   const ADDITIONS = [
@@ -1590,29 +1591,29 @@ function leaseLearning(db, nowMs = Date.now()) {
                     content_hash, hardened, review_attestation_json
              FROM team_promotion_outbound WHERE lease_token = ?
              ORDER BY created_at ASC LIMIT ?`
-  ).all(token, PROMOTION_LEASE_LIMIT).map((r) => ({
-    prompt_hash: r.prompt_hash,
-    destination: r.destination,
-    draft_text: r.draft_text,
-    ...r.score !== null ? { score: r.score } : {},
-    signals: safeParseArray(r.signals_json),
-    content_hash: r.content_hash,
-    ...r.hardened ? { hardened: true } : {},
-    ...r.review_attestation_json != null ? { review_attestation: safeParseUnknown(r.review_attestation_json) } : {}
+  ).all(token, PROMOTION_LEASE_LIMIT).map((r2) => ({
+    prompt_hash: r2.prompt_hash,
+    destination: r2.destination,
+    draft_text: r2.draft_text,
+    ...r2.score !== null ? { score: r2.score } : {},
+    signals: safeParseArray(r2.signals_json),
+    content_hash: r2.content_hash,
+    ...r2.hardened ? { hardened: true } : {},
+    ...r2.review_attestation_json != null ? { review_attestation: safeParseUnknown(r2.review_attestation_json) } : {}
   })) : [];
   const revocations = tableExists(db, "team_revocation_outbound") ? db.prepare(
     `SELECT prompt_hash FROM team_revocation_outbound
              WHERE lease_token = ? ORDER BY created_at ASC LIMIT ?`
-  ).all(token, PROMOTION_LEASE_LIMIT).map((r) => r.prompt_hash) : [];
+  ).all(token, PROMOTION_LEASE_LIMIT).map((r2) => r2.prompt_hash) : [];
   const events = tableExists(db, TELEMETRY_OUTBOUND_TABLE) ? db.prepare(
     `SELECT prompt_hash, event_type, metadata_json, created_at
              FROM ${TELEMETRY_OUTBOUND_TABLE} WHERE lease_token = ?
              ORDER BY id ASC LIMIT ?`
-  ).all(token, TELEMETRY_LEASE_LIMIT).map((r) => ({
-    prompt_hash: r.prompt_hash,
-    event_type: r.event_type,
-    created_at: r.created_at,
-    metadata: safeParseUnknown(r.metadata_json) ?? {}
+  ).all(token, TELEMETRY_LEASE_LIMIT).map((r2) => ({
+    prompt_hash: r2.prompt_hash,
+    event_type: r2.event_type,
+    created_at: r2.created_at,
+    metadata: safeParseUnknown(r2.metadata_json) ?? {}
   })) : [];
   return { token, promotions, revocations, events };
 }
@@ -1649,8 +1650,8 @@ function nackLearning(db, lease, error) {
 function undeliveredSnapshot(db) {
   const count = (t) => {
     if (!tableExists(db, t)) return 0;
-    const r = db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get();
-    return r.n;
+    const r2 = db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get();
+    return r2.n;
   };
   const promotions = count("team_promotion_outbound");
   const revocations = count("team_revocation_outbound");
@@ -1660,9 +1661,9 @@ function undeliveredSnapshot(db) {
   for (const t of RULE_OUTBOUND_TABLES) {
     if (!tableExists(db, t)) continue;
     if (!columns(db, t).has("attempts")) continue;
-    const r = db.prepare(`SELECT MAX(attempts) AS a, MIN(created_at) AS c FROM ${t}`).get();
-    if (r.a !== null && r.a > maxAttempts) maxAttempts = r.a;
-    if (r.c !== null && (oldest === null || r.c < oldest)) oldest = r.c;
+    const r2 = db.prepare(`SELECT MAX(attempts) AS a, MIN(created_at) AS c FROM ${t}`).get();
+    if (r2.a !== null && r2.a > maxAttempts) maxAttempts = r2.a;
+    if (r2.c !== null && (oldest === null || r2.c < oldest)) oldest = r2.c;
   }
   return {
     promotions,
@@ -1988,11 +1989,11 @@ function getActiveEmbedModel() {
 }
 function loadEmbedSettings() {
   try {
-    const r = getConfig().memory?.recall;
+    const r2 = getConfig().memory?.recall;
     return {
-      enabled: r?.embedEnabled ?? true,
-      endpoint: r?.embedEndpoint,
-      model: r?.embedModel
+      enabled: r2?.embedEnabled ?? true,
+      endpoint: r2?.embedEndpoint,
+      model: r2?.embedModel
     };
   } catch {
     return { enabled: true };
@@ -2250,11 +2251,11 @@ async function runEmbedSweep(db, cfg, opts = {}) {
   const limit = opts.limit ?? Infinity;
   const budgetMs = opts.budgetMs;
   const start = Date.now();
-  const cursorKey = `embed_sweep_cursor_${cfg.sourceLabel}`;
+  const cursorKey2 = `embed_sweep_cursor_${cfg.sourceLabel}`;
   let embedded = 0;
   let scanned = 0;
   let active = getActiveEmbedModel();
-  let cursor = readCursor(db, cfg.metaTable, cursorKey);
+  let cursor = readCursor(db, cfg.metaTable, cursorKey2);
   try {
     while (true) {
       if (embedded >= limit) break;
@@ -2262,17 +2263,17 @@ async function runEmbedSweep(db, cfg, opts = {}) {
       const remaining = limit === Infinity ? batchSize : Math.min(batchSize, limit - embedded);
       const rows = cfg.selectMissing(db, cursor, active, Math.max(1, remaining));
       if (rows.length === 0) {
-        writeCursor(db, cfg.metaTable, cursorKey, 0);
+        writeCursor(db, cfg.metaTable, cursorKey2, 0);
         break;
       }
       const units = [];
-      for (const r of rows) {
+      for (const r2 of rows) {
         if (cfg.chunked) {
-          const parts = chunkForEmbedding(r.text);
+          const parts = chunkForEmbedding(r2.text);
           if (parts.length === 0) continue;
-          parts.forEach((text, chunkIx) => units.push({ id: r.id, chunkIx, text }));
+          parts.forEach((text, chunkIx) => units.push({ id: r2.id, chunkIx, text }));
         } else {
-          units.push({ id: r.id, chunkIx: 0, text: r.text });
+          units.push({ id: r2.id, chunkIx: 0, text: r2.text });
         }
       }
       const vecs = await embedBatch(units.map((u) => u.text));
@@ -2316,7 +2317,7 @@ async function runEmbedSweep(db, cfg, opts = {}) {
       tx();
       scanned += rows.length;
       cursor = rows[rows.length - 1].id;
-      writeCursor(db, cfg.metaTable, cursorKey, cursor);
+      writeCursor(db, cfg.metaTable, cursorKey2, cursor);
     }
   } catch {
   }
@@ -2391,6 +2392,7 @@ __export(memory_db_exports, {
   pruneToolCostEvents: () => pruneToolCostEvents,
   recordRecallHits: () => recordRecallHits,
   recordTelemetry: () => recordTelemetry,
+  releaseMetaLease: () => releaseMetaLease,
   removePendingSync: () => removePendingSync,
   sanitizeFts5Query: () => sanitizeFts5Query,
   sanitizeFts5QueryOr: () => sanitizeFts5QueryOr,
@@ -2399,6 +2401,7 @@ __export(memory_db_exports, {
   searchObservations: () => searchObservations,
   setLastProcessedLine: () => setLastProcessedLine,
   setMemoryMeta: () => setMemoryMeta,
+  tryAcquireMetaLease: () => tryAcquireMetaLease,
   upsertObservationEmbedding: () => upsertObservationEmbedding,
   usageWarmupElapsed: () => usageWarmupElapsed
 });
@@ -2904,6 +2907,15 @@ function initMemorySchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_sc_session ON session_costs(session_id);
   `);
+  const costCols = db.prepare(`PRAGMA table_info(session_costs)`).all();
+  const addCostCol = (name, ddl) => {
+    if (!costCols.some((c) => c.name === name)) db.exec(`ALTER TABLE session_costs ADD COLUMN ${ddl}`);
+  };
+  addCostCol("cost_status", `cost_status TEXT NOT NULL DEFAULT 'unknown'`);
+  addCostCol("unpriced_models", `unpriced_models TEXT NOT NULL DEFAULT ''`);
+  addCostCol("priced_responses", `priced_responses INTEGER NOT NULL DEFAULT 0`);
+  addCostCol("unpriced_responses", `unpriced_responses INTEGER NOT NULL DEFAULT 0`);
+  addCostCol("pricing_version", `pricing_version INTEGER NOT NULL DEFAULT 0`);
   db.exec(`
     CREATE TABLE IF NOT EXISTS feature_costs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3333,6 +3345,18 @@ function getMemoryMeta(db, key) {
 function setMemoryMeta(db, key, value) {
   db.prepare("INSERT OR REPLACE INTO memory_meta (key, value) VALUES (?, ?)").run(key, value);
 }
+function tryAcquireMetaLease(db, key, ttlSec, nowSec = Math.floor(Date.now() / 1e3)) {
+  const r2 = db.prepare(
+    `INSERT INTO memory_meta (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value
+       WHERE memory_meta.value = ''
+          OR CAST(substr(memory_meta.value, instr(memory_meta.value, ':') + 1) AS INTEGER) <= ?`
+  ).run(key, `${process.pid}:${nowSec + ttlSec}`, nowSec);
+  return Number(r2.changes) === 1;
+}
+function releaseMetaLease(db, key) {
+  db.prepare(`UPDATE memory_meta SET value = '' WHERE key = ? AND value LIKE ?`).run(key, `${process.pid}:%`);
+}
 function upsertObservationEmbedding(db, observationId, vec, modelId, dim) {
   db.prepare(
     `INSERT OR REPLACE INTO observation_embeddings (observation_id, model_id, dim, vec, created_at)
@@ -3374,7 +3398,7 @@ async function embedMissingObservations(db, opts = {}) {
                    )
                  ORDER BY o.id LIMIT ?`
         ).all(cursor, batchSize);
-        return rows.map((r) => ({ id: r.id, text: observationEmbedText(r.title, r.detail) }));
+        return rows.map((r2) => ({ id: r2.id, text: observationEmbedText(r2.title, r2.detail) }));
       }
     },
     opts
@@ -3462,9 +3486,9 @@ function rescueLearningFromStalePayloads(db, stale) {
         rescued++;
       }
       const revocations = Array.isArray(payload.rule_revocations) ? payload.rule_revocations : [];
-      for (const r of revocations) {
-        if (typeof r?.prompt_hash === "string") {
-          enqueueTeamRevocation(db, r.prompt_hash);
+      for (const r2 of revocations) {
+        if (typeof r2?.prompt_hash === "string") {
+          enqueueTeamRevocation(db, r2.prompt_hash);
           rescued++;
         }
       }
@@ -4201,7 +4225,7 @@ var init_memory_db = __esm({
     init_rule_candidate_store();
     init_hook_failure_signal();
     init_memory_embed_sweep();
-    MEMORY_SCHEMA_VERSION = 1;
+    MEMORY_SCHEMA_VERSION = 2;
     TOOL_COST_EVENTS_RETENTION_DAYS = 90;
     MAX_DRAFT_TEXT_LEN = 16384;
     FUNNEL_EVENT_OUTBOX_CAP = 2e4;
@@ -4446,6 +4470,11 @@ function parseEntry(raw) {
         role: msgRaw.role ?? entryType,
         content: normalizeContent(msgRaw.content)
       };
+      if (typeof msgRaw.id === "string") base.message.id = msgRaw.id;
+      if (typeof msgRaw.model === "string") base.message.model = msgRaw.model;
+      if (msgRaw.usage && typeof msgRaw.usage === "object") {
+        base.message.usage = msgRaw.usage;
+      }
     }
   }
   if (entryType === "progress") {
@@ -4468,6 +4497,7 @@ function normalizeContent(content) {
 async function parseTranscriptFrom(filePath, startLine) {
   const entries = [];
   let lineNumber = 0;
+  let lastUnparseableLine = 0;
   const rl = createInterface({
     input: createReadStream(filePath, { encoding: "utf-8" }),
     crlfDelay: Infinity
@@ -4484,10 +4514,12 @@ async function parseTranscriptFrom(filePath, startLine) {
         entries.push(entry);
       }
     } catch (_e) {
+      lastUnparseableLine = lineNumber;
       continue;
     }
   }
-  return { entries, totalLines: lineNumber };
+  const totalLines = lastUnparseableLine === lineNumber && lineNumber > startLine ? lineNumber - 1 : lineNumber;
+  return { entries, totalLines };
 }
 function estimateTokens(text) {
   return Math.ceil(text.length / 4);
@@ -4533,7 +4565,8 @@ var RETRY_DELAYS = [1e3, 2e3, 4e3];
 var DEFAULT_CLOUD_REQUEST_TIMEOUT_MS = 15e3;
 var SYNC_DEADLINE_MS = 2e4;
 var MIN_ATTEMPT_BUDGET_MS = 1e3;
-async function syncToCloud(db, payload) {
+var MIN_SYNC_ATTEMPT_MS = 3e3;
+async function syncToCloud(db, payload, opts = {}) {
   const config = getConfig();
   const cloud = config.cloud;
   if (!cloud?.enabled) {
@@ -4616,11 +4649,11 @@ async function syncToCloud(db, payload) {
   }
   let lastError = "";
   const configuredTimeoutMs = cloud.requestTimeoutMs ?? DEFAULT_CLOUD_REQUEST_TIMEOUT_MS;
-  const deadlineAt = Date.now() + SYNC_DEADLINE_MS;
+  const deadlineAt = Math.min(Date.now() + SYNC_DEADLINE_MS, opts.deadlineAt ?? Infinity);
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     const remainingMs = deadlineAt - Date.now();
     if (remainingMs < MIN_ATTEMPT_BUDGET_MS) {
-      lastError = lastError || `sync deadline exceeded (${SYNC_DEADLINE_MS}ms)`;
+      lastError = lastError || "sync deadline exceeded";
       break;
     }
     const requestTimeoutMs = Math.min(configuredTimeoutMs, remainingMs);
@@ -4673,13 +4706,15 @@ async function syncToCloud(db, payload) {
       }
     }
   }
-  try {
-    enqueueSyncPayload(db, JSON.stringify(stripLearningFromPayload(payload)));
-  } catch (err) {
-    process.stderr.write(
-      `[massu] WARNING: could not queue sync payload for retry: ${err instanceof Error ? err.message : String(err)}
+  if (opts.enqueueOnFailure !== false) {
+    try {
+      enqueueSyncPayload(db, JSON.stringify(stripLearningFromPayload(payload)));
+    } catch (err) {
+      process.stderr.write(
+        `[massu] WARNING: could not queue sync payload for retry: ${err instanceof Error ? err.message : String(err)}
 `
-    );
+      );
+    }
   }
   return {
     success: false,
@@ -4687,14 +4722,22 @@ async function syncToCloud(db, payload) {
     error: lastError
   };
 }
-async function drainSyncQueue(db) {
+async function drainSyncQueue(db, deadlineAt) {
+  const out = { attempted: 0, deferred: 0 };
   const config = getConfig();
-  if (!config.cloud?.enabled || !config.cloud?.apiKey) return;
+  if (!config.cloud?.enabled || !config.cloud?.apiKey) return out;
   const pending = dequeuePendingSync(db, 10);
-  for (const item of pending) {
+  for (let i = 0; i < pending.length; i++) {
+    const item = pending[i];
+    const remaining = deadlineAt === void 0 ? Infinity : deadlineAt - Date.now();
+    if (remaining < MIN_SYNC_ATTEMPT_MS) {
+      out.deferred = pending.length - i;
+      break;
+    }
+    out.attempted++;
     try {
       const payload = JSON.parse(item.payload);
-      const result = await syncToCloud(db, payload);
+      const result = await syncToCloud(db, payload, { deadlineAt, enqueueOnFailure: false });
       if (result.success) {
         removePendingSync(db, item.id);
       } else {
@@ -4704,6 +4747,7 @@ async function drainSyncQueue(db) {
       incrementRetryCount(db, item.id, err instanceof Error ? err.message : String(err));
     }
   }
+  return out;
 }
 function sleep(ms) {
   return new Promise((resolve8) => setTimeout(resolve8, ms));
@@ -5328,8 +5372,8 @@ function countUntrusted(envelope) {
 }
 function isValidWirePromotion(p) {
   if (!p || typeof p !== "object") return false;
-  const r = p;
-  return typeof r.prompt_hash === "string" && PROMPT_HASH_RE.test(r.prompt_hash) && typeof r.destination === "string" && typeof r.draft_text === "string" && typeof r.promoted_by === "string" && typeof r.promoted_at === "string";
+  const r2 = p;
+  return typeof r2.prompt_hash === "string" && PROMPT_HASH_RE.test(r2.prompt_hash) && typeof r2.destination === "string" && typeof r2.draft_text === "string" && typeof r2.promoted_by === "string" && typeof r2.promoted_at === "string";
 }
 function sidecarPath(projectRoot, promptHash) {
   return join6(projectRoot, ".massu", "rule-candidates", `${promptHash}.json`);
@@ -5515,12 +5559,12 @@ function readReposRegistry(home = homedir7()) {
   try {
     const parsed = JSON.parse(readFileSync9(p, "utf-8"));
     if (!parsed || typeof parsed !== "object") return emptyRegistry();
-    const r = parsed;
-    if (!Array.isArray(r.repos)) return emptyRegistry();
-    const repos = r.repos.filter(
+    const r2 = parsed;
+    if (!Array.isArray(r2.repos)) return emptyRegistry();
+    const repos = r2.repos.filter(
       (e) => !!e && typeof e === "object" && typeof e.repo_id === "string" && typeof e.label === "string"
     );
-    return { version: typeof r.version === "number" ? r.version : REPOS_REGISTRY_VERSION, repos };
+    return { version: typeof r2.version === "number" ? r2.version : REPOS_REGISTRY_VERSION, repos };
   } catch {
     return emptyRegistry();
   }
@@ -5706,8 +5750,8 @@ async function importSharedMemories(db, transport, opts = {}) {
     const originRepoId = entry.repo_id;
     if (ownRepoId && originRepoId === ownRepoId) continue;
     const pinned = getSharedPin(db, originRepoId) ?? tofuPinSharedFingerprint(db, originRepoId, entry.pubkey_fingerprint);
-    const cursorKey = SHARED_CURSOR_PREFIX + originRepoId;
-    const since = parseCursor2(getMemoryMeta(db, cursorKey));
+    const cursorKey2 = SHARED_CURSOR_PREFIX + originRepoId;
+    const since = parseCursor2(getMemoryMeta(db, cursorKey2));
     let envelopes;
     try {
       envelopes = await transport.fetchSince(originRepoId, since);
@@ -5772,7 +5816,7 @@ async function importSharedMemories(db, transport, opts = {}) {
         });
       }
     }
-    if (maxSeq > since) setMemoryMeta(db, cursorKey, String(maxSeq));
+    if (maxSeq > since) setMemoryMeta(db, cursorKey2, String(maxSeq));
   }
   return result;
 }
@@ -5802,19 +5846,19 @@ function parseRecords(json) {
     return [];
   }
 }
-function isWellFormedRecord(r) {
-  if (!r || typeof r !== "object") return false;
-  const o = r;
+function isWellFormedRecord(r2) {
+  if (!r2 || typeof r2 !== "object") return false;
+  const o = r2;
   return typeof o.record_hash === "string" && typeof o.type === "string" && typeof o.title === "string" && typeof o.detail === "string" && typeof o.importance === "number" && typeof o.created_at_epoch === "number" && (o.superseded_by_hash === null || typeof o.superseded_by_hash === "string");
 }
-function stripHash(r) {
+function stripHash(r2) {
   return {
-    type: r.type,
-    title: r.title,
-    detail: r.detail,
-    importance: r.importance,
-    created_at_epoch: r.created_at_epoch,
-    superseded_by_hash: r.superseded_by_hash
+    type: r2.type,
+    title: r2.title,
+    detail: r2.detail,
+    importance: r2.importance,
+    created_at_epoch: r2.created_at_epoch,
+    superseded_by_hash: r2.superseded_by_hash
   };
 }
 function pendingExists(db, recordHash) {
@@ -6099,45 +6143,45 @@ async function exportSharedMemories(db, transport, opts = {}) {
   const refusals = [];
   const records = [];
   const outboundInserts = [];
-  for (const r of rows) {
-    if (!isLocalOrigin(r.origin)) {
-      refusals.push({ observation_id: r.id, reason: "non_local_origin" });
-      auditExportRefused(db, r.id, "non_local_origin");
+  for (const r2 of rows) {
+    if (!isLocalOrigin(r2.origin)) {
+      refusals.push({ observation_id: r2.id, reason: "non_local_origin" });
+      auditExportRefused(db, r2.id, "non_local_origin");
       continue;
     }
-    const title = r.title ?? "";
-    const detail = r.detail ?? "";
+    const title = r2.title ?? "";
+    const detail = r2.detail ?? "";
     const sTitle = containsSecret(title);
     const sDetail = containsSecret(detail);
     if (sTitle.matched || sDetail.matched) {
       const reason = `secret:${sTitle.patternName ?? sDetail.patternName}`;
-      refusals.push({ observation_id: r.id, reason });
-      auditExportRefused(db, r.id, reason);
+      refusals.push({ observation_id: r2.id, reason });
+      auditExportRefused(db, r2.id, reason);
       continue;
     }
     if (home && (title.includes(home) || detail.includes(home))) {
-      refusals.push({ observation_id: r.id, reason: "home_path" });
-      auditExportRefused(db, r.id, "home_path");
+      refusals.push({ observation_id: r2.id, reason: "home_path" });
+      auditExportRefused(db, r2.id, "home_path");
       continue;
     }
     const base = {
-      type: r.type,
+      type: r2.type,
       title,
       detail,
-      importance: r.importance,
-      created_at_epoch: r.created_at_epoch,
+      importance: r2.importance,
+      created_at_epoch: r2.created_at_epoch,
       superseded_by_hash: null
     };
     const record_hash = hashSharedMemoryRecord(base);
     if (wasExported.get(record_hash)) continue;
     const recordBytes = Buffer.byteLength(JSON.stringify({ ...base, record_hash }), "utf-8");
     if (recordBytes > caps.maxBytesPerRecord) {
-      refusals.push({ observation_id: r.id, reason: "record_too_large" });
-      auditExportRefused(db, r.id, "record_too_large");
+      refusals.push({ observation_id: r2.id, reason: "record_too_large" });
+      auditExportRefused(db, r2.id, "record_too_large");
       continue;
     }
     records.push({ ...base, record_hash });
-    outboundInserts.push({ hash: record_hash, id: r.id });
+    outboundInserts.push({ hash: record_hash, id: r2.id });
   }
   const revokeRows = db.prepare(
     `SELECT o.record_hash AS h
@@ -6147,7 +6191,7 @@ async function exportSharedMemories(db, transport, opts = {}) {
           AND obs.expired_at IS NOT NULL
         LIMIT ?`
   ).all(caps.maxRecords);
-  const revokedHashes = revokeRows.map((r) => r.h);
+  const revokedHashes = revokeRows.map((r2) => r2.h);
   if (records.length === 0 && revokedHashes.length === 0) {
     return { ...zero(true), refused: refusals.length, refusals };
   }
@@ -6354,75 +6398,270 @@ function backfillQualityScores(db) {
   return backfilled;
 }
 
+// src/cost-reprice.ts
+init_config();
+init_memory_db();
+import { existsSync as existsSync16 } from "fs";
+import { dirname as dirname13, join as join11 } from "path";
+
 // src/cost-tracker.ts
 init_config();
-var DEFAULT_MODEL_PRICING = {
-  "claude-opus-4-6": { input_per_million: 15, output_per_million: 75, cache_read_per_million: 1.5, cache_write_per_million: 18.75 },
-  "claude-sonnet-4-6": { input_per_million: 3, output_per_million: 15, cache_read_per_million: 0.3, cache_write_per_million: 3.75 },
-  "claude-sonnet-4-5": { input_per_million: 3, output_per_million: 15, cache_read_per_million: 0.3, cache_write_per_million: 3.75 },
-  "claude-haiku-4-5-20251001": { input_per_million: 0.8, output_per_million: 4, cache_read_per_million: 0.08, cache_write_per_million: 1 },
-  "default": { input_per_million: 3, output_per_million: 15, cache_read_per_million: 0.3, cache_write_per_million: 3.75 }
+
+// src/model-pricing.ts
+var PRICING_VERSION = 1;
+var r = (input, cacheWrite5m, cacheWrite1h, cacheRead, output) => ({ input, cacheWrite5m, cacheWrite1h, cacheRead, output });
+var US = 1.1;
+var BUILT_IN_PRICES = {
+  "claude-fable-5-1": { ...r(10, 12.5, 20, 0.25, 50), usGeoMultiplier: US },
+  "claude-mythos-5-1": { ...r(10, 12.5, 20, 0.25, 50), usGeoMultiplier: US },
+  "claude-fable-5": { ...r(10, 12.5, 20, 1, 50), usGeoMultiplier: US },
+  "claude-mythos-5": { ...r(10, 12.5, 20, 1, 50), usGeoMultiplier: US },
+  "claude-opus-5-5": { ...r(4, 5, 8, 0.2, 20), fast: { input: 8, output: 40 }, usGeoMultiplier: US },
+  "claude-opus-5": { ...r(5, 6.25, 10, 0.5, 25), fast: { input: 10, output: 50 }, usGeoMultiplier: US },
+  "claude-opus-4-8": { ...r(5, 6.25, 10, 0.5, 25), fast: { input: 10, output: 50 }, usGeoMultiplier: US },
+  "claude-opus-4-7": { ...r(5, 6.25, 10, 0.5, 25), usGeoMultiplier: US },
+  "claude-opus-4-6": { ...r(5, 6.25, 10, 0.5, 25), usGeoMultiplier: US },
+  "claude-opus-4-5": r(5, 6.25, 10, 0.5, 25),
+  "claude-opus-4-1": r(15, 18.75, 30, 1.5, 75),
+  "claude-opus-4": r(15, 18.75, 30, 1.5, 75),
+  "claude-sonnet-5-5": { ...r(2, 2.5, 4, 0.1, 10), usGeoMultiplier: US },
+  "claude-sonnet-5": { ...r(2, 2.5, 4, 0.2, 10), usGeoMultiplier: US },
+  "claude-sonnet-4-6": { ...r(3, 3.75, 6, 0.3, 15), usGeoMultiplier: US },
+  "claude-sonnet-4-5": r(3, 3.75, 6, 0.3, 15),
+  "claude-sonnet-4": r(3, 3.75, 6, 0.3, 15),
+  "claude-haiku-5-5": {
+    ...r(0.1, 0.125, 0.2, 0.01, 0.5),
+    longPrompt: { overTokens: 1e5, rates: r(0.5, 0.625, 1, 0.05, 2.5) },
+    usGeoMultiplier: US
+  },
+  "claude-haiku-4-5": r(1, 1.25, 2, 0.1, 5)
 };
-function getModelPricing() {
-  return getConfig().analytics?.cost?.models ?? DEFAULT_MODEL_PRICING;
+function normalizeModelId(model) {
+  return model.trim().replace(/-\d{8}$/, "");
 }
-function getCurrency() {
-  return getConfig().analytics?.cost?.currency ?? "USD";
-}
-function extractTokenUsage(entries) {
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let cacheReadTokens = 0;
-  let cacheWriteTokens = 0;
-  let model = "unknown";
-  for (const entry of entries) {
-    const msg = entry.message;
-    if (entry.type === "assistant" && msg?.usage) {
-      const usage = msg.usage;
-      inputTokens += usage.input_tokens ?? 0;
-      outputTokens += usage.output_tokens ?? 0;
-      cacheReadTokens += usage.cache_read_input_tokens ?? usage.cache_read_tokens ?? 0;
-      cacheWriteTokens += usage.cache_creation_input_tokens ?? usage.cache_write_tokens ?? 0;
-    }
-    if (entry.type === "assistant" && msg?.model) {
-      model = msg.model;
-    }
-  }
-  return { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, model };
-}
-function calculateCost(usage) {
-  const pricing = getModelPricing();
-  const modelPricing = pricing[usage.model] ?? pricing["default"] ?? pricing["claude-sonnet-4-5"] ?? { input_per_million: 3, output_per_million: 15 };
-  const inputCost = usage.inputTokens / 1e6 * modelPricing.input_per_million;
-  const outputCost = usage.outputTokens / 1e6 * modelPricing.output_per_million;
-  const cacheReadCost = usage.cacheReadTokens / 1e6 * (modelPricing.cache_read_per_million ?? 0);
-  const cacheWriteCost = usage.cacheWriteTokens / 1e6 * (modelPricing.cache_write_per_million ?? 0);
+function resolveModelPrice(model, overrides = {}) {
+  if (!model) return null;
+  const id = normalizeModelId(model);
+  const builtIn = BUILT_IN_PRICES[id];
+  const o = overrides[model] ?? overrides[id];
+  if (!o) return builtIn ?? null;
+  const input = o.input_per_million;
   return {
-    totalCost: inputCost + outputCost + cacheReadCost + cacheWriteCost,
-    inputCost,
-    outputCost,
-    cacheReadCost,
-    cacheWriteCost,
-    currency: getCurrency()
+    ...builtIn,
+    input,
+    output: o.output_per_million,
+    cacheRead: o.cache_read_per_million ?? builtIn?.cacheRead ?? input * 0.1,
+    cacheWrite5m: o.cache_write_per_million ?? builtIn?.cacheWrite5m ?? input * 1.25,
+    cacheWrite1h: o.cache_write_1h_per_million ?? builtIn?.cacheWrite1h ?? input * 2
   };
 }
-function storeSessionCost(db, sessionId, usage, cost) {
-  const totalTokens = usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+function tokenCounts(u) {
+  const n = (v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0;
+  const total = n(u.cache_creation_input_tokens);
+  const has5m = typeof u.cache_creation?.ephemeral_5m_input_tokens === "number";
+  const has1h = typeof u.cache_creation?.ephemeral_1h_input_tokens === "number";
+  const w1h = has1h ? n(u.cache_creation?.ephemeral_1h_input_tokens) : 0;
+  const w5m = has5m ? n(u.cache_creation?.ephemeral_5m_input_tokens) : total - w1h;
+  return {
+    input: n(u.input_tokens),
+    output: n(u.output_tokens),
+    cacheRead: n(u.cache_read_input_tokens),
+    cacheWrite5m: Math.max(0, w5m),
+    cacheWrite1h: w1h
+  };
+}
+function priceResponse(price, u) {
+  if (!price) return null;
+  const t = tokenCounts(u);
+  const prompt = t.input + t.cacheRead + t.cacheWrite5m + t.cacheWrite1h;
+  let rates = price.longPrompt && prompt > price.longPrompt.overTokens ? price.longPrompt.rates : price;
+  if (u.speed === "fast" && price.fast) {
+    const k = price.fast.input / rates.input;
+    rates = {
+      input: price.fast.input,
+      output: price.fast.output,
+      cacheRead: rates.cacheRead * k,
+      cacheWrite5m: rates.cacheWrite5m * k,
+      cacheWrite1h: rates.cacheWrite1h * k
+    };
+  }
+  const geo = u.inference_geo === "us" ? price.usGeoMultiplier ?? 1 : 1;
+  const dollars = t.input * rates.input + t.output * rates.output + t.cacheRead * rates.cacheRead + t.cacheWrite5m * rates.cacheWrite5m + t.cacheWrite1h * rates.cacheWrite1h;
+  return dollars / 1e6 * geo;
+}
+
+// src/cost-tracker.ts
+function configPriceOverrides() {
+  return getConfig().analytics?.cost?.models ?? {};
+}
+function costTranscriptEntries(entries, opts = {}) {
+  const overrides = configPriceOverrides();
+  const out = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    costUsd: 0,
+    pricedResponses: 0,
+    unpricedResponses: 0,
+    unpricedModels: [],
+    model: "",
+    lastMessageId: null
+  };
+  const seen = /* @__PURE__ */ new Set();
+  if (opts.skipMessageId) seen.add(opts.skipMessageId);
+  const unpriced = /* @__PURE__ */ new Set();
+  for (const entry of entries) {
+    const msg = entry.message;
+    if (entry.type !== "assistant" || !msg?.usage) continue;
+    if (msg.id) {
+      if (seen.has(msg.id)) continue;
+      seen.add(msg.id);
+      out.lastMessageId = msg.id;
+    }
+    const usage = msg.usage;
+    const t = tokenCounts(usage);
+    if (t.input + t.output + t.cacheRead + t.cacheWrite5m + t.cacheWrite1h === 0) continue;
+    out.inputTokens += t.input;
+    out.outputTokens += t.output;
+    out.cacheReadTokens += t.cacheRead;
+    out.cacheWriteTokens += t.cacheWrite5m + t.cacheWrite1h;
+    const dollars = priceResponse(resolveModelPrice(msg.model, overrides), usage);
+    if (dollars === null) {
+      out.unpricedResponses++;
+      unpriced.add(msg.model ?? "unknown");
+    } else {
+      out.costUsd += dollars;
+      out.pricedResponses++;
+    }
+    if (msg.model) out.model = msg.model;
+  }
+  out.unpricedModels = [...unpriced].sort();
+  return out;
+}
+function costStatusOf(priced, unpriced) {
+  if (unpriced === 0) return "priced";
+  return priced === 0 ? "unknown" : "partial";
+}
+function storeSessionCost(db, sessionId, slice, mode = "replace") {
+  const prev = mode === "add" ? db.prepare(
+    `SELECT input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, estimated_cost_usd,
+              priced_responses, unpriced_responses, unpriced_models, model
+         FROM session_costs WHERE session_id = ?`
+  ).get(sessionId) : void 0;
+  const num = (k) => Number(prev?.[k] ?? 0) || 0;
+  const input = num("input_tokens") + slice.inputTokens;
+  const output = num("output_tokens") + slice.outputTokens;
+  const cacheRead = num("cache_read_tokens") + slice.cacheReadTokens;
+  const cacheWrite = num("cache_write_tokens") + slice.cacheWriteTokens;
+  const priced = num("priced_responses") + slice.pricedResponses;
+  const unpricedCount = num("unpriced_responses") + slice.unpricedResponses;
+  const unpricedModels = [.../* @__PURE__ */ new Set([
+    ...String(prev?.unpriced_models ?? "").split(",").filter(Boolean),
+    ...slice.unpricedModels
+  ])].sort().join(",");
+  const model = slice.model || String(prev?.model ?? "") || null;
   db.prepare(`
     INSERT INTO session_costs
-    (session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-     total_tokens, estimated_cost_usd)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      (session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+       total_tokens, estimated_cost_usd, priced_responses, unpriced_responses, unpriced_models,
+       cost_status, pricing_version)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(session_id) DO UPDATE SET
+      model = excluded.model, input_tokens = excluded.input_tokens,
+      output_tokens = excluded.output_tokens, cache_read_tokens = excluded.cache_read_tokens,
+      cache_write_tokens = excluded.cache_write_tokens, total_tokens = excluded.total_tokens,
+      estimated_cost_usd = excluded.estimated_cost_usd,
+      priced_responses = excluded.priced_responses, unpriced_responses = excluded.unpriced_responses,
+      unpriced_models = excluded.unpriced_models, cost_status = excluded.cost_status,
+      pricing_version = excluded.pricing_version
   `).run(
     sessionId,
-    usage.model,
-    usage.inputTokens,
-    usage.outputTokens,
-    usage.cacheReadTokens,
-    usage.cacheWriteTokens,
-    totalTokens,
-    cost.totalCost
+    model,
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    input + output + cacheRead + cacheWrite,
+    num("estimated_cost_usd") + slice.costUsd,
+    priced,
+    unpricedCount,
+    unpricedModels,
+    costStatusOf(priced, unpricedCount),
+    PRICING_VERSION
   );
+}
+function markSessionCostUnknown(db, sessionId) {
+  db.prepare(`
+    INSERT INTO session_costs (session_id, cost_status, pricing_version) VALUES (?, 'unknown', ?)
+    ON CONFLICT(session_id) DO UPDATE SET
+      input_tokens = 0, output_tokens = 0, cache_read_tokens = 0, cache_write_tokens = 0,
+      total_tokens = 0, estimated_cost_usd = 0, priced_responses = 0, unpriced_responses = 0,
+      unpriced_models = '', cost_status = 'unknown', pricing_version = excluded.pricing_version
+  `).run(sessionId, PRICING_VERSION);
+}
+
+// src/cost-reprice.ts
+var cursorKey = (sid) => `cost_processed_line:${sid}`;
+var lastIdKey = (sid) => `cost_last_message:${sid}`;
+var sessionLeaseKey = (sid) => `session_end_lease:${sid}`;
+async function updateSessionCost(db, sessionId, transcriptPath) {
+  const row = db.prepare("SELECT pricing_version FROM session_costs WHERE session_id = ?").get(sessionId);
+  const cursor = Number(getMemoryMeta(db, cursorKey(sessionId)) ?? "0") || 0;
+  const incremental = row?.pricing_version === PRICING_VERSION && cursor > 0;
+  const from = incremental ? cursor : 0;
+  const { entries, totalLines } = await parseTranscriptFrom(transcriptPath, from);
+  const slice = costTranscriptEntries(entries, {
+    skipMessageId: incremental ? getMemoryMeta(db, lastIdKey(sessionId)) : null
+  });
+  storeSessionCost(db, sessionId, slice, incremental ? "add" : "replace");
+  setMemoryMeta(db, cursorKey(sessionId), String(totalLines));
+  if (slice.lastMessageId) setMemoryMeta(db, lastIdKey(sessionId), slice.lastMessageId);
+}
+function defaultTranscriptFor(sessionId) {
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return null;
+  const path = join11(dirname13(getResolvedPaths().memoryDir), `${sessionId}.jsonl`);
+  return existsSync16(path) ? path : null;
+}
+async function repriceStoredSessions(db, opts = {}) {
+  const deadlineAt = opts.deadlineAt ?? Infinity;
+  const find = opts.findTranscript ?? defaultTranscriptFor;
+  const out = { repriced: 0, markedUnknown: 0, busy: 0, failed: 0, remaining: 0 };
+  const stale = db.prepare(
+    `SELECT session_id FROM session_costs WHERE pricing_version < ? ORDER BY id LIMIT ?`
+  );
+  const ttlSec = 120;
+  const tried = /* @__PURE__ */ new Set();
+  outer: while (Date.now() < deadlineAt) {
+    const ids = stale.all(PRICING_VERSION, opts.batch ?? 50).map((r2) => r2.session_id).filter((sid) => !tried.has(sid));
+    if (ids.length === 0) break;
+    for (const sid of ids) {
+      if (Date.now() >= deadlineAt) break outer;
+      tried.add(sid);
+      if (!tryAcquireMetaLease(db, sessionLeaseKey(sid), ttlSec)) {
+        out.busy++;
+        continue;
+      }
+      try {
+        const path = find(sid);
+        if (path) {
+          await updateSessionCost(db, sid, path);
+          out.repriced++;
+        } else {
+          markSessionCostUnknown(db, sid);
+          out.markedUnknown++;
+        }
+      } catch (err) {
+        out.failed++;
+        process.stderr.write(`[massu] cost reprice: ${sid}: ${err instanceof Error ? err.message : String(err)}
+`);
+      } finally {
+        releaseMetaLease(db, sessionLeaseKey(sid));
+      }
+    }
+  }
+  out.remaining = db.prepare("SELECT COUNT(*) n FROM session_costs WHERE pricing_version < ?").get(PRICING_VERSION).n;
+  return out;
 }
 
 // src/prompt-analyzer.ts
@@ -6589,14 +6828,14 @@ function collectObservations(memDb, queryText, pool, nowMs, loadVec, modelId, di
          WHERE observations_fts MATCH ?${bm25Temporal ? ` AND ${bm25Temporal}` : ""}
          ORDER BY rank LIMIT ?`
     ).all(sanitizeFts5QueryOr(queryText), pool);
-    rows.forEach((r, i) => {
-      map.set(r.id, {
-        id: r.id,
+    rows.forEach((r2, i) => {
+      map.set(r2.id, {
+        id: r2.id,
         source: "observation",
-        title: r.title,
-        snippet: snippetOf(r.detail ?? r.title),
-        importance: r.importance,
-        ageDays: ageDaysFrom(r.created_at_epoch * 1e3, nowMs),
+        title: r2.title,
+        snippet: snippetOf(r2.detail ?? r2.title),
+        importance: r2.importance,
+        ageDays: ageDaysFrom(r2.created_at_epoch * 1e3, nowMs),
         bm25Order: i,
         vecs: []
       });
@@ -6607,15 +6846,15 @@ function collectObservations(memDb, queryText, pool, nowMs, loadVec, modelId, di
     `SELECT id, title, detail, importance, created_at_epoch
        FROM observations${plainTemporal ? ` WHERE ${plainTemporal}` : ""} ORDER BY created_at_epoch DESC LIMIT ?`
   ).all(pool);
-  for (const r of recent) {
-    if (!map.has(r.id)) {
-      map.set(r.id, {
-        id: r.id,
+  for (const r2 of recent) {
+    if (!map.has(r2.id)) {
+      map.set(r2.id, {
+        id: r2.id,
         source: "observation",
-        title: r.title,
-        snippet: snippetOf(r.detail ?? r.title),
-        importance: r.importance,
-        ageDays: ageDaysFrom(r.created_at_epoch * 1e3, nowMs),
+        title: r2.title,
+        snippet: snippetOf(r2.detail ?? r2.title),
+        importance: r2.importance,
+        ageDays: ageDaysFrom(r2.created_at_epoch * 1e3, nowMs),
         bm25Order: null,
         vecs: []
       });
@@ -6655,14 +6894,14 @@ function collectLikeSource(db, source, cfg, queryText, pool, nowMs) {
            FROM ${cfg.table} WHERE (${likeClause})${cfg.temporalClause ? ` AND ${cfg.temporalClause}` : ""}
            ORDER BY ${cfg.createdCol} DESC LIMIT ?`
       ).all(...params, pool);
-      rows.forEach((r, i) => {
-        map.set(r.id, {
-          id: r.id,
+      rows.forEach((r2, i) => {
+        map.set(r2.id, {
+          id: r2.id,
           source,
-          title: r.title,
-          snippet: snippetOf(r.snippet ?? r.title),
+          title: r2.title,
+          snippet: snippetOf(r2.snippet ?? r2.title),
           importance: 3,
-          ageDays: ageExpr(r.created),
+          ageDays: ageExpr(r2.created),
           bm25Order: i,
           vecs: []
         });
@@ -6675,15 +6914,15 @@ function collectLikeSource(db, source, cfg, queryText, pool, nowMs) {
               ${cfg.snippetCol} AS snippet, ${cfg.createdCol} AS created
        FROM ${cfg.table}${cfg.temporalClause ? ` WHERE ${cfg.temporalClause}` : ""} ORDER BY ${cfg.createdCol} DESC LIMIT ?`
   ).all(pool);
-  for (const r of recent) {
-    if (!map.has(r.id)) {
-      map.set(r.id, {
-        id: r.id,
+  for (const r2 of recent) {
+    if (!map.has(r2.id)) {
+      map.set(r2.id, {
+        id: r2.id,
         source,
-        title: r.title,
-        snippet: snippetOf(r.snippet ?? r.title),
+        title: r2.title,
+        snippet: snippetOf(r2.snippet ?? r2.title),
         importance: 3,
-        ageDays: ageExpr(r.created),
+        ageDays: ageExpr(r2.created),
         bm25Order: null,
         vecs: []
       });
@@ -6703,14 +6942,14 @@ function collectKnowledgeChunks(knowledgeDb, queryText, pool, nowMs, loadVec, mo
          WHERE knowledge_fts MATCH ?
          ORDER BY rank LIMIT ?`
     ).all(sanitizeFts5QueryOr(queryText), pool);
-    rows.forEach((r, i) => {
-      map.set(r.id, {
-        id: r.id,
+    rows.forEach((r2, i) => {
+      map.set(r2.id, {
+        id: r2.id,
         source: "knowledge_chunk",
-        title: r.heading || snippetOf(r.content, 60),
-        snippet: snippetOf(r.content),
+        title: r2.heading || snippetOf(r2.content, 60),
+        snippet: snippetOf(r2.content),
         importance: 3,
-        ageDays: ageDaysFrom((r.epoch ?? 0) * 1e3, nowMs),
+        ageDays: ageDaysFrom((r2.epoch ?? 0) * 1e3, nowMs),
         bm25Order: i,
         vecs: []
       });
@@ -6742,9 +6981,9 @@ function loadEmbeddings(db, table, idCol, ids, modelId, dim, assign) {
          WHERE ${idCol} IN (${placeholders}) AND model_id = ? AND dim = ?
          LIMIT ?`
     ).all(...ids, modelId, dim, ids.length);
-    for (const r of rows) {
-      const v = blobToFloat32(r.vec);
-      if (v && v.length === dim) assign(r.id, v);
+    for (const r2 of rows) {
+      const v = blobToFloat32(r2.vec);
+      if (v && v.length === dim) assign(r2.id, v);
     }
   } catch {
   }
@@ -6854,17 +7093,17 @@ function hybridSearch(memDb, knowledgeDb, opts) {
       ageDays: c.ageDays
     };
   });
-  const top = ranked.filter((r) => r.score >= minScore).sort((a, b) => b.score - a.score || a.ageDays - b.ageDays).slice(0, limit);
+  const top = ranked.filter((r2) => r2.score >= minScore).sort((a, b) => b.score - a.score || a.ageDays - b.ageDays).slice(0, limit);
   if (includeSuperseded && opts.asOf == null) {
-    for (const r of top) {
-      const table = r.source === "observation" ? "observations" : r.source === "architecture_decision" ? "architecture_decisions" : null;
+    for (const r2 of top) {
+      const table = r2.source === "observation" ? "observations" : r2.source === "architecture_decision" ? "architecture_decisions" : null;
       if (!table) continue;
       try {
-        const row = memDb.prepare(`SELECT valid_to, superseded_by, expired_at_epoch FROM ${table} WHERE id = ?`).get(r.id);
+        const row = memDb.prepare(`SELECT valid_to, superseded_by, expired_at_epoch FROM ${table} WHERE id = ?`).get(r2.id);
         if (row && row.expired_at_epoch != null) {
           const when = row.valid_to ? row.valid_to.slice(0, 10) : "an earlier date";
           const by = row.superseded_by != null ? ` by #${row.superseded_by}` : "";
-          r.snippet = `(superseded on ${when}${by}) ${r.snippet}`;
+          r2.snippet = `(superseded on ${when}${by}) ${r2.snippet}`;
         }
       } catch {
       }
@@ -6986,11 +7225,11 @@ async function supersedeIfContradicted(memDb, knowledgeDb, args) {
       candidatePool: 20
     });
     const scored = [];
-    for (const r of results) {
-      if (r.id === args.newId) continue;
+    for (const r2 of results) {
+      if (r2.id === args.newId) continue;
       if (Date.now() - start > cfg.budgetMs) break;
-      const vec = await candidateVec(memDb, args.source, r.id);
-      if (vec) scored.push({ id: r.id, source: args.source, cosine: cosineSim(queryVec, vec) });
+      const vec = await candidateVec(memDb, args.source, r2.id);
+      if (vec) scored.push({ id: r2.id, source: args.source, cosine: cosineSim(queryVec, vec) });
     }
     let verdict = null;
     if (cfg.judgeEndpoint && Date.now() - start < cfg.budgetMs) {
@@ -7065,8 +7304,8 @@ ${d.decision}`.trim(),
 // src/memory-consolidate.ts
 init_memory_db();
 import { createHash as createHash6 } from "crypto";
-import { existsSync as existsSync16, mkdirSync as mkdirSync14, writeFileSync as writeFileSync10 } from "fs";
-import { join as join11 } from "path";
+import { existsSync as existsSync17, mkdirSync as mkdirSync14, writeFileSync as writeFileSync10 } from "fs";
+import { join as join12 } from "path";
 init_memory_embedder();
 init_memory_vector();
 var LEASE_KEY = "consolidate_lease";
@@ -7089,17 +7328,11 @@ function emptyResult() {
   };
 }
 function acquireLease(db, now, ttlSec) {
-  const raw = getMemoryMeta(db, LEASE_KEY);
-  if (raw) {
-    const expiry = Number(raw.split(":")[1]);
-    if (Number.isFinite(expiry) && expiry > now) return false;
-  }
-  setMemoryMeta(db, LEASE_KEY, `${process.pid}:${now + ttlSec}`);
-  return true;
+  return tryAcquireMetaLease(db, LEASE_KEY, ttlSec, now);
 }
 function releaseLease(db) {
   try {
-    setMemoryMeta(db, LEASE_KEY, "");
+    releaseMetaLease(db, LEASE_KEY);
   } catch {
   }
 }
@@ -7118,19 +7351,19 @@ async function stageDedupe(db, cfg, deadline, now) {
     return 0;
   }
   let deduped = 0;
-  for (const r of rows) {
+  for (const r2 of rows) {
     if (Date.now() > deadline) break;
-    const live = db.prepare(`SELECT expired_at FROM observations WHERE id = ?`).get(r.id);
+    const live = db.prepare(`SELECT expired_at FROM observations WHERE id = ?`).get(r2.id);
     if (!live || live.expired_at != null) continue;
     const res = await supersedeIfContradicted(db, null, {
-      text: `${r.title}
-${r.detail ?? ""}`.trim(),
+      text: `${r2.title}
+${r2.detail ?? ""}`.trim(),
       source: "observation",
-      newId: r.id,
+      newId: r2.id,
       nowEpochSec: now
     });
     if (res.superseded != null) deduped++;
-    setMemoryMeta(db, DEDUPE_CURSOR, String(r.id));
+    setMemoryMeta(db, DEDUPE_CURSOR, String(r2.id));
   }
   return deduped;
 }
@@ -7208,11 +7441,11 @@ async function stagePromote(db, cfg, projectRoot, deadline, now, dryRun) {
   ).all(MAX_ROWS_PER_STAGE);
   if (rows.length === 0) return { promoted: 0, refusedByTier: 0, embedderUnavailable: false };
   const vecs = /* @__PURE__ */ new Map();
-  for (const r of rows) {
+  for (const r2 of rows) {
     if (Date.now() > deadline) break;
-    const v = await embed(`${r.title}
-${r.detail ?? ""}`.trim());
-    if (v) vecs.set(r.id, v);
+    const v = await embed(`${r2.title}
+${r2.detail ?? ""}`.trim());
+    if (v) vecs.set(r2.id, v);
   }
   if (vecs.size === 0) {
     return { promoted: 0, refusedByTier: 0, embedderUnavailable: true };
@@ -7220,20 +7453,20 @@ ${r.detail ?? ""}`.trim());
   const CLUSTER_THRESHOLD = 0.8;
   const used = /* @__PURE__ */ new Set();
   const clusters = [];
-  for (const r of rows) {
-    if (used.has(r.id) || !vecs.has(r.id)) continue;
-    const cluster = [r];
-    used.add(r.id);
+  for (const r2 of rows) {
+    if (used.has(r2.id) || !vecs.has(r2.id)) continue;
+    const cluster = [r2];
+    used.add(r2.id);
     for (const other of rows) {
       if (used.has(other.id) || !vecs.has(other.id)) continue;
-      if (cosineSim(vecs.get(r.id), vecs.get(other.id)) >= CLUSTER_THRESHOLD) {
+      if (cosineSim(vecs.get(r2.id), vecs.get(other.id)) >= CLUSTER_THRESHOLD) {
         cluster.push(other);
         used.add(other.id);
       }
     }
     clusters.push(cluster);
   }
-  const candidateDir = join11(projectRoot, ".massu", "rule-candidates");
+  const candidateDir = join12(projectRoot, ".massu", "rule-candidates");
   let promoted = 0;
   for (const cluster of clusters) {
     const occurrences = cluster.reduce((n, c) => n + (c.recurrence_count || 1), 0);
@@ -7246,8 +7479,8 @@ ${r.detail ?? ""}`.trim());
 ${representative.detail}` : ""}`;
     const clusterKey = cluster.map((c) => c.title.toLowerCase().replace(/\s+/g, " ").trim()).sort().join("|");
     const promptHash = createHash6("sha256").update(clusterKey).digest("hex").slice(0, 16);
-    const candidatePath = join11(candidateDir, `${promptHash}.json`);
-    if (existsSync16(candidatePath)) continue;
+    const candidatePath = join12(candidateDir, `${promptHash}.json`);
+    if (existsSync17(candidatePath)) continue;
     if (dryRun) {
       promoted++;
       continue;
@@ -7325,14 +7558,14 @@ function stageReweight(db, cfg, now) {
      ON CONFLICT(source, record_id) DO UPDATE SET last_reweight_epoch = excluded.last_reweight_epoch`
   );
   const tx = db.transaction(() => {
-    for (const r of promote) {
-      bump.run(r.id);
-      mark.run(r.id, now);
+    for (const r2 of promote) {
+      bump.run(r2.id);
+      mark.run(r2.id, now);
       changed++;
     }
-    for (const r of demote) {
-      drop2.run(r.id);
-      mark.run(r.id, now);
+    for (const r2 of demote) {
+      drop2.run(r2.id);
+      mark.run(r2.id, now);
       changed++;
     }
   });
@@ -7423,105 +7656,184 @@ function isDirectInvocation(moduleUrl) {
 }
 
 // src/hooks/session-end.ts
+var SESSION_END_BUDGET_ENV = "MASSU_SESSION_END_BUDGET_MS";
+var DEFAULT_SESSION_END_BUDGET_MS = 2e4;
+var SESSION_END_WATCHDOG_GRACE_MS = 15e3;
+var MAX_COALESCED_RUNS = 3;
+var MIN_PHASE_BUDGET_MS = 500;
+function resolveSessionEndBudgetMs() {
+  const raw = process.env[SESSION_END_BUDGET_ENV];
+  if (raw === void 0 || raw === "") return DEFAULT_SESSION_END_BUDGET_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_SESSION_END_BUDGET_MS;
+}
+var leaseKey = sessionLeaseKey;
+var rerunKey = (sessionId) => `session_end_rerun:${sessionId}`;
+async function runCoalesced(db, sessionId, budgetMs, work) {
+  const ttlSec = Math.ceil((budgetMs + SESSION_END_WATCHDOG_GRACE_MS) / 1e3) + 1;
+  let runs = 0;
+  while (runs < MAX_COALESCED_RUNS) {
+    if (!tryAcquireMetaLease(db, leaseKey(sessionId), ttlSec)) {
+      setMemoryMeta(db, rerunKey(sessionId), "1");
+      if (!tryAcquireMetaLease(db, leaseKey(sessionId), ttlSec)) {
+        return runs === 0 ? "handed-off" : "ran";
+      }
+    }
+    runs++;
+    try {
+      setMemoryMeta(db, rerunKey(sessionId), "");
+      await work(Date.now() + budgetMs);
+    } finally {
+      releaseMetaLease(db, leaseKey(sessionId));
+    }
+    if (getMemoryMeta(db, rerunKey(sessionId)) !== "1") return "ran";
+  }
+  return "ran";
+}
+function phaseBudget(deadlineAt, phase, cap) {
+  const left = deadlineAt - Date.now();
+  if (left < MIN_PHASE_BUDGET_MS) {
+    process.stderr.write(`[massu] session-end: skipped ${phase} \u2014 ${Math.max(0, left)}ms of budget left
+`);
+    return null;
+  }
+  return Math.min(cap, left);
+}
 async function main() {
   try {
     const input = await readStdin();
     const hookInput = JSON.parse(input);
-    const { session_id, cwd } = hookInput;
+    const budgetMs = resolveSessionEndBudgetMs();
+    let watchdog;
     const db = getMemoryDb();
     try {
-      createSession(db, session_id);
-      const observations = db.prepare(
-        "SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC LIMIT 10000"
-      ).all(session_id);
-      const prompts = db.prepare(
-        "SELECT prompt_text FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC LIMIT 10000"
-      ).all(session_id);
-      const summary = buildSummaryFromObservations(observations, prompts);
-      addSummary(db, session_id, summary);
-      try {
-        await captureConversationData(db, session_id, hookInput.transcript_path);
-      } catch (_captureErr) {
-      }
-      try {
-        const { score, breakdown } = calculateQualityScore(db, session_id);
-        if (score !== 50) {
-          storeQualityScore(db, session_id, score, breakdown);
-        }
-        backfillQualityScores(db);
-      } catch (_qualityErr) {
-      }
-      try {
-        const { entries } = await parseTranscriptFrom(hookInput.transcript_path, 0);
-        const tokenUsage = extractTokenUsage(entries);
-        const cost = calculateCost(tokenUsage);
-        storeSessionCost(db, session_id, tokenUsage, cost);
-      } catch (_costErr) {
-      }
-      try {
-        analyzeSessionPrompts(db, session_id);
-      } catch (_promptErr) {
-      }
-      try {
-        await embedMissingObservations(db, { budgetMs: 3e3 });
-      } catch (_embedErr) {
-      }
-      try {
-        await runSessionSupersedeSweep(db, session_id, { budgetMs: 4e3 });
-      } catch (_supersedeErr) {
-      }
-      try {
-        const consolidationCfg = resolveConsolidationConfig();
-        if (consolidationCfg.enabled && consolidationCfg.sessionSweepEnabled) {
-          await runConsolidation(db, {
-            config: consolidationCfg,
-            budgetMs: consolidationCfg.budgetMs,
-            projectRoot: cwd
-          });
-        }
-      } catch (_consolidateErr) {
-      }
-      endSession(db, session_id, "completed");
-      archiveAndRegenerate(db, session_id);
-      let openLease = null;
-      try {
-        await drainSyncQueue(db);
-        const cloudCfg = getConfig().cloud;
-        const willTransmit = !!cloudCfg?.enabled && !!cloudCfg?.apiKey && !!cloudCfg?.endpoint && cloudCfg?.sync?.memory !== false;
-        const lease = willTransmit ? leaseLearning(db) : null;
-        openLease = lease;
-        const syncPayload = buildSyncPayload(db, session_id, observations, summary, lease);
-        const result = await syncToCloud(db, syncPayload);
-        if (lease) {
-          if (result.transmitted === true) {
-            ackLearning(db, lease);
-          } else {
-            nackLearning(db, lease, result.error ?? "not transmitted (sync disabled or unreachable)");
-          }
-        }
-        openLease = null;
-        try {
-          await pullTeamPromotions(db);
-        } catch (_pullErr) {
-        }
-        try {
-          const shareTransport = new LocalFsTransport();
-          await exportSharedMemories(db, shareTransport);
-          await importSharedMemories(db, shareTransport);
-        } catch (_shareErr) {
-        }
-      } catch (syncErr) {
-        const msg = syncErr instanceof Error ? syncErr.message : String(syncErr);
-        if (openLease) nackLearning(db, openLease, msg);
-        recordHookFailure("session-end:cloud-sync", syncErr);
-      }
+      await runCoalesced(db, hookInput.session_id, budgetMs, async (deadlineAt) => {
+        clearTimeout(watchdog);
+        watchdog = setTimeout(() => {
+          recordHookFailure(
+            "session-end:watchdog",
+            new Error(`a run exceeded its ${budgetMs}ms budget by ${SESSION_END_WATCHDOG_GRACE_MS}ms`)
+          );
+          process.exit(0);
+        }, budgetMs + SESSION_END_WATCHDOG_GRACE_MS);
+        watchdog.unref();
+        await runSessionEnd(db, hookInput, deadlineAt);
+      });
     } finally {
+      clearTimeout(watchdog);
       db.close();
     }
   } catch (err) {
     recordHookFailure("session-end", err);
   }
   process.exit(0);
+}
+async function runSessionEnd(db, hookInput, deadlineAt) {
+  const { session_id, cwd } = hookInput;
+  {
+    createSession(db, session_id);
+    const observations = db.prepare(
+      "SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC LIMIT 10000"
+    ).all(session_id);
+    const prompts = db.prepare(
+      "SELECT prompt_text FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC LIMIT 10000"
+    ).all(session_id);
+    const summary = buildSummaryFromObservations(observations, prompts);
+    addSummary(db, session_id, summary);
+    try {
+      await captureConversationData(db, session_id, hookInput.transcript_path);
+    } catch (_captureErr) {
+    }
+    try {
+      const { score, breakdown } = calculateQualityScore(db, session_id);
+      if (score !== 50) {
+        storeQualityScore(db, session_id, score, breakdown);
+      }
+      backfillQualityScores(db);
+    } catch (_qualityErr) {
+    }
+    try {
+      await updateSessionCost(db, session_id, hookInput.transcript_path);
+    } catch (costErr) {
+      recordHookFailure("session-end:cost", costErr);
+    }
+    try {
+      analyzeSessionPrompts(db, session_id);
+    } catch (_promptErr) {
+    }
+    try {
+      const budget = phaseBudget(deadlineAt, "embed sweep", 3e3);
+      if (budget !== null) await embedMissingObservations(db, { budgetMs: budget });
+    } catch (_embedErr) {
+    }
+    try {
+      const budget = phaseBudget(deadlineAt, "supersede sweep", 4e3);
+      if (budget !== null) await runSessionSupersedeSweep(db, session_id, { budgetMs: budget });
+    } catch (_supersedeErr) {
+    }
+    try {
+      const consolidationCfg = resolveConsolidationConfig();
+      if (consolidationCfg.enabled && consolidationCfg.sessionSweepEnabled) {
+        const budget = phaseBudget(deadlineAt, "consolidation", consolidationCfg.budgetMs);
+        if (budget !== null) {
+          await runConsolidation(db, {
+            config: consolidationCfg,
+            budgetMs: budget,
+            projectRoot: cwd
+          });
+        }
+      }
+    } catch (_consolidateErr) {
+    }
+    try {
+      const budget = phaseBudget(deadlineAt, "cost reprice", 3e3);
+      if (budget !== null) await repriceStoredSessions(db, { deadlineAt: Date.now() + budget });
+    } catch (repriceErr) {
+      recordHookFailure("session-end:cost-reprice", repriceErr);
+    }
+    endSession(db, session_id, "completed");
+    archiveAndRegenerate(db, session_id);
+    let openLease = null;
+    try {
+      const drained = await drainSyncQueue(db, deadlineAt);
+      if (drained.deferred > 0) {
+        process.stderr.write(`[massu] session-end: deferred ${drained.deferred} queued sync item(s) to the next run
+`);
+      }
+      const cloudCfg = getConfig().cloud;
+      const willTransmit = !!cloudCfg?.enabled && !!cloudCfg?.apiKey && !!cloudCfg?.endpoint && cloudCfg?.sync?.memory !== false;
+      const lease = willTransmit ? leaseLearning(db) : null;
+      openLease = lease;
+      const syncPayload = buildSyncPayload(db, session_id, observations, summary, lease);
+      const result = await syncToCloud(db, syncPayload, { deadlineAt });
+      if (lease) {
+        if (result.transmitted === true) {
+          ackLearning(db, lease);
+        } else {
+          nackLearning(db, lease, result.error ?? "not transmitted (sync disabled or unreachable)");
+        }
+      }
+      openLease = null;
+      try {
+        if (phaseBudget(deadlineAt, "team promotion pull", Infinity) !== null) {
+          await pullTeamPromotions(db);
+        }
+      } catch (_pullErr) {
+      }
+      try {
+        if (phaseBudget(deadlineAt, "shared-memory exchange", Infinity) !== null) {
+          const shareTransport = new LocalFsTransport();
+          await exportSharedMemories(db, shareTransport);
+          await importSharedMemories(db, shareTransport);
+        }
+      } catch (_shareErr) {
+      }
+    } catch (syncErr) {
+      const msg = syncErr instanceof Error ? syncErr.message : String(syncErr);
+      if (openLease) nackLearning(db, openLease, msg);
+      recordHookFailure("session-end:cloud-sync", syncErr);
+    }
+  }
 }
 function buildSyncPayload(db, sessionId, observations, summary, lease) {
   const promotions = lease?.promotions ?? [];
@@ -7785,3 +8097,11 @@ function readStdin() {
 if (isDirectInvocation(import.meta.url)) {
   main();
 }
+export {
+  DEFAULT_SESSION_END_BUDGET_MS,
+  MAX_COALESCED_RUNS,
+  SESSION_END_BUDGET_ENV,
+  SESSION_END_WATCHDOG_GRACE_MS,
+  resolveSessionEndBudgetMs,
+  runCoalesced
+};

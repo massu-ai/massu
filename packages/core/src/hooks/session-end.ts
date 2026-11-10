@@ -8,7 +8,7 @@
 // Dependencies: P1-002, P5-001, P5-002
 // ============================================================
 
-import { getMemoryDb, endSession, addSummary, createSession, addConversationTurn, addToolCallDetail, getLastProcessedLine, setLastProcessedLine, getRecurrenceCountForPromptHash, embedMissingObservations } from '../memory-db.ts';
+import { getMemoryDb, endSession, addSummary, createSession, addConversationTurn, addToolCallDetail, getLastProcessedLine, setLastProcessedLine, getRecurrenceCountForPromptHash, embedMissingObservations, getMemoryMeta, setMemoryMeta, tryAcquireMetaLease, releaseMetaLease } from '../memory-db.ts';
 // Layer 2: learned rules are delivered under a lease/ack contract — a promoted
 // rule is deleted ONLY when the server confirms it. See rule-delivery.ts.
 import { leaseLearning, ackLearning, nackLearning, type LearningLease } from '../rule-delivery.ts';
@@ -22,7 +22,7 @@ import { exportSharedMemories } from '../shared-memory-export.ts';
 import { LocalFsTransport } from '../shared-memory-transport.ts';
 import { getConfig } from '../config.ts';
 import { calculateQualityScore, storeQualityScore, backfillQualityScores } from '../analytics.ts';
-import { extractTokenUsage, calculateCost, storeSessionCost } from '../cost-tracker.ts';
+import { updateSessionCost, repriceStoredSessions, sessionLeaseKey } from '../cost-reprice.ts';
 import { analyzeSessionPrompts } from '../prompt-analyzer.ts';
 import { runSessionSupersedeSweep } from '../memory-supersede.ts';
 import { runConsolidation } from '../memory-consolidate.ts';
@@ -40,14 +40,130 @@ interface HookInput {
   hook_event_name: string;
 }
 
+// ============================================================
+// Time budget, watchdog and coalescing
+// (plan-2026-07-23-hook-latency-silent-loss-fixes, P3; operator decision 2026-11-09)
+//
+// This hook runs on Stop, i.e. at the end of EVERY assistant turn. It used to block the
+// turn: measured 11-15 s per turn (max 21 s) on a 15 MB transcript, for every user `massu
+// init` installs. It now runs as an `async` hook, so nobody waits for it — which moves
+// three responsibilities INTO this file, because Claude Code enforces no timeout on an
+// async hook and starts a new one at the end of every turn whether the last has finished:
+//   1. a DEADLINE shared by every phase, so a run is bounded and defers what it cannot do;
+//   2. a WATCHDOG, so a run that hangs anyway cannot live forever;
+//   3. COALESCING per session, so two runs never process one session's transcript at
+//      once (they would both read the same cursors and double-count turns and cost).
+// ============================================================
+
+export const SESSION_END_BUDGET_ENV = 'MASSU_SESSION_END_BUDGET_MS';
+export const DEFAULT_SESSION_END_BUDGET_MS = 20_000;
+/** Past the budget, how long a run may overrun before the watchdog ends the process. */
+export const SESSION_END_WATCHDOG_GRACE_MS = 15_000;
+/** Most back-to-back runs one process will do when later turns keep asking for one. */
+export const MAX_COALESCED_RUNS = 3;
+/** Below this much budget a phase is skipped (and says so) rather than started. */
+const MIN_PHASE_BUDGET_MS = 500;
+
+/** Same validated-integer rule as `resolveBusyTimeoutMs`: a malformed knob falls back. */
+export function resolveSessionEndBudgetMs(): number {
+  const raw = process.env[SESSION_END_BUDGET_ENV];
+  if (raw === undefined || raw === '') return DEFAULT_SESSION_END_BUDGET_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_SESSION_END_BUDGET_MS;
+}
+
+const leaseKey = sessionLeaseKey;
+const rerunKey = (sessionId: string) => `session_end_rerun:${sessionId}`;
+
+export type CoalescedOutcome = 'ran' | 'handed-off';
+
+/**
+ * Run `work` for this session unless another process is already running it, in which
+ * case ask that process to run once more when it finishes and return 'handed-off'.
+ *
+ * Ordering is what makes this lossless: a waiter SETS the rerun flag before its second
+ * try at the lease, and a holder RELEASES before it reads the flag. Whatever the
+ * interleaving, either the waiter gets the lease or the holder sees the flag.
+ */
+export async function runCoalesced(
+  db: ReturnType<typeof getMemoryDb>,
+  sessionId: string,
+  budgetMs: number,
+  work: (deadlineAt: number) => Promise<void>,
+): Promise<CoalescedOutcome> {
+  const ttlSec = Math.ceil((budgetMs + SESSION_END_WATCHDOG_GRACE_MS) / 1000) + 1;
+  let runs = 0;
+  while (runs < MAX_COALESCED_RUNS) {
+    if (!tryAcquireMetaLease(db, leaseKey(sessionId), ttlSec)) {
+      setMemoryMeta(db, rerunKey(sessionId), '1');
+      if (!tryAcquireMetaLease(db, leaseKey(sessionId), ttlSec)) {
+        return runs === 0 ? 'handed-off' : 'ran';
+      }
+    }
+    runs++;
+    try {
+      setMemoryMeta(db, rerunKey(sessionId), '');
+      await work(Date.now() + budgetMs);
+    } finally {
+      releaseMetaLease(db, leaseKey(sessionId));
+    }
+    if (getMemoryMeta(db, rerunKey(sessionId)) !== '1') return 'ran';
+  }
+  // Cap reached with a rerun still requested: the flag stays set and the next Stop of
+  // this session runs it. Nothing is lost; the transcript cursors make every run resume.
+  return 'ran';
+}
+
+function phaseBudget(deadlineAt: number, phase: string, cap: number): number | null {
+  const left = deadlineAt - Date.now();
+  if (left < MIN_PHASE_BUDGET_MS) {
+    process.stderr.write(`[massu] session-end: skipped ${phase} — ${Math.max(0, left)}ms of budget left\n`);
+    return null;
+  }
+  return Math.min(cap, left);
+}
+
 async function main(): Promise<void> {
   try {
     const input = await readStdin();
     const hookInput = JSON.parse(input) as HookInput;
-    const { session_id, cwd } = hookInput;
+    const budgetMs = resolveSessionEndBudgetMs();
 
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
     const db = getMemoryDb();
     try {
+      await runCoalesced(db, hookInput.session_id, budgetMs, async (deadlineAt) => {
+        clearTimeout(watchdog);
+        watchdog = setTimeout(() => {
+          recordHookFailure(
+            'session-end:watchdog',
+            new Error(`a run exceeded its ${budgetMs}ms budget by ${SESSION_END_WATCHDOG_GRACE_MS}ms`),
+          );
+          process.exit(0);
+        }, budgetMs + SESSION_END_WATCHDOG_GRACE_MS);
+        watchdog.unref();
+        await runSessionEnd(db, hookInput, deadlineAt);
+      });
+    } finally {
+      clearTimeout(watchdog);
+      db.close();
+    }
+  } catch (err) {
+    // G-2: a hook may fail; it may not fail SILENTLY. Exit stays 0 (a Massu
+    // bug must never block the user's session) but the failure now leaves a
+    // durable trace: .massu/hook-failures.jsonl + stderr + hook_health.
+    recordHookFailure('session-end', err);
+  }
+  process.exit(0);
+}
+
+async function runSessionEnd(
+  db: ReturnType<typeof getMemoryDb>,
+  hookInput: HookInput,
+  deadlineAt: number,
+): Promise<void> {
+    const { session_id, cwd } = hookInput;
+    {
       // Ensure session exists
       createSession(db, session_id);
 
@@ -87,15 +203,13 @@ async function main(): Promise<void> {
         // Best-effort: never block session end
       }
 
-      // 4.7. Calculate and store session cost
+      // 4.7. Session cost, priced response by response (cost-reprice.ts is the one writer).
+      // Incremental from its own cursor; it used to re-parse the whole transcript every
+      // turn, drop every usage figure, and fail its INSERT on every turn after the first.
       try {
-        const { entries } = await parseTranscriptFrom(hookInput.transcript_path, 0);
-        const tokenUsage = extractTokenUsage(entries);
-        const cost = calculateCost(tokenUsage);
-
-        storeSessionCost(db, session_id, tokenUsage, cost);
-      } catch (_costErr) {
-        // Best-effort: never block session end
+        await updateSessionCost(db, session_id, hookInput.transcript_path);
+      } catch (costErr) {
+        recordHookFailure('session-end:cost', costErr);
       }
 
       // 4.8. Analyze prompt effectiveness
@@ -119,7 +233,8 @@ async function main(): Promise<void> {
       // turn. Budgeted (~3s) + fail-open: NEVER delays or breaks session end —
       // a slow/absent embedder just embeds fewer rows (recall stays FTS-only).
       try {
-        await embedMissingObservations(db, { budgetMs: 3000 });
+        const budget = phaseBudget(deadlineAt, 'embed sweep', 3000);
+        if (budget !== null) await embedMissingObservations(db, { budgetMs: budget });
       } catch (_embedErr) {
         // Best-effort: never block session end.
       }
@@ -133,7 +248,8 @@ async function main(): Promise<void> {
       // config just supersedes nothing (prior behavior). Kept here (not in the
       // hot post-tool-use hook) because it embeds text.
       try {
-        await runSessionSupersedeSweep(db, session_id, { budgetMs: 4000 });
+        const budget = phaseBudget(deadlineAt, 'supersede sweep', 4000);
+        if (budget !== null) await runSessionSupersedeSweep(db, session_id, { budgetMs: budget });
       } catch (_supersedeErr) {
         // Best-effort: never block session end.
       }
@@ -156,14 +272,27 @@ async function main(): Promise<void> {
       try {
         const consolidationCfg = resolveConsolidationConfig();
         if (consolidationCfg.enabled && consolidationCfg.sessionSweepEnabled) {
-          await runConsolidation(db, {
-            config: consolidationCfg,
-            budgetMs: consolidationCfg.budgetMs,
-            projectRoot: cwd,
-          });
+          const budget = phaseBudget(deadlineAt, 'consolidation', consolidationCfg.budgetMs);
+          if (budget !== null) {
+            await runConsolidation(db, {
+              config: consolidationCfg,
+              budgetMs: budget,
+              projectRoot: cwd,
+            });
+          }
         }
       } catch (_consolidateErr) {
         // Best-effort: never block session end.
+      }
+
+      // 4.12. Reprice stored session costs that predate the current price list — a
+      // budgeted slice per run, like consolidation, so an upgrade repairs old rows (every
+      // row written before per-response pricing held 0 tokens) with no command to run.
+      try {
+        const budget = phaseBudget(deadlineAt, 'cost reprice', 3000);
+        if (budget !== null) await repriceStoredSessions(db, { deadlineAt: Date.now() + budget });
+      } catch (repriceErr) {
+        recordHookFailure('session-end:cost-reprice', repriceErr);
       }
 
       // 5. Mark session as completed
@@ -178,8 +307,12 @@ async function main(): Promise<void> {
       // exception would otherwise sit until its TTL expires.
       let openLease: LearningLease | null = null;
       try {
-        // 7a. Drain pending sync queue
-        await drainSyncQueue(db);
+        // 7a. Drain pending sync queue, inside the run's deadline. Items it has no time
+        // for stay queued with their retry count untouched (skip is not failure).
+        const drained = await drainSyncQueue(db, deadlineAt);
+        if (drained.deferred > 0) {
+          process.stderr.write(`[massu] session-end: deferred ${drained.deferred} queued sync item(s) to the next run\n`);
+        }
 
         // 7b. Sync current session data.
         //
@@ -200,7 +333,7 @@ async function main(): Promise<void> {
         const lease = willTransmit ? leaseLearning(db) : null;
         openLease = lease;
         const syncPayload = buildSyncPayload(db, session_id, observations, summary, lease);
-        const result = await syncToCloud(db, syncPayload);
+        const result = await syncToCloud(db, syncPayload, { deadlineAt });
         if (lease) {
           // ACK ONLY ON A REAL RECEIPT (`transmitted`), never on `success` alone.
           // `syncToCloud` returns success:true when cloud sync is DISABLED — nothing
@@ -222,7 +355,9 @@ async function main(): Promise<void> {
         // Deliberately at session-END, not session-start/user-prompt (those hooks
         // are latency-critical).
         try {
-          await pullTeamPromotions(db);
+          if (phaseBudget(deadlineAt, 'team promotion pull', Infinity) !== null) {
+            await pullTeamPromotions(db);
+          }
         } catch (_pullErr) {
           // Non-blocking: pull failure never blocks session end
         }
@@ -236,9 +371,11 @@ async function main(): Promise<void> {
         // decisions (fail-closed); import verifies others' → PENDING only (a human still
         // accepts each). One shared transport instance.
         try {
-          const shareTransport = new LocalFsTransport();
-          await exportSharedMemories(db, shareTransport);
-          await importSharedMemories(db, shareTransport);
+          if (phaseBudget(deadlineAt, 'shared-memory exchange', Infinity) !== null) {
+            const shareTransport = new LocalFsTransport();
+            await exportSharedMemories(db, shareTransport);
+            await importSharedMemories(db, shareTransport);
+          }
         } catch (_shareErr) {
           // Non-blocking: a cross-repo share failure never blocks session end
         }
@@ -251,16 +388,7 @@ async function main(): Promise<void> {
         if (openLease) nackLearning(db, openLease, msg);
         recordHookFailure('session-end:cloud-sync', syncErr);
       }
-    } finally {
-      db.close();
     }
-  } catch (err) {
-    // G-2: a hook may fail; it may not fail SILENTLY. Exit stays 0 (a Massu
-    // bug must never block the user's session) but the failure now leaves a
-    // durable trace: .massu/hook-failures.jsonl + stderr + hook_health.
-    recordHookFailure('session-end', err);
-  }
-  process.exit(0);
 }
 
 /**

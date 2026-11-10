@@ -53,6 +53,19 @@ export const HOOK_TIMEOUTS: Record<string, number> = {
   'memory-recall': 10,
 } as const;
 
+/**
+ * Hooks emitted with Claude Code's `"async": true` — run in the background, so no turn
+ * waits for them. Only a hook that never has to change what Claude does may be here: an
+ * async hook cannot block, and its output arrives a turn late.
+ *
+ * `session-end` (Stop) does maintenance only — capture, cost, embeddings, sync — and
+ * measured 11-15 s per turn when it blocked. It bounds itself: a shared deadline, a
+ * watchdog, and one-run-per-session coalescing (hooks/session-end.ts), because Claude
+ * Code enforces no `timeout` on an async hook.
+ * Plan: plan-2026-07-23-hook-latency-silent-loss-fixes, P3 (operator decision 2026-11-09).
+ */
+export const BACKGROUND_HOOKS: ReadonlySet<string> = new Set(['session-end']);
+
 export type HookName = keyof typeof HOOK_TIMEOUTS;
 
 export function getHookTimeout(name: string): number {

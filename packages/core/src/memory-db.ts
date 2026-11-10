@@ -83,13 +83,17 @@ export function sanitizeFts5QueryOr(raw: string): string {
  * must survive. A version row inside a table would be unreadable at exactly the moment
  * we need it.
  *
- * A drift-guard (`db-backup-schema-version-drift-guard.test.ts`) fingerprints the DDL
- * text and FAILS if it changed without this constant being bumped — otherwise a future
- * schema change would skip its backup silently, which is the whole bug class.
+ * Bump it with EVERY DDL change, or that change skips its backup silently. NOTHING
+ * ENFORCES THIS TODAY: this comment used to cite a drift-guard
+ * (`db-backup-schema-version-drift-guard.test.ts`) that does not exist, and the columns
+ * added after v1 (sessions.consolidated_*, the bi-temporal columns) shipped without a bump
+ * (measured 2026-11-09).
  *
  * v1 = the schema as of 2026-07-13 (the first version to carry a backup gate at all).
+ * v2 = 2026-11-09: session_costs gains per-response pricing columns (cost_status,
+ *      unpriced_models, priced_responses, unpriced_responses, pricing_version).
  */
-export const MEMORY_SCHEMA_VERSION = 1;
+export const MEMORY_SCHEMA_VERSION = 2;
 
 /**
  * Connection to the memory SQLite database.
@@ -752,6 +756,19 @@ export function initMemorySchema(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_sc_session ON session_costs(session_id);
   `);
+
+  // v2 (2026-11-09): per-response pricing (model-pricing.ts). Every pre-existing row gets
+  // cost_status 'unknown' and pricing_version 0 — honest, because every row written before
+  // this held 0 tokens — and pricing_version 0 is what tells the repricer to recompute it.
+  const costCols = db.prepare(`PRAGMA table_info(session_costs)`).all() as Array<{ name: string }>;
+  const addCostCol = (name: string, ddl: string) => {
+    if (!costCols.some((c) => c.name === name)) db.exec(`ALTER TABLE session_costs ADD COLUMN ${ddl}`);
+  };
+  addCostCol('cost_status', `cost_status TEXT NOT NULL DEFAULT 'unknown'`);
+  addCostCol('unpriced_models', `unpriced_models TEXT NOT NULL DEFAULT ''`);
+  addCostCol('priced_responses', `priced_responses INTEGER NOT NULL DEFAULT 0`);
+  addCostCol('unpriced_responses', `unpriced_responses INTEGER NOT NULL DEFAULT 0`);
+  addCostCol('pricing_version', `pricing_version INTEGER NOT NULL DEFAULT 0`);
 
   // P1-002: Feature cost attribution
   db.exec(`
@@ -1434,6 +1451,42 @@ export function getMemoryMeta(db: Database.Database, key: string): string | null
 /** Generic key/value upsert into `memory_meta`. */
 export function setMemoryMeta(db: Database.Database, key: string, value: string): void {
   db.prepare('INSERT OR REPLACE INTO memory_meta (key, value) VALUES (?, ?)').run(key, value);
+}
+
+/**
+ * Take a single-writer lease stored in `memory_meta` under `key`, ATOMICALLY.
+ *
+ * The value is `<pid>:<expiry epoch seconds>`; `''` means free. One UPSERT both tests
+ * and claims, so two processes can never both win — the read-then-write lease this
+ * replaced let two racing passes both see "free" and both proceed. A holder that dies
+ * frees the lease when its expiry passes; nothing else ever has to clean up.
+ *
+ * Returns true when this process now holds the lease.
+ */
+export function tryAcquireMetaLease(
+  db: Database.Database,
+  key: string,
+  ttlSec: number,
+  nowSec: number = Math.floor(Date.now() / 1000),
+): boolean {
+  const r = db
+    .prepare(
+      `INSERT INTO memory_meta (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value
+       WHERE memory_meta.value = ''
+          OR CAST(substr(memory_meta.value, instr(memory_meta.value, ':') + 1) AS INTEGER) <= ?`,
+    )
+    .run(key, `${process.pid}:${nowSec + ttlSec}`, nowSec);
+  return Number(r.changes) === 1;
+}
+
+/**
+ * Release a lease taken by {@link tryAcquireMetaLease} — only if THIS process holds it,
+ * so a holder whose lease already expired and was re-taken cannot free the new owner's.
+ */
+export function releaseMetaLease(db: Database.Database, key: string): void {
+  db.prepare(`UPDATE memory_meta SET value = '' WHERE key = ? AND value LIKE ?`)
+    .run(key, `${process.pid}:%`);
 }
 
 // ============================================================

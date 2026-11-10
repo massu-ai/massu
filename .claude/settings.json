@@ -260,7 +260,8 @@
           {
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/packages/core/dist/hooks/session-end.js\"",
-            "timeout": 30
+            "timeout": 30,
+            "async": true
           },
           {
             "type": "command",

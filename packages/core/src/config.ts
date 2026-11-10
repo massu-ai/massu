@@ -57,11 +57,15 @@ const PatternRuleConfigSchema = z.object({
 export type PatternRuleConfig = z.infer<typeof PatternRuleConfigSchema>;
 
 // --- Cost Model ---
+// An OVERRIDE for one model, merged over the built-in price list (model-pricing.ts); it no
+// longer replaces that list. `cache_write_per_million` is the 5-minute cache-write rate.
+// Omitted cache rates come from the built-in entry, else Anthropic's standard multipliers.
 const CostModelSchema = z.object({
   input_per_million: z.number(),
   output_per_million: z.number(),
   cache_read_per_million: z.number().optional(),
   cache_write_per_million: z.number().optional(),
+  cache_write_1h_per_million: z.number().optional(),
 });
 
 // --- Analytics Config ---

@@ -110,17 +110,10 @@ analytics:
       - tests
       - rule_compliance
   cost:
-    models:
-      claude-opus-4-6:
-        input_per_million: 15
-        output_per_million: 75
-        cache_read_per_million: 1.5
-        cache_write_per_million: 3.75
-      claude-sonnet-4-5-20250929:
-        input_per_million: 3
-        output_per_million: 15
-        cache_read_per_million: 0.3
-        cache_write_per_million: 0.75
+    # Prices come from massu's built-in list (Anthropic's published rates). Add an entry
+    # under `models:` only to override one model; the two that were here were stale
+    # (opus-4-6 at 15/75, real 5/25) and would now override the correct rates.
+    models: {}
     currency: USD
   prompts:
     success_indicators:

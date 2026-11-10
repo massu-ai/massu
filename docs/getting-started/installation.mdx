@@ -114,10 +114,10 @@ Status: HEALTHY (8/8 checks passed)
 | `session-end` | Stop | Generates session summary, captures conversation turns |
 | `post-tool-use` | PostToolUse | Classifies tool calls into observations, detects patterns |
 | `user-prompt` | UserPromptSubmit | Records prompts, auto-detects plan file references |
+| `memory-recall` | UserPromptSubmit | Searches past observations, decisions and knowledge for the prompt and injects the relevant memory |
 | `pre-compact` | PreCompact | Snapshots session state before context compaction |
-| `pre-delete-check` | PreToolUse | Checks sentinel impact before file deletion |
+| `pre-tool-use-gate` | PreToolUse | Blocks catastrophic commands and secret-file access, warns on risky ones and on deletions that break registered features; blocks when it cannot decide |
 | `post-edit-context` | PostToolUse | Surfaces applicable rules after editing files |
-| `security-gate` | PreToolUse | Blocks dangerous bash commands and protected file writes |
 | `cost-tracker` | PostToolUse | Estimates and tracks token costs per tool call |
 | `quality-event` | PostToolUse | Detects test failures, type errors, and build failures |
 | `intent-suggester` | UserPromptSubmit | Suggests relevant slash commands based on your prompt |

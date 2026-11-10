@@ -1,0 +1,220 @@
+// Copyright (c) 2026 Massu. All rights reserved.
+// Licensed under BSL 1.1 - see LICENSE file for details.
+
+// THE CHECKS ONLY — no main(), no stdin. Moved out of hooks/pre-delete-check.ts on 2026-11-09:
+// pre-tool-use-gate imported this module, esbuild bundled it, and inside the bundle
+// import.meta.url === argv[1], so isDirectInvocation() was TRUE and this module's main()
+// ran alongside the gate's: a second stdin reader with a 400 ms cut-off, which under load
+// parsed a truncated payload and DENIED the call (eko, 2.5.3, 2026-11-09).
+
+// ============================================================
+// PreToolUse Hook: Pre-Deletion Feature Impact Check
+// Detects file deletion patterns (rm, git rm, Write with empty content)
+// and runs sentinel impact analysis. Blocks if critical features orphaned.
+// Also protects knowledge system files from accidental deletion (P7-005).
+// Must complete in <500ms.
+// ============================================================
+
+import type Database from 'better-sqlite3';
+import { openDatabase } from '../../db-driver.ts';
+import { resolve } from 'path';
+import { existsSync } from 'fs';
+import { getFeatureImpact } from '../../sentinel-db.ts';
+import { getProjectRoot, getResolvedPaths } from '../../config.ts';
+import { isUnderSourceDir } from '../../lib/source-layout.ts';
+import { t } from '../../lib/sql-table-names.ts';
+
+/** Registered on PreToolUse. Asserted against `.claude/settings.json` by
+ *  `hook-context-delivery-drift-guard.test.ts`, so this constant cannot drift
+ *  from the event the hook is actually wired to. */
+import { recordHookFailure } from './hook-failure-signal.ts';
+
+export interface HookInput {
+  session_id: string;
+  tool_name: string;
+  tool_input: {
+    command?: string;
+    file_path?: string;
+    content?: string;
+  };
+}
+
+const PROJECT_ROOT = getProjectRoot();
+
+// Knowledge system files that must never be silently deleted.
+// These files underpin knowledge indexing and memory retrieval.
+const KNOWLEDGE_PROTECTED_FILES = [
+  'knowledge-db.ts',
+  'knowledge-indexer.ts',
+  'knowledge-tools.ts',
+];
+
+function getDataDb(): Database.Database | null {
+  const dbPath = getResolvedPaths().dataDbPath;
+  if (!existsSync(dbPath)) return null;
+  try {
+    const db = openDatabase(dbPath, { readonly: true, selfHeal: false });
+    db.pragma('journal_mode = WAL');
+    return db;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * P7-005: Check if the tool call targets a protected knowledge system file.
+ * Returns a warning message if a protected file would be deleted/emptied.
+ */
+function checkKnowledgeFileProtection(input: HookInput): string | null {
+  const candidateFiles: string[] = [];
+
+  if (input.tool_name === 'Bash' && input.tool_input.command) {
+    const cmd = input.tool_input.command;
+    const rmMatch = cmd.match(/(?:rm|git\s+rm)\s+(?:-[rf]*\s+)*(.+)/);
+    if (rmMatch) {
+      const parts = rmMatch[1].split(/\s+/).filter(p => !p.startsWith('-'));
+      candidateFiles.push(...parts);
+    }
+  }
+
+  if (input.tool_name === 'Write' && input.tool_input.file_path) {
+    const content = input.tool_input.content || '';
+    if (content.trim().length === 0) {
+      candidateFiles.push(input.tool_input.file_path);
+    }
+  }
+
+  for (const f of candidateFiles) {
+    const basename = f.split('/').pop() ?? f;
+    if (KNOWLEDGE_PROTECTED_FILES.includes(basename)) {
+      return (
+        `KNOWLEDGE SYSTEM PROTECTION: "${basename}" is a core knowledge system file. ` +
+        `Deleting it will break knowledge indexing and memory retrieval. ` +
+        `Create a replacement before removing.`
+      );
+    }
+  }
+
+  return null;
+}
+
+function extractDeletedFiles(input: HookInput): string[] {
+  const files: string[] = [];
+
+  if (input.tool_name === 'Bash' && input.tool_input.command) {
+    const cmd = input.tool_input.command;
+
+    // Detect rm commands
+    const rmMatch = cmd.match(/(?:rm|git\s+rm)\s+(?:-[rf]*\s+)*(.+)/);
+    if (rmMatch) {
+      const paths = rmMatch[1].split(/\s+/).filter(p => !p.startsWith('-'));
+      for (const p of paths) {
+        const relPath = isUnderSourceDir(p) ? p : p.replace(PROJECT_ROOT + '/', '');
+        if (isUnderSourceDir(relPath) || relPath.endsWith('.py')) {
+          files.push(relPath);
+        }
+      }
+    }
+  }
+
+  // Detect Write tool with empty content (file replacement that empties)
+  if (input.tool_name === 'Write' && input.tool_input.file_path) {
+    const content = input.tool_input.content || '';
+    if (content.trim().length === 0) {
+      const relPath = input.tool_input.file_path.replace(PROJECT_ROOT + '/', '');
+      if (isUnderSourceDir(relPath) || relPath.endsWith('.py')) {
+        files.push(relPath);
+      }
+    }
+  }
+
+  return files;
+}
+
+/**
+ * P-E-019 (plan-stage-e-low-info-sweep): pure check function exported so
+ * `pre-tool-use-gate.ts` can compose the security-gate + pre-delete-check
+ * pair into ONE spawned node process instead of two. Returns the list of
+ * messages to emit; caller is responsible for actually writing them via
+ * `writeHookContext(HOOK_EVENT, )`.
+ */
+export function runPreDeleteChecks(hookInput: HookInput): string[] {
+  const messages: string[] = [];
+  try {
+    const knowledgeWarning = checkKnowledgeFileProtection(hookInput);
+    if (knowledgeWarning) {
+      messages.push(knowledgeWarning);
+      return messages;
+    }
+
+    const deletedFiles = extractDeletedFiles(hookInput);
+    if (deletedFiles.length === 0) return messages;
+
+    const db = getDataDb();
+    if (!db) return messages;
+
+    const SENTINEL_TABLE = t('sentinel');
+    try {
+      const tableExists = db.prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name=?`
+      ).get(SENTINEL_TABLE);
+      if (!tableExists) return messages;
+
+      const impact = getFeatureImpact(db, deletedFiles);
+      if (impact.blocked) {
+        const msg = [
+          `SENTINEL IMPACT WARNING: Deleting ${deletedFiles.length} file(s) would affect features:`,
+          '',
+        ];
+        if (impact.orphaned.length > 0) {
+          msg.push(`ORPHANED (${impact.orphaned.length} features - no primary components left):`);
+          for (const item of impact.orphaned) {
+            msg.push(`  - ${item.feature.feature_key} [${item.feature.priority}]: ${item.feature.title}`);
+          }
+        }
+        if (impact.degraded.length > 0) {
+          msg.push(`DEGRADED (${impact.degraded.length} features - some components removed):`);
+          for (const item of impact.degraded) {
+            msg.push(`  - ${item.feature.feature_key}: ${item.feature.title}`);
+          }
+        }
+        msg.push('');
+        msg.push('Create a migration plan before deleting these files.');
+        messages.push(msg.join('\n'));
+      }
+      const pyFiles = deletedFiles.filter(f => f.endsWith('.py'));
+      if (pyFiles.length > 0) {
+        try {
+          // LIMIT 10000 on each query caps per-file fan-in (P-DG-001).
+          // Realistic Python projects: <1000 importers per file; LIMIT
+          // 10000 is multiple orders beyond.
+          for (const pyFile of pyFiles) {
+            const importers = db.prepare(
+              `SELECT source_file FROM ${t('py_imports')} WHERE target_file = ? LIMIT 10000`
+            ).all(pyFile) as { source_file: string }[];
+            const routes = db.prepare(
+              `SELECT method, path FROM ${t('py_routes')} WHERE file = ? LIMIT 10000`
+            ).all(pyFile) as { method: string; path: string }[];
+            const models = db.prepare(
+              `SELECT class_name FROM ${t('py_models')} WHERE file = ? LIMIT 10000`
+            ).all(pyFile) as { class_name: string }[];
+            if (importers.length > 0 || routes.length > 0 || models.length > 0) {
+              const parts: string[] = [];
+              if (importers.length > 0) parts.push(`imported by ${importers.length} files`);
+              if (routes.length > 0) parts.push(`defines ${routes.length} routes`);
+              if (models.length > 0) parts.push(`defines ${models.length} models`);
+              messages.push(`PYTHON IMPACT: "${pyFile}" ${parts.join(', ')}. Check dependents before deleting.`);
+            }
+          }
+        } catch {
+          // Python tables may not exist yet.
+        }
+      }
+    } finally {
+      db.close();
+    }
+  } catch {
+    // Hooks must never crash — return whatever messages we accumulated.
+  }
+  return messages;
+}

@@ -40,6 +40,9 @@ _gate_subject() {
     # command string, and eval on that is arbitrary execution for a path expansion. Through
     # the documented override seam so a test can redirect it (homedir-injectability guard).
     _gate_home="${MASSU_GATE_HOME:-$HOME}"
+    # The quotes are the point: this matches a LITERAL `~` typed in the command string and
+    # expands it here, deliberately without eval (SC2088 assumes the opposite intent).
+    # shellcheck disable=SC2088
     case "$dir" in
       '~') dir="$_gate_home" ;;
       '~/'*) dir="$_gate_home/${dir#\~/}" ;;
@@ -84,59 +87,110 @@ if command -v node >/dev/null 2>&1; then
 fi
 
 # Check if core packages have staged changes
-CORE_STAGED=$(git diff --cached --name-only 2>/dev/null | grep -c '^packages/' || true)
-WEBSITE_STAGED=$(git diff --cached --name-only 2>/dev/null | grep -c '^website/' || true)
+# WHAT THIS COMMIT CAN INCLUDE — not what is staged right now (2026-11-09).
+# This hook runs BEFORE the command, so a one-line `git add X && git commit` has staged nothing
+# yet: reading `git diff --cached` here saw 0 packages/ paths, skipped tsc and npm test, and
+# passed a commit whose suite was red (516010ce). The command can stage anything pending, so the
+# scope is every staged, unstaged and untracked path — read in the commit's OWN repository
+# ($PROJECT_DIR, not this hook's cwd). Could not ask git -> scope everything (fail closed).
+_pending_paths() {
+  git -C "$PROJECT_DIR" diff --cached --name-only &&
+  git -C "$PROJECT_DIR" diff --name-only &&
+  git -C "$PROJECT_DIR" ls-files --others --exclude-standard
+}
+if PENDING="$(_pending_paths 2>/dev/null)"; then
+  CORE_STAGED=$(printf '%s\n' "$PENDING" | grep -c '^packages/' || true)
+  WEBSITE_STAGED=$(printf '%s\n' "$PENDING" | grep -c '^website/' || true)
+else
+  echo "[PRE-COMMIT GATE] could not list pending changes in $PROJECT_DIR — checking everything." >&2
+  CORE_STAGED=1
+  WEBSITE_STAGED=1
+fi
+if [ "${MASSU_PRECOMMIT_SCOPE_ONLY:-}" = "1" ]; then
+  # Test seam: report the scope decision and stop before tsc / npm test.
+  echo "scope core=$CORE_STAGED website=$WEBSITE_STAGED"
+  exit 0
+fi
 
 ERRORS=0
 
-# Type check core if core files are staged
-# NOTE: pipeline exit-code masking bug fixed (Plan 1.5.8 aftermath): the prior
-# `if ! cmd | tail -5` form checked tail's exit code, masking tsc/test failures.
-if [ "$CORE_STAGED" -gt 0 ]; then
-  cd "$PROJECT_DIR/packages/core"
-  TSC_LOG=$(mktemp)
-  if npx tsc --noEmit > "$TSC_LOG" 2>&1; then
-    tail -5 "$TSC_LOG"
-  else
-    tail -10 "$TSC_LOG" >&2
-    echo "[PRE-COMMIT GATE] TypeScript errors in packages/core. Fix before committing." >&2
-    ERRORS=$((ERRORS + 1))
+# ONE DEADLINE FOR EVERY CHECK, AND A CHECK THAT CANNOT FINISH HAS NOT PASSED (2026-11-09).
+# Claude Code cancels a PreToolUse hook at its `timeout` (120 s in .claude/settings.json) and
+# then takes NO decision, so the command runs: the gate failed OPEN whenever tsc + the full
+# suite took longer than that (measured: 1f693059 committed with a stale proof). Now each step
+# runs under bounded-run.sh against the time LEFT in MASSU_PRECOMMIT_BUDGET_SECS (default 100,
+# under the hook limit), and a step that hits it BLOCKS the commit.
+#
+# AND THE FAST TIER, NOT THE EXHAUSTIVE ONE (operator decision 2026-11-09; G31). Tests are the
+# ones the pending files reach: changed test files directly, changed sources via
+# `vitest related` (Vitest's documented pre-commit pattern). Guards that READ files rather than
+# import them — the gate registry, the plan corpus — are not in that graph; the full suite runs
+# at pre-push (`[6/22] Tests`) and in CI, as before.
+_GATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/bounded-run.sh
+. "$_GATE_DIR/../lib/bounded-run.sh" || { echo "[PRE-COMMIT GATE] cannot load bounded-run.sh — refusing." >&2; exit 2; }
+GATE_BUDGET_SECS="${MASSU_PRECOMMIT_BUDGET_SECS:-100}"
+GATE_START=$(date +%s)
+GATE_LOG_DIR=$(mktemp -d) || { echo "[PRE-COMMIT GATE] cannot create a log dir — refusing." >&2; exit 2; }
+STAGED_TMP=""
+# ONE EXIT trap for every temp dir (bash keeps only the last `trap ... EXIT`, and the plan
+# section below used to set its own). Each path is checked non-empty and a directory first (G17).
+_gate_cleanup() {
+  local d
+  for d in "${GATE_LOG_DIR:-}" "${STAGED_TMP:-}"; do
+    [ -n "$d" ] && [ -d "$d" ] && rm -rf -- "$d"
+  done
+  return 0
+}
+trap _gate_cleanup EXIT
+
+# run_step <label> <dir> <cmd...> -> 0 pass, 1 fail, 2 could not finish (both 1 and 2 block)
+run_step() {
+  local label="$1" dir="$2"; shift 2
+  local left log slug
+  left=$(( GATE_BUDGET_SECS - ($(date +%s) - GATE_START) ))
+  slug="$(printf '%s' "$label" | tr -c 'a-zA-Z0-9' '_')"
+  log="$GATE_LOG_DIR/$slug.log"
+  if [ "$left" -lt 5 ]; then
+    echo "[PRE-COMMIT GATE] no time left for: $label (budget ${GATE_BUDGET_SECS}s) — BLOCKED; a check that did not run has not passed." >&2
+    return 2
   fi
-  rm -f "$TSC_LOG"
-  cd "$PROJECT_DIR"
+  local rc=0
+  ( cd "$dir" && br_run_bounded "$left" "$log" "$@" ) || rc=$?
+  if [ "$rc" -eq 0 ]; then tail -3 "$log"; return 0; fi
+  tail -20 "$log" >&2
+  if [ "$rc" -eq "$BR_EXIT_CEILING" ]; then
+    echo "[PRE-COMMIT GATE] $label did not finish within the gate's ${GATE_BUDGET_SECS}s budget — BLOCKED (fail closed). Run it yourself, or raise MASSU_PRECOMMIT_BUDGET_SECS below the hook timeout." >&2
+    return 2
+  fi
+  echo "[PRE-COMMIT GATE] $label failed. Fix before committing." >&2
+  return 1
+}
+
+if [ "$CORE_STAGED" -gt 0 ]; then
+  run_step "TypeScript (packages/core)" "$PROJECT_DIR/packages/core" npx tsc --noEmit || ERRORS=$((ERRORS + 1))
+
+  # Test selection: pending, still-existing .ts files under packages/core, relative to it.
+  CORE_TESTS=(); CORE_SRCS=()
+  while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$PROJECT_DIR/$f" ] || continue
+    rel="${f#packages/core/}"
+    case "$rel" in
+      *.test.ts) CORE_TESTS+=("$rel") ;;
+      src/*.ts)  CORE_SRCS+=("$rel") ;;
+    esac
+  done < <(printf '%s\n' "$PENDING" | grep -E '^packages/core/.*\.ts$' || true)
+  if [ "${#CORE_TESTS[@]}" -gt 0 ]; then
+    run_step "changed tests (${#CORE_TESTS[@]})" "$PROJECT_DIR/packages/core" npx vitest run "${CORE_TESTS[@]}" || ERRORS=$((ERRORS + 1))
+  fi
+  if [ "${#CORE_SRCS[@]}" -gt 0 ]; then
+    run_step "tests related to ${#CORE_SRCS[@]} changed source file(s)" "$PROJECT_DIR/packages/core" \
+      npx vitest related --run --passWithNoTests "${CORE_SRCS[@]}" || ERRORS=$((ERRORS + 1))
+  fi
 fi
 
-# Type check website if website files are staged
 if [ "$WEBSITE_STAGED" -gt 0 ]; then
-  cd "$PROJECT_DIR/website"
-  TSC_LOG=$(mktemp)
-  if npx tsc --noEmit > "$TSC_LOG" 2>&1; then
-    tail -5 "$TSC_LOG"
-  else
-    tail -10 "$TSC_LOG" >&2
-    echo "[PRE-COMMIT GATE] TypeScript errors in website/. Fix before committing." >&2
-    ERRORS=$((ERRORS + 1))
-  fi
-  rm -f "$TSC_LOG"
-  cd "$PROJECT_DIR"
-fi
-
-# Run tests if any source files are staged
-# NOTE: Pipeline exit-code masking bug fixed (Plan 1.5.8 / commit da8049a aftermath):
-# previous form `if ! cd "$PROJECT_DIR" && npm test 2>&1 | tail -5` checked tail's exit
-# code (always 0), masking npm test failures. Switched to set -o pipefail behavior:
-# capture exit code in a temp file, then check it.
-if [ "$CORE_STAGED" -gt 0 ]; then
-  cd "$PROJECT_DIR"
-  TEST_LOG=$(mktemp)
-  if npm test > "$TEST_LOG" 2>&1; then
-    tail -5 "$TEST_LOG"
-  else
-    tail -20 "$TEST_LOG" >&2
-    echo "[PRE-COMMIT GATE] Tests failed. Fix before committing." >&2
-    ERRORS=$((ERRORS + 1))
-  fi
-  rm -f "$TEST_LOG"
+  run_step "TypeScript (website)" "$PROJECT_DIR/website" npx tsc --noEmit || ERRORS=$((ERRORS + 1))
 fi
 
 # ----------------------------------------------------------------------
@@ -151,11 +205,12 @@ fi
 # Fast-path skip: only run when this commit touches docs/plans/ or the
 # validator/scanner scripts themselves.
 # ----------------------------------------------------------------------
-PLAN_STAGED=$(git diff --cached --name-only 2>/dev/null | grep -E '^docs/plans/.+\.md$' || true)
-SCRIPT_STAGED=$(git diff --cached --name-only 2>/dev/null | grep -E '^scripts/massu-plan-(status-validator|commit-drift)\.sh$' || true)
+# Scoped by PENDING (staged + unstaged + untracked), like the checks above: the index before
+# the command ran cannot see a plan staged by a one-line `git add … && git commit`.
+PLAN_STAGED=$(printf '%s\n' "$PENDING" | grep -E '^docs/plans/.+\.md$' || true)
+SCRIPT_STAGED=$(printf '%s\n' "$PENDING" | grep -E '^scripts/massu-plan-(status-validator|commit-drift)\.sh$' || true)
 if [ -n "$PLAN_STAGED" ] || [ -n "$SCRIPT_STAGED" ]; then
-  STAGED_TMP=$(mktemp -d)
-  trap 'rm -rf "$STAGED_TMP"' EXIT
+  STAGED_TMP=$(mktemp -d)   # removed by _gate_cleanup (the single EXIT trap above)
 
   # Step 1: seed merged tree with the entire current corpus
   mkdir -p "$STAGED_TMP/docs/plans"
@@ -197,7 +252,7 @@ fi
 # gate, pre-push-light, and CI all invoke that single script (no re-hardcoded
 # number). On failure, surface the autosplit remedy.
 # ----------------------------------------------------------------------
-CLAUDE_MD_STAGED=$(git diff --cached --name-only 2>/dev/null | grep -c '^\.claude/CLAUDE\.md$' || true)
+CLAUDE_MD_STAGED=$(printf '%s\n' "$PENDING" | grep -c '^\.claude/CLAUDE\.md$' || true)
 if [ "$CLAUDE_MD_STAGED" -gt 0 ]; then
   if ! bash "$PROJECT_DIR/scripts/check-claude-md-size.sh" >&2; then
     echo "[PRE-COMMIT GATE] .claude/CLAUDE.md exceeds the size budget." >&2

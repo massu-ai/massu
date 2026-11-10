@@ -25,7 +25,7 @@ import { tmpdir } from 'os';
 import { join, basename } from 'path';
 import { getProjectRoot, getConfig } from '../config.ts';
 import { getMemoryDb, scoreFailureClasses } from '../memory-db.ts';
-import { isTestOrFixturePath } from './fix-detector.ts';
+import { isTestOrFixturePath } from './lib/test-or-fixture-path.ts';
 import { writeHookContext, type HookEvent } from './lib/write-hook-message.ts';
 
 /** Registered on PostToolUse. Asserted against `.claude/settings.json` by

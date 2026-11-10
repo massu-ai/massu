@@ -6,6 +6,7 @@ import { report } from './helpers/report.ts';
 // copies of the comment stripper and the shape classifier; a sibling instrument then re-derived
 // the same predicate with grep and got it wrong within the hour. One derivation, many consumers.
 import { discoverRunRoots } from '../../../../scripts/lib/vitest-run-roots.mjs';
+import { withHangDetection } from '../../../../scripts/lib/vitest-hang-armed.mjs';
 
 /* ------------------------------------------------------------------------------------------ */
 /*  D-3 — EVERY VITEST RUN ROOT ARMS THE HANG DETECTOR.                                       */
@@ -147,3 +148,17 @@ function trackedFiles(): string[] {
     .split('\n')
     .filter(Boolean);
 }
+
+describe('an armed run root carries no wall-clock ceiling (G27)', () => {
+  it('defaults testTimeout and hookTimeout to 0, so load cannot fail a correct test', () => {
+    const armed = withHangDetection({ test: { environment: 'node' } }) as { test: Record<string, unknown> };
+    expect(armed.test.testTimeout).toBe(0);
+    expect(armed.test.hookTimeout).toBe(0);
+  });
+
+  it('an explicit value is kept, never overwritten', () => {
+    const armed = withHangDetection({ test: { testTimeout: 1234, hookTimeout: 99 } }) as { test: Record<string, unknown> };
+    expect(armed.test.testTimeout).toBe(1234);
+    expect(armed.test.hookTimeout).toBe(99);
+  });
+});

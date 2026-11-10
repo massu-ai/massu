@@ -71,7 +71,7 @@ export function getDataDb(): Database.Database {
   return db;
 }
 
-function initDataSchema(db: Database.Database): void {
+export function initDataSchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS ${t('imports')} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

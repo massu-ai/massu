@@ -173,6 +173,7 @@ describe('repriceStoredSessions', () => {
       writeFileSync(join(dir, 'has.jsonl'), line('a') + line('a') + line('b')); // 2 responses, one repeated
       tryAcquireMetaLease(db, 'session_end_lease:busy', 600);
       const res = await repriceStoredSessions(db, {
+        attribute: () => {}, // feature attribution is covered in feature-cost-attribution.test.ts
         findTranscript: (sid) => (sid === 'has' ? join(dir, 'has.jsonl') : sid === 'broken' ? join(dir, 'missing-dir', 'x.jsonl') : null),
       });
       expect(res).toEqual({ repriced: 1, markedUnknown: 1, busy: 1, failed: 1, remaining: 2 });

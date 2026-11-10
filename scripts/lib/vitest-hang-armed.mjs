@@ -107,5 +107,17 @@ export function withHangDetection(config) {
   // beat stream and make the watcher's last-event bookkeeping ambiguous.
   const reporters = base.includes(HEARTBEAT_REPORTER) ? base : [...base, HEARTBEAT_REPORTER];
 
-  return { ...config, test: { ...test, reporters } };
+  // A wall-clock ceiling asserts the MACHINE, not the code (G27): under load a cold dynamic
+  // import ran past vitest's 5000 ms default and failed a correct test, and a failed test
+  // means vitest writes no coverage report, so the coverage gate read "unmeasured"
+  // (2026-11-09, website tier-display). Hangs are this factory's detector's job — 90 s of
+  // silence, plus the supervisor's total-runtime ceiling — so every ARMED run root retires the
+  // per-test and per-hook ceilings. DEFAULTED, never overwritten: a config that sets a value
+  // keeps it (packages/core sets both explicitly and documents why).
+  const ceilings = {
+    testTimeout: test.testTimeout ?? 0,
+    hookTimeout: test.hookTimeout ?? 0,
+  };
+
+  return { ...config, test: { ...test, ...ceilings, reporters } };
 }

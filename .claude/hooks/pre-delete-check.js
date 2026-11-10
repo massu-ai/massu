@@ -4054,7 +4054,244 @@ var init_memory_db = __esm({
   }
 });
 
-// src/hooks/pre-delete-check.ts
+// src/hooks/lib/security-gate-checks.ts
+var DANGEROUS_BASH_PATTERNS = [
+  // BLOCK — destructive and irreversible, or arbitrary remote code execution.
+  { pattern: /rm\s+-[a-z]*r[a-z]*f[a-z]*\s+\/(?:\s|$)/, label: "rm -rf /", severity: "block" },
+  { pattern: /rm\s+-[a-z]*f[a-z]*r[a-z]*\s+\/(?:\s|$)/, label: "rm -rf /", severity: "block" },
+  { pattern: /curl\s+.*\|\s*(?:bash|sh|zsh)/, label: "curl | bash (remote code execution)", severity: "block" },
+  { pattern: /wget\s+.*\|\s*(?:bash|sh|zsh)/, label: "wget | bash (remote code execution)", severity: "block" },
+  { pattern: />\s*\/etc\/passwd/, label: "write to /etc/passwd", severity: "block" },
+  { pattern: />\s*\/etc\/shadow/, label: "write to /etc/shadow", severity: "block" },
+  { pattern: />\s*\/etc\/sudoers/, label: "write to /etc/sudoers", severity: "block" },
+  { pattern: /dd\s+if=.*of=\/dev\/(?:sda|sdb|hda|hdb|nvme)/, label: "dd to raw device", severity: "block" },
+  { pattern: /mkfs\s+\/dev\//, label: "format disk device", severity: "block" },
+  { pattern: /:\(\)\s*\{\s*:\|:\s*&\s*\}/, label: "fork bomb", severity: "block" },
+  { pattern: /eval\s+.*\$\(.*curl/, label: "eval with remote curl", severity: "block" },
+  { pattern: /base64\s+-d\s+.*\|\s*(?:bash|sh|zsh)/, label: "base64 decoded shell exec", severity: "block" },
+  // WARN — bad practice, but has legitimate uses (fixing a broken permission bit,
+  // a throwaway container). Blocking these would make the product hostile.
+  { pattern: /chmod\s+777/, label: "chmod 777 (world-writable permissions)", severity: "warn" },
+  { pattern: /chmod\s+-R\s+777/, label: "chmod -R 777 (world-writable permissions)", severity: "warn" }
+];
+var PROTECTED_FILE_PATTERNS = [
+  { pattern: /\.env$/, label: ".env file" },
+  { pattern: /\.env\./, label: ".env.* file" },
+  { pattern: /credentials(?:\.json)?$/, label: "credentials file" },
+  { pattern: /\.pem$/, label: ".pem certificate/key file" },
+  { pattern: /\.key$/, label: ".key file" },
+  { pattern: /\.p12$/, label: ".p12 keystore file" },
+  { pattern: /\.pfx$/, label: ".pfx keystore file" },
+  { pattern: /id_rsa$/, label: "RSA private key" },
+  { pattern: /id_ed25519$/, label: "Ed25519 private key" },
+  { pattern: /id_ecdsa$/, label: "ECDSA private key" },
+  { pattern: /\.ssh\/config$/, label: "SSH config file" },
+  { pattern: /secrets\.yaml$/, label: "secrets.yaml file" },
+  { pattern: /secrets\.yml$/, label: "secrets.yml file" },
+  { pattern: /\.netrc$/, label: ".netrc credentials file" },
+  { pattern: /aws\/credentials$/, label: "AWS credentials file" },
+  { pattern: /kubeconfig$/, label: "Kubernetes config file" }
+];
+var SECRET_BASENAME_EXTENSIONS = ["pem", "key", "p12", "pfx", "secret"];
+var DOTENV_TEMPLATE_SUFFIXES = ["example", "template", "sample", "defaults", "dist"];
+var SECRET_EXACT_BASENAMES = [
+  "id_rsa",
+  "id_ed25519",
+  "id_ecdsa",
+  ".netrc",
+  "kubeconfig",
+  "credentials.json",
+  "secrets.yaml",
+  "secrets.yml"
+];
+var CREDENTIALS_PATH_SUFFIX = "/credentials";
+var DOTENV = ".env";
+var SECRET_DATA_EXTENSIONS = ["yaml", "yml", "json", "toml", "ini", "env", "conf", "properties", "txt"];
+function looksLikeCode(token) {
+  return /[()[\]{};=`$<>|&*?!"']/.test(token) || /\s/.test(token);
+}
+function namesSecretFile(token) {
+  if (!token || looksLikeCode(token)) return null;
+  const clean = token.replace(/[,:.]+$/, "");
+  if (!clean) return null;
+  const base = clean.split("/").pop() ?? "";
+  if (!base) return null;
+  if (SECRET_EXACT_BASENAMES.includes(base)) return base;
+  if (clean.endsWith(".ssh/config")) return "SSH config file";
+  if (clean.endsWith(CREDENTIALS_PATH_SUFFIX)) return "credentials file";
+  if (base === DOTENV) return `${DOTENV} file`;
+  if (base.startsWith(`${DOTENV}.`)) {
+    const suffix = base.slice(DOTENV.length + 1);
+    return DOTENV_TEMPLATE_SUFFIXES.includes(suffix) ? null : `${base} file`;
+  }
+  if (base.endsWith(DOTENV) && clean.includes("/")) return `${base} file`;
+  for (const ext2 of SECRET_BASENAME_EXTENSIONS) {
+    if (base.endsWith(`.${ext2}`)) return `${base} file`;
+  }
+  const parts = base.toLowerCase().split(".");
+  const ext = parts.length > 1 ? parts[parts.length - 1] : "";
+  if (SECRET_DATA_EXTENSIONS.includes(ext) && parts.slice(0, -1).some((p) => p === "secret" || p === "secrets")) {
+    return `${base} file`;
+  }
+  return null;
+}
+function shellTokens(command) {
+  const out = [];
+  let cur = "";
+  let quote = null;
+  for (const ch of command) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      cur += ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (cur) out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+function secretFilesInCommand(command) {
+  const hits = [];
+  for (const token of shellTokens(command)) {
+    const label = namesSecretFile(token);
+    if (label) hits.push(label);
+  }
+  return hits;
+}
+function checkBashCommand(command) {
+  for (const { pattern, label, severity } of DANGEROUS_BASH_PATTERNS) {
+    if (pattern.test(command)) {
+      return { label, severity };
+    }
+  }
+  return null;
+}
+function checkFilePath(filePath) {
+  for (const { pattern, label } of PROTECTED_FILE_PATTERNS) {
+    if (pattern.test(filePath)) {
+      return label;
+    }
+  }
+  return null;
+}
+var DANGEROUS_PYTHON_PATTERNS = [
+  { pattern: /\beval\s*\(/, label: "Python eval() \u2014 arbitrary code execution", scope: "code" },
+  { pattern: /\bexec\s*\(/, label: "Python exec() \u2014 arbitrary code execution", scope: "code" },
+  { pattern: /\b__import__\s*\(/, label: "Python __import__() \u2014 dynamic import (potential code injection)", scope: "code" },
+  { pattern: /subprocess\.call\([^)]*shell\s*=\s*True/, label: "subprocess.call(shell=True) \u2014 shell injection risk", scope: "code" },
+  { pattern: /subprocess\.Popen\([^)]*shell\s*=\s*True/, label: "subprocess.Popen(shell=True) \u2014 shell injection risk", scope: "code" },
+  { pattern: /os\.system\s*\(/, label: "os.system() \u2014 shell injection risk", scope: "code" },
+  { pattern: /\bf['"].*\{.*\}.*['"].*(?:execute|cursor|query)/, label: "f-string in SQL \u2014 SQL injection risk", scope: "raw" },
+  { pattern: /['"].*%s.*['"].*%.*(?:execute|cursor|query)/, label: "String formatting in SQL \u2014 SQL injection risk", scope: "raw" }
+];
+function stripPythonCommentsAndStringBodies(src) {
+  let out = "";
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === "#") {
+      while (i < src.length && src[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      const triple = src.startsWith(ch.repeat(3), i);
+      const delim = triple ? ch.repeat(3) : ch;
+      out += delim;
+      i += delim.length;
+      let closed = false;
+      while (i < src.length) {
+        if (src[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (src.startsWith(delim, i)) {
+          out += delim;
+          i += delim.length;
+          closed = true;
+          break;
+        }
+        if (!triple && src[i] === "\n") break;
+        i++;
+      }
+      if (!closed) return null;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+function checkPythonContent(content) {
+  const stripped = stripPythonCommentsAndStringBodies(content);
+  for (const { pattern, label, scope } of DANGEROUS_PYTHON_PATTERNS) {
+    const subject = scope === "raw" || stripped === null ? content : stripped;
+    if (pattern.test(subject)) {
+      return label;
+    }
+  }
+  return null;
+}
+function runSecurityGateFindings(hookInput) {
+  const findings = [];
+  const { tool_name, tool_input } = hookInput;
+  if (tool_name === "Bash" && tool_input.command) {
+    const secretFiles = secretFilesInCommand(tool_input.command);
+    if (secretFiles.length > 0) {
+      findings.push({
+        severity: "block",
+        message: `SECURITY GATE: command names a secret file: ${secretFiles.join(", ")}
+Command: ${tool_input.command.slice(0, 200)}
+BLOCKED. If this file is a template or fixture, name it with a template suffix (.example/.template/.sample) rather than weakening this check.`
+      });
+    }
+    const violation = checkBashCommand(tool_input.command);
+    if (violation) {
+      findings.push({
+        severity: violation.severity,
+        message: `SECURITY GATE: Dangerous command pattern detected: ${violation.label}
+Command: ${tool_input.command.slice(0, 200)}` + (violation.severity === "block" ? `
+BLOCKED. This pattern has no legitimate use in an agent session.` : `
+Review carefully before proceeding.`)
+      });
+    }
+  }
+  if ((tool_name === "Write" || tool_name === "Edit") && tool_input.file_path) {
+    const violation = checkFilePath(tool_input.file_path);
+    if (violation) {
+      findings.push({
+        severity: "warn",
+        message: `SECURITY GATE: Attempt to write to protected file: ${violation}
+Path: ${tool_input.file_path}
+Ensure this is intentional and no secrets will be exposed.`
+      });
+    }
+  }
+  const pyContent = tool_input.content || tool_input.new_string;
+  if ((tool_name === "Write" || tool_name === "Edit") && tool_input.file_path?.endsWith(".py") && pyContent) {
+    const pyViolation = checkPythonContent(pyContent);
+    if (pyViolation) {
+      findings.push({
+        severity: "warn",
+        message: `SECURITY GATE: Dangerous Python pattern detected: ${pyViolation}
+File: ${tool_input.file_path}
+Review carefully before proceeding.`
+      });
+    }
+  }
+  return findings;
+}
+
+// src/hooks/lib/pre-delete-checks.ts
 init_db_driver();
 import { existsSync as existsSync9 } from "fs";
 
@@ -4150,7 +4387,7 @@ function getFeatureImpact(db, filePaths) {
   };
 }
 
-// src/hooks/pre-delete-check.ts
+// src/hooks/lib/pre-delete-checks.ts
 init_config();
 
 // src/lib/source-layout.ts
@@ -4200,58 +4437,7 @@ function isUnderSourceDir(path, layout = getSourceLayout()) {
   return layout.sourceDirs.some((d) => path.startsWith(`${d}/`));
 }
 
-// src/hooks/lib/write-hook-message.ts
-var HOOK_EVENTS = [
-  "UserPromptSubmit",
-  "UserPromptExpansion",
-  "SessionStart",
-  "PreToolUse",
-  "PostToolUse",
-  "Stop",
-  "SubagentStop",
-  "PreCompact"
-];
-var ADDITIONAL_CONTEXT_MAX_CHARS = 1e4;
-function isHookEvent(value) {
-  return typeof value === "string" && HOOK_EVENTS.includes(value);
-}
-function writeHookContext(hookEventName, message) {
-  if (!isHookEvent(hookEventName)) {
-    process.stderr.write(
-      `[massu] writeHookContext: refusing to emit \u2014 unrecognised hook event ${JSON.stringify(hookEventName)}. Known: ${HOOK_EVENTS.join(", ")}.
-`
-    );
-    return;
-  }
-  if (typeof message !== "string" || message.length === 0) return;
-  let additionalContext = message;
-  if (additionalContext.length > ADDITIONAL_CONTEXT_MAX_CHARS) {
-    const marker = `
-[massu] \u2026truncated at ${ADDITIONAL_CONTEXT_MAX_CHARS} chars (spec cap).`;
-    additionalContext = additionalContext.slice(0, ADDITIONAL_CONTEXT_MAX_CHARS - marker.length) + marker;
-  }
-  process.stdout.write(
-    JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext } }) + "\n"
-  );
-}
-
-// src/hooks/pre-delete-check.ts
-init_hook_failure_signal();
-
-// src/hooks/lib/is-direct-invocation.ts
-import { pathToFileURL } from "url";
-function isDirectInvocation(moduleUrl) {
-  const entry = process.argv[1];
-  if (!entry) return false;
-  try {
-    return moduleUrl === pathToFileURL(entry).href;
-  } catch {
-    return false;
-  }
-}
-
-// src/hooks/pre-delete-check.ts
-var HOOK_EVENT = "PreToolUse";
+// src/hooks/lib/pre-delete-checks.ts
 var PROJECT_ROOT2 = getProjectRoot();
 var KNOWLEDGE_PROTECTED_FILES = [
   "knowledge-db.ts",
@@ -4390,29 +4576,153 @@ function runPreDeleteChecks(hookInput) {
   }
   return messages;
 }
-async function main() {
-  try {
-    const input = await readStdin();
-    const hookInput = JSON.parse(input);
-    const messages = runPreDeleteChecks(hookInput);
-    for (const msg of messages) writeHookContext(HOOK_EVENT, msg);
-  } catch (err) {
-    recordHookFailure("pre-delete-check", err);
-    process.stderr.write("MASSU SECURITY GATE \u2014 BLOCKED (gate could not evaluate this call)\n");
-    process.exit(2);
-  }
-  process.exit(0);
+
+// src/hooks/lib/write-hook-message.ts
+var HOOK_EVENTS = [
+  "UserPromptSubmit",
+  "UserPromptExpansion",
+  "SessionStart",
+  "PreToolUse",
+  "PostToolUse",
+  "Stop",
+  "SubagentStop",
+  "PreCompact"
+];
+var ADDITIONAL_CONTEXT_MAX_CHARS = 1e4;
+function isHookEvent(value) {
+  return typeof value === "string" && HOOK_EVENTS.includes(value);
 }
-function readStdin() {
-  return new Promise((resolve5) => {
+function writeHookContext(hookEventName, message) {
+  if (!isHookEvent(hookEventName)) {
+    process.stderr.write(
+      `[massu] writeHookContext: refusing to emit \u2014 unrecognised hook event ${JSON.stringify(hookEventName)}. Known: ${HOOK_EVENTS.join(", ")}.
+`
+    );
+    return;
+  }
+  if (typeof message !== "string" || message.length === 0) return;
+  let additionalContext = message;
+  if (additionalContext.length > ADDITIONAL_CONTEXT_MAX_CHARS) {
+    const marker = `
+[massu] \u2026truncated at ${ADDITIONAL_CONTEXT_MAX_CHARS} chars (spec cap).`;
+    additionalContext = additionalContext.slice(0, ADDITIONAL_CONTEXT_MAX_CHARS - marker.length) + marker;
+  }
+  process.stdout.write(
+    JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext } }) + "\n"
+  );
+}
+
+// src/hooks/lib/read-stdin.ts
+var StdinTimeoutError = class extends Error {
+  bytesRead;
+  constructor(ms, bytesRead) {
+    super(
+      `stdin did not reach EOF within ${ms}ms (${bytesRead} bytes read). The payload is INCOMPLETE and must not be treated as valid input.`
+    );
+    this.name = "StdinTimeoutError";
+    this.bytesRead = bytesRead;
+  }
+};
+function readStdinToEof(deadlineMs = 4e3) {
+  return new Promise((resolve5, reject) => {
     let data = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new StdinTimeoutError(deadlineMs, data.length));
+    }, deadlineMs);
+    const finish = (fn) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (chunk) => {
       data += chunk;
     });
-    process.stdin.on("end", () => resolve5(data));
-    setTimeout(() => resolve5(data), 400);
+    process.stdin.on("end", () => finish(() => resolve5(data)));
+    process.stdin.on("error", (err) => finish(() => reject(err)));
   });
+}
+
+// src/hooks/lib/pre-tool-use-decision.ts
+init_hook_failure_signal();
+var EXIT_DENY = 2;
+var EXIT_ALLOW = 0;
+function deny(reason, detail) {
+  process.stderr.write(
+    `MASSU SECURITY GATE \u2014 BLOCKED
+
+${reason}
+` + (detail ? `
+${detail}
+` : "") + `
+The gate denies by default when it cannot verify a command is safe.
+`
+  );
+  process.exit(EXIT_DENY);
+}
+async function runPreToolUseDecision(hookName, event) {
+  let hookInput;
+  let input = "";
+  try {
+    input = await readStdinToEof();
+    if (!input.trim()) {
+      recordHookFailure(hookName, new Error("empty stdin payload"));
+      deny("The gate received an EMPTY payload and could not determine what tool call was requested.");
+    }
+    hookInput = JSON.parse(input);
+  } catch (err) {
+    recordHookFailure(hookName, err, {
+      phase: "read-parse",
+      bytesRead: input.length,
+      endsWithBrace: input.trimEnd().endsWith("}")
+    });
+    deny(
+      "The gate could not READ or PARSE the tool-call payload, so it cannot know what it was being asked to approve.",
+      err instanceof Error ? `Cause: ${err.message}` : void 0
+    );
+  }
+  let findings;
+  try {
+    const security = runSecurityGateFindings(hookInput);
+    const deletes = runPreDeleteChecks(hookInput).map(
+      (message) => ({ severity: "warn", message })
+    );
+    findings = [...security, ...deletes];
+  } catch (err) {
+    recordHookFailure(hookName, err, { phase: "evaluate" });
+    deny(
+      "A security check CRASHED while evaluating this tool call. A check that did not run has not passed.",
+      err instanceof Error ? `Cause: ${err.message}` : void 0
+    );
+  }
+  for (const f of findings.filter((x) => x.severity === "warn")) {
+    writeHookContext(event, f.message);
+  }
+  const blocking = findings.filter((f) => f.severity === "block");
+  if (blocking.length > 0) deny(blocking.map((f) => f.message).join("\n\n"));
+  process.exit(EXIT_ALLOW);
+}
+
+// src/hooks/lib/is-direct-invocation.ts
+import { pathToFileURL } from "url";
+function isDirectInvocation(moduleUrl) {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return moduleUrl === pathToFileURL(entry).href;
+  } catch {
+    return false;
+  }
+}
+
+// src/hooks/pre-delete-check.ts
+var HOOK_EVENT = "PreToolUse";
+async function main() {
+  await runPreToolUseDecision("pre-delete-check", HOOK_EVENT);
 }
 if (isDirectInvocation(import.meta.url)) {
   main();

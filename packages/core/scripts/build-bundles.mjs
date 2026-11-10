@@ -10,7 +10,11 @@
 // The bundling contract itself lives in ./build-config.mjs — this file only applies it.
 //
 // Usage:  node scripts/build-bundles.mjs --cli
-//         node scripts/build-bundles.mjs --hooks
+//         node scripts/build-bundles.mjs --hooks [--outdir <dir>]
+//
+// --outdir lets a test build the hooks from the CURRENT source with this exact contract,
+// instead of judging whatever dist/ happens to hold (a stale dist hid a non-denying gate
+// on 2026-11-09).
 // ─────────────────────────────────────────────────────────────────────────────────────────
 import { build } from 'esbuild';
 import { readdirSync } from 'node:fs';
@@ -66,9 +70,9 @@ async function buildCli() {
   console.log(`[build-bundles] cli: 1 entry point -> ${outfile}`);
 }
 
-async function buildHooks() {
+async function buildHooks(outdirArg) {
   const entryPoints = hookEntryPoints();
-  const outdir = join(PKG_CORE, 'dist', 'hooks');
+  const outdir = outdirArg ? resolve(outdirArg) : join(PKG_CORE, 'dist', 'hooks');
   await build({
     ...BASE_BUILD_OPTIONS,
     entryPoints,
@@ -82,6 +86,13 @@ async function buildHooks() {
 
 async function main() {
   const args = process.argv.slice(2);
+  let outdir = null;
+  const o = args.indexOf('--outdir');
+  if (o !== -1) {
+    outdir = args[o + 1];
+    if (!outdir || outdir.startsWith('--')) throw new Error('build-bundles: --outdir needs a directory');
+    args.splice(o, 2);
+  }
   const selected = args.filter((a) => TARGETS.includes(a));
 
   // R-011: refuse an ambiguous or unmatched argument; never resolve it to the most likely
@@ -98,8 +109,9 @@ async function main() {
     );
   }
 
+  if (outdir && selected[0] !== '--hooks') throw new Error('build-bundles: --outdir applies to --hooks only');
   if (selected[0] === '--cli') await buildCli();
-  else await buildHooks();
+  else await buildHooks(outdir);
 }
 
 main().catch((err) => {

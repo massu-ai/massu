@@ -83,11 +83,11 @@ export function sanitizeFts5QueryOr(raw: string): string {
  * must survive. A version row inside a table would be unreadable at exactly the moment
  * we need it.
  *
- * Bump it with EVERY DDL change, or that change skips its backup silently. NOTHING
- * ENFORCES THIS TODAY: this comment used to cite a drift-guard
- * (`db-backup-schema-version-drift-guard.test.ts`) that does not exist, and the columns
- * added after v1 (sessions.consolidated_*, the bi-temporal columns) shipped without a bump
- * (measured 2026-11-09).
+ * Bump it with EVERY DDL change, or that change skips its backup silently. Enforced by
+ * `__tests__/memory-schema-version-guard.test.ts`: it fingerprints a fresh schema and fails
+ * when the fingerprint moves without this constant moving (pin: `memory-schema.pin.json`).
+ * Until 2026-11-09 this comment cited a guard that did not exist, and the columns added
+ * after v1 (sessions.consolidated_*, the bi-temporal columns) shipped without a bump.
  *
  * v1 = the schema as of 2026-07-13 (the first version to carry a backup gate at all).
  * v2 = 2026-11-09: session_costs gains per-response pricing columns (cost_status,

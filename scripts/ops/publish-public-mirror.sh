@@ -111,6 +111,30 @@ case "$SLUG" in
   *) echo "FATAL: could not derive an owner/repo slug from '$REMOTE_URL'" >&2; exit 1 ;;
 esac
 
+# The GitHub ACCOUNT, like the slug, comes from the push destination, never from whichever
+# account `gh` last switched to. On 2026-11-09 the active account had flipped to one without
+# access and `gh pr create` failed "must be a collaborator" after the branch was pushed. When
+# the remote URL names a user (https://<user>@github.com/...), every gh call below runs as
+# that user, and the script proves it before touching anything.
+REMOTE_USER="$(printf '%s' "$REMOTE_URL" | sed -nE 's#^https?://([^@/:]+)@github\.com/.*#\1#p')"
+if [ -n "$REMOTE_USER" ] && [ -z "${GH_TOKEN:-}" ]; then
+  GH_TOKEN="$(gh auth token --user "$REMOTE_USER" 2>/dev/null)" || GH_TOKEN=""
+  if [ -z "$GH_TOKEN" ]; then
+    echo "FATAL: the remote names GitHub user '$REMOTE_USER', who is not logged in to gh." >&2
+    echo "       Run: gh auth login   (then re-run this script)" >&2
+    exit 1
+  fi
+  export GH_TOKEN
+fi
+if [ -n "$REMOTE_USER" ]; then
+  ACTING="$(gh api user --jq .login 2>/dev/null)" || ACTING=""
+  if [ "$ACTING" != "$REMOTE_USER" ]; then
+    echo "FATAL: gh would act as '${ACTING:-nobody}', but the remote names '$REMOTE_USER'." >&2
+    exit 1
+  fi
+  echo "  gh acts as: $ACTING (named by the remote URL)"
+fi
+
 # --- The required contexts, DERIVED from the ruleset ------------------------
 # Live API first (that is what actually gates), tracked JSON as the fallback so
 # the script still works offline / with a token lacking ruleset read.

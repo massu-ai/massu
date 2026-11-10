@@ -1648,9 +1648,9 @@ function nackLearning(db, lease, error) {
   return snap;
 }
 function undeliveredSnapshot(db) {
-  const count = (t) => {
-    if (!tableExists(db, t)) return 0;
-    const r2 = db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get();
+  const count = (t2) => {
+    if (!tableExists(db, t2)) return 0;
+    const r2 = db.prepare(`SELECT COUNT(*) AS n FROM ${t2}`).get();
     return r2.n;
   };
   const promotions = count("team_promotion_outbound");
@@ -1658,10 +1658,10 @@ function undeliveredSnapshot(db) {
   const events = count(TELEMETRY_OUTBOUND_TABLE);
   let maxAttempts = 0;
   let oldest = null;
-  for (const t of RULE_OUTBOUND_TABLES) {
-    if (!tableExists(db, t)) continue;
-    if (!columns(db, t).has("attempts")) continue;
-    const r2 = db.prepare(`SELECT MAX(attempts) AS a, MIN(created_at) AS c FROM ${t}`).get();
+  for (const t2 of RULE_OUTBOUND_TABLES) {
+    if (!tableExists(db, t2)) continue;
+    if (!columns(db, t2).has("attempts")) continue;
+    const r2 = db.prepare(`SELECT MAX(attempts) AS a, MIN(created_at) AS c FROM ${t2}`).get();
     if (r2.a !== null && r2.a > maxAttempts) maxAttempts = r2.a;
     if (r2.c !== null && (oldest === null || r2.c < oldest)) oldest = r2.c;
   }
@@ -1958,13 +1958,13 @@ function encode(text, vocab, opts = {}) {
   const maxLen = opts.maxLen ?? 256;
   const basic = basicTokenize(text);
   const wpTokens = [];
-  for (const t of basic) {
-    for (const sub of wordpieceTokenize(t, vocab)) wpTokens.push(sub);
+  for (const t2 of basic) {
+    for (const sub of wordpieceTokenize(t2, vocab)) wpTokens.push(sub);
   }
   const truncated = wpTokens.slice(0, maxLen - 2);
   const tokens = [CLS, ...truncated, SEP];
   const unkId = vocab.get(UNK) ?? 100;
-  const input_ids = tokens.map((t) => vocab.get(t) ?? unkId);
+  const input_ids = tokens.map((t2) => vocab.get(t2) ?? unkId);
   const attention_mask = tokens.map(() => 1);
   const token_type_ids = tokens.map(() => 0);
   return { tokens, input_ids, attention_mask, token_type_ids };
@@ -2066,11 +2066,11 @@ async function getSession() {
 function meanPool(hidden, mask, seqLen, hiddenSize) {
   const out = new Float32Array(hiddenSize);
   let maskSum = 0;
-  for (let t = 0; t < seqLen; t++) {
-    const m = mask[t];
+  for (let t2 = 0; t2 < seqLen; t2++) {
+    const m = mask[t2];
     if (m === 0) continue;
     maskSum += m;
-    const base = t * hiddenSize;
+    const base = t2 * hiddenSize;
     for (let h = 0; h < hiddenSize; h++) out[h] += hidden[base + h] * m;
   }
   const denom = Math.max(maskSum, 1e-9);
@@ -2078,16 +2078,16 @@ function meanPool(hidden, mask, seqLen, hiddenSize) {
   return out;
 }
 function chunkForEmbedding(text) {
-  const t = text.trim();
-  if (!t) return [];
-  if (t.length <= CHUNK_TARGET_CHARS) return [t];
+  const t2 = text.trim();
+  if (!t2) return [];
+  if (t2.length <= CHUNK_TARGET_CHARS) return [t2];
   const chunks = [];
   let start = 0;
-  while (start < t.length && chunks.length < MAX_CHUNKS_PER_RECORD) {
-    let end = Math.min(start + CHUNK_TARGET_CHARS, t.length);
-    if (end < t.length) {
+  while (start < t2.length && chunks.length < MAX_CHUNKS_PER_RECORD) {
+    let end = Math.min(start + CHUNK_TARGET_CHARS, t2.length);
+    if (end < t2.length) {
       const floor = start + Math.floor(CHUNK_TARGET_CHARS / 2);
-      const slice = t.slice(start, end);
+      const slice = t2.slice(start, end);
       const para = slice.lastIndexOf("\n\n");
       const sent = Math.max(slice.lastIndexOf(". "), slice.lastIndexOf(".\n"));
       const space = slice.lastIndexOf(" ");
@@ -2099,9 +2099,9 @@ function chunkForEmbedding(text) {
         }
       }
     }
-    const chunk = t.slice(start, end).trim();
+    const chunk = t2.slice(start, end).trim();
     if (chunk) chunks.push(chunk);
-    if (end >= t.length) break;
+    if (end >= t2.length) break;
     start = Math.max(end - CHUNK_OVERLAP_CHARS, start + 1);
   }
   return chunks;
@@ -2186,17 +2186,17 @@ async function embedBatch(texts) {
   const settings = loadEmbedSettings();
   if (!settings.enabled) return texts.map(() => null);
   const results = [];
-  for (const t of texts) {
-    if (!t || !t.trim()) {
+  for (const t2 of texts) {
+    if (!t2 || !t2.trim()) {
       results.push(null);
       continue;
     }
     try {
       let vec = null;
       if (settings.endpoint) {
-        vec = await embedTier0(t, settings);
+        vec = await embedTier0(t2, settings);
       }
-      if (!vec) vec = await embedTier1(t);
+      if (!vec) vec = await embedTier1(t2);
       results.push(vec);
     } catch {
       results.push(null);
@@ -2411,14 +2411,14 @@ function sanitizeFts5Query(raw) {
   const trimmed = raw.trim();
   if (!trimmed) return '""';
   const tokens = trimmed.replace(/"/g, "").split(/\s+/).filter(Boolean);
-  return tokens.map((t) => `"${t}"`).join(" ");
+  return tokens.map((t2) => `"${t2}"`).join(" ");
 }
 function sanitizeFts5QueryOr(raw) {
   const trimmed = raw.trim();
   if (!trimmed) return '""';
-  const tokens = trimmed.replace(/"/g, "").split(/\s+/).filter((t) => t.replace(/[^a-zA-Z0-9]/g, "").length >= 3);
+  const tokens = trimmed.replace(/"/g, "").split(/\s+/).filter((t2) => t2.replace(/[^a-zA-Z0-9]/g, "").length >= 3);
   if (tokens.length === 0) return '""';
-  return tokens.map((t) => `"${t}"`).join(" OR ");
+  return tokens.map((t2) => `"${t2}"`).join(" OR ");
 }
 function getMemoryDb() {
   const dbPath = getResolvedPaths().memoryDbPath;
@@ -3364,9 +3364,9 @@ function upsertObservationEmbedding(db, observationId, vec, modelId, dim) {
   ).run(observationId, modelId, dim, float32ToBlob(vec));
 }
 function observationEmbedText(title, detail) {
-  const t = (title ?? "").trim();
+  const t2 = (title ?? "").trim();
   const d = (detail ?? "").trim();
-  return d ? `${t}. ${d}` : t;
+  return d ? `${t2}. ${d}` : t2;
 }
 async function embedMissingObservations(db, opts = {}) {
   return runEmbedSweep(
@@ -4750,7 +4750,7 @@ async function drainSyncQueue(db, deadlineAt) {
   return out;
 }
 function sleep(ms) {
-  return new Promise((resolve8) => setTimeout(resolve8, ms));
+  return new Promise((resolve9) => setTimeout(resolve9, ms));
 }
 
 // src/team-rule-sync.ts
@@ -5953,9 +5953,9 @@ var NOISE_PATTERNS = [
   /system-reminder/i
 ];
 function isSummarizableSignal(text) {
-  const t = text.trim();
-  if (t.length < 25) return false;
-  return !NOISE_PATTERNS.some((re) => re.test(t));
+  const t2 = text.trim();
+  if (t2.length < 25) return false;
+  return !NOISE_PATTERNS.some((re) => re.test(t2));
 }
 var CREDENTIAL_LABELS = ["api[_-]?key", "secret", "password", "token"];
 var LABELLED_CREDENTIAL = new RegExp(
@@ -6400,9 +6400,403 @@ function backfillQualityScores(db) {
 
 // src/cost-reprice.ts
 init_config();
-init_memory_db();
-import { existsSync as existsSync16 } from "fs";
+import { existsSync as existsSync17 } from "fs";
+import { dirname as dirname14, join as join12 } from "path";
+
+// src/db.ts
+init_db_driver();
 import { dirname as dirname13, join as join11 } from "path";
+import { existsSync as existsSync16, mkdirSync as mkdirSync14, readdirSync as readdirSync3, statSync as statSync4 } from "fs";
+
+// src/preflight.ts
+init_db_driver();
+init_config();
+
+// src/db.ts
+init_config();
+
+// src/lib/sql-table-names.ts
+init_config();
+function t(suffix) {
+  return `${getConfig().toolPrefix}_${suffix}`;
+}
+
+// src/db.ts
+function getDataDb() {
+  const dbPath = getResolvedPaths().dataDbPath;
+  const dir = dirname13(dbPath);
+  if (!existsSync16(dir)) {
+    mkdirSync14(dir, { recursive: true });
+  }
+  const db = openDatabase2(dbPath);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  initDataSchema(db);
+  return db;
+}
+function initDataSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ${t("imports")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_file TEXT NOT NULL,
+      target_file TEXT NOT NULL,
+      import_type TEXT NOT NULL CHECK(import_type IN ('named', 'default', 'namespace', 'side_effect', 'dynamic')),
+      imported_names TEXT NOT NULL DEFAULT '[]',
+      line INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_massu_imports_source ON ${t("imports")}(source_file);
+    CREATE INDEX IF NOT EXISTS idx_massu_imports_target ON ${t("imports")}(target_file);
+
+    CREATE TABLE IF NOT EXISTS ${t("trpc_procedures")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      router_file TEXT NOT NULL,
+      router_name TEXT NOT NULL,
+      procedure_name TEXT NOT NULL,
+      procedure_type TEXT NOT NULL CHECK(procedure_type IN ('query', 'mutation')),
+      has_ui_caller INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_massu_trpc_router ON ${t("trpc_procedures")}(router_name);
+
+    CREATE TABLE IF NOT EXISTS ${t("trpc_call_sites")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      procedure_id INTEGER NOT NULL,
+      file TEXT NOT NULL,
+      line INTEGER NOT NULL DEFAULT 0,
+      call_pattern TEXT NOT NULL,
+      FOREIGN KEY (procedure_id) REFERENCES ${t("trpc_procedures")}(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_massu_call_sites_proc ON ${t("trpc_call_sites")}(procedure_id);
+
+    CREATE TABLE IF NOT EXISTS ${t("page_deps")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      page_file TEXT NOT NULL,
+      route TEXT NOT NULL,
+      portal TEXT NOT NULL DEFAULT 'unknown',
+      components TEXT NOT NULL DEFAULT '[]',
+      hooks TEXT NOT NULL DEFAULT '[]',
+      routers TEXT NOT NULL DEFAULT '[]',
+      tables_touched TEXT NOT NULL DEFAULT '[]'
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_massu_page_deps_page ON ${t("page_deps")}(page_file);
+
+    CREATE TABLE IF NOT EXISTS ${t("middleware_tree")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      file TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS ${t("meta")} (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    -- ============================================================
+    -- Python Code Intelligence Tables
+    -- ============================================================
+
+    CREATE TABLE IF NOT EXISTS ${t("py_imports")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_file TEXT NOT NULL,
+      target_file TEXT NOT NULL,
+      import_type TEXT NOT NULL CHECK(import_type IN ('absolute', 'relative', 'from_absolute', 'from_relative')),
+      imported_names TEXT NOT NULL DEFAULT '[]',
+      line INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_massu_py_imports_source ON ${t("py_imports")}(source_file);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_imports_target ON ${t("py_imports")}(target_file);
+
+    CREATE TABLE IF NOT EXISTS ${t("py_meta")} (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ${t("py_routes")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      file TEXT NOT NULL,
+      method TEXT NOT NULL,
+      path TEXT NOT NULL,
+      function_name TEXT NOT NULL,
+      dependencies TEXT NOT NULL DEFAULT '[]',
+      request_model TEXT,
+      response_model TEXT,
+      is_authenticated INTEGER NOT NULL DEFAULT 0,
+      line INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_massu_py_routes_path ON ${t("py_routes")}(path);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_routes_file ON ${t("py_routes")}(file);
+
+    CREATE TABLE IF NOT EXISTS ${t("py_route_callers")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      route_id INTEGER NOT NULL REFERENCES ${t("py_routes")}(id) ON DELETE CASCADE,
+      frontend_file TEXT NOT NULL,
+      line INTEGER NOT NULL DEFAULT 0,
+      call_pattern TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_massu_py_route_callers_route ON ${t("py_route_callers")}(route_id);
+
+    CREATE TABLE IF NOT EXISTS ${t("py_models")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      class_name TEXT NOT NULL,
+      table_name TEXT,
+      file TEXT NOT NULL,
+      line INTEGER NOT NULL DEFAULT 0,
+      columns TEXT NOT NULL DEFAULT '[]',
+      relationships TEXT NOT NULL DEFAULT '[]',
+      foreign_keys TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE INDEX IF NOT EXISTS idx_massu_py_models_file ON ${t("py_models")}(file);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_models_table ON ${t("py_models")}(table_name);
+
+    CREATE TABLE IF NOT EXISTS ${t("py_fk_edges")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_table TEXT NOT NULL,
+      source_column TEXT NOT NULL,
+      target_table TEXT NOT NULL,
+      target_column TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_massu_py_fk_source ON ${t("py_fk_edges")}(source_table);
+    CREATE INDEX IF NOT EXISTS idx_massu_py_fk_target ON ${t("py_fk_edges")}(target_table);
+
+    CREATE TABLE IF NOT EXISTS ${t("py_migrations")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      revision TEXT NOT NULL UNIQUE,
+      down_revision TEXT,
+      file TEXT NOT NULL,
+      description TEXT,
+      operations TEXT NOT NULL DEFAULT '[]',
+      is_head INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_massu_py_migrations_rev ON ${t("py_migrations")}(revision);
+
+    -- ============================================================
+    -- Sentinel: Feature Registry Tables
+    -- ============================================================
+
+    -- Core feature definition
+    CREATE TABLE IF NOT EXISTS ${t("sentinel")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      feature_key TEXT UNIQUE NOT NULL,
+      domain TEXT NOT NULL,
+      subdomain TEXT,
+      title TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'active'
+        CHECK(status IN ('planned', 'active', 'deprecated', 'removed')),
+      priority TEXT DEFAULT 'standard'
+        CHECK(priority IN ('critical', 'standard', 'nice-to-have')),
+      portal_scope TEXT DEFAULT '[]',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      removed_at TEXT,
+      removed_reason TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sentinel_domain ON ${t("sentinel")}(domain);
+    CREATE INDEX IF NOT EXISTS idx_sentinel_status ON ${t("sentinel")}(status);
+    CREATE INDEX IF NOT EXISTS idx_sentinel_key ON ${t("sentinel")}(feature_key);
+
+    -- Feature-to-component mapping (many-to-many)
+    CREATE TABLE IF NOT EXISTS ${t("sentinel_components")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      feature_id INTEGER NOT NULL REFERENCES ${t("sentinel")}(id) ON DELETE CASCADE,
+      component_file TEXT NOT NULL,
+      component_name TEXT,
+      role TEXT DEFAULT 'implementation'
+        CHECK(role IN ('implementation', 'ui', 'data', 'utility')),
+      is_primary BOOLEAN DEFAULT 0,
+      UNIQUE(feature_id, component_file, component_name)
+    );
+
+    -- Feature-to-procedure mapping (many-to-many)
+    CREATE TABLE IF NOT EXISTS ${t("sentinel_procedures")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      feature_id INTEGER NOT NULL REFERENCES ${t("sentinel")}(id) ON DELETE CASCADE,
+      router_name TEXT NOT NULL,
+      procedure_name TEXT NOT NULL,
+      procedure_type TEXT,
+      UNIQUE(feature_id, router_name, procedure_name)
+    );
+
+    -- Feature-to-page mapping (where feature is accessible)
+    CREATE TABLE IF NOT EXISTS ${t("sentinel_pages")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      feature_id INTEGER NOT NULL REFERENCES ${t("sentinel")}(id) ON DELETE CASCADE,
+      page_route TEXT NOT NULL,
+      portal TEXT,
+      UNIQUE(feature_id, page_route, portal)
+    );
+
+    -- Feature dependency graph
+    CREATE TABLE IF NOT EXISTS ${t("sentinel_deps")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      feature_id INTEGER NOT NULL REFERENCES ${t("sentinel")}(id) ON DELETE CASCADE,
+      depends_on_feature_id INTEGER NOT NULL REFERENCES ${t("sentinel")}(id) ON DELETE CASCADE,
+      dependency_type TEXT DEFAULT 'requires'
+        CHECK(dependency_type IN ('requires', 'enhances', 'replaces')),
+      UNIQUE(feature_id, depends_on_feature_id)
+    );
+
+    -- Feature change log (audit trail)
+    CREATE TABLE IF NOT EXISTS ${t("sentinel_changelog")} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      feature_id INTEGER NOT NULL REFERENCES ${t("sentinel")}(id) ON DELETE CASCADE,
+      change_type TEXT NOT NULL,
+      changed_by TEXT,
+      change_detail TEXT,
+      commit_hash TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sentinel_components_file ON ${t("sentinel_components")}(component_file);
+    CREATE INDEX IF NOT EXISTS idx_sentinel_procedures_router ON ${t("sentinel_procedures")}(router_name);
+    CREATE INDEX IF NOT EXISTS idx_sentinel_pages_route ON ${t("sentinel_pages")}(page_route);
+    CREATE INDEX IF NOT EXISTS idx_sentinel_changelog_feature ON ${t("sentinel_changelog")}(feature_id);
+  `);
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS ${t("sentinel_fts")} USING fts5(
+      feature_key, title, description, domain, subdomain,
+      content=${t("sentinel")}, content_rowid=id
+    );
+  `);
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS massu_sentinel_ai AFTER INSERT ON ${t("sentinel")} BEGIN
+      INSERT INTO ${t("sentinel_fts")}(rowid, feature_key, title, description, domain, subdomain)
+      VALUES (new.id, new.feature_key, new.title, new.description, new.domain, new.subdomain);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS massu_sentinel_ad AFTER DELETE ON ${t("sentinel")} BEGIN
+      INSERT INTO ${t("sentinel_fts")}(${t("sentinel_fts")}, rowid, feature_key, title, description, domain, subdomain)
+      VALUES ('delete', old.id, old.feature_key, old.title, old.description, old.domain, old.subdomain);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS massu_sentinel_au AFTER UPDATE ON ${t("sentinel")} BEGIN
+      INSERT INTO ${t("sentinel_fts")}(${t("sentinel_fts")}, rowid, feature_key, title, description, domain, subdomain)
+      VALUES ('delete', old.id, old.feature_key, old.title, old.description, old.domain, old.subdomain);
+      INSERT INTO ${t("sentinel_fts")}(rowid, feature_key, title, description, domain, subdomain)
+      VALUES (new.id, new.feature_key, new.title, new.description, new.domain, new.subdomain);
+    END;
+  `);
+}
+
+// src/feature-cost-attribution.ts
+import { isAbsolute as isAbsolute2, relative as relative2, resolve as resolve8 } from "path";
+
+// src/sentinel-db.ts
+init_config();
+init_memory_db();
+var PROJECT_ROOT = getProjectRoot();
+function parsePortalScope(raw) {
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+function toFeature(row) {
+  return {
+    id: row.id,
+    feature_key: row.feature_key,
+    domain: row.domain,
+    subdomain: row.subdomain || null,
+    title: row.title,
+    description: row.description || null,
+    status: row.status,
+    priority: row.priority,
+    portal_scope: parsePortalScope(row.portal_scope),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    removed_at: row.removed_at || null,
+    removed_reason: row.removed_reason || null
+  };
+}
+function getFeaturesByFile(db, filePath) {
+  const rows = db.prepare(`
+    SELECT DISTINCT s.* FROM ${t("sentinel")} s
+    JOIN ${t("sentinel_components")} c ON c.feature_id = s.id
+    WHERE c.component_file = ?
+    ORDER BY s.feature_key
+    LIMIT 1000
+  `).all(filePath);
+  return rows.map(toFeature);
+}
+
+// src/feature-cost-attribution.ts
+var UNATTRIBUTED_FEATURE = "(no registered feature)";
+var MAX_SESSION_FILES = 2e4;
+function sessionFileTouches(memDb, sessionId, projectRoot) {
+  const rows = memDb.prepare(
+    `SELECT j.value AS file, COUNT(*) AS n
+       FROM tool_call_details t, json_each(t.files_involved) j
+      WHERE t.session_id = ? AND json_valid(t.files_involved)
+        AND json_type(t.files_involved) = 'array' AND j.type = 'text' AND j.value <> ''
+      GROUP BY j.value
+      LIMIT ?`
+  ).all(sessionId, MAX_SESSION_FILES + 1);
+  if (rows.length > MAX_SESSION_FILES) {
+    throw new Error(`session ${sessionId} touched more than ${MAX_SESSION_FILES} distinct files; not allocating a truncated list`);
+  }
+  const touches = /* @__PURE__ */ new Map();
+  for (const { file, n } of rows) {
+    const abs = isAbsolute2(file) ? file : resolve8(projectRoot, file);
+    const rel = relative2(projectRoot, abs);
+    const key = rel.startsWith("..") || isAbsolute2(rel) ? abs : rel;
+    touches.set(key, (touches.get(key) ?? 0) + Number(n));
+  }
+  return touches;
+}
+function allocateSessionCost(touches, featuresOf, totals) {
+  const units = /* @__PURE__ */ new Map();
+  let all = 0;
+  for (const [file, n] of touches) {
+    all += n;
+    const features = [...new Set(featuresOf(file))];
+    if (features.length === 0) {
+      units.set(UNATTRIBUTED_FEATURE, (units.get(UNATTRIBUTED_FEATURE) ?? 0) + n);
+    } else {
+      for (const k of features) units.set(k, (units.get(k) ?? 0) + n / features.length);
+    }
+  }
+  if (all === 0) return [{ featureKey: UNATTRIBUTED_FEATURE, share: 1, tokens: totals.tokens, costUsd: totals.costUsd }];
+  return [...units].map(([featureKey, u]) => ({
+    featureKey,
+    share: u / all,
+    tokens: Math.round(totals.tokens * u / all),
+    costUsd: totals.costUsd * u / all
+  })).sort((a, b) => b.costUsd - a.costUsd || a.featureKey.localeCompare(b.featureKey));
+}
+function attributeSessionCost(memDb, dataDb, sessionId, projectRoot) {
+  const cost = memDb.prepare(
+    `SELECT total_tokens, estimated_cost_usd, cost_status FROM session_costs WHERE session_id = ?`
+  ).get(sessionId);
+  const replace = memDb.transaction((rows2) => {
+    memDb.prepare("DELETE FROM feature_costs WHERE session_id = ?").run(sessionId);
+    const ins = memDb.prepare(
+      "INSERT INTO feature_costs (feature_key, session_id, tokens_used, estimated_cost_usd) VALUES (?, ?, ?, ?)"
+    );
+    for (const r2 of rows2) ins.run(r2.featureKey, sessionId, r2.tokens, r2.costUsd);
+  });
+  if (!cost || cost.cost_status === "unknown") {
+    replace([]);
+    return [];
+  }
+  const touches = sessionFileTouches(memDb, sessionId, projectRoot);
+  const featuresOf = (file) => {
+    const keys = getFeaturesByFile(dataDb, file).map((f) => f.feature_key);
+    if (!isAbsolute2(file)) keys.push(...getFeaturesByFile(dataDb, resolve8(projectRoot, file)).map((f) => f.feature_key));
+    return keys;
+  };
+  const rows = allocateSessionCost(touches, featuresOf, { tokens: cost.total_tokens, costUsd: cost.estimated_cost_usd });
+  replace(rows);
+  return rows;
+}
+
+// src/cost-reprice.ts
+init_hook_failure_signal();
+init_memory_db();
 
 // src/cost-tracker.ts
 init_config();
@@ -6472,8 +6866,8 @@ function tokenCounts(u) {
 }
 function priceResponse(price, u) {
   if (!price) return null;
-  const t = tokenCounts(u);
-  const prompt = t.input + t.cacheRead + t.cacheWrite5m + t.cacheWrite1h;
+  const t2 = tokenCounts(u);
+  const prompt = t2.input + t2.cacheRead + t2.cacheWrite5m + t2.cacheWrite1h;
   let rates = price.longPrompt && prompt > price.longPrompt.overTokens ? price.longPrompt.rates : price;
   if (u.speed === "fast" && price.fast) {
     const k = price.fast.input / rates.input;
@@ -6486,7 +6880,7 @@ function priceResponse(price, u) {
     };
   }
   const geo = u.inference_geo === "us" ? price.usGeoMultiplier ?? 1 : 1;
-  const dollars = t.input * rates.input + t.output * rates.output + t.cacheRead * rates.cacheRead + t.cacheWrite5m * rates.cacheWrite5m + t.cacheWrite1h * rates.cacheWrite1h;
+  const dollars = t2.input * rates.input + t2.output * rates.output + t2.cacheRead * rates.cacheRead + t2.cacheWrite5m * rates.cacheWrite5m + t2.cacheWrite1h * rates.cacheWrite1h;
   return dollars / 1e6 * geo;
 }
 
@@ -6520,12 +6914,12 @@ function costTranscriptEntries(entries, opts = {}) {
       out.lastMessageId = msg.id;
     }
     const usage = msg.usage;
-    const t = tokenCounts(usage);
-    if (t.input + t.output + t.cacheRead + t.cacheWrite5m + t.cacheWrite1h === 0) continue;
-    out.inputTokens += t.input;
-    out.outputTokens += t.output;
-    out.cacheReadTokens += t.cacheRead;
-    out.cacheWriteTokens += t.cacheWrite5m + t.cacheWrite1h;
+    const t2 = tokenCounts(usage);
+    if (t2.input + t2.output + t2.cacheRead + t2.cacheWrite5m + t2.cacheWrite1h === 0) continue;
+    out.inputTokens += t2.input;
+    out.outputTokens += t2.output;
+    out.cacheReadTokens += t2.cacheRead;
+    out.cacheWriteTokens += t2.cacheWrite5m + t2.cacheWrite1h;
     const dollars = priceResponse(resolveModelPrice(msg.model, overrides), usage);
     if (dollars === null) {
       out.unpricedResponses++;
@@ -6605,7 +6999,7 @@ function markSessionCostUnknown(db, sessionId) {
 var cursorKey = (sid) => `cost_processed_line:${sid}`;
 var lastIdKey = (sid) => `cost_last_message:${sid}`;
 var sessionLeaseKey = (sid) => `session_end_lease:${sid}`;
-async function updateSessionCost(db, sessionId, transcriptPath) {
+async function updateSessionCost(db, sessionId, transcriptPath, attribute = attributeFeatureCosts) {
   const row = db.prepare("SELECT pricing_version FROM session_costs WHERE session_id = ?").get(sessionId);
   const cursor = Number(getMemoryMeta(db, cursorKey(sessionId)) ?? "0") || 0;
   const incremental = row?.pricing_version === PRICING_VERSION && cursor > 0;
@@ -6617,11 +7011,23 @@ async function updateSessionCost(db, sessionId, transcriptPath) {
   storeSessionCost(db, sessionId, slice, incremental ? "add" : "replace");
   setMemoryMeta(db, cursorKey(sessionId), String(totalLines));
   if (slice.lastMessageId) setMemoryMeta(db, lastIdKey(sessionId), slice.lastMessageId);
+  attribute(db, sessionId);
 }
+var attributeFeatureCosts = (db, sessionId) => {
+  let dataDb = null;
+  try {
+    dataDb = getDataDb();
+    attributeSessionCost(db, dataDb, sessionId, getProjectRoot());
+  } catch (err) {
+    recordHookFailure("cost:feature-attribution", err, { sessionId });
+  } finally {
+    dataDb?.close();
+  }
+};
 function defaultTranscriptFor(sessionId) {
   if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return null;
-  const path = join11(dirname13(getResolvedPaths().memoryDir), `${sessionId}.jsonl`);
-  return existsSync16(path) ? path : null;
+  const path = join12(dirname14(getResolvedPaths().memoryDir), `${sessionId}.jsonl`);
+  return existsSync17(path) ? path : null;
 }
 async function repriceStoredSessions(db, opts = {}) {
   const deadlineAt = opts.deadlineAt ?? Infinity;
@@ -6645,10 +7051,11 @@ async function repriceStoredSessions(db, opts = {}) {
       try {
         const path = find(sid);
         if (path) {
-          await updateSessionCost(db, sid, path);
+          await updateSessionCost(db, sid, path, opts.attribute);
           out.repriced++;
         } else {
           markSessionCostUnknown(db, sid);
+          (opts.attribute ?? attributeFeatureCosts)(db, sid);
           out.markedUnknown++;
         }
       } catch (err) {
@@ -6781,8 +7188,8 @@ init_memory_vector();
 function temporalPredicate(asOf, includeSuperseded, prefix) {
   const c = (name) => `${prefix}${name}`;
   if (asOf != null && Number.isFinite(asOf)) {
-    const t = Math.floor(Number(asOf) / 1e3);
-    return `${c("ingested_at_epoch")} <= ${t} AND (${c("expired_at_epoch")} IS NULL OR ${c("expired_at_epoch")} > ${t}) AND ${c("valid_from_epoch")} <= ${t} AND (${c("valid_to_epoch")} IS NULL OR ${c("valid_to_epoch")} > ${t})`;
+    const t2 = Math.floor(Number(asOf) / 1e3);
+    return `${c("ingested_at_epoch")} <= ${t2} AND (${c("expired_at_epoch")} IS NULL OR ${c("expired_at_epoch")} > ${t2}) AND ${c("valid_from_epoch")} <= ${t2} AND (${c("valid_to_epoch")} IS NULL OR ${c("valid_to_epoch")} > ${t2})`;
   }
   if (!includeSuperseded) {
     return `${c("expired_at_epoch")} IS NULL`;
@@ -6878,7 +7285,7 @@ function collectObservations(memDb, queryText, pool, nowMs, loadVec, modelId, di
 }
 function collectLikeSource(db, source, cfg, queryText, pool, nowMs) {
   const map = /* @__PURE__ */ new Map();
-  const tokens = queryText.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length >= 3).slice(0, 8);
+  const tokens = queryText.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t2) => t2.length >= 3).slice(0, 8);
   const ageExpr = (created) => {
     const ms = cfg.createdIsEpoch ? Number(created) * 1e3 : Date.parse(String(created));
     return Number.isFinite(ms) ? ageDaysFrom(ms, nowMs) : 0;
@@ -6886,7 +7293,7 @@ function collectLikeSource(db, source, cfg, queryText, pool, nowMs) {
   if (tokens.length > 0) {
     const likeClause = cfg.searchCols.map((col) => tokens.map(() => `${col} LIKE ?`).join(" OR ")).join(" OR ");
     const params = [];
-    for (const _col of cfg.searchCols) for (const t of tokens) params.push(`%${t}%`);
+    for (const _col of cfg.searchCols) for (const t2 of tokens) params.push(`%${t2}%`);
     try {
       const rows = db.prepare(
         `SELECT ${cfg.idCol} AS id, ${cfg.titleExpr} AS title,
@@ -7304,8 +7711,8 @@ ${d.decision}`.trim(),
 // src/memory-consolidate.ts
 init_memory_db();
 import { createHash as createHash6 } from "crypto";
-import { existsSync as existsSync17, mkdirSync as mkdirSync14, writeFileSync as writeFileSync10 } from "fs";
-import { join as join12 } from "path";
+import { existsSync as existsSync18, mkdirSync as mkdirSync15, writeFileSync as writeFileSync10 } from "fs";
+import { join as join13 } from "path";
 init_memory_embedder();
 init_memory_vector();
 var LEASE_KEY = "consolidate_lease";
@@ -7466,7 +7873,7 @@ ${r2.detail ?? ""}`.trim());
     }
     clusters.push(cluster);
   }
-  const candidateDir = join12(projectRoot, ".massu", "rule-candidates");
+  const candidateDir = join13(projectRoot, ".massu", "rule-candidates");
   let promoted = 0;
   for (const cluster of clusters) {
     const occurrences = cluster.reduce((n, c) => n + (c.recurrence_count || 1), 0);
@@ -7479,13 +7886,13 @@ ${r2.detail ?? ""}`.trim());
 ${representative.detail}` : ""}`;
     const clusterKey = cluster.map((c) => c.title.toLowerCase().replace(/\s+/g, " ").trim()).sort().join("|");
     const promptHash = createHash6("sha256").update(clusterKey).digest("hex").slice(0, 16);
-    const candidatePath = join12(candidateDir, `${promptHash}.json`);
-    if (existsSync17(candidatePath)) continue;
+    const candidatePath = join13(candidateDir, `${promptHash}.json`);
+    if (existsSync18(candidatePath)) continue;
     if (dryRun) {
       promoted++;
       continue;
     }
-    mkdirSync14(candidateDir, { recursive: true });
+    mkdirSync15(candidateDir, { recursive: true });
     writeFileSync10(
       candidatePath,
       JSON.stringify(
@@ -8084,14 +8491,14 @@ function extractFilesFromToolCall(toolName, input) {
   return [];
 }
 function readStdin() {
-  return new Promise((resolve8) => {
+  return new Promise((resolve9) => {
     let data = "";
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (chunk) => {
       data += chunk;
     });
-    process.stdin.on("end", () => resolve8(data));
-    setTimeout(() => resolve8(data), 5e3);
+    process.stdin.on("end", () => resolve9(data));
+    setTimeout(() => resolve9(data), 5e3);
   });
 }
 if (isDirectInvocation(import.meta.url)) {

@@ -14,7 +14,7 @@ import { reconcileMemoryFileObservations, backfillMemoryFiles } from '../memory-
 import { getConfig, getResolvedPaths } from '../config.ts';
 import { parseCorrectionRules, correctionsPath } from '../lib/corrections-md.ts';
 import { readFileSync, existsSync } from 'fs';
-import { join, resolve } from 'path';
+import { dirname, join, resolve } from 'path';
 import { parse as parseYaml } from 'yaml';
 import type Database from 'better-sqlite3';
 import { openDatabase } from '../db-driver.ts';
@@ -35,6 +35,26 @@ type DriftMod = typeof import('../detect/drift.ts');
 import { isPidAlive } from '../lib/pidLiveness.ts';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
 import { isDirectInvocation } from './lib/is-direct-invocation.ts';
+import { cloudSyncRefusalBanner } from '../cloud-sync.ts';
+import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
+
+/**
+ * Start `memory-recall.js --warm-cache` beside this bundle as a detached process. Fire and forget:
+ * `unref` so session start never waits, `stdio: 'ignore'` so it cannot write into this hook's
+ * output. Skipped when the sibling bundle is absent (running from source) or when disabled.
+ */
+export function startRecallWarmUp(): boolean {
+  if (process.env.MASSU_RECALL_WARMUP === '0') return false;
+  try {
+    const recall = join(dirname(fileURLToPath(import.meta.url)), 'memory-recall.js');
+    if (!existsSync(recall)) return false;
+    spawn(process.execPath, [recall, '--warm-cache'], { detached: true, stdio: 'ignore' }).unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 interface HookInput {
   session_id: string;
@@ -165,6 +185,19 @@ async function main(): Promise<void> {
         const watcherBanner = buildWatcherBanner();
         if (watcherBanner) process.stdout.write(watcherBanner);
       }
+
+      // A refused cloud account is said out loud, with the server's own reason — it used to
+      // be visible only as a queue quietly growing to gigabytes (2026-11-09).
+      try {
+        const syncBanner = cloudSyncRefusalBanner(db);
+        if (syncBanner) process.stdout.write(syncBanner);
+      } catch {
+        // Best-effort: a banner must never fail session start.
+      }
+
+      // P5-002: warm the embedding model for this session's first prompt, detached and never
+      // awaited, so session start does not wait on it (memory-recall.ts `--warm-cache`).
+      startRecallWarmUp();
 
       // Capability advisor (P6-004/005, plan-living-memory-slice-3).
       //

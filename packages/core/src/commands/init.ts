@@ -1042,6 +1042,44 @@ export function getInstallerVersion(): string {
   );
 }
 
+/**
+ * Bring an EXISTING massu MCP registration to this installer's version and launch mechanism.
+ *
+ * `registerMcpServer` returns early when a `massu` entry exists, and `install-hooks` never
+ * called it, so every upgrade moved a repo's hooks and left its MCP server on the old version
+ * (2026-11-09: hooks 2.5.6, server 2.5.2 in every repo) — the asymmetry CR-70 L3-1 exists to
+ * forbid. Only the two forms massu itself writes are rewritten; anything else is the
+ * operator's and is reported as 'custom', untouched.
+ */
+export function refreshMcpServerPin(projectRoot: string): 'updated' | 'current' | 'absent' | 'custom' {
+  const mcpPath = resolve(projectRoot, '.mcp.json');
+  if (!existsSync(mcpPath)) return 'absent';
+  let doc: Record<string, unknown>;
+  try {
+    doc = JSON.parse(readFileSync(mcpPath, 'utf-8'));
+  } catch {
+    return 'custom';
+  }
+  const servers = (doc.mcpServers ?? {}) as Record<string, { command?: unknown; args?: unknown }>;
+  const cur = servers.massu;
+  if (!cur) return 'absent';
+  const args = Array.isArray(cur.args) ? cur.args.map(String) : [];
+  const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+  const shimForm = typeof cur.command === 'string' && /[/\\]massu-hook$/.test(cur.command) && args.length === 1 && SEMVER.test(args[0]);
+  const npxForm = cur.command === 'npx' && args.length === 2 && args[0] === '-y' && /^@massu\/core@/.test(args[1]);
+  if (!shimForm && !npxForm) return 'custom';
+  const version = getInstallerVersion();
+  const shim = resolveMassuShim();
+  const next = shim !== null
+    ? { type: 'stdio', command: shim, args: [version] }
+    : { type: 'stdio', command: 'npx', args: ['-y', `@massu/core@${version}`] };
+  if (JSON.stringify({ ...cur, ...next }) === JSON.stringify(cur)) return 'current';
+  servers.massu = { ...cur, ...next };
+  doc.mcpServers = servers;
+  writeFileSync(mcpPath, JSON.stringify(doc, null, 2) + '\n', 'utf-8');
+  return 'updated';
+}
+
 export function registerMcpServer(projectRoot: string): boolean {
   const mcpPath = resolve(projectRoot, '.mcp.json');
 
@@ -1568,6 +1606,29 @@ export function mergeHooksConfig(
 
     merged[event] = Array.from(byMatcher.values());
   }
+
+  // An old-name massu entry whose replacement is being installed is the same hook twice.
+  const emitted = new Set<string>();
+  for (const groups of Object.values(additions ?? {})) {
+    for (const g of groups as HookGroup[]) {
+      for (const h of g.hooks ?? []) {
+        const id = typeof h?.command === 'string' ? massuHookIdentity(h.command) : null;
+        if (id) emitted.add(id);
+      }
+    }
+  }
+  for (const event of Object.keys(merged)) {
+    merged[event] = (merged[event] as HookGroup[])
+      .map((g) => ({
+        ...g,
+        hooks: (g.hooks ?? []).filter((h) => {
+          const id = typeof h?.command === 'string' ? massuHookIdentity(h.command) : null;
+          const by = id ? SUPERSEDED_MASSU_HOOKS[id] : undefined;
+          return !(by && emitted.has(by));
+        }),
+      }))
+      .filter((g) => (g.hooks ?? []).length > 0);
+  }
   return merged;
 }
 
@@ -1608,8 +1669,24 @@ export function massuHookIdentity(command: string): string | null {
   // NOT ours and must keep exact-command semantics.
   if (!/@massu\/core|[/\\]\.?massu[/\\]/.test(command)) return null;
   const m = /\bhook-runner\s+([A-Za-z0-9._-]+)/.exec(command);
-  return m ? m[1] : null;
+  if (m) return m[1];
+  // The pre-hook-runner installer wrote `node <...>/node_modules/@massu/core/dist/hooks/<name>.js`
+  // (often behind a walk-up loop). Same owner, same hook: without this it was never replaced and
+  // survived every upgrade. Measured 2026-11-09 in one repo: 16 such entries resolving to `/`,
+  // failing (exit 1) on every tool call beside the 16 current ones.
+  const legacy = /@massu[/\\]core[/\\]dist[/\\]hooks[/\\]([a-z0-9-]+)\.js/.exec(command);
+  return legacy ? legacy[1] : null;
 }
+
+/**
+ * Massu hook names that a CURRENT hook replaces. `pre-tool-use-gate` runs the security and
+ * pre-delete checks in one process (since 1.12.0), so an older entry under either name is the
+ * same hook registered twice. A closed historical fact, not a roster that grows.
+ */
+export const SUPERSEDED_MASSU_HOOKS: Readonly<Record<string, string>> = Object.freeze({
+  'security-gate': 'pre-tool-use-gate',
+  'pre-delete-check': 'pre-tool-use-gate',
+});
 
 /**
  * Merge two arrays of hook entries.

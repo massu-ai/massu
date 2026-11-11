@@ -2163,6 +2163,8 @@ __export(memory_db_exports, {
   MEMORY_FILE_TITLE_LIKE: () => MEMORY_FILE_TITLE_LIKE,
   MEMORY_FILE_TITLE_PREFIX: () => MEMORY_FILE_TITLE_PREFIX,
   MEMORY_SCHEMA_VERSION: () => MEMORY_SCHEMA_VERSION,
+  PENDING_SYNC_MAX_AGE_DAYS: () => PENDING_SYNC_MAX_AGE_DAYS,
+  PENDING_SYNC_MAX_ITEMS: () => PENDING_SYNC_MAX_ITEMS,
   TOOL_COST_EVENTS_RETENTION_DAYS: () => TOOL_COST_EVENTS_RETENTION_DAYS,
   USAGE_COUNTER_ARMED_KEY: () => USAGE_COUNTER_ARMED_KEY,
   addConversationTurn: () => addConversationTurn,
@@ -2171,6 +2173,7 @@ __export(memory_db_exports, {
   addSummary: () => addSummary,
   addToolCallDetail: () => addToolCallDetail,
   addUserPrompt: () => addUserPrompt,
+  allPendingSync: () => allPendingSync,
   appendIncidentToFailureClass: () => appendIncidentToFailureClass,
   armUsageCounter: () => armUsageCounter,
   assignImportance: () => assignImportance,
@@ -2178,6 +2181,7 @@ __export(memory_db_exports, {
   createSession: () => createSession,
   deduplicateFailedAttempt: () => deduplicateFailedAttempt,
   dequeuePendingSync: () => dequeuePendingSync,
+  discardPendingSync: () => discardPendingSync,
   embedMissingObservations: () => embedMissingObservations,
   endSession: () => endSession,
   enqueueRulePromotionEvent: () => enqueueRulePromotionEvent,
@@ -3160,6 +3164,35 @@ function initMemorySchema(db) {
 }
 function enqueueSyncPayload(db, payload) {
   db.prepare("INSERT INTO pending_sync (payload) VALUES (?)").run(payload);
+  const overflow = db.prepare(
+    `SELECT id, retry_count, last_error, payload FROM pending_sync
+      WHERE created_at < datetime('now', ?)
+         OR id NOT IN (SELECT id FROM pending_sync ORDER BY created_at DESC, id DESC LIMIT ?)
+      LIMIT 10000`
+  ).all(`-${PENDING_SYNC_MAX_AGE_DAYS} days`, PENDING_SYNC_MAX_ITEMS);
+  if (overflow.length > 0) {
+    discardPendingSync(db, overflow, `over the queue limit (${PENDING_SYNC_MAX_ITEMS} items / ${PENDING_SYNC_MAX_AGE_DAYS} days)`);
+  }
+}
+function discardPendingSync(db, rows, why) {
+  if (rows.length === 0) return 0;
+  const rescued = rescueLearningFromStalePayloads(db, rows);
+  for (let i = 0; i < rows.length; i += 500) {
+    const ids = rows.slice(i, i + 500).map((r) => r.id);
+    db.prepare(`DELETE FROM pending_sync WHERE id IN (${ids.map(() => "?").join(",")})`).run(...ids);
+  }
+  if (rescued > 0) {
+    process.stderr.write(
+      `[massu] RESCUED ${rescued} learned rule(s) from ${rows.length} discarded payload(s) \u2014 they were re-queued for delivery, NOT discarded.
+`
+    );
+  }
+  process.stderr.write(`[massu] cloud sync: discarded ${rows.length} queued upload(s): ${why}.
+`);
+  return rows.length;
+}
+function allPendingSync(db) {
+  return db.prepare("SELECT id, retry_count, last_error, payload FROM pending_sync").all();
 }
 function getMemoryMeta(db, key) {
   const row = db.prepare("SELECT value FROM memory_meta WHERE key = ?").get(key);
@@ -3362,7 +3395,9 @@ function dequeuePendingSync(db, limit = 10) {
     }
   }
   return db.prepare(
-    "SELECT id, payload, retry_count FROM pending_sync ORDER BY created_at ASC LIMIT ?"
+    // Least-retried first: oldest-first retried the same 10 items until they were discarded
+    // while every newer item waited at retry 0 (2026-11-09: 43,492 never attempted).
+    "SELECT id, payload, retry_count FROM pending_sync ORDER BY retry_count ASC, created_at ASC LIMIT ?"
   ).all(limit);
 }
 function removePendingSync(db, id) {
@@ -4035,7 +4070,7 @@ function scoreFailureClasses(db, matchText, filePath, promptContext, weights) {
   }
   return bestMatch;
 }
-var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
+var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, PENDING_SYNC_MAX_ITEMS, PENDING_SYNC_MAX_AGE_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
 var init_memory_db = __esm({
   "src/memory-db.ts"() {
     "use strict";
@@ -4050,6 +4085,8 @@ var init_memory_db = __esm({
     init_memory_embed_sweep();
     MEMORY_SCHEMA_VERSION = 2;
     TOOL_COST_EVENTS_RETENTION_DAYS = 90;
+    PENDING_SYNC_MAX_ITEMS = 500;
+    PENDING_SYNC_MAX_AGE_DAYS = 30;
     MAX_DRAFT_TEXT_LEN = 16384;
     FUNNEL_EVENT_OUTBOX_CAP = 2e4;
     _temporalColCache = /* @__PURE__ */ new WeakMap();
@@ -4864,7 +4901,7 @@ function storeSecurityScore(db, sessionId, filePath, riskScore, findings) {
 
 // src/hooks/post-tool-use.ts
 init_config();
-import { readFileSync as readFileSync10, writeFileSync as writeFileSync3, existsSync as existsSync13, mkdirSync as mkdirSync7, statSync as statSync3 } from "fs";
+import { readFileSync as readFileSync10, writeFileSync as writeFileSync4, existsSync as existsSync14, mkdirSync as mkdirSync7, statSync as statSync4 } from "fs";
 import { join as join7, basename as pathBasename2, dirname as pathDirname, resolve as pathResolve } from "path";
 
 // src/lib/recurrence-incrementer.ts
@@ -5121,13 +5158,41 @@ function mapMemoryTypeToObservationType(memoryType) {
   }
 }
 
+// src/lib/safe-write.ts
+import {
+  writeFileSync as writeFileSync3,
+  renameSync,
+  openSync as openSync2,
+  fsyncSync as fsyncSync2,
+  closeSync as closeSync2,
+  existsSync as existsSync13,
+  realpathSync,
+  unlinkSync as unlinkSync2,
+  accessSync as accessSync2,
+  statSync as statSync3,
+  chmodSync as chmodSync3,
+  constants
+} from "fs";
+function isSameRealPath(a, b) {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+}
+
 // src/hooks/lib/is-direct-invocation.ts
-import { pathToFileURL } from "url";
+import { fileURLToPath as fileURLToPath2, pathToFileURL } from "url";
 function isDirectInvocation(moduleUrl) {
   const entry = process.argv[1];
   if (!entry) return false;
   try {
-    return moduleUrl === pathToFileURL(entry).href;
+    if (moduleUrl === pathToFileURL(entry).href) return true;
+  } catch {
+    return false;
+  }
+  try {
+    return isSameRealPath(fileURLToPath2(moduleUrl), entry);
   } catch {
     return false;
   }
@@ -5305,11 +5370,11 @@ async function main() {
         try {
           const projectRoot = process.cwd();
           const dir = join7(projectRoot, ".massu", "rule-candidates");
-          if (!existsSync13(dir)) mkdirSync7(dir, { recursive: true });
+          if (!existsSync14(dir)) mkdirSync7(dir, { recursive: true });
           const logPath = join7(dir, ".cr53-increment-failures.jsonl");
-          const pre = existsSync13(logPath) ? readFileSync10(logPath, "utf-8") : "";
+          const pre = existsSync14(logPath) ? readFileSync10(logPath, "utf-8") : "";
           const sep = pre && !pre.endsWith("\n") ? "\n" : "";
-          writeFileSync3(logPath, pre + sep + JSON.stringify({
+          writeFileSync4(logPath, pre + sep + JSON.stringify({
             session_id,
             scanner_output_excerpt: (tool_response ?? "").slice(0, 200),
             error: err instanceof Error ? err.message : String(err),
@@ -5413,8 +5478,8 @@ function readConventions(cwd) {
   try {
     const projectRoot = cwd ?? process.cwd();
     const configPath = join7(projectRoot, "massu.config.yaml");
-    if (!existsSync13(configPath)) return _conventionDefaults;
-    const mtimeMs = statSync3(configPath).mtimeMs;
+    if (!existsSync14(configPath)) return _conventionDefaults;
+    const mtimeMs = statSync4(configPath).mtimeMs;
     if (_cachedConventions !== null && _cachedConventionsPath === configPath && _cachedConventionsMtimeMs === mtimeMs) {
       return _cachedConventions;
     }
@@ -5450,7 +5515,7 @@ function isKnowledgeSourceFile(filePath) {
 function checkMemoryFileIntegrity(filePath) {
   const issues = [];
   try {
-    if (!existsSync13(filePath)) {
+    if (!existsSync14(filePath)) {
       issues.push("MEMORY.md file does not exist after write");
       return issues;
     }

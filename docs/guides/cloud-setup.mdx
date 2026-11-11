@@ -86,13 +86,22 @@ Your Cloud dashboard provides:
 
 ## Troubleshooting
 
+### "MASSU CLOUD SYNC PAUSED" at session start
+
+The massu cloud refused this project's uploads in a way that retrying cannot fix, and the banner shows the server's own reason. Common ones:
+
+- **HTTP 401**: the API key is invalid or revoked. Generate a new one from the dashboard.
+- **HTTP 403 "Sync not available for current plan status"**: the organisation's plan is not active or trialing. Check your plan on the billing page.
+
+While paused, massu sends and queues nothing, and your local memory keeps working. It checks again once a day and resumes on its own as soon as the account is allowed to sync. Uploads refused this way are not queued for later.
+
 ### "Cloud sync failed: unauthorized"
 
 Your API key may be expired or invalid. Generate a new one from the dashboard.
 
 ### "Cloud sync failed: network error"
 
-Check your internet connection. Cloud sync requires HTTPS access to `api.massu.ai`.
+Check your internet connection. Cloud sync requires HTTPS access to `api.massu.ai`. Temporary failures like this are queued and retried later; the queue holds at most 500 items and nothing older than 30 days.
 
 ### Data not appearing in dashboard
 

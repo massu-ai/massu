@@ -2086,6 +2086,8 @@ __export(memory_db_exports, {
   MEMORY_FILE_TITLE_LIKE: () => MEMORY_FILE_TITLE_LIKE,
   MEMORY_FILE_TITLE_PREFIX: () => MEMORY_FILE_TITLE_PREFIX,
   MEMORY_SCHEMA_VERSION: () => MEMORY_SCHEMA_VERSION,
+  PENDING_SYNC_MAX_AGE_DAYS: () => PENDING_SYNC_MAX_AGE_DAYS,
+  PENDING_SYNC_MAX_ITEMS: () => PENDING_SYNC_MAX_ITEMS,
   TOOL_COST_EVENTS_RETENTION_DAYS: () => TOOL_COST_EVENTS_RETENTION_DAYS,
   USAGE_COUNTER_ARMED_KEY: () => USAGE_COUNTER_ARMED_KEY,
   addConversationTurn: () => addConversationTurn,
@@ -2094,6 +2096,7 @@ __export(memory_db_exports, {
   addSummary: () => addSummary,
   addToolCallDetail: () => addToolCallDetail,
   addUserPrompt: () => addUserPrompt,
+  allPendingSync: () => allPendingSync,
   appendIncidentToFailureClass: () => appendIncidentToFailureClass,
   armUsageCounter: () => armUsageCounter,
   assignImportance: () => assignImportance,
@@ -2101,6 +2104,7 @@ __export(memory_db_exports, {
   createSession: () => createSession,
   deduplicateFailedAttempt: () => deduplicateFailedAttempt,
   dequeuePendingSync: () => dequeuePendingSync,
+  discardPendingSync: () => discardPendingSync,
   embedMissingObservations: () => embedMissingObservations,
   endSession: () => endSession,
   enqueueRulePromotionEvent: () => enqueueRulePromotionEvent,
@@ -3083,6 +3087,35 @@ function initMemorySchema(db) {
 }
 function enqueueSyncPayload(db, payload) {
   db.prepare("INSERT INTO pending_sync (payload) VALUES (?)").run(payload);
+  const overflow = db.prepare(
+    `SELECT id, retry_count, last_error, payload FROM pending_sync
+      WHERE created_at < datetime('now', ?)
+         OR id NOT IN (SELECT id FROM pending_sync ORDER BY created_at DESC, id DESC LIMIT ?)
+      LIMIT 10000`
+  ).all(`-${PENDING_SYNC_MAX_AGE_DAYS} days`, PENDING_SYNC_MAX_ITEMS);
+  if (overflow.length > 0) {
+    discardPendingSync(db, overflow, `over the queue limit (${PENDING_SYNC_MAX_ITEMS} items / ${PENDING_SYNC_MAX_AGE_DAYS} days)`);
+  }
+}
+function discardPendingSync(db, rows, why) {
+  if (rows.length === 0) return 0;
+  const rescued = rescueLearningFromStalePayloads(db, rows);
+  for (let i = 0; i < rows.length; i += 500) {
+    const ids = rows.slice(i, i + 500).map((r) => r.id);
+    db.prepare(`DELETE FROM pending_sync WHERE id IN (${ids.map(() => "?").join(",")})`).run(...ids);
+  }
+  if (rescued > 0) {
+    process.stderr.write(
+      `[massu] RESCUED ${rescued} learned rule(s) from ${rows.length} discarded payload(s) \u2014 they were re-queued for delivery, NOT discarded.
+`
+    );
+  }
+  process.stderr.write(`[massu] cloud sync: discarded ${rows.length} queued upload(s): ${why}.
+`);
+  return rows.length;
+}
+function allPendingSync(db) {
+  return db.prepare("SELECT id, retry_count, last_error, payload FROM pending_sync").all();
 }
 function getMemoryMeta(db, key) {
   const row = db.prepare("SELECT value FROM memory_meta WHERE key = ?").get(key);
@@ -3285,7 +3318,9 @@ function dequeuePendingSync(db, limit = 10) {
     }
   }
   return db.prepare(
-    "SELECT id, payload, retry_count FROM pending_sync ORDER BY created_at ASC LIMIT ?"
+    // Least-retried first: oldest-first retried the same 10 items until they were discarded
+    // while every newer item waited at retry 0 (2026-11-09: 43,492 never attempted).
+    "SELECT id, payload, retry_count FROM pending_sync ORDER BY retry_count ASC, created_at ASC LIMIT ?"
   ).all(limit);
 }
 function removePendingSync(db, id) {
@@ -3958,7 +3993,7 @@ function scoreFailureClasses(db, matchText, filePath, promptContext, weights) {
   }
   return bestMatch;
 }
-var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
+var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, PENDING_SYNC_MAX_ITEMS, PENDING_SYNC_MAX_AGE_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
 var init_memory_db = __esm({
   "src/memory-db.ts"() {
     "use strict";
@@ -3973,6 +4008,8 @@ var init_memory_db = __esm({
     init_memory_embed_sweep();
     MEMORY_SCHEMA_VERSION = 2;
     TOOL_COST_EVENTS_RETENTION_DAYS = 90;
+    PENDING_SYNC_MAX_ITEMS = 500;
+    PENDING_SYNC_MAX_AGE_DAYS = 30;
     MAX_DRAFT_TEXT_LEN = 16384;
     FUNNEL_EVENT_OUTBOX_CAP = 2e4;
     _temporalColCache = /* @__PURE__ */ new WeakMap();
@@ -4058,7 +4095,7 @@ var init_hook_failure_signal = __esm({
 init_config();
 import { execFileSync } from "child_process";
 import { createHash } from "crypto";
-import { existsSync as existsSync10, readFileSync as readFileSync7, unlinkSync as unlinkSync2, readdirSync as readdirSync2, statSync as statSync2, writeFileSync as writeFileSync3, mkdirSync as mkdirSync7 } from "fs";
+import { existsSync as existsSync11, readFileSync as readFileSync7, unlinkSync as unlinkSync3, readdirSync as readdirSync2, statSync as statSync3, writeFileSync as writeFileSync4, mkdirSync as mkdirSync7 } from "fs";
 import { tmpdir as tmpdir2 } from "os";
 import { join as join6, dirname as dirname8 } from "path";
 
@@ -4100,20 +4137,48 @@ function writeHookContext(hookEventName, message) {
 // src/hooks/auto-learning-pipeline.ts
 init_hook_failure_signal();
 
+// src/lib/safe-write.ts
+import {
+  writeFileSync as writeFileSync3,
+  renameSync,
+  openSync as openSync2,
+  fsyncSync as fsyncSync2,
+  closeSync as closeSync2,
+  existsSync as existsSync9,
+  realpathSync,
+  unlinkSync as unlinkSync2,
+  accessSync as accessSync2,
+  statSync as statSync2,
+  chmodSync as chmodSync3,
+  constants
+} from "fs";
+function isSameRealPath(a, b) {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+}
+
 // src/hooks/lib/is-direct-invocation.ts
-import { pathToFileURL } from "url";
+import { fileURLToPath as fileURLToPath2, pathToFileURL } from "url";
 function isDirectInvocation(moduleUrl) {
   const entry = process.argv[1];
   if (!entry) return false;
   try {
-    return moduleUrl === pathToFileURL(entry).href;
+    if (moduleUrl === pathToFileURL(entry).href) return true;
+  } catch {
+    return false;
+  }
+  try {
+    return isSameRealPath(fileURLToPath2(moduleUrl), entry);
   } catch {
     return false;
   }
 }
 
 // src/hooks/lib/session-touched-files.ts
-import { readFileSync as readFileSync6, existsSync as existsSync9, realpathSync } from "fs";
+import { readFileSync as readFileSync6, existsSync as existsSync10, realpathSync as realpathSync2 } from "fs";
 import { relative, isAbsolute, resolve as resolve5 } from "path";
 var FILE_WRITING_TOOLS = Object.freeze({
   Edit: ["file_path"],
@@ -4123,7 +4188,7 @@ var FILE_WRITING_TOOLS = Object.freeze({
 });
 function canonical(p) {
   try {
-    return realpathSync(p);
+    return realpathSync2(p);
   } catch {
     return p;
   }
@@ -4171,7 +4236,7 @@ function transcriptTouchedFiles(root, transcriptPath) {
   return out;
 }
 function flagFileTouchedFiles(root, flagPath) {
-  if (!existsSync9(flagPath)) return null;
+  if (!existsSync10(flagPath)) return null;
   let raw;
   try {
     raw = readFileSync6(flagPath, "utf-8");
@@ -4592,7 +4657,7 @@ function readShownKeys(ackPath) {
 }
 function writeShownKeys(ackPath, keys) {
   mkdirSync7(dirname8(ackPath), { recursive: true });
-  writeFileSync3(ackPath, JSON.stringify({ shown: [...keys].sort() }), "utf-8");
+  writeFileSync4(ackPath, JSON.stringify({ shown: [...keys].sort() }), "utf-8");
 }
 function freshMatches(matchKeys, shown) {
   return [...new Set(matchKeys)].filter((k) => !shown.has(k));
@@ -4602,7 +4667,7 @@ function recentIncidentFiles(dir, nowMs = Date.now()) {
   try {
     return readdirSync2(dir).filter((f) => f.endsWith(".md")).filter((f) => {
       try {
-        return nowMs - statSync2(join6(dir, f)).mtimeMs <= RECENT_INCIDENT_WINDOW_MS;
+        return nowMs - statSync3(join6(dir, f)).mtimeMs <= RECENT_INCIDENT_WINDOW_MS;
       } catch {
         return false;
       }
@@ -4616,7 +4681,7 @@ function readPostImageFrom(root) {
   return (rel) => {
     try {
       const abs = join6(root, rel);
-      if (statSync2(abs).size > MAX_POST_IMAGE_BYTES) return null;
+      if (statSync3(abs).size > MAX_POST_IMAGE_BYTES) return null;
       return readFileSync7(abs, "utf-8");
     } catch {
       return null;
@@ -4729,7 +4794,7 @@ async function main() {
     const autoLearn = config.autoLearning;
     const flagPath = getSessionFlagPath(hookInput.session_id);
     let sessionFixes = [];
-    if (existsSync10(flagPath)) {
+    if (existsSync11(flagPath)) {
       try {
         sessionFixes = readFileSync7(flagPath, "utf-8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
       } catch {
@@ -4821,16 +4886,16 @@ async function main() {
 }
 function cleanup(flagPath) {
   try {
-    if (existsSync10(flagPath)) unlinkSync2(flagPath);
+    if (existsSync11(flagPath)) unlinkSync3(flagPath);
     const dir = join6(tmpdir2(), "massu-auto-learning");
-    if (existsSync10(dir)) {
+    if (existsSync11(dir)) {
       const now = Date.now();
       for (const file of readdirSync2(dir)) {
         const fullPath = join6(dir, file);
         try {
-          const stat = statSync2(fullPath);
+          const stat = statSync3(fullPath);
           if (now - stat.mtimeMs > 864e5) {
-            unlinkSync2(fullPath);
+            unlinkSync3(fullPath);
           }
         } catch {
         }

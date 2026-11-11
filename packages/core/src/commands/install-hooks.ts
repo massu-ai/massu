@@ -9,7 +9,7 @@
  * Uses the same logic as `massu init` but only handles hooks.
  */
 
-import { installHooks, materializeMassuRuntime, installMassuShim, getInstallerVersion } from './init.ts';
+import { installHooks, materializeMassuRuntime, installMassuShim, getInstallerVersion, refreshMcpServerPin } from './init.ts';
 
 export async function runInstallHooks(): Promise<void> {
   const projectRoot = process.cwd();
@@ -44,6 +44,11 @@ export async function runInstallHooks(): Promise<void> {
 
   const { count } = installHooks(projectRoot);
   console.log(`  Installed ${count} hooks in .claude/settings.local.json`);
+  // The MCP server must run the same version as the hooks (CR-70 L3-1).
+  const mcp = refreshMcpServerPin(projectRoot);
+  if (mcp === 'updated') console.log(`  Updated the massu MCP server in .mcp.json to ${version} (commit this file)`);
+  else if (mcp === 'current') console.log(`  .mcp.json already runs massu ${version}`);
+  else if (mcp === 'custom') console.log('  .mcp.json has a hand-written massu entry — left unchanged; check its version');
   console.log('');
   console.log('Hooks will activate on your next Claude Code session.');
   console.log('');

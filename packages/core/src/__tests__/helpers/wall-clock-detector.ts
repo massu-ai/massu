@@ -207,6 +207,34 @@ const SLEEP_CALLEES = new Set(['setTimeout', 'setInterval', 'sleep', 'delay']);
 const crossesScope = (n: ts.Node): boolean =>
   ts.isFunctionLike(n) && !!(n as ts.SignatureDeclaration).body && ts.isBlock((n as ts.SignatureDeclaration).body as ts.Node);
 
+/**
+ * Is this delay a FIXED span? A positive numeric literal is. So is arithmetic built only from
+ * numeric literals and SCREAMING_CASE constants, e.g. `50 * (SAMPLES + 2) + 200`: it is still
+ * a guess about how long something takes, just spelled with names. That shape escaped this
+ * detector and failed a correct LSP watchdog test under load (2026-11-09). A bare variable
+ * (`backoffMs`) or anything with a lower-case name stays silent: it may be computed at run time.
+ */
+function isConstantSpan(e: ts.Expression, sf: ts.SourceFile): boolean {
+  let literals = 0;
+  const ok = (x: ts.Expression): boolean => {
+    if (ts.isParenthesizedExpression(x)) return ok(x.expression);
+    if (ts.isNumericLiteral(x)) {
+      literals += 1;
+      return true;
+    }
+    if (ts.isIdentifier(x)) return /^[A-Z][A-Z0-9_]*$/.test(x.text);
+    if (ts.isBinaryExpression(x)) {
+      const op = x.operatorToken.kind;
+      const arith = op === ts.SyntaxKind.PlusToken || op === ts.SyntaxKind.MinusToken ||
+        op === ts.SyntaxKind.AsteriskToken || op === ts.SyntaxKind.SlashToken;
+      return arith && ok(x.left) && ok(x.right);
+    }
+    return false;
+  };
+  if (ts.isNumericLiteral(e)) return Number(e.getText(sf).replace(/_/g, '')) > 0;
+  return ts.isBinaryExpression(e) || ts.isParenthesizedExpression(e) ? ok(e) && literals > 0 : false;
+}
+
 function fixedSleepIn(stmt: ts.Node, sf: ts.SourceFile): string | null {
   let hit: string | null = null;
   const walk = (n: ts.Node): void => {
@@ -220,9 +248,7 @@ function fixedSleepIn(stmt: ts.Node, sf: ts.SourceFile): string | null {
           : '';
       // A ZERO delay is a macrotask yield ('let the event loop turn'), not a span. It
       // encodes no expectation about how long anything takes, so it is not this defect.
-      const fixedSpan = n.arguments.some(
-        (a) => ts.isNumericLiteral(a) && Number(a.getText(sf).replace(/_/g, '')) > 0,
-      );
+      const fixedSpan = n.arguments.some((a) => isConstantSpan(a, sf));
       if (SLEEP_CALLEES.has(callee) && fixedSpan) {
         hit = n.getText(sf).replace(/\s+/g, ' ').slice(0, 100);
         return;

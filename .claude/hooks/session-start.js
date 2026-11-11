@@ -2205,6 +2205,8 @@ __export(memory_db_exports, {
   MEMORY_FILE_TITLE_LIKE: () => MEMORY_FILE_TITLE_LIKE,
   MEMORY_FILE_TITLE_PREFIX: () => MEMORY_FILE_TITLE_PREFIX,
   MEMORY_SCHEMA_VERSION: () => MEMORY_SCHEMA_VERSION,
+  PENDING_SYNC_MAX_AGE_DAYS: () => PENDING_SYNC_MAX_AGE_DAYS,
+  PENDING_SYNC_MAX_ITEMS: () => PENDING_SYNC_MAX_ITEMS,
   TOOL_COST_EVENTS_RETENTION_DAYS: () => TOOL_COST_EVENTS_RETENTION_DAYS,
   USAGE_COUNTER_ARMED_KEY: () => USAGE_COUNTER_ARMED_KEY,
   addConversationTurn: () => addConversationTurn,
@@ -2213,6 +2215,7 @@ __export(memory_db_exports, {
   addSummary: () => addSummary,
   addToolCallDetail: () => addToolCallDetail,
   addUserPrompt: () => addUserPrompt,
+  allPendingSync: () => allPendingSync,
   appendIncidentToFailureClass: () => appendIncidentToFailureClass,
   armUsageCounter: () => armUsageCounter,
   assignImportance: () => assignImportance,
@@ -2220,6 +2223,7 @@ __export(memory_db_exports, {
   createSession: () => createSession,
   deduplicateFailedAttempt: () => deduplicateFailedAttempt,
   dequeuePendingSync: () => dequeuePendingSync,
+  discardPendingSync: () => discardPendingSync,
   embedMissingObservations: () => embedMissingObservations,
   endSession: () => endSession,
   enqueueRulePromotionEvent: () => enqueueRulePromotionEvent,
@@ -3202,6 +3206,35 @@ function initMemorySchema(db) {
 }
 function enqueueSyncPayload(db, payload) {
   db.prepare("INSERT INTO pending_sync (payload) VALUES (?)").run(payload);
+  const overflow = db.prepare(
+    `SELECT id, retry_count, last_error, payload FROM pending_sync
+      WHERE created_at < datetime('now', ?)
+         OR id NOT IN (SELECT id FROM pending_sync ORDER BY created_at DESC, id DESC LIMIT ?)
+      LIMIT 10000`
+  ).all(`-${PENDING_SYNC_MAX_AGE_DAYS} days`, PENDING_SYNC_MAX_ITEMS);
+  if (overflow.length > 0) {
+    discardPendingSync(db, overflow, `over the queue limit (${PENDING_SYNC_MAX_ITEMS} items / ${PENDING_SYNC_MAX_AGE_DAYS} days)`);
+  }
+}
+function discardPendingSync(db, rows, why) {
+  if (rows.length === 0) return 0;
+  const rescued = rescueLearningFromStalePayloads(db, rows);
+  for (let i = 0; i < rows.length; i += 500) {
+    const ids = rows.slice(i, i + 500).map((r) => r.id);
+    db.prepare(`DELETE FROM pending_sync WHERE id IN (${ids.map(() => "?").join(",")})`).run(...ids);
+  }
+  if (rescued > 0) {
+    process.stderr.write(
+      `[massu] RESCUED ${rescued} learned rule(s) from ${rows.length} discarded payload(s) \u2014 they were re-queued for delivery, NOT discarded.
+`
+    );
+  }
+  process.stderr.write(`[massu] cloud sync: discarded ${rows.length} queued upload(s): ${why}.
+`);
+  return rows.length;
+}
+function allPendingSync(db) {
+  return db.prepare("SELECT id, retry_count, last_error, payload FROM pending_sync").all();
 }
 function getMemoryMeta(db, key) {
   const row = db.prepare("SELECT value FROM memory_meta WHERE key = ?").get(key);
@@ -3404,7 +3437,9 @@ function dequeuePendingSync(db, limit = 10) {
     }
   }
   return db.prepare(
-    "SELECT id, payload, retry_count FROM pending_sync ORDER BY created_at ASC LIMIT ?"
+    // Least-retried first: oldest-first retried the same 10 items until they were discarded
+    // while every newer item waited at retry 0 (2026-11-09: 43,492 never attempted).
+    "SELECT id, payload, retry_count FROM pending_sync ORDER BY retry_count ASC, created_at ASC LIMIT ?"
   ).all(limit);
 }
 function removePendingSync(db, id) {
@@ -4077,7 +4112,7 @@ function scoreFailureClasses(db, matchText, filePath, promptContext, weights) {
   }
   return bestMatch;
 }
-var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
+var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, PENDING_SYNC_MAX_ITEMS, PENDING_SYNC_MAX_AGE_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
 var init_memory_db = __esm({
   "src/memory-db.ts"() {
     "use strict";
@@ -4092,6 +4127,8 @@ var init_memory_db = __esm({
     init_memory_embed_sweep();
     MEMORY_SCHEMA_VERSION = 2;
     TOOL_COST_EVENTS_RETENTION_DAYS = 90;
+    PENDING_SYNC_MAX_ITEMS = 500;
+    PENDING_SYNC_MAX_AGE_DAYS = 30;
     MAX_DRAFT_TEXT_LEN = 16384;
     FUNNEL_EVENT_OUTBOX_CAP = 2e4;
     _temporalColCache = /* @__PURE__ */ new WeakMap();
@@ -4218,6 +4255,13 @@ function assertContainedIn(rootDir, candidate, opts = {}) {
     throw new PathEscapeError(`path escapes ${root}: ${candidate}`);
   }
   return abs;
+}
+function isSameRealPath(a, b) {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
 }
 function isContainedIn(rootDir, candidate, opts = {}) {
   if (candidate.includes("\0")) return false;
@@ -13984,7 +14028,7 @@ init_config();
 init_corrections_md();
 init_db_driver();
 import { readFileSync as readFileSync19, existsSync as existsSync24 } from "fs";
-import { resolve as resolve9 } from "path";
+import { dirname as dirname13, join as join18, resolve as resolve9 } from "path";
 import { parse as parseYaml4 } from "yaml";
 
 // src/capability-advisor.ts
@@ -14276,18 +14320,69 @@ function checkWindows(pid) {
 init_hook_failure_signal();
 
 // src/hooks/lib/is-direct-invocation.ts
-import { pathToFileURL } from "url";
+init_safe_write();
+import { fileURLToPath as fileURLToPath2, pathToFileURL } from "url";
 function isDirectInvocation(moduleUrl) {
   const entry = process.argv[1];
   if (!entry) return false;
   try {
-    return moduleUrl === pathToFileURL(entry).href;
+    if (moduleUrl === pathToFileURL(entry).href) return true;
+  } catch {
+    return false;
+  }
+  try {
+    return isSameRealPath(fileURLToPath2(moduleUrl), entry);
   } catch {
     return false;
   }
 }
 
+// src/cloud-sync.ts
+init_config();
+init_memory_db();
+init_rule_delivery();
+
+// src/observation-extractor.ts
+init_memory_db();
+init_config();
+
+// src/cloud-sync.ts
+var CLOUD_SYNC_REFUSAL_KEY = "cloud_sync_refused";
+var CLOUD_SYNC_RECHECK_MS = 24 * 60 * 60 * 1e3;
+function readCloudSyncRefusal(db) {
+  try {
+    const raw = getMemoryMeta(db, CLOUD_SYNC_REFUSAL_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    return v && typeof v.status === "number" ? v : null;
+  } catch {
+    return null;
+  }
+}
+function cloudSyncRefusalBanner(db) {
+  const r = readCloudSyncRefusal(db);
+  if (!r) return null;
+  return `=== MASSU CLOUD SYNC PAUSED ===
+The massu cloud refused uploads from this project (HTTP ${r.status}: ${r.reason || "no reason given"}) on ${r.at}. Nothing is being uploaded or queued; local memory is unaffected. It re-checks once a day and resumes on its own when the account allows it.
+=== END ===
+
+`;
+}
+
 // src/hooks/session-start.ts
+import { spawn } from "child_process";
+import { fileURLToPath as fileURLToPath3 } from "url";
+function startRecallWarmUp() {
+  if (process.env.MASSU_RECALL_WARMUP === "0") return false;
+  try {
+    const recall = join18(dirname13(fileURLToPath3(import.meta.url)), "memory-recall.js");
+    if (!existsSync24(recall)) return false;
+    spawn(process.execPath, [recall, "--warm-cache"], { detached: true, stdio: "ignore" }).unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
 async function main() {
   try {
     const input = await readStdin();
@@ -14347,6 +14442,12 @@ Session memory, code intelligence, and governance are now active.
         const watcherBanner = buildWatcherBanner();
         if (watcherBanner) process.stdout.write(watcherBanner);
       }
+      try {
+        const syncBanner = cloudSyncRefusalBanner(db);
+        if (syncBanner) process.stdout.write(syncBanner);
+      } catch {
+      }
+      startRecallWarmUp();
       try {
         const consolidationCfg = resolveConsolidationConfig();
         const advisorBlock = await runAdvisors([localModelAdvisor, crossRepoShareAdvisor], {
@@ -14499,11 +14600,11 @@ Index has ${stats.doc_count} documents, last indexed ${ageHours}h ago. Consider 
   }
   sections.sort((a, b) => b.importance - a.importance);
   let usedTokens = 0;
-  const headerTokens = estimateTokens("=== Massu Memory: Previous Session Context ===\n\n=== END Massu Memory ===\n");
+  const headerTokens = estimateTokens2("=== Massu Memory: Previous Session Context ===\n\n=== END Massu Memory ===\n");
   usedTokens += headerTokens;
   const includedSections = [];
   for (const section of sections) {
-    const sectionTokens = estimateTokens(section.text);
+    const sectionTokens = estimateTokens2(section.text);
     if (usedTokens + sectionTokens <= tokenBudget) {
       includedSections.push(section.text);
       usedTokens += sectionTokens;
@@ -14516,7 +14617,7 @@ ${includedSections.join("\n")}
 === END Massu Memory ===
 `;
 }
-function estimateTokens(text) {
+function estimateTokens2(text) {
   return Math.ceil(text.length / 4);
 }
 async function getGitBranch() {
@@ -14649,6 +14750,9 @@ function formatAge(ms) {
 if (isDirectInvocation(import.meta.url)) {
   main();
 }
+export {
+  startRecallWarmUp
+};
 /*! Bundled license information:
 
 is-extglob/index.js:

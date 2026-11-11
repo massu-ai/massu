@@ -85,10 +85,12 @@ describe('drainSyncQueue under a deadline', () => {
 
   it('attempts while the floor is met, then DEFERS the rest with retry_count untouched, and never duplicates', async () => {
     const db = queueDb(5);
-    // Each attempt takes ~600 ms and is refused (4xx, not retried).
+    // Each attempt takes ~600 ms and fails TEMPORARILY (503: kept queued; the drain makes ONE
+    // attempt per item). Not a 401: since 2026-11-09 an account-level refusal clears the queue
+    // and pauses sync (cloud-sync-refusal.test.ts), which is a different property.
     mockFetch.mockImplementation(async () => {
       await new Promise((r) => setTimeout(r, 600));
-      return { ok: false, status: 401, statusText: 'Unauthorized' };
+      return { ok: false, status: 503, statusText: 'Service Unavailable', text: async () => '' };
     });
     const res = await drainSyncQueue(db, Date.now() + MIN_SYNC_ATTEMPT_MS + 900);
     expect(res.attempted).toBe(2);
@@ -111,7 +113,7 @@ describe('drainSyncQueue under a deadline', () => {
 
   it('control: with no deadline every item is attempted (the deadline is what defers)', async () => {
     const db = queueDb(3);
-    mockFetch.mockResolvedValue({ ok: false, status: 401, statusText: 'Unauthorized' });
+    mockFetch.mockResolvedValue({ ok: false, status: 503, statusText: 'Service Unavailable', text: async () => '' });
     const res = await drainSyncQueue(db);
     expect(res).toEqual({ attempted: 3, deferred: 0 });
     expect(rows(db)).toHaveLength(3);

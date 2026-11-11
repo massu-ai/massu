@@ -1413,8 +1413,54 @@ export function initMemorySchema(db: Database.Database): void {
 /**
  * Enqueue a sync payload for later retry.
  */
+/**
+ * Limits on the cloud-sync retry queue. It holds TEMPORARY failures only (network, 5xx, 429);
+ * a permanent refusal is never queued (cloud-sync.ts). Without limits it was unbounded:
+ * 2026-11-09, one repo held 43,503 refused uploads, 7.6 GB, since 2026-09-21.
+ */
+export const PENDING_SYNC_MAX_ITEMS = 500;
+export const PENDING_SYNC_MAX_AGE_DAYS = 30;
+
 export function enqueueSyncPayload(db: Database.Database, payload: string): void {
   db.prepare('INSERT INTO pending_sync (payload) VALUES (?)').run(payload);
+  const overflow = db.prepare(
+    `SELECT id, retry_count, last_error, payload FROM pending_sync
+      WHERE created_at < datetime('now', ?)
+         OR id NOT IN (SELECT id FROM pending_sync ORDER BY created_at DESC, id DESC LIMIT ?)
+      LIMIT 10000`,
+  ).all(`-${PENDING_SYNC_MAX_AGE_DAYS} days`, PENDING_SYNC_MAX_ITEMS) as PendingSyncRow[];
+  if (overflow.length > 0) {
+    discardPendingSync(db, overflow, `over the queue limit (${PENDING_SYNC_MAX_ITEMS} items / ${PENDING_SYNC_MAX_AGE_DAYS} days)`);
+  }
+}
+
+type PendingSyncRow = { id: number; retry_count: number; last_error: string | null; payload: string };
+
+/**
+ * The ONE way an item leaves pending_sync without a receipt: learned rules are rescued into
+ * their durable outbound stores first (they are never discarded), then the rows are deleted,
+ * loudly. Returns how many rows were removed.
+ */
+export function discardPendingSync(db: Database.Database, rows: PendingSyncRow[], why: string): number {
+  if (rows.length === 0) return 0;
+  const rescued = rescueLearningFromStalePayloads(db, rows);
+  for (let i = 0; i < rows.length; i += 500) {
+    const ids = rows.slice(i, i + 500).map((r) => r.id);
+    db.prepare(`DELETE FROM pending_sync WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+  }
+  if (rescued > 0) {
+    process.stderr.write(
+      `[massu] RESCUED ${rescued} learned rule(s) from ${rows.length} discarded payload(s) — ` +
+        `they were re-queued for delivery, NOT discarded.\n`,
+    );
+  }
+  process.stderr.write(`[massu] cloud sync: discarded ${rows.length} queued upload(s): ${why}.\n`);
+  return rows.length;
+}
+
+/** Every queued item, for a refusal that makes all of them undeliverable (401/403). */
+export function allPendingSync(db: Database.Database): PendingSyncRow[] {
+  return db.prepare('SELECT id, retry_count, last_error, payload FROM pending_sync').all() as PendingSyncRow[];
 }
 
 // ============================================================
@@ -1881,7 +1927,9 @@ export function dequeuePendingSync(
   }
 
   return db.prepare(
-    'SELECT id, payload, retry_count FROM pending_sync ORDER BY created_at ASC LIMIT ?'
+    // Least-retried first: oldest-first retried the same 10 items until they were discarded
+    // while every newer item waited at retry 0 (2026-11-09: 43,492 never attempted).
+    'SELECT id, payload, retry_count FROM pending_sync ORDER BY retry_count ASC, created_at ASC LIMIT ?'
   ).all(limit) as Array<{ id: number; payload: string; retry_count: number }>;
 }
 

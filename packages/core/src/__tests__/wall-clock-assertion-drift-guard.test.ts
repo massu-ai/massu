@@ -319,6 +319,19 @@ describe('wall-clock assertion drift-guard', () => {
       'sleep inside a poll body',
     ).toBe(0);
 
+    // FIRES: a fixed span spelled as arithmetic over constants — the verbatim 2026-11-09 escape
+    // (command-exec.test.ts, LSP watchdog), which failed a correct test under pre-push load.
+    expect(
+      fire('await new Promise((r) => setTimeout(r, 50 * (LSP_WATCHDOG_OVERBUDGET_SAMPLES + 2) + 200)); expect(killed).toBe(true);'),
+      'constant arithmetic is still a fixed span',
+    ).toBe(1);
+
+    // SILENT: arithmetic over a run-time value is not a constant span.
+    expect(
+      fire('await new Promise((r) => setTimeout(r, backoffMs * 2)); expect(ok).toBe(true);'),
+      'arithmetic over a run-time variable',
+    ).toBe(0);
+
     // SILENT: no fixed span at all — the delay is computed, so there is no constant to encode
     // an expectation into.
     expect(

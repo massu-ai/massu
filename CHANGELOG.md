@@ -10,6 +10,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.5.7] - 2026-11-10
+
+### Fixed
+
+- **Cloud sync no longer queues uploads the server refuses.** When the massu cloud refused an upload
+  for a reason that retrying cannot change (for example `403 Sync not available for current plan
+  status`), massu queued it and retried forever. One project's memory database grew to 8.5 GB this way,
+  7.6 GB of it refused uploads, and every reply re-sent a ~179 KB upload that was always refused. Now:
+  - a refusal that cannot succeed is never queued or retried;
+  - when the account itself is refused (401 or 403), massu records the server's reason, pauses sync,
+    clears the queue (learned rules are kept), and shows `MASSU CLOUD SYNC PAUSED` with that reason at
+    session start. It checks again once a day and resumes on its own when the account allows it;
+  - temporary failures (network, 5xx, 429) still queue, but the queue now holds at most 500 items and
+    nothing older than 30 days, and every item gets its turn.
+- **`massu install-hooks` now upgrades a project completely.** It also moves the massu MCP server in
+  `.mcp.json` to the same version as the hooks (it never did before, so every upgrade left the server
+  behind), and it replaces hook entries written by much older installers, which used to stay beside the
+  current ones and fail on every tool call. Your own hooks and any hand-written massu entry are left alone.
+- **A hook launched through a symlinked path now runs.** Started through a symlink, a hook decided it was
+  not the program being run and exited without doing anything; for the safety gate that meant allowing
+  the call. The commands `massu init` writes were not affected.
+
+### Added
+
+- **The first prompt of a session is faster.** Session start now loads the memory-search model in the
+  background, so the first prompt no longer pays for it (measured: about 1.5 s for the first search,
+  0.6 s after). Turn it off with `MASSU_RECALL_WARMUP=0`.
+- **`scripts/massu-db-size-audit.sh`** (in the repository) reports where a massu database's space goes:
+  live data, space freed but not yet returned to the disk, the largest tables, and the sync queue.
+
 ## [2.5.6] - 2026-11-09
 
 ### Security

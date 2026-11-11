@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Massu. All rights reserved.
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
-import { pathToFileURL } from 'url';
+import { isSameRealPath } from '../../lib/safe-write.ts';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 /**
  * True when THIS module is the process entry point — i.e. the file was executed,
@@ -54,9 +55,20 @@ export function isDirectInvocation(moduleUrl: string): boolean {
   // direction — it would consume stdin and exit the host process.
   if (!entry) return false;
   try {
-    return moduleUrl === pathToFileURL(entry).href;
+    if (moduleUrl === pathToFileURL(entry).href) return true;
   } catch {
     // An unresolvable argv[1] is not a match. Same reasoning: refuse to run.
+    return false;
+  }
+  // SYMLINKS. Node gives a module its REAL path (`import.meta.url`), but `argv[1]` is the
+  // path as typed. Launched through a symlink — macOS's `/var` -> `/private/var`, a symlinked
+  // checkout, a linked install — the two differ, main() never ran, and the hook exited 0:
+  // for the PreToolUse gate that is a silent ALLOW (measured 2026-11-09 against published
+  // 2.5.6 from a symlinked temp dir: exit 0 for `cat .env`; the real path: exit 2). Compare
+  // the two REAL paths. A path that cannot be resolved is still not a match.
+  try {
+    return isSameRealPath(fileURLToPath(moduleUrl), entry);
+  } catch {
     return false;
   }
 }

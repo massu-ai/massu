@@ -134,6 +134,21 @@ export function assertContainedIn(
  * @param allowRoot  candidate === root counts as contained (the source-dir detector
  *                   probes `.`; a writer must never target the directory itself)
  */
+/**
+ * Do two paths name the SAME file, symlinks resolved? Path identity, not containment — but it
+ * lives here because every realpath comparison in this package does (path-containment
+ * drift-guard). Used by hook entry points: Node gives a module its real path while `argv[1]`
+ * is the path as typed, so a hook launched through a symlink must compare both resolved
+ * (2026-11-09). A path that cannot be resolved is not the same file.
+ */
+export function isSameRealPath(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+}
+
 export function isContainedIn(
   rootDir: string,
   candidate: string,

@@ -8,6 +8,10 @@ import {
   dequeuePendingSync,
   removePendingSync,
   incrementRetryCount,
+  discardPendingSync,
+  allPendingSync,
+  getMemoryMeta,
+  setMemoryMeta,
 } from './memory-db.ts';
 import type { RulePromotionEventType } from './memory-db.ts';
 import { stripLearningFromPayload } from './rule-delivery.ts';
@@ -105,6 +109,13 @@ export interface SyncResult {
    * flag an ack may trust.
    */
   transmitted?: boolean;
+  /**
+   * The server refused the payload in a way retrying cannot change (a 4xx other than 408/429).
+   * Never queued. 401/403 are account-level and pause sync (see CLOUD_SYNC_REFUSAL_KEY).
+   */
+  permanent?: boolean;
+  /** Sync is paused by a recorded account-level refusal; nothing was sent. */
+  paused?: boolean;
   synced: {
     sessions: number;
     observations: number;
@@ -112,6 +123,51 @@ export interface SyncResult {
     audit: number;
   };
   error?: string;
+}
+
+/**
+ * An account-level refusal (401 bad key, 403 e.g. "Sync not available for current plan
+ * status") is recorded here and pauses sending until it is re-checked. Before this, every
+ * refusal was queued and retried forever: 2026-11-09, one repo held 43,503 refused uploads
+ * (7.6 GB) and re-sent a ~179 KB payload at the end of every reply.
+ */
+export const CLOUD_SYNC_REFUSAL_KEY = 'cloud_sync_refused';
+/** How long a recorded refusal pauses sync before one attempt re-checks it. */
+export const CLOUD_SYNC_RECHECK_MS = 24 * 60 * 60 * 1000;
+
+export interface CloudSyncRefusal {
+  status: number;
+  reason: string;
+  at: string;
+}
+
+/** 4xx except 408 (timeout) and 429 (rate limited): the same request will never succeed. */
+export function isPermanentSyncStatus(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+
+export function readCloudSyncRefusal(db: Database.Database): CloudSyncRefusal | null {
+  try {
+    const raw = getMemoryMeta(db, CLOUD_SYNC_REFUSAL_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as CloudSyncRefusal;
+    return v && typeof v.status === 'number' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A session-start line while sync is paused, or null. The server's own reason, verbatim. */
+export function cloudSyncRefusalBanner(db: Database.Database): string | null {
+  const r = readCloudSyncRefusal(db);
+  if (!r) return null;
+  return (
+    `=== MASSU CLOUD SYNC PAUSED ===\n` +
+    `The massu cloud refused uploads from this project (HTTP ${r.status}: ${r.reason || 'no reason given'}) ` +
+    `on ${r.at}. Nothing is being uploaded or queued; local memory is unaffected. ` +
+    `It re-checks once a day and resumes on its own when the account allows it.\n` +
+    `=== END ===\n\n`
+  );
 }
 
 const MAX_RETRIES = 3;
@@ -191,6 +247,11 @@ export interface SyncOptions {
    * duplicated the row on every failed drain while the original's retry_count also rose.
    */
   enqueueOnFailure?: boolean;
+  /**
+   * Attempts within this one call (default 3, with 1 s / 2 s backoff). The queue drain passes 1:
+   * a queued item is already a retry, and in-call backoff spent the session-end budget sleeping.
+   */
+  maxAttempts?: number;
 }
 
 /**
@@ -220,6 +281,17 @@ export async function syncToCloud(
   const endpoint = cloud.endpoint;
   if (!endpoint) {
     return { success: false, synced: { sessions: 0, observations: 0, analytics: 0, audit: 0 }, error: 'No sync endpoint configured' };
+  }
+
+  // A recorded account-level refusal pauses sending until the re-check window passes.
+  const refusal = readCloudSyncRefusal(db);
+  if (refusal && Date.now() - Date.parse(refusal.at) < CLOUD_SYNC_RECHECK_MS) {
+    return {
+      success: false,
+      paused: true,
+      synced: { sessions: 0, observations: 0, analytics: 0, audit: 0 },
+      error: `cloud sync paused: HTTP ${refusal.status}: ${refusal.reason}`,
+    };
   }
 
   // Apply selective sync filters
@@ -316,10 +388,13 @@ export async function syncToCloud(
   // timeout and the time actually left, so retries + backoff can never sum past the
   // budget no matter how the knobs are tuned.
   let lastError = '';
+  let permanentStatus: number | null = null;
+  let permanentReason = '';
   const configuredTimeoutMs = (cloud as { requestTimeoutMs?: number }).requestTimeoutMs
     ?? DEFAULT_CLOUD_REQUEST_TIMEOUT_MS;
   const deadlineAt = Math.min(Date.now() + SYNC_DEADLINE_MS, opts.deadlineAt ?? Infinity);
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+  const maxAttempts = Math.max(1, Math.min(opts.maxAttempts ?? MAX_RETRIES, MAX_RETRIES));
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const remainingMs = deadlineAt - Date.now();
     if (remainingMs < MIN_ATTEMPT_BUDGET_MS) {
       // Out of budget. Stop cleanly and queue for later — never silently, and never
@@ -347,19 +422,26 @@ export async function syncToCloud(
       });
 
       if (!response.ok) {
-        lastError = `HTTP ${response.status}: ${response.statusText}`;
-        if (response.status >= 400 && response.status < 500) {
-          // Client errors are not retryable
+        // Keep the server's own reason: the body says WHY (e.g. "Sync not available for current
+        // plan status"); statusText alone logged as an empty `HTTP 403: `.
+        const reason = await readErrorReason(response);
+        lastError = `HTTP ${response.status}: ${reason}`;
+        if (isPermanentSyncStatus(response.status)) {
+          permanentStatus = response.status;
+          permanentReason = reason;
           break;
         }
         // Server errors — retry
-        if (attempt < MAX_RETRIES - 1) {
+        if (attempt < maxAttempts - 1) {
           await sleep(RETRY_DELAYS[attempt]);
           continue;
         }
         break;
       }
 
+      if (refusal) {
+        try { setMemoryMeta(db, CLOUD_SYNC_REFUSAL_KEY, ''); } catch { /* re-checked next run */ }
+      }
       const result = await response.json() as { synced?: { sessions?: number; observations?: number; analytics?: number } };
       return {
         success: true,
@@ -382,11 +464,34 @@ export async function syncToCloud(
       if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
         break;
       }
-      if (attempt < MAX_RETRIES - 1) {
+      if (attempt < maxAttempts - 1) {
         await sleep(RETRY_DELAYS[attempt]);
         continue;
       }
     }
+  }
+
+  // A permanent refusal is never queued: retrying the same request cannot succeed, and a queue
+  // of refusals only grows. 401/403 refuse the ACCOUNT, so every queued item would be refused
+  // for the same reason: record the refusal (it pauses sync and is shown at session start) and
+  // clear the queue, rescuing learned rules first.
+  if (permanentStatus !== null) {
+    if (permanentStatus === 401 || permanentStatus === 403) {
+      try {
+        setMemoryMeta(db, CLOUD_SYNC_REFUSAL_KEY, JSON.stringify({
+          status: permanentStatus, reason: permanentReason, at: new Date().toISOString(),
+        } satisfies CloudSyncRefusal));
+        discardPendingSync(db, allPendingSync(db), `the cloud refused this account (HTTP ${permanentStatus}: ${permanentReason})`);
+      } catch (err) {
+        process.stderr.write(`[massu] WARNING: could not record the cloud-sync refusal: ${err instanceof Error ? err.message : String(err)}\n`);
+      }
+    }
+    return {
+      success: false,
+      permanent: true,
+      synced: { sessions: 0, observations: 0, analytics: 0, audit: 0 },
+      error: lastError,
+    };
   }
 
   // All retries exhausted — enqueue for later.
@@ -439,6 +544,9 @@ export async function drainSyncQueue(
   const config = getConfig();
   if (!config.cloud?.enabled || !config.cloud?.apiKey) return out;
 
+  const refusal = readCloudSyncRefusal(db);
+  if (refusal && Date.now() - Date.parse(refusal.at) < CLOUD_SYNC_RECHECK_MS) return out;
+
   const pending = dequeuePendingSync(db, 10);
   for (let i = 0; i < pending.length; i++) {
     const item = pending[i];
@@ -450,9 +558,15 @@ export async function drainSyncQueue(
     out.attempted++;
     try {
       const payload = JSON.parse(item.payload) as SyncPayload;
-      const result = await syncToCloud(db, payload, { deadlineAt, enqueueOnFailure: false });
+      const result = await syncToCloud(db, payload, { deadlineAt, enqueueOnFailure: false, maxAttempts: 1 });
       if (result.success) {
         removePendingSync(db, item.id);
+      } else if (result.paused) {
+        break;
+      } else if (result.permanent) {
+        // Refused for THIS payload (or the whole account, which already cleared the queue).
+        discardPendingSync(db, [{ id: item.id, retry_count: item.retry_count, last_error: result.error ?? null, payload: item.payload }], result.error ?? 'permanent refusal');
+        if (readCloudSyncRefusal(db)) break;
       } else {
         incrementRetryCount(db, item.id, result.error ?? 'Unknown error');
       }
@@ -465,4 +579,18 @@ export async function drainSyncQueue(
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function readErrorReason(response: Response): Promise<string> {
+  try {
+    const text = (await response.text()).slice(0, 300);
+    try {
+      const j = JSON.parse(text) as { error?: unknown; message?: unknown };
+      const r = typeof j.error === 'string' ? j.error : typeof j.message === 'string' ? j.message : '';
+      if (r) return r;
+    } catch { /* not JSON */ }
+    return text.trim() || response.statusText;
+  } catch {
+    return response.statusText;
+  }
 }

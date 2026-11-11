@@ -108,7 +108,7 @@ Status: HEALTHY (8/8 checks passed)
 
 ## massu install-hooks
 
-Install or update all 11 Claude Code hooks without running the full init process.
+Install or update massu's Claude Code hooks without running the full init process, and bring the massu MCP server in `.mcp.json` to the same version.
 
 ### Usage
 
@@ -120,7 +120,13 @@ npx massu install-hooks
 
 - After updating `@massu/core` to a new version
 - If hooks were accidentally removed from `.claude/settings.local.json`
-- To re-install hooks without regenerating config or MCP registration
+- To re-install hooks without regenerating config
+
+### What it changes
+
+- Every massu hook entry in `.claude/settings.local.json` moves to the installed version. Entries written by older installers, including the very old `node .../node_modules/@massu/core/dist/hooks/<name>.js` form, are replaced, not added beside the new ones. Your own hooks are kept as they are.
+- The safety gate is set to `"onFailure": "block"`, so if it crashes or times out, the tool call is blocked instead of allowed.
+- If `.mcp.json` registers the massu MCP server in a form massu wrote, it moves to the same version. A hand-written massu entry is left unchanged, and the command says so. `.mcp.json` is usually committed, so commit that change.
 
 ### Output
 
@@ -129,6 +135,7 @@ Massu AI - Hook Installation
 ============================
 
   Installed 16 hooks in .claude/settings.local.json
+  Updated the massu MCP server in .mcp.json to 2.5.7 (commit this file)
 
 Hooks will activate on your next Claude Code session.
 ```

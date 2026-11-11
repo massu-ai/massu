@@ -1,0 +1,4 @@
+# Decided 2026-11-09 by the operator: 2.5.2-2.5.5 shipped a safety gate that warned but did not
+# block. Fixed in 2.5.6. Read by: scripts/ops/deprecate-releases.sh --preset 2026-11-09-gate
+RANGE='>=2.5.2 <2.5.6'
+MESSAGE="Security: this version's safety gate warns but does not block dangerous commands. Upgrade to 2.5.6 or later and run massu init."

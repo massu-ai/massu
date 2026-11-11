@@ -100,6 +100,11 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
 }
 
 async function main(): Promise<void> {
+  if (process.argv.includes('--warm-cache')) {
+    const r = await warmCache();
+    process.stderr.write(`warm-cache: ${r}\n`);
+    return void process.exit(0);
+  }
   try {
     const input = await readStdin();
     if (!input.trim()) return void process.exit(0);
@@ -282,6 +287,27 @@ function readStdin(): Promise<string> {
 // Run main() only when this file IS the process entry point. Written bare,
 // `main()` at module scope means IMPORTING this module RUNS the hook: it reads
 // stdin, does its work, and exits the host process.
+/** Budget for the warm-up's one embed. It runs detached, so this only bounds its own life. */
+export const WARM_CACHE_BUDGET_MS = 8_000;
+
+/**
+ * `--warm-cache`: load the embedding model once, in the background, at session start, so the
+ * session's FIRST prompt does not pay it. Measured 2026-11-10: first recall 1.51 s, then
+ * 0.58-0.65 s. What carries over to later hook processes is the OS page cache over the model and
+ * the onnxruntime wasm files. Reads no stdin, writes nothing to the database, and always exits 0:
+ * `warm-cache: ok` when the model answered, `warm-cache: null` when the embedder is unavailable or
+ * disabled (a remote endpoint has no local cost to warm, so null is correct there).
+ */
+export async function warmCache(): Promise<'ok' | 'null'> {
+  const timer = new Promise<null>((resolve) => setTimeout(() => resolve(null), WARM_CACHE_BUDGET_MS).unref());
+  try {
+    const v = await Promise.race([embed('warm-up'), timer]);
+    return v ? 'ok' : 'null';
+  } catch {
+    return 'null';
+  }
+}
+
 if (isDirectInvocation(import.meta.url)) {
   main();
 }

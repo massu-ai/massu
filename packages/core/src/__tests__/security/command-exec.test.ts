@@ -25,7 +25,6 @@ import {
   _detectSetuid,
   _probeChildRssMb,
   _startRssWatchdog,
-  LSP_WATCHDOG_OVERBUDGET_SAMPLES,
 } from '../../lsp/client.ts';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
@@ -410,38 +409,38 @@ describe('Cmd exec — RSS watchdog kills sustained over-budget LSP (F-015)', ()
     const child = spawn('sleep', ['30'], { stdio: 'ignore' });
     expect(child.pid).toBeGreaterThan(0);
 
-    let killed = false;
-    child.once('exit', () => { killed = true; });
+    // Wait for the child's OWN exit, never for a guessed duration (G27): each sample spawns a
+    // probe, and under a loaded pre-push run the samples arrive late, so a fixed sleep failed
+    // a correct watchdog (2026-11-09). A hang is the hang detector's job; `sleep 30` would
+    // otherwise exit by itself, with no signal, which fails the assertion below.
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((r) =>
+      child.once('exit', (code, signal) => r({ code, signal })),
+    );
 
     // maxRssMb=0.001 (1 KB) guarantees over-budget on EVERY sample;
     // intervalMs=50 makes the test fast.
     const wd = _startRssWatchdog(child, 'python-test', 0.001, 50);
-
-    // Wait for OVERBUDGET_SAMPLES * intervalMs + slop.
-    await new Promise((r) => setTimeout(r, 50 * (LSP_WATCHDOG_OVERBUDGET_SAMPLES + 2) + 200));
-
+    const { signal } = await exited;
     wd.stop();
-    expect(killed).toBe(true);
+    expect(signal, 'the watchdog must end the child with SIGKILL').toBe('SIGKILL');
   });
 
   it('_startRssWatchdog does NOT kill when RSS stays under budget', async () => {
     const child = spawn('sleep', ['2'], { stdio: 'ignore' });
     expect(child.pid).toBeGreaterThan(0);
 
-    let killedBySignal = false;
-    child.once('exit', (_code, signal) => {
-      if (signal === 'SIGKILL') killedBySignal = true;
-    });
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((r) =>
+      child.once('exit', (code, signal) => r({ code, signal })),
+    );
 
     // maxRssMb=10000 (10 GB) is wildly above any real Node child.
     const wd = _startRssWatchdog(child, 'python-test', 10_000, 50);
 
-    // Wait for several sample intervals. Watchdog should NOT trigger.
-    await new Promise((r) => setTimeout(r, 50 * (LSP_WATCHDOG_OVERBUDGET_SAMPLES + 2) + 200));
-
+    // The watchdog samples for the child's WHOLE life (about 40 intervals); it must never
+    // fire. Judged by how the child ended, not by a guessed wait.
+    const { code, signal } = await exited;
     wd.stop();
-    // Process exits naturally on its own from `sleep 2`, but NOT via SIGKILL.
-    try { child.kill(); } catch { /* clean up if still alive */ }
-    expect(killedBySignal).toBe(false);
+    expect(signal, 'an under-budget child must not be killed').toBeNull();
+    expect(code).toBe(0);
   });
 });

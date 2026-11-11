@@ -2193,6 +2193,8 @@ __export(memory_db_exports, {
   MEMORY_FILE_TITLE_LIKE: () => MEMORY_FILE_TITLE_LIKE,
   MEMORY_FILE_TITLE_PREFIX: () => MEMORY_FILE_TITLE_PREFIX,
   MEMORY_SCHEMA_VERSION: () => MEMORY_SCHEMA_VERSION,
+  PENDING_SYNC_MAX_AGE_DAYS: () => PENDING_SYNC_MAX_AGE_DAYS,
+  PENDING_SYNC_MAX_ITEMS: () => PENDING_SYNC_MAX_ITEMS,
   TOOL_COST_EVENTS_RETENTION_DAYS: () => TOOL_COST_EVENTS_RETENTION_DAYS,
   USAGE_COUNTER_ARMED_KEY: () => USAGE_COUNTER_ARMED_KEY,
   addConversationTurn: () => addConversationTurn,
@@ -2201,6 +2203,7 @@ __export(memory_db_exports, {
   addSummary: () => addSummary,
   addToolCallDetail: () => addToolCallDetail,
   addUserPrompt: () => addUserPrompt,
+  allPendingSync: () => allPendingSync,
   appendIncidentToFailureClass: () => appendIncidentToFailureClass,
   armUsageCounter: () => armUsageCounter,
   assignImportance: () => assignImportance,
@@ -2208,6 +2211,7 @@ __export(memory_db_exports, {
   createSession: () => createSession,
   deduplicateFailedAttempt: () => deduplicateFailedAttempt,
   dequeuePendingSync: () => dequeuePendingSync,
+  discardPendingSync: () => discardPendingSync,
   embedMissingObservations: () => embedMissingObservations,
   endSession: () => endSession,
   enqueueRulePromotionEvent: () => enqueueRulePromotionEvent,
@@ -3190,6 +3194,35 @@ function initMemorySchema(db) {
 }
 function enqueueSyncPayload(db, payload) {
   db.prepare("INSERT INTO pending_sync (payload) VALUES (?)").run(payload);
+  const overflow = db.prepare(
+    `SELECT id, retry_count, last_error, payload FROM pending_sync
+      WHERE created_at < datetime('now', ?)
+         OR id NOT IN (SELECT id FROM pending_sync ORDER BY created_at DESC, id DESC LIMIT ?)
+      LIMIT 10000`
+  ).all(`-${PENDING_SYNC_MAX_AGE_DAYS} days`, PENDING_SYNC_MAX_ITEMS);
+  if (overflow.length > 0) {
+    discardPendingSync(db, overflow, `over the queue limit (${PENDING_SYNC_MAX_ITEMS} items / ${PENDING_SYNC_MAX_AGE_DAYS} days)`);
+  }
+}
+function discardPendingSync(db, rows, why) {
+  if (rows.length === 0) return 0;
+  const rescued = rescueLearningFromStalePayloads(db, rows);
+  for (let i = 0; i < rows.length; i += 500) {
+    const ids = rows.slice(i, i + 500).map((r) => r.id);
+    db.prepare(`DELETE FROM pending_sync WHERE id IN (${ids.map(() => "?").join(",")})`).run(...ids);
+  }
+  if (rescued > 0) {
+    process.stderr.write(
+      `[massu] RESCUED ${rescued} learned rule(s) from ${rows.length} discarded payload(s) \u2014 they were re-queued for delivery, NOT discarded.
+`
+    );
+  }
+  process.stderr.write(`[massu] cloud sync: discarded ${rows.length} queued upload(s): ${why}.
+`);
+  return rows.length;
+}
+function allPendingSync(db) {
+  return db.prepare("SELECT id, retry_count, last_error, payload FROM pending_sync").all();
 }
 function getMemoryMeta(db, key) {
   const row = db.prepare("SELECT value FROM memory_meta WHERE key = ?").get(key);
@@ -3392,7 +3425,9 @@ function dequeuePendingSync(db, limit = 10) {
     }
   }
   return db.prepare(
-    "SELECT id, payload, retry_count FROM pending_sync ORDER BY created_at ASC LIMIT ?"
+    // Least-retried first: oldest-first retried the same 10 items until they were discarded
+    // while every newer item waited at retry 0 (2026-11-09: 43,492 never attempted).
+    "SELECT id, payload, retry_count FROM pending_sync ORDER BY retry_count ASC, created_at ASC LIMIT ?"
   ).all(limit);
 }
 function removePendingSync(db, id) {
@@ -4065,7 +4100,7 @@ function scoreFailureClasses(db, matchText, filePath, promptContext, weights) {
   }
   return bestMatch;
 }
-var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
+var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, PENDING_SYNC_MAX_ITEMS, PENDING_SYNC_MAX_AGE_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
 var init_memory_db = __esm({
   "src/memory-db.ts"() {
     "use strict";
@@ -4080,6 +4115,8 @@ var init_memory_db = __esm({
     init_memory_embed_sweep();
     MEMORY_SCHEMA_VERSION = 2;
     TOOL_COST_EVENTS_RETENTION_DAYS = 90;
+    PENDING_SYNC_MAX_ITEMS = 500;
+    PENDING_SYNC_MAX_AGE_DAYS = 30;
     MAX_DRAFT_TEXT_LEN = 16384;
     FUNNEL_EVENT_OUTBOX_CAP = 2e4;
     _temporalColCache = /* @__PURE__ */ new WeakMap();
@@ -4527,6 +4564,27 @@ init_config();
 init_memory_db();
 
 // src/lib/safe-write.ts
+import {
+  writeFileSync as writeFileSync3,
+  renameSync,
+  openSync as openSync2,
+  fsyncSync as fsyncSync2,
+  closeSync as closeSync2,
+  existsSync as existsSync9,
+  realpathSync,
+  unlinkSync as unlinkSync2,
+  accessSync as accessSync2,
+  statSync as statSync2,
+  chmodSync as chmodSync3,
+  constants
+} from "fs";
+function isSameRealPath(a, b) {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+}
 var SLUG_ALLOWED = /^[a-z0-9_]+$/;
 function deriveSlug(input) {
   const cleaned = input.toLowerCase().replace(/[^a-z0-9\s]+/g, " ").replace(/\s+/g, "_").replace(/^_+|_+$/g, "");
@@ -4639,15 +4697,20 @@ function writeHookContext(hookEventName, message) {
 // src/hooks/memory-recall.ts
 init_db_driver();
 init_hook_failure_signal();
-import { existsSync as existsSync9 } from "fs";
+import { existsSync as existsSync10 } from "fs";
 
 // src/hooks/lib/is-direct-invocation.ts
-import { pathToFileURL } from "url";
+import { fileURLToPath as fileURLToPath2, pathToFileURL } from "url";
 function isDirectInvocation(moduleUrl) {
   const entry = process.argv[1];
   if (!entry) return false;
   try {
-    return moduleUrl === pathToFileURL(entry).href;
+    if (moduleUrl === pathToFileURL(entry).href) return true;
+  } catch {
+    return false;
+  }
+  try {
+    return isSameRealPath(fileURLToPath2(moduleUrl), entry);
   } catch {
     return false;
   }
@@ -4690,6 +4753,12 @@ function withTimeout(p, ms) {
   ]);
 }
 async function main() {
+  if (process.argv.includes("--warm-cache")) {
+    const r = await warmCache();
+    process.stderr.write(`warm-cache: ${r}
+`);
+    return void process.exit(0);
+  }
   try {
     const input = await readStdin();
     if (!input.trim()) return void process.exit(0);
@@ -4724,7 +4793,7 @@ async function computeRecall(prompt, cfg, sessionId) {
     );
     memDb = getMemoryDb();
     const knowledgeDbPath = getResolvedPaths().knowledgeDbPath;
-    if (cfg.sources.includes("knowledge_chunk") && existsSync9(knowledgeDbPath)) {
+    if (cfg.sources.includes("knowledge_chunk") && existsSync10(knowledgeDbPath)) {
       try {
         knowledgeDb = openDatabase2(knowledgeDbPath, { readonly: true, selfHeal: false });
       } catch {
@@ -4806,6 +4875,20 @@ function readStdin() {
     setTimeout(() => resolve5(data), 3e3);
   });
 }
+var WARM_CACHE_BUDGET_MS = 8e3;
+async function warmCache() {
+  const timer = new Promise((resolve5) => setTimeout(() => resolve5(null), WARM_CACHE_BUDGET_MS).unref());
+  try {
+    const v = await Promise.race([embed("warm-up"), timer]);
+    return v ? "ok" : "null";
+  } catch {
+    return "null";
+  }
+}
 if (isDirectInvocation(import.meta.url)) {
   main();
 }
+export {
+  WARM_CACHE_BUDGET_MS,
+  warmCache
+};

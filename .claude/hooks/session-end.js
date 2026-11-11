@@ -2340,6 +2340,8 @@ __export(memory_db_exports, {
   MEMORY_FILE_TITLE_LIKE: () => MEMORY_FILE_TITLE_LIKE,
   MEMORY_FILE_TITLE_PREFIX: () => MEMORY_FILE_TITLE_PREFIX,
   MEMORY_SCHEMA_VERSION: () => MEMORY_SCHEMA_VERSION,
+  PENDING_SYNC_MAX_AGE_DAYS: () => PENDING_SYNC_MAX_AGE_DAYS,
+  PENDING_SYNC_MAX_ITEMS: () => PENDING_SYNC_MAX_ITEMS,
   TOOL_COST_EVENTS_RETENTION_DAYS: () => TOOL_COST_EVENTS_RETENTION_DAYS,
   USAGE_COUNTER_ARMED_KEY: () => USAGE_COUNTER_ARMED_KEY,
   addConversationTurn: () => addConversationTurn,
@@ -2348,6 +2350,7 @@ __export(memory_db_exports, {
   addSummary: () => addSummary,
   addToolCallDetail: () => addToolCallDetail,
   addUserPrompt: () => addUserPrompt,
+  allPendingSync: () => allPendingSync,
   appendIncidentToFailureClass: () => appendIncidentToFailureClass,
   armUsageCounter: () => armUsageCounter,
   assignImportance: () => assignImportance,
@@ -2355,6 +2358,7 @@ __export(memory_db_exports, {
   createSession: () => createSession,
   deduplicateFailedAttempt: () => deduplicateFailedAttempt,
   dequeuePendingSync: () => dequeuePendingSync,
+  discardPendingSync: () => discardPendingSync,
   embedMissingObservations: () => embedMissingObservations,
   endSession: () => endSession,
   enqueueRulePromotionEvent: () => enqueueRulePromotionEvent,
@@ -3337,6 +3341,35 @@ function initMemorySchema(db) {
 }
 function enqueueSyncPayload(db, payload) {
   db.prepare("INSERT INTO pending_sync (payload) VALUES (?)").run(payload);
+  const overflow = db.prepare(
+    `SELECT id, retry_count, last_error, payload FROM pending_sync
+      WHERE created_at < datetime('now', ?)
+         OR id NOT IN (SELECT id FROM pending_sync ORDER BY created_at DESC, id DESC LIMIT ?)
+      LIMIT 10000`
+  ).all(`-${PENDING_SYNC_MAX_AGE_DAYS} days`, PENDING_SYNC_MAX_ITEMS);
+  if (overflow.length > 0) {
+    discardPendingSync(db, overflow, `over the queue limit (${PENDING_SYNC_MAX_ITEMS} items / ${PENDING_SYNC_MAX_AGE_DAYS} days)`);
+  }
+}
+function discardPendingSync(db, rows, why) {
+  if (rows.length === 0) return 0;
+  const rescued = rescueLearningFromStalePayloads(db, rows);
+  for (let i = 0; i < rows.length; i += 500) {
+    const ids = rows.slice(i, i + 500).map((r2) => r2.id);
+    db.prepare(`DELETE FROM pending_sync WHERE id IN (${ids.map(() => "?").join(",")})`).run(...ids);
+  }
+  if (rescued > 0) {
+    process.stderr.write(
+      `[massu] RESCUED ${rescued} learned rule(s) from ${rows.length} discarded payload(s) \u2014 they were re-queued for delivery, NOT discarded.
+`
+    );
+  }
+  process.stderr.write(`[massu] cloud sync: discarded ${rows.length} queued upload(s): ${why}.
+`);
+  return rows.length;
+}
+function allPendingSync(db) {
+  return db.prepare("SELECT id, retry_count, last_error, payload FROM pending_sync").all();
 }
 function getMemoryMeta(db, key) {
   const row = db.prepare("SELECT value FROM memory_meta WHERE key = ?").get(key);
@@ -3539,7 +3572,9 @@ function dequeuePendingSync(db, limit = 10) {
     }
   }
   return db.prepare(
-    "SELECT id, payload, retry_count FROM pending_sync ORDER BY created_at ASC LIMIT ?"
+    // Least-retried first: oldest-first retried the same 10 items until they were discarded
+    // while every newer item waited at retry 0 (2026-11-09: 43,492 never attempted).
+    "SELECT id, payload, retry_count FROM pending_sync ORDER BY retry_count ASC, created_at ASC LIMIT ?"
   ).all(limit);
 }
 function removePendingSync(db, id) {
@@ -4212,7 +4247,7 @@ function scoreFailureClasses(db, matchText, filePath, promptContext, weights) {
   }
   return bestMatch;
 }
-var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
+var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, PENDING_SYNC_MAX_ITEMS, PENDING_SYNC_MAX_AGE_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
 var init_memory_db = __esm({
   "src/memory-db.ts"() {
     "use strict";
@@ -4227,6 +4262,8 @@ var init_memory_db = __esm({
     init_memory_embed_sweep();
     MEMORY_SCHEMA_VERSION = 2;
     TOOL_COST_EVENTS_RETENTION_DAYS = 90;
+    PENDING_SYNC_MAX_ITEMS = 500;
+    PENDING_SYNC_MAX_AGE_DAYS = 30;
     MAX_DRAFT_TEXT_LEN = 16384;
     FUNNEL_EVENT_OUTBOX_CAP = 2e4;
     _temporalColCache = /* @__PURE__ */ new WeakMap();
@@ -4560,6 +4597,21 @@ function classifyVisibility(title, detail) {
 }
 
 // src/cloud-sync.ts
+var CLOUD_SYNC_REFUSAL_KEY = "cloud_sync_refused";
+var CLOUD_SYNC_RECHECK_MS = 24 * 60 * 60 * 1e3;
+function isPermanentSyncStatus(status) {
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+function readCloudSyncRefusal(db) {
+  try {
+    const raw = getMemoryMeta(db, CLOUD_SYNC_REFUSAL_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    return v && typeof v.status === "number" ? v : null;
+  } catch {
+    return null;
+  }
+}
 var MAX_RETRIES = 3;
 var RETRY_DELAYS = [1e3, 2e3, 4e3];
 var DEFAULT_CLOUD_REQUEST_TIMEOUT_MS = 15e3;
@@ -4578,6 +4630,15 @@ async function syncToCloud(db, payload, opts = {}) {
   const endpoint = cloud.endpoint;
   if (!endpoint) {
     return { success: false, synced: { sessions: 0, observations: 0, analytics: 0, audit: 0 }, error: "No sync endpoint configured" };
+  }
+  const refusal = readCloudSyncRefusal(db);
+  if (refusal && Date.now() - Date.parse(refusal.at) < CLOUD_SYNC_RECHECK_MS) {
+    return {
+      success: false,
+      paused: true,
+      synced: { sessions: 0, observations: 0, analytics: 0, audit: 0 },
+      error: `cloud sync paused: HTTP ${refusal.status}: ${refusal.reason}`
+    };
   }
   const filteredPayload = {};
   if (cloud.sync?.memory !== false) {
@@ -4648,9 +4709,12 @@ async function syncToCloud(db, payload, opts = {}) {
     }
   }
   let lastError = "";
+  let permanentStatus = null;
+  let permanentReason = "";
   const configuredTimeoutMs = cloud.requestTimeoutMs ?? DEFAULT_CLOUD_REQUEST_TIMEOUT_MS;
   const deadlineAt = Math.min(Date.now() + SYNC_DEADLINE_MS, opts.deadlineAt ?? Infinity);
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+  const maxAttempts = Math.max(1, Math.min(opts.maxAttempts ?? MAX_RETRIES, MAX_RETRIES));
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const remainingMs = deadlineAt - Date.now();
     if (remainingMs < MIN_ATTEMPT_BUDGET_MS) {
       lastError = lastError || "sync deadline exceeded";
@@ -4671,15 +4735,24 @@ async function syncToCloud(db, payload, opts = {}) {
         signal: AbortSignal.timeout(requestTimeoutMs)
       });
       if (!response.ok) {
-        lastError = `HTTP ${response.status}: ${response.statusText}`;
-        if (response.status >= 400 && response.status < 500) {
+        const reason = await readErrorReason(response);
+        lastError = `HTTP ${response.status}: ${reason}`;
+        if (isPermanentSyncStatus(response.status)) {
+          permanentStatus = response.status;
+          permanentReason = reason;
           break;
         }
-        if (attempt < MAX_RETRIES - 1) {
+        if (attempt < maxAttempts - 1) {
           await sleep(RETRY_DELAYS[attempt]);
           continue;
         }
         break;
+      }
+      if (refusal) {
+        try {
+          setMemoryMeta(db, CLOUD_SYNC_REFUSAL_KEY, "");
+        } catch {
+        }
       }
       const result = await response.json();
       return {
@@ -4700,11 +4773,32 @@ async function syncToCloud(db, payload, opts = {}) {
       if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
         break;
       }
-      if (attempt < MAX_RETRIES - 1) {
+      if (attempt < maxAttempts - 1) {
         await sleep(RETRY_DELAYS[attempt]);
         continue;
       }
     }
+  }
+  if (permanentStatus !== null) {
+    if (permanentStatus === 401 || permanentStatus === 403) {
+      try {
+        setMemoryMeta(db, CLOUD_SYNC_REFUSAL_KEY, JSON.stringify({
+          status: permanentStatus,
+          reason: permanentReason,
+          at: (/* @__PURE__ */ new Date()).toISOString()
+        }));
+        discardPendingSync(db, allPendingSync(db), `the cloud refused this account (HTTP ${permanentStatus}: ${permanentReason})`);
+      } catch (err) {
+        process.stderr.write(`[massu] WARNING: could not record the cloud-sync refusal: ${err instanceof Error ? err.message : String(err)}
+`);
+      }
+    }
+    return {
+      success: false,
+      permanent: true,
+      synced: { sessions: 0, observations: 0, analytics: 0, audit: 0 },
+      error: lastError
+    };
   }
   if (opts.enqueueOnFailure !== false) {
     try {
@@ -4726,6 +4820,8 @@ async function drainSyncQueue(db, deadlineAt) {
   const out = { attempted: 0, deferred: 0 };
   const config = getConfig();
   if (!config.cloud?.enabled || !config.cloud?.apiKey) return out;
+  const refusal = readCloudSyncRefusal(db);
+  if (refusal && Date.now() - Date.parse(refusal.at) < CLOUD_SYNC_RECHECK_MS) return out;
   const pending = dequeuePendingSync(db, 10);
   for (let i = 0; i < pending.length; i++) {
     const item = pending[i];
@@ -4737,9 +4833,14 @@ async function drainSyncQueue(db, deadlineAt) {
     out.attempted++;
     try {
       const payload = JSON.parse(item.payload);
-      const result = await syncToCloud(db, payload, { deadlineAt, enqueueOnFailure: false });
+      const result = await syncToCloud(db, payload, { deadlineAt, enqueueOnFailure: false, maxAttempts: 1 });
       if (result.success) {
         removePendingSync(db, item.id);
+      } else if (result.paused) {
+        break;
+      } else if (result.permanent) {
+        discardPendingSync(db, [{ id: item.id, retry_count: item.retry_count, last_error: result.error ?? null, payload: item.payload }], result.error ?? "permanent refusal");
+        if (readCloudSyncRefusal(db)) break;
       } else {
         incrementRetryCount(db, item.id, result.error ?? "Unknown error");
       }
@@ -4751,6 +4852,20 @@ async function drainSyncQueue(db, deadlineAt) {
 }
 function sleep(ms) {
   return new Promise((resolve9) => setTimeout(resolve9, ms));
+}
+async function readErrorReason(response) {
+  try {
+    const text = (await response.text()).slice(0, 300);
+    try {
+      const j = JSON.parse(text);
+      const r2 = typeof j.error === "string" ? j.error : typeof j.message === "string" ? j.message : "";
+      if (r2) return r2;
+    } catch {
+    }
+    return text.trim() || response.statusText;
+  } catch {
+    return response.statusText;
+  }
 }
 
 // src/team-rule-sync.ts
@@ -5130,6 +5245,13 @@ function assertContainedIn(rootDir, candidate, opts = {}) {
     throw new PathEscapeError(`path escapes ${root}: ${candidate}`);
   }
   return abs;
+}
+function isSameRealPath(a, b) {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
 }
 function isContainedIn(rootDir, candidate, opts = {}) {
   if (candidate.includes("\0")) return false;
@@ -8051,12 +8173,17 @@ async function runConsolidation(db, opts = {}) {
 init_hook_failure_signal();
 
 // src/hooks/lib/is-direct-invocation.ts
-import { pathToFileURL } from "url";
+import { fileURLToPath as fileURLToPath2, pathToFileURL } from "url";
 function isDirectInvocation(moduleUrl) {
   const entry = process.argv[1];
   if (!entry) return false;
   try {
-    return moduleUrl === pathToFileURL(entry).href;
+    if (moduleUrl === pathToFileURL(entry).href) return true;
+  } catch {
+    return false;
+  }
+  try {
+    return isSameRealPath(fileURLToPath2(moduleUrl), entry);
   } catch {
     return false;
   }

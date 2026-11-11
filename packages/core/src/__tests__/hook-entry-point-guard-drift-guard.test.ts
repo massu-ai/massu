@@ -170,4 +170,30 @@ describe('hook entry-point guard drift-guard', () => {
       process.argv = realArgv;
     }
   });
+
+  it('a hook launched through a SYMLINKED path still runs (the built gate, by exit code)', async () => {
+    // 2026-11-09: run from macOS's symlinked temp dir, the published gate exited 0 for a secret
+    // read — main() never ran, because argv[1] (as typed) differed from import.meta.url (real).
+    const { execFileSync, spawnSync } = await import('child_process');
+    const { mkdtempSync, mkdirSync, symlinkSync, rmSync, existsSync } = await import('fs');
+    const { join, dirname, resolve } = await import('path');
+    const { fileURLToPath } = await import('url');
+    const core = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+    const cache = join(core, 'node_modules', '.cache');
+    mkdirSync(cache, { recursive: true });
+    const out = mkdtempSync(join(cache, 'symlink-entry-'));
+    try {
+      execFileSync('node', [join(core, 'scripts', 'build-bundles.mjs'), '--hooks', '--outdir', join(out, 'real')], { stdio: 'pipe' });
+      symlinkSync(join(out, 'real'), join(out, 'link'));
+      const viaLink = join(out, 'link', 'pre-tool-use-gate.js');
+      expect(existsSync(viaLink)).toBe(true);
+      const payload = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'cat .env' }, cwd: core });
+      const r = spawnSync('node', [viaLink], { input: payload, encoding: 'utf-8' });
+      expect(r.status, `through the symlink the gate must DENY (exit 2), got ${r.status}`).toBe(2);
+      // CONTROL: the same bundle at its real path also denies, so the case above tests the link.
+      expect(spawnSync('node', [join(out, 'real', 'pre-tool-use-gate.js')], { input: payload, encoding: 'utf-8' }).status).toBe(2);
+    } finally {
+      if (out.startsWith(cache + '/')) rmSync(out, { recursive: true, force: true });
+    }
+  });
 });

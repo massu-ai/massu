@@ -33,9 +33,9 @@
  */
 
 import { createRequire } from 'module';
-import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, fsyncSync } from 'fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, fsyncSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import type Database from 'better-sqlite3';
 import {
   openDatabase as openBetterSqlite3Native,
@@ -297,6 +297,28 @@ function openBetterSqlite3(dbPath: string, opts: OpenDatabaseOptions): MassuData
   return db;
 }
 
+/**
+ * A read-write open of a real file creates that file, so its directory must exist first.
+ * SQLite does not create directories: in a checkout with no `.massu/`, opening
+ * `.massu/memory.db` fails with "unable to open database file".
+ *
+ * This used to be a three-line `mkdirSync(dirname(path))` copied into each DB getter
+ * (`getMemoryDb`, `getDataDb`, `getKnowledgeDb`). The fourth read-write opener, the server's
+ * startup RW assert (`server.ts`), never had it, so massu refused to start in every checkout
+ * without `.massu/`: 106 CRITICAL findings across 92 worktrees on 2026-11-21. Doing it
+ * HERE, at the one open chokepoint, means no caller can forget it.
+ *
+ * Read-only opens are deliberately untouched: they must never create anything, and a missing
+ * file is their own answer. `:memory:`, the empty path, and `file:` URIs have no directory
+ * to create.
+ */
+function ensureParentDirForWritableOpen(dbPath: string, opts: OpenDatabaseOptions): void {
+  if (opts.readonly) return;
+  if (dbPath === '' || dbPath === ':memory:' || dbPath.startsWith('file:')) return;
+  const dir = dirname(dbPath);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+}
+
 // ============================================================
 // Public chokepoint
 // ============================================================
@@ -308,6 +330,7 @@ function openBetterSqlite3(dbPath: string, opts: OpenDatabaseOptions): MassuData
  * `{ readonly: true }` is honored on both engines.
  */
 export function openDatabase(dbPath: string, opts: OpenDatabaseOptions = {}): MassuDatabase {
+  ensureParentDirForWritableOpen(dbPath, opts);
   return resolveDbEngine() === 'better-sqlite3'
     ? openBetterSqlite3(dbPath, opts)
     : openNodeSqlite(dbPath, opts);
@@ -369,4 +392,4 @@ export function probeMemoryDbUsable(opts: { dbPath?: string; selfHeal?: boolean 
 }
 
 export { NATIVE_DB_REMEDY, type ProbeVerdict, type OpenDatabaseOptions };
-export { MemoryEngineUnusableError, type MemoryEngineReason } from './lib/sqlite-loader.ts';
+export { MemoryEngineUnusableError, isNativeAbiError, type MemoryEngineReason } from './lib/sqlite-loader.ts';

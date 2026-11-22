@@ -3,8 +3,8 @@
 
 import type Database from 'better-sqlite3';
 import { openDatabase } from './db-driver.ts';
-import { dirname, join } from 'path';
-import { existsSync, mkdirSync, readdirSync, statSync } from 'fs';
+import { join } from 'path';
+import { existsSync, readdirSync, statSync } from 'fs';
 import { assertCodegraphUsable } from './preflight.ts';
 import { getResolvedPaths } from './config.ts';
 import { t } from './lib/sql-table-names.ts';
@@ -60,10 +60,6 @@ export function getCodeGraphDb(): Database.Database {
  */
 export function getDataDb(): Database.Database {
   const dbPath = getResolvedPaths().dataDbPath;
-  const dir = dirname(dbPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
   const db = openDatabase(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');

@@ -15,8 +15,8 @@
 
 import type Database from 'better-sqlite3';
 import { openDatabase } from './db-driver.ts';
-import { resolve, dirname, basename } from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import { resolve, basename } from 'path';
+import { existsSync } from 'fs';
 import { getConfig, getResolvedPaths, getProjectRoot } from './config.ts';
 import { float32ToBlob } from './memory-vector.ts';
 import { nowIso } from './lib/timestamps.ts';
@@ -101,10 +101,6 @@ export const MEMORY_SCHEMA_VERSION = 2;
  */
 export function getMemoryDb(): Database.Database {
   const dbPath = getResolvedPaths().memoryDbPath;
-  const dir = dirname(dbPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
 
   // INCIDENT 2026-07-13: adding ONE table to the live 135 MB memory.db corrupted it —
   // "invalid rootpage" — and every query failed. It was recovered only because a copy

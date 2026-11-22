@@ -33,7 +33,14 @@ SCANNER="$REPO/scripts/lib/private_content_scan.py"
 LOG="$(mktemp)"
 
 VERSION="$(python3 -c "import json;print(json.load(open('$REPO/packages/core/package.json'))['version'])")"
+MODE="${1:-}"
+case "$MODE" in
+  "") ;;
+  --verify-only) ;;   # re-verify an earlier publish of $VERSION (e.g. when the registry lagged); publishes nothing
+  *) echo "usage: bash scripts/publish-and-verify.sh [--verify-only]" >&2; exit 2 ;;
+esac
 
+if [ "$MODE" != "--verify-only" ]; then
 echo "════════════════════════════════════════════════════════════════"
 echo " PUBLISH @massu/core $VERSION"
 echo "════════════════════════════════════════════════════════════════"
@@ -70,6 +77,8 @@ if [ "$PUB_RC" -ne 0 ]; then
   echo "  or the auth link expired). Just re-run — a failed publish changes nothing."
   exit 1
 fi
+fi
+cd "$REPO/packages/core" || exit 1
 
 echo ""
 echo "════════════════════════════════════════════════════════════════"
@@ -80,9 +89,25 @@ sleep 5   # give the registry a moment to make the new version fetchable
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 echo ""
-echo "── 1. latest version on the registry ──"
-LATEST="$(npm view @massu/core version)"
-echo "    $LATEST"
+echo "── 1. the version THIS run published, as the registry serves it ──"
+# Verify the version we just published, never whatever `latest` says. This used to read
+# `npm view @massu/core version` (the `latest` dist-tag). The registry lags a fresh publish, so on
+# 2026-11-21 that was still 2.5.7: the script downloaded and scanned 2.5.7 and printed "the published
+# tarball for 2.5.7 is CLEAN" for a 2.5.8 publish. That is a green verdict about the wrong subject.
+# Now: take the version from the package that was published, wait until the registry lists THAT
+# version, and refuse to judge anything else.
+LATEST="$VERSION"
+[ -n "$LATEST" ] || { echo "    REFUSING TO JUDGE: cannot read the version from packages/core/package.json"; exit 1; }
+for _ in $(seq 1 40); do
+  [ "$(npm view "@massu/core@$LATEST" version 2>/dev/null)" = "$LATEST" ] && break
+  sleep 15
+done
+if [ "$(npm view "@massu/core@$LATEST" version 2>/dev/null)" != "$LATEST" ]; then
+  echo "    The registry does not list $LATEST yet (still 404 after ~10 min). Nothing was verified."
+  echo "    Re-run this check later: bash scripts/publish-and-verify.sh --verify-only"
+  exit 1
+fi
+echo "    $LATEST (dist-tag latest is now: $(npm view @massu/core dist-tags.latest 2>/dev/null))"
 
 echo ""
 echo "── 2. download the tarball the WORLD downloads, and scan it ──"

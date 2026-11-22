@@ -10,6 +10,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.5.8] - 2026-11-21
+
+### Fixed
+
+- **massu starts in a project that has no `.massu/` folder yet.** It used to exit at startup with
+  `massu: FATAL — the memory database engine could not be opened: unable to open database file`, so every
+  massu tool was unavailable in that project. Three of massu's four database openers created the folder
+  first, but the startup self-check did not. Folder creation now happens once, inside the single function
+  every database open goes through: a read-write open of a database file creates its folder, and a
+  read-only open never creates anything.
+- **The startup error names the real cause.** Every open failure used to be blamed on a native-module
+  mismatch, with advice to run `npm rebuild better-sqlite3`, even though the default engine is Node's
+  built-in SQLite and the usual cause was a missing or unwritable folder. That advice now appears only for
+  a genuine native-module mismatch. Any other failure says to check that the `.massu/` folder exists and is
+  writable, and keeps the original error text.
+
 ## [2.5.7] - 2026-11-10
 
 ### Fixed

@@ -19,6 +19,8 @@
  * engine opened fine, one maintenance query hiccuped).
  */
 
+import { isNativeAbiError } from './db-driver.ts';
+
 /** Minimal shape we need from an opened DB handle: the ability to close it. */
 export interface ClosableDb {
   close(): void;
@@ -44,13 +46,21 @@ export function assertMemoryEngineHealthy(open: () => ClosableDb): void {
     db = open();
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
+    // Name the cause the error actually shows. This message used to blame a native-binding ABI
+    // mismatch for EVERY open failure, so "unable to open database file" (a missing or
+    // unwritable directory) told people to `npm rebuild better-sqlite3`, which cannot help.
+    // That misdirected 92 worktrees on 2026-11-21. The rebuild advice is kept for the
+    // class it fits, as classified by the loader's own `isNativeAbiError`.
+    const remedy = isNativeAbiError(error)
+      ? `The native SQLite binding was built for a different Node.js ABI (e.g. after a Node ` +
+        `major upgrade). Remedy: rebuild the native binding for this Node version — ` +
+        `'npm rebuild better-sqlite3' inside the @massu/core install, or reinstall @massu/core.`
+      : `This is a filesystem/open error, not a native-binding problem: check that the memory ` +
+        `database's directory (normally <project>/.massu/) exists and is writable by this user, ` +
+        `and that the file is not locked or corrupt.`;
     throw new FatalStartupError(
-      `the memory database engine could not be opened: ${msg}\n` +
-      `This usually means the native SQLite binding was built for a different ` +
-      `Node.js ABI (e.g. after a Node major upgrade). Remedy: rebuild the native ` +
-      `binding for this Node version — 'npm rebuild better-sqlite3' inside the ` +
-      `@massu/core install, or reinstall @massu/core. Refusing to start in a ` +
-      `"connected but broken" state where every database tool would fail silently.`
+      `the memory database engine could not be opened: ${msg}\n${remedy} Refusing to start ` +
+      `in a "connected but broken" state where every database tool would fail silently.`
     );
   }
   // Opened cleanly — release the probe handle; real callers reopen per their needs.

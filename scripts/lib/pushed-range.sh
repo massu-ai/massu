@@ -84,6 +84,33 @@ _massu_is_zero_oid() {
   esac
 }
 
+# massu_push_is_deletion_only — true (0) ONLY when MASSU_PUSH_REFS holds at least one
+# well-formed ref line AND every line deletes a ref (all-zero local oid, real remote oid).
+#
+# A deletion transmits no objects, so the code battery has nothing to judge; running it
+# anyway made every branch cleanup hostage to whatever test was red on the default branch
+# (2026-11-21 PST: two provably-merged branches could not be deleted because one unrelated
+# memory test failed). git's own templates/hooks--pre-push.sample handles a delete as a
+# no-op for the same reason.
+#
+# Everything else is false (1), DELIBERATELY: an empty capture, a malformed line, or any
+# line that delivers commits. "I could not read what this push does" must never become
+# "skip the gates" (M2), so this predicate can only be satisfied by positive evidence.
+massu_push_is_deletion_only() {
+  local local_ref local_oid remote_ref remote_oid deletions=0
+  [ -n "${MASSU_PUSH_REFS:-}" ] || return 1
+  while read -r local_ref local_oid remote_ref remote_oid; do
+    [ -z "${local_ref:-}" ] && continue
+    [ -n "${remote_oid:-}" ] || return 1                 # malformed: not 4 fields
+    _massu_is_zero_oid "$local_oid" || return 1           # this ref delivers commits
+    ! _massu_is_zero_oid "$remote_oid" || return 1        # deleting nothing: not a real delete
+    deletions=$((deletions + 1))
+  done <<REFS
+$MASSU_PUSH_REFS
+REFS
+  [ "$deletions" -gt 0 ]
+}
+
 # The base for a NEW ref: the newest commit that is already on some remote and is an
 # ancestor of the pushed head. Derived by asking git which commits are new and taking the
 # parent of the OLDEST one — which is exactly the set `git push` will transmit.

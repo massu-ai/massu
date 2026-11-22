@@ -1233,9 +1233,9 @@ var init_sqlite_loader = __esm({
 
 // src/db-driver.ts
 import { createRequire as createRequire2 } from "module";
-import { closeSync, existsSync as existsSync4, mkdtempSync, openSync, readFileSync as readFileSync4, rmSync as rmSync3, fsyncSync } from "fs";
+import { closeSync, existsSync as existsSync4, mkdirSync as mkdirSync4, mkdtempSync, openSync, readFileSync as readFileSync4, rmSync as rmSync3, fsyncSync } from "fs";
 import { tmpdir } from "os";
-import { join as join2 } from "path";
+import { dirname as dirname4, join as join2 } from "path";
 function resolveDbEngine() {
   return process.env[DB_ENGINE_ENV] === "better-sqlite3" ? "better-sqlite3" : DEFAULT_DB_ENGINE;
 }
@@ -1354,7 +1354,14 @@ function openBetterSqlite3(dbPath, opts) {
   db.exec(`PRAGMA busy_timeout = ${resolveBusyTimeoutMs()}`);
   return db;
 }
+function ensureParentDirForWritableOpen(dbPath, opts) {
+  if (opts.readonly) return;
+  if (dbPath === "" || dbPath === ":memory:" || dbPath.startsWith("file:")) return;
+  const dir = dirname4(dbPath);
+  if (!existsSync4(dir)) mkdirSync4(dir, { recursive: true });
+}
 function openDatabase2(dbPath, opts = {}) {
+  ensureParentDirForWritableOpen(dbPath, opts);
   return resolveDbEngine() === "better-sqlite3" ? openBetterSqlite3(dbPath, opts) : openNodeSqlite(dbPath, opts);
 }
 var req2, DEFAULT_DB_ENGINE, DB_ENGINE_ENV, DEFAULT_BUSY_TIMEOUT_MS, DB_BUSY_TIMEOUT_ENV, _nodeCtor;
@@ -1402,8 +1409,8 @@ var init_timestamps = __esm({
 });
 
 // src/db-backup.ts
-import { existsSync as existsSync5, mkdirSync as mkdirSync4, readdirSync, statSync, unlinkSync, copyFileSync, rmSync as rmSync4 } from "fs";
-import { resolve as resolve3, join as join3, basename, dirname as dirname4 } from "path";
+import { existsSync as existsSync5, mkdirSync as mkdirSync5, readdirSync, statSync, unlinkSync, copyFileSync, rmSync as rmSync4 } from "fs";
+import { resolve as resolve3, join as join3, basename, dirname as dirname5 } from "path";
 import { homedir as homedir3 } from "os";
 function dbBackupsRoot(home = homedir3()) {
   return resolve3(home, ".massu", "db-backups");
@@ -1457,7 +1464,7 @@ function backupDb(projectRoot, dbPath, nowMs = Date.now(), home = homedir3()) {
     throw new DbBackupError(`cannot back up a database that does not exist: ${dbPath}`);
   }
   const dir = projectBackupDir(projectRoot, home);
-  mkdirSync4(dir, { recursive: true });
+  mkdirSync5(dir, { recursive: true });
   const name = basename(dbPath, ".db");
   const dest = join3(dir, `${name}-${backupStamp(nowMs)}.db`);
   let src = null;
@@ -1748,7 +1755,7 @@ var init_memory_embedder_tokenizer = __esm({
 
 // src/memory-embedder.ts
 import { fileURLToPath } from "url";
-import { dirname as dirname5, join as join4 } from "path";
+import { dirname as dirname6, join as join4 } from "path";
 import { existsSync as existsSync6 } from "fs";
 import { createRequire as createRequire3 } from "module";
 function getActiveEmbedModel() {
@@ -1771,14 +1778,14 @@ function embeddingsDisabled() {
 }
 function resolveModelDir() {
   try {
-    let dir = dirname5(fileURLToPath(import.meta.url));
+    let dir = dirname6(fileURLToPath(import.meta.url));
     let root = null;
     for (let i = 0; i < 8; i++) {
       if (existsSync6(join4(dir, "package.json"))) {
         root = dir;
         break;
       }
-      const parent = dirname5(dir);
+      const parent = dirname6(dir);
       if (parent === dir) break;
       dir = parent;
     }
@@ -1796,7 +1803,7 @@ function resolveWasmDir() {
   try {
     const req3 = createRequire3(import.meta.url);
     const main2 = req3.resolve(ORT_PKG);
-    return dirname5(main2);
+    return dirname6(main2);
   } catch {
     return null;
   }
@@ -2161,8 +2168,8 @@ __export(memory_db_exports, {
   upsertObservationEmbedding: () => upsertObservationEmbedding,
   usageWarmupElapsed: () => usageWarmupElapsed
 });
-import { dirname as dirname6, basename as basename2 } from "path";
-import { existsSync as existsSync7, mkdirSync as mkdirSync5 } from "fs";
+import { basename as basename2 } from "path";
+import { existsSync as existsSync7 } from "fs";
 function sanitizeFts5Query(raw) {
   const trimmed = raw.trim();
   if (!trimmed) return '""';
@@ -2178,10 +2185,6 @@ function sanitizeFts5QueryOr(raw) {
 }
 function getMemoryDb() {
   const dbPath = getResolvedPaths().memoryDbPath;
-  const dir = dirname6(dbPath);
-  if (!existsSync7(dir)) {
-    mkdirSync5(dir, { recursive: true });
-  }
   const preExisting = existsSync7(dbPath);
   const db = openDatabase2(dbPath);
   db.pragma("journal_mode = WAL");

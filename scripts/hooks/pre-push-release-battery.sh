@@ -70,6 +70,19 @@ if [ ! -x "$GATE" ] && [ ! -f "$GATE" ]; then
   exit 0
 fi
 
+# --- A DELETION-ONLY PUSH TRANSMITS NO CODE, SO THE CODE BATTERY HAS NOTHING TO JUDGE ---
+# The predicate lives in the ONE ref parser (scripts/lib/pushed-range.sh) and is satisfied
+# only by positive evidence: an empty or malformed capture still runs every gate. The skip
+# is printed and recorded so it is countable, never silent (M1).
+# shellcheck source=scripts/lib/pushed-range.sh
+. "$REPO_ROOT/scripts/lib/pushed-range.sh"
+if massu_push_is_deletion_only; then
+  _dels="$(printf '%s\n' "$MASSU_PUSH_REFS" | awk 'NF==4{print $3}' | tr '\n' ' ')"
+  echo "[pre-push] deletion-only push (${_dels% }) — no commits are transmitted; code battery not applicable."
+  echo "[pre-push] $(date -u +%FT%TZ) DELETION-ONLY push, battery skipped: ${_dels% }" >> "$REPO_ROOT/.massu/pre-push-audit.log" 2>/dev/null || true
+  exit 0
+fi
+
 echo "[pre-push] running 22-gate battery (bash scripts/pre-push-light.sh)…"
 if bash "$GATE"; then
   echo "[pre-push] ALL GATES PASSED"

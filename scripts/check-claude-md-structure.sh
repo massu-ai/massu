@@ -30,7 +30,7 @@ OVERSIZED=$(awk '
 
 if [ -n "$OVERSIZED" ]; then
   echo "  [WARN] Found oversized code blocks:"
-  echo "$OVERSIZED" | while read line; do echo "    $line"; done
+  echo "$OVERSIZED" | while IFS= read -r line; do echo "    $line"; done
   echo "  Move these to pattern files and reference them."
   FAILED=1
 else
@@ -41,9 +41,12 @@ fi
 echo ""
 echo "[2/3] Checking for orphaned 'See below' references..."
 
-SEE_BELOW_COUNT=$(grep -c "See below" "$CLAUDE_MD" 2>/dev/null || echo 0)
-SEE_BELOW_COUNT=$(echo "$SEE_BELOW_COUNT" | tr -d '[:space:]')
-if [ "$SEE_BELOW_COUNT" -gt 0 ] 2>/dev/null; then
+# Count with awk, never `grep -c … || echo 0`: on zero matches grep prints "0" AND exits 1, so the
+# fallback appends a second "0" and the value is "0\n0" (measured 2026-11-21). awk prints exactly
+# one number and exits 0; an unreadable file is an awk error, which `set -e` makes fatal, the same
+# fail-closed behaviour as Check 1's awk above.
+SEE_BELOW_COUNT=$(awk 'index($0, "See below") { n++ } END { print n + 0 }' "$CLAUDE_MD")
+if [ "$SEE_BELOW_COUNT" -gt 0 ]; then
   echo "  [WARN] Found $SEE_BELOW_COUNT 'See below' references"
   echo "  These should be replaced with links to external files."
   echo "  Pattern: 'See [patterns/file.md](patterns/file.md)'"

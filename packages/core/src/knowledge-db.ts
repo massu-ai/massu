@@ -3,8 +3,6 @@
 
 import type Database from 'better-sqlite3';
 import { openDatabase } from './db-driver.ts';
-import { dirname } from 'path';
-import { existsSync, mkdirSync } from 'fs';
 import { getConfig, getResolvedPaths } from './config.ts';
 import { float32ToBlob } from './memory-vector.ts';
 import {
@@ -21,10 +19,6 @@ import {
  */
 export function getKnowledgeDb(): Database.Database {
   const dbPath = getResolvedPaths().knowledgeDbPath;
-  const dir = dirname(dbPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
   const db = openDatabase(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');

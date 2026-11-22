@@ -9,7 +9,11 @@
 # release commit (the mirror received later trees), so no public commit contains exactly what
 # those versions shipped. This script builds that commit:
 #
-#   1. refuses unless the private tag's commit IS what npm published (`npm view … gitHead`);
+#   1. refuses unless the private tag's commit IS what npm published: either npm's recorded
+#      `gitHead` is that commit, or — for releases whose gitHead is missing or a commit this repo
+#      no longer has — rebuilding the tag reproduces npm's tarball file for file
+#      (prove-release-by-rebuild.sh: IDENTICAL, or TIMESTAMP-ONLY where the only difference is the
+#      old key bundler's build-time comment; operator decision 2026-11-10);
 #   2. checks the release commit out into a temporary worktree, and places in it the hooks from
 #      the tarball npm actually serves for that version (a rebuild from today's node_modules
 #      would publish hooks the release never shipped);
@@ -85,12 +89,28 @@ if [ -n "$HAVE" ]; then
 fi
 
 GITHEAD="$(npm view "@massu/core@${VERSION}" gitHead 2>/dev/null || true)"
-if [ "$GITHEAD" != "$COMMIT" ]; then
-  echo "FATAL: npm published $VERSION from '${GITHEAD:-unknown}', but private $TAG is $COMMIT." >&2
-  echo "       Refusing to publish a tree npm did not ship." >&2
-  exit 1
+PROOF=""
+if [ "$GITHEAD" = "$COMMIT" ]; then
+  PROOF="the commit npm published ${VERSION} from (npm gitHead)"
+  echo "=== $TAG: private $COMMIT == npm gitHead ==="
+else
+  echo "=== $TAG: npm gitHead is '${GITHEAD:-unknown}', not $COMMIT — proving by rebuild ==="
+  REBUILD_JSON="$(bash "$TOOLS_ROOT/scripts/ops/prove-release-by-rebuild.sh" --tag "$TAG" --json | tail -1)" || true
+  VERDICT="$(printf '%s' "$REBUILD_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("verdict",""))' 2>/dev/null || true)"
+  case "$VERDICT" in
+    IDENTICAL)
+      PROOF="rebuilt from this commit, every packed file is byte-identical to the npm tarball for ${VERSION}" ;;
+    TIMESTAMP-ONLY)
+      STAMPED="$(printf '%s' "$REBUILD_JSON" | python3 -c 'import json,sys; print(", ".join(json.load(sys.stdin)["timestamp_only"]))')"
+      PROOF="rebuilt from this commit, every packed file is byte-identical to the npm tarball for ${VERSION} except the build-time comment on line 1 of ${STAMPED} (the old key bundler stamped the clock there; the key bytes match)" ;;
+    *)
+      echo "FATAL: rebuilding $TAG does not reproduce npm's ${VERSION} (verdict: ${VERDICT:-none})." >&2
+      echo "       ${REBUILD_JSON:-no result}" >&2
+      echo "       Refusing to publish a tree npm did not ship." >&2
+      exit 1 ;;
+  esac
+  echo "  proof: $VERDICT"
 fi
-echo "=== $TAG: private $COMMIT == npm gitHead ==="
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/massu-backfill-XXXXXX")"
 case "$WORK" in */massu-backfill-??????) ;; *) echo "FATAL: unexpected scratch path '$WORK'" >&2; exit 2 ;; esac
@@ -165,7 +185,7 @@ echo "  release-tree commit ${RELEASE_SHA:0:12} ($(git -C "$WORK/pub" diff --sho
 
 MSG="$(git -C "$TOOLS_ROOT" tag -l --format='%(contents)' "$TAG")"
 [ -n "$MSG" ] || MSG="$TAG"
-NOTE="Release tree: massu-internal ${COMMIT} (the commit npm published ${VERSION} from), published through the current sync gates on $(TZ=America/Los_Angeles date '+%Y-%m-%d %Z'). This commit is not on main: ${VERSION} was never mirrored at its exact release commit."
+NOTE="Release tree: massu-internal ${COMMIT} (${PROOF}), published through the current sync gates on $(TZ=America/Los_Angeles date '+%Y-%m-%d %Z'). This commit is not on main: ${VERSION} was never mirrored at its exact release commit."
 
 if $DRY_RUN; then
   echo "(--dry-run: would tag ${RELEASE_SHA:0:12} as $TAG and push the tag. Nothing was pushed.)"

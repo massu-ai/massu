@@ -117,6 +117,23 @@ OUT="$(run "" "x..y")"
 [ "$OUT" = "$(printf 'argv\tx\ty')" ] && ok "negative control: it still answers when told the range" \
   || bad "negative control: got '$OUT'"
 
+# ── massu_push_is_deletion_only — true ONLY on positive evidence that every ref is deleted.
+del_only() { MASSU_PUSH_REFS="$1" massu_push_is_deletion_only; }
+del_only "refs/heads/x $ZERO40 refs/heads/x $BASE_SHA" \
+  && ok "deletion-only: one deleted ref -> skip battery" || bad "deletion-only: single delete not recognised"
+del_only "$(printf '%s\n%s' "refs/heads/x $ZERO40 refs/heads/x $BASE_SHA" "refs/heads/y $ZERO64 refs/heads/y $HEAD_SHA")" \
+  && ok "deletion-only: two deletes, SHA-1 and SHA-256 zero oids" || bad "deletion-only: multi/sha256 delete not recognised"
+! del_only "$(printf '%s\n%s' "refs/heads/x $ZERO40 refs/heads/x $BASE_SHA" "refs/heads/main $HEAD_SHA refs/heads/main $BASE_SHA")" \
+  && ok "deletion-only: a delete MIXED with an update still runs the battery" || bad "deletion-only: mixed push skipped the battery"
+! del_only "refs/heads/main $HEAD_SHA refs/heads/main $BASE_SHA" \
+  && ok "deletion-only: an ordinary update runs the battery" || bad "deletion-only: an update skipped the battery"
+! del_only "" \
+  && ok "deletion-only: an EMPTY capture runs the battery (fail closed)" || bad "deletion-only: empty capture skipped the battery"
+! del_only "refs/heads/x $ZERO40 refs/heads/x" \
+  && ok "deletion-only: a MALFORMED line runs the battery (fail closed)" || bad "deletion-only: malformed line skipped the battery"
+! del_only "refs/heads/x $ZERO40 refs/heads/x $ZERO40" \
+  && ok "deletion-only: zero->zero (deletes nothing) runs the battery" || bad "deletion-only: zero->zero skipped the battery"
+
 echo
 echo "passed: $PASS   failed: $FAIL"
 [ "$FAIL" -eq 0 ]

@@ -36,5 +36,9 @@
     "@rollup/rollup-linux-x64-musl": "4.59.0",
     "@rollup/rollup-win32-arm64-msvc": "4.59.0",
     "@rollup/rollup-win32-x64-msvc": "4.59.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.28.1": true
   }
 }

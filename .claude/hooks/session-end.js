@@ -554,7 +554,15 @@ function ensureParentDirForWritableOpen(dbPath, opts) {
 }
 function openDatabase2(dbPath, opts = {}) {
   ensureParentDirForWritableOpen(dbPath, opts);
-  return resolveDbEngine() === "better-sqlite3" ? openBetterSqlite3(dbPath, opts) : openNodeSqlite(dbPath, opts);
+  const db = resolveDbEngine() === "better-sqlite3" ? openBetterSqlite3(dbPath, opts) : openNodeSqlite(dbPath, opts);
+  createNewDatabasesIncremental(db, opts);
+  return db;
+}
+function createNewDatabasesIncremental(db, opts) {
+  if (opts.readonly) return;
+  if (db.pragma("page_count", { simple: true }) === 0) {
+    db.exec("PRAGMA auto_vacuum = INCREMENTAL");
+  }
 }
 var req2, DEFAULT_DB_ENGINE, DB_ENGINE_ENV, DEFAULT_BUSY_TIMEOUT_MS, DB_BUSY_TIMEOUT_ENV, _nodeCtor;
 var init_db_driver = __esm({
@@ -8169,6 +8177,78 @@ async function runConsolidation(db, opts = {}) {
 // src/hooks/session-end.ts
 init_hook_failure_signal();
 
+// src/memory-retention.ts
+init_memory_db();
+var CONVERSATION_RETENTION_DAYS = 7;
+function runMemoryRetention(db) {
+  armUsageCounter(db);
+  const turns = pruneOldConversationTurns(db, CONVERSATION_RETENTION_DAYS);
+  const cfg = resolveConsolidationConfig();
+  const observationsExpired = pruneOldObservations(db, {
+    retentionDays: cfg.retentionDays,
+    importanceFloor: cfg.importanceFloor,
+    protectedTypes: cfg.protectedTypes,
+    usageWarmupDays: cfg.usageWarmupDays,
+    reweightIntervalDays: cfg.reweightIntervalDays
+  });
+  const costEventsDeleted = pruneToolCostEvents(db);
+  return {
+    turnsDeleted: turns.turnsDeleted,
+    detailsDeleted: turns.detailsDeleted,
+    observationsExpired,
+    costEventsDeleted,
+    retentionDays: cfg.retentionDays
+  };
+}
+function describeRetention(c, when) {
+  const total = c.turnsDeleted + c.detailsDeleted + c.observationsExpired + c.costEventsDeleted;
+  if (total === 0) return "";
+  return `massu: Maintained memory DB ${when} \u2014 ${c.turnsDeleted} conversation turns, ${c.detailsDeleted} tool call details (>${CONVERSATION_RETENTION_DAYS}d), ${c.observationsExpired} observations expired (not deleted; >${c.retentionDays}d, unused, unprotected), ${c.costEventsDeleted} tool-cost events (>90d)
+`;
+}
+var INCREMENTAL_VACUUM_BATCH_PAGES = 512;
+var pragmaNumber = (db, name) => Number(db.pragma(name, { simple: true }));
+function releaseFreePages(db, opts) {
+  const batchPages = opts.batchPages ?? INCREMENTAL_VACUUM_BATCH_PAGES;
+  if (!Number.isInteger(batchPages) || batchPages <= 0) {
+    throw new Error(`releaseFreePages: batchPages must be a positive integer, got ${batchPages}`);
+  }
+  const now = opts.now ?? Date.now;
+  const autoVacuum = pragmaNumber(db, "auto_vacuum");
+  const freeBefore = pragmaNumber(db, "freelist_count");
+  if (autoVacuum !== 2) {
+    return { status: "skipped", reason: `auto_vacuum=${autoVacuum}`, autoVacuum, freePages: freeBefore };
+  }
+  let free = freeBefore;
+  let batches = 0;
+  let stoppedBy = "empty";
+  while (free > 0) {
+    if (now() >= opts.deadlineAt) {
+      stoppedBy = "deadline";
+      break;
+    }
+    db.exec(`PRAGMA incremental_vacuum(${batchPages})`);
+    db.pragma("wal_checkpoint(PASSIVE)");
+    batches++;
+    const next = pragmaNumber(db, "freelist_count");
+    if (next >= free) {
+      stoppedBy = "no-progress";
+      free = next;
+      break;
+    }
+    free = next;
+  }
+  return { status: "ran", freeBefore, freeAfter: free, batches, stoppedBy };
+}
+function describeFreePages(r2) {
+  if (r2.status === "skipped") {
+    return `[massu] session-end: release free pages skipped: ${r2.reason} (${r2.freePages} free pages stay in the file until it is converted once: PRAGMA auto_vacuum=INCREMENTAL; VACUUM; with no massu process holding it)
+`;
+  }
+  return `[massu] session-end: released ${r2.freeBefore - r2.freeAfter} free pages in ${r2.batches} batch(es) (${r2.freeBefore} -> ${r2.freeAfter}, stopped: ${r2.stoppedBy})
+`;
+}
+
 // src/hooks/lib/is-direct-invocation.ts
 import { fileURLToPath as fileURLToPath2, pathToFileURL } from "url";
 function isDirectInvocation(moduleUrl) {
@@ -8321,6 +8401,21 @@ async function runSessionEnd(db, hookInput, deadlineAt) {
       if (budget !== null) await repriceStoredSessions(db, { deadlineAt: Date.now() + budget });
     } catch (repriceErr) {
       recordHookFailure("session-end:cost-reprice", repriceErr);
+    }
+    try {
+      if (phaseBudget(deadlineAt, "retention", MIN_PHASE_BUDGET_MS) !== null) {
+        process.stderr.write(describeRetention(runMemoryRetention(db), "at session end"));
+      }
+    } catch (retentionErr) {
+      recordHookFailure("session-end:retention", retentionErr);
+    }
+    try {
+      const budget = phaseBudget(deadlineAt, "release free pages", 3e3);
+      if (budget !== null) {
+        process.stderr.write(describeFreePages(releaseFreePages(db, { deadlineAt: Date.now() + budget })));
+      }
+    } catch (vacuumErr) {
+      recordHookFailure("session-end:release-free-pages", vacuumErr);
     }
     endSession(db, session_id, "completed");
     archiveAndRegenerate(db, session_id);

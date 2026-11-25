@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.5.9] - 2026-11-21
+
+### Changed
+
+- **massu's database files can now shrink.** Until now, space freed by massu's cleanup stayed inside the
+  database file forever, so files grew to several times the size of the data they held (one was 8.9 GB
+  holding 1.1 GB). New databases are created so that freed space can be returned, and at the end of each
+  turn massu returns some of it in small, measured steps that stay inside the hook's time budget. Existing
+  databases are not changed automatically: converting one is a one-time step done while no massu process
+  has it open, and until then massu reports that the step was skipped instead of saying nothing.
+- **Old conversation detail is cleaned up at the end of each turn, not only when the MCP server restarts.**
+  The retention periods are unchanged: 7 days for conversation turns and tool-call detail, 90 days for
+  tool-cost events, and low-value observations are expired (kept on disk), never deleted.
+
 ## [2.5.8] - 2026-11-21
 
 ### Fixed

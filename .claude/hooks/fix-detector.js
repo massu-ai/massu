@@ -1362,7 +1362,15 @@ function ensureParentDirForWritableOpen(dbPath, opts) {
 }
 function openDatabase2(dbPath, opts = {}) {
   ensureParentDirForWritableOpen(dbPath, opts);
-  return resolveDbEngine() === "better-sqlite3" ? openBetterSqlite3(dbPath, opts) : openNodeSqlite(dbPath, opts);
+  const db = resolveDbEngine() === "better-sqlite3" ? openBetterSqlite3(dbPath, opts) : openNodeSqlite(dbPath, opts);
+  createNewDatabasesIncremental(db, opts);
+  return db;
+}
+function createNewDatabasesIncremental(db, opts) {
+  if (opts.readonly) return;
+  if (db.pragma("page_count", { simple: true }) === 0) {
+    db.exec("PRAGMA auto_vacuum = INCREMENTAL");
+  }
 }
 var req2, DEFAULT_DB_ENGINE, DB_ENGINE_ENV, DEFAULT_BUSY_TIMEOUT_MS, DB_BUSY_TIMEOUT_ENV, _nodeCtor;
 var init_db_driver = __esm({

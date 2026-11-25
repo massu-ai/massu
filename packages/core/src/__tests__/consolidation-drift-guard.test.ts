@@ -129,10 +129,13 @@ describe('consolidation drift-guards', () => {
   it('GUARD 6: the startup retention callsite reads config — no hardcoded number', () => {
     // Two copies of "90" in two files = the startup path and the scheduled pass
     // silently retiring memories on different policies.
-    const server = read('server.ts');
-    const call = server.slice(server.indexOf('pruneOldObservations(memDb'), server.indexOf('pruneOldObservations(memDb') + 400);
-    expect(call).toContain('cfg.retentionDays');
-    expect(/pruneOldObservations\(memDb,\s*\d+\s*\)/.test(server), 'no numeric retention literal').toBe(false);
+    // The retention pass moved from server.ts into memory-retention.ts (plan 2026-07-23 P8-004), which both the
+    // startup path and the session-end hook call; the property is unchanged, so this guard moved with it.
+    const retention = read('memory-retention.ts');
+    const at = retention.indexOf('pruneOldObservations(db');
+    expect(at, 'the retention pass calls pruneOldObservations(db, …)').toBeGreaterThan(-1);
+    expect(retention.slice(at, at + 400)).toContain('cfg.retentionDays');
+    expect(/pruneOldObservations\(db,\s*\d+\s*\)/.test(retention), 'no numeric retention literal').toBe(false);
   });
 
   it('GUARD 7: the advisor state is USER-level, not per-repo', () => {

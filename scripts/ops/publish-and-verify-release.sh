@@ -141,6 +141,25 @@ if [ "$MODE" = "dry-run" ]; then
   exit 0
 fi
 
+if [ "$MODE" = "publish" ] && [ "$PKG_DIR" = "$REPO_ROOT/packages/core" ]; then
+  # PUBLISH ONLY FROM THE RELEASE TAG. npm records the commit HEAD is at as `gitHead`. 2.5.8 was
+  # published from HEAD two commits past `v2.5.8`, so npm and the tag disagree about which commit
+  # shipped, and a pushed tag should not be moved afterwards (operator decision 2026-11-21). The only
+  # fix that cannot drift is refusing to publish unless HEAD IS the tag and the tree is clean,
+  # the same rule check-tag-matches / `git describe --exact-match HEAD` enforce elsewhere.
+  if ! git tag --points-at HEAD | grep -qxF "v${VERSION}"; then
+    bad "HEAD ($(git rev-parse --short HEAD)) is not tagged v${VERSION} — refusing to publish."
+    info "Tag the release commit first (the commit that carries everything that ships), check it"
+    info "out, then re-run. Tags at HEAD: $(git tag --points-at HEAD | tr '\n' ' ')"
+    exit 2
+  fi
+  if [ -n "$(git status --porcelain)" ]; then
+    bad "the working tree is dirty — npm would pack files that are in no commit; refusing to publish."
+    exit 2
+  fi
+  ok "HEAD is exactly v${VERSION} and the tree is clean"
+fi
+
 if [ "$MODE" = "publish" ]; then
   WHO="$(npm whoami 2>/dev/null || true)"
   if [ -z "$WHO" ]; then
@@ -151,10 +170,41 @@ if [ "$MODE" = "publish" ]; then
   fi
   ok "authenticated as $WHO"
   echo "--- publishing ---"
+  # PASSKEY 2FA NEEDS A PSEUDO-TERMINAL. This account's 2FA is a passkey (Touch ID); there is NO
+  # 6-digit code. npm offers the browser/passkey flow only when it believes it has a terminal, and
+  # otherwise dies with EOTP asking for a code that does not exist. `script -q /dev/null` hands it
+  # one; the auth URL npm prints is then opened automatically. (Merged 2026-11-21 from the retired
+  # scripts/publish-and-verify.sh, which carried this flow; this script did not.)
+  # The two `script` implementations disagree on syntax. BSD/macOS: `script -q FILE CMD ARGS…`.
+  # util-linux (every Linux CI runner): `script -q -e -c "CMD" FILE` — positional CMD is rejected
+  # there ("unrecognized option '--access'"), and `-e` is what passes the child's exit status
+  # through. Ask the binary which one it is; never infer it from the OS name.
+  run_in_pty() {
+    if script -V 2>/dev/null | grep -q 'util-linux'; then
+      script -q -e -c "$(printf '%q ' "$@")" /dev/null
+    else
+      script -q /dev/null "$@"
+    fi
+  }
+  PUB_LOG="$(mktemp -t massu-publish-XXXXXX)" || exit 2
+  ( cd "$PKG_DIR" && run_in_pty npm publish --access public > "$PUB_LOG" 2>&1 ) &
+  NPM_PID=$!
+  for _ in $(seq 1 180); do
+    AUTH_URL="$(grep -oE 'https://www\.npmjs\.com/auth/cli/[A-Za-z0-9._-]+' "$PUB_LOG" 2>/dev/null | head -1)"
+    if [ -n "$AUTH_URL" ]; then
+      info "opening the browser for passkey approval (Touch ID)…"
+      open "$AUTH_URL" 2>/dev/null || info "open this manually: $AUTH_URL"
+      break
+    fi
+    kill -0 "$NPM_PID" 2>/dev/null || break
+    sleep 1
+  done
   # Exit status is captured on its own line, never through a pipe (CR-69) — and it is
   # not trusted either way; the END STATE below is the verdict.
-  ( cd "$PKG_DIR" && npm publish --access public )
+  wait "$NPM_PID"
   PUBLISH_RC=$?
+  sed -e 's/\r/\n/g' "$PUB_LOG" | grep -vE '^\s*$' | tail -15
+  rm -f "$PUB_LOG"
   info "npm publish exited $PUBLISH_RC (recorded, NOT the verdict)"
   echo
 fi
@@ -238,6 +288,23 @@ else
   CL="$TARBALL_DIR/package/CHANGELOG.md"
   if [ -f "$CL" ]; then
     info "tarball CHANGELOG first entry: $(grep -m1 '^## \[' "$CL")"
+  fi
+  # PRIVATE-CONTENT SCAN of what the WORLD downloads (merged from the retired
+  # scripts/publish-and-verify.sh). Refuse to judge a near-empty extraction: a scan of nothing is
+  # not a clean scan.
+  NFILES="$(find "$TARBALL_DIR/package" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  info "published tarball: $NFILES file(s) (registry says $(npm view "@massu/core@${VERSION}" dist.fileCount 2>/dev/null || echo '?'))"
+  if [ "$PKG_DIR" = "$REPO_ROOT/packages/core" ]; then
+    if [ "$NFILES" -lt 100 ]; then
+      bad "only $NFILES file(s) extracted — refusing to call a scan of nothing clean"
+      FAILED=1
+    elif python3 "$REPO_ROOT/scripts/lib/private_content_scan.py" --root "$TARBALL_DIR/package"; then
+      ok "private-content scan of the published tarball: CLEAN"
+    else
+      bad "the PUBLISHED tarball contains private content — the gate was bypassed or is wrong"
+      FAILED=1
+    fi
+    info "npm owner metadata: $(npm owner ls @massu/core 2>/dev/null | tr '\n' ' ' || echo '(unreadable)')"
   fi
 fi
 

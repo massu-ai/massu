@@ -331,9 +331,29 @@ function ensureParentDirForWritableOpen(dbPath: string, opts: OpenDatabaseOption
  */
 export function openDatabase(dbPath: string, opts: OpenDatabaseOptions = {}): MassuDatabase {
   ensureParentDirForWritableOpen(dbPath, opts);
-  return resolveDbEngine() === 'better-sqlite3'
+  const db = resolveDbEngine() === 'better-sqlite3'
     ? openBetterSqlite3(dbPath, opts)
     : openNodeSqlite(dbPath, opts);
+  createNewDatabasesIncremental(db, opts);
+  return db;
+}
+
+/**
+ * A NEW database is created `auto_vacuum=INCREMENTAL` (mode 2), so the pages its pruners free can be handed
+ * back to the filesystem by `releaseFreePages()` (memory-retention.ts) instead of sitting in the file forever.
+ * In SQLite's default mode 0 they never leave: measured 2026-11-21, massu-internal's memory.db was 622 MB with
+ * 75% free pages, and one consumer's was 8.9 GB with 87%.
+ *
+ * The mode can be set only while the database is EMPTY (sqlite.org/pragma.html#pragma_auto_vacuum), which is
+ * why it happens here, at the one open chokepoint, before any getter sets WAL or runs a schema statement. On an
+ * existing database this does nothing: switching an existing file needs a full VACUUM, which is never done
+ * automatically (it needs an exclusive lock and about the file's size in free disk).
+ */
+function createNewDatabasesIncremental(db: MassuDatabase, opts: OpenDatabaseOptions): void {
+  if (opts.readonly) return;
+  if ((db.pragma('page_count', { simple: true }) as number) === 0) {
+    db.exec('PRAGMA auto_vacuum = INCREMENTAL');
+  }
 }
 
 /** Remedy surfaced when Node's built-in `node:sqlite` itself fails (not an ABI class —

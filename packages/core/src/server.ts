@@ -14,8 +14,8 @@
 import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { getMemoryDb, pruneOldConversationTurns, pruneOldObservations, pruneToolCostEvents, armUsageCounter } from './memory-db.ts';
-import { resolveConsolidationConfig } from './consolidation-config.ts';
+import { getMemoryDb } from './memory-db.ts';
+import { runMemoryRetention, describeRetention } from './memory-retention.ts';
 import { getCurrentTier } from './license.ts';
 import { createDispatcher } from './server-dispatch.ts';
 import { assertMemoryEngineHealthy, FatalStartupError } from './startup-health.ts';
@@ -40,43 +40,9 @@ function pruneMemoryOnStartup(): void {
   try {
     const memDb = getMemoryDb();
     try {
-      // Arm the retrieval counter on first ever boot. Expiry stays DISARMED
-      // until it has observed usage for usageWarmupDays — otherwise the first
-      // run after upgrade would see a store in which nothing has ever been
-      // retrieved (because the counter is brand new) and expire nearly all of
-      // it. See armUsageCounter() in memory-db.ts.
-      armUsageCounter(memDb);
-
-      const turns = pruneOldConversationTurns(memDb, 7);
-
-      // Retention is now supersede-EXPIRE, not hard-delete, and it reads the
-      // SAME config the scheduled consolidation pass reads. A hardcoded number
-      // here would mean the startup path and the pass retire rows on two
-      // different policies (dual source of truth).
-      const cfg = resolveConsolidationConfig();
-      const obsExpired = pruneOldObservations(memDb, {
-        retentionDays: cfg.retentionDays,
-        importanceFloor: cfg.importanceFloor,
-        protectedTypes: cfg.protectedTypes,
-        usageWarmupDays: cfg.usageWarmupDays,
-        reweightIntervalDays: cfg.reweightIntervalDays,
-      });
-      // P4-001 (plan-living-memory-slice-1): wire the previously-orphaned
-      // tool-cost-events retention routine into the startup prune so
-      // tool_cost_events stops growing unbounded (it had zero production
-      // callers before this — verified via grep, only the retention test).
-      const costEventsDeleted = pruneToolCostEvents(memDb);
-
-      const totalPruned = turns.turnsDeleted + turns.detailsDeleted + obsExpired + costEventsDeleted;
-      if (totalPruned > 0) {
-        process.stderr.write(
-          `massu: Maintained memory DB on startup — ` +
-          `${turns.turnsDeleted} conversation turns, ` +
-          `${turns.detailsDeleted} tool call details (>7d), ` +
-          `${obsExpired} observations expired (not deleted; >${cfg.retentionDays}d, unused, unprotected), ` +
-          `${costEventsDeleted} tool-cost events (>90d)\n`
-        );
-      }
+      // The retention pass itself lives in memory-retention.ts; the session-end hook runs the same function,
+      // so retention no longer depends on the MCP server restarting (plan 2026-07-23 P8-004).
+      process.stderr.write(describeRetention(runMemoryRetention(memDb), 'on startup'));
     } finally {
       memDb.close();
     }

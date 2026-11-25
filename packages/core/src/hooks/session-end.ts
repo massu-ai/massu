@@ -31,6 +31,7 @@ import type { SyncPayload } from '../cloud-sync.ts';
 import type { SessionSummary } from '../memory-db.ts';
 import type { TranscriptEntry, TranscriptContentBlock } from '../transcript-parser.ts';
 import { recordHookFailure } from './lib/hook-failure-signal.ts';
+import { runMemoryRetention, describeRetention, releaseFreePages, describeFreePages } from '../memory-retention.ts';
 import { isDirectInvocation } from './lib/is-direct-invocation.ts';
 
 interface HookInput {
@@ -293,6 +294,30 @@ async function runSessionEnd(
         if (budget !== null) await repriceStoredSessions(db, { deadlineAt: Date.now() + budget });
       } catch (repriceErr) {
         recordHookFailure('session-end:cost-reprice', repriceErr);
+      }
+
+      // 4.13. Retention, the same pass the MCP server runs at startup (plan 2026-07-23 P8-004): before this it ran
+      // only when the server restarted. Measured 2026-11-21: ~7 ms in steady state; deleting EVERY row of the
+      // pruned tables on the largest store seen (250k tool-call details) took ~1.1 s. Not deadline-aware, so it
+      // only starts with the minimum phase budget left.
+      try {
+        if (phaseBudget(deadlineAt, 'retention', MIN_PHASE_BUDGET_MS) !== null) {
+          process.stderr.write(describeRetention(runMemoryRetention(db), 'at session end'));
+        }
+      } catch (retentionErr) {
+        recordHookFailure('session-end:retention', retentionErr);
+      }
+
+      // 4.14. Hand freed pages back to the filesystem (P8-002), after 4.13 so this run's deletions are included.
+      // Only in auto_vacuum=INCREMENTAL; otherwise it reports the skip. Batch size measured, see
+      // INCREMENTAL_VACUUM_BATCH_PAGES.
+      try {
+        const budget = phaseBudget(deadlineAt, 'release free pages', 3000);
+        if (budget !== null) {
+          process.stderr.write(describeFreePages(releaseFreePages(db, { deadlineAt: Date.now() + budget })));
+        }
+      } catch (vacuumErr) {
+        recordHookFailure('session-end:release-free-pages', vacuumErr);
       }
 
       // 5. Mark session as completed

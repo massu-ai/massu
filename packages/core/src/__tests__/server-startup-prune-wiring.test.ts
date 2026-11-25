@@ -15,18 +15,28 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const serverSrc = readFileSync(resolve(__dirname, '..', 'server.ts'), 'utf-8');
+// Since plan 2026-07-23 P8-004 the retention pass is ONE function in memory-retention.ts, called at startup and at
+// session end. The property this guard protects is unchanged: tool-cost pruning is reached from production.
+const retentionSrc = readFileSync(resolve(__dirname, '..', 'memory-retention.ts'), 'utf-8');
 
 describe('P4-001: server startup prune wires pruneToolCostEvents', () => {
-  it('imports pruneToolCostEvents from memory-db', () => {
-    expect(serverSrc).toMatch(/import\s*\{[^}]*pruneToolCostEvents[^}]*\}\s*from\s*'\.\/memory-db\.ts'/);
+  it('the retention pass imports pruneToolCostEvents from memory-db', () => {
+    expect(retentionSrc).toMatch(/import\s*\{[^}]*pruneToolCostEvents[^}]*\}\s*from\s*'\.\/memory-db\.ts'/);
   });
 
-  it('calls pruneToolCostEvents inside pruneMemoryOnStartup', () => {
+  it('calls pruneToolCostEvents inside runMemoryRetention', () => {
+    const fnStart = retentionSrc.indexOf('export function runMemoryRetention');
+    expect(fnStart).toBeGreaterThan(-1);
+    const fnEnd = retentionSrc.indexOf('\n}\n', fnStart);
+    const body = retentionSrc.slice(fnStart, fnEnd > -1 ? fnEnd : undefined);
+    expect(body).toMatch(/pruneToolCostEvents\(\s*db\s*\)/);
+  });
+
+  it('server startup (pruneMemoryOnStartup) calls the retention pass', () => {
     const fnStart = serverSrc.indexOf('function pruneMemoryOnStartup');
     expect(fnStart).toBeGreaterThan(-1);
-    // Scope the search to the function body (up to the top-level invocation).
     const invocation = serverSrc.indexOf('pruneMemoryOnStartup();', fnStart);
     const body = serverSrc.slice(fnStart, invocation > -1 ? invocation : undefined);
-    expect(body).toMatch(/pruneToolCostEvents\(\s*memDb\s*\)/);
+    expect(body).toMatch(/runMemoryRetention\(\s*memDb\s*\)/);
   });
 });

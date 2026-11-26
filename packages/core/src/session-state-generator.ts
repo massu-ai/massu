@@ -2,6 +2,7 @@
 // Licensed under BSL 1.1 - see LICENSE file for details.
 
 import type Database from 'better-sqlite3';
+import { getLatestSummaryRow } from './memory-db.ts';
 
 // ============================================================
 // P5-001: CURRENT.md Generator
@@ -19,9 +20,7 @@ export function generateCurrentMd(db: Database.Database, sessionId: string): str
     'SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC LIMIT 10000'
   ).all(sessionId) as Array<Record<string, unknown>>;
 
-  const summary = db.prepare(
-    'SELECT * FROM session_summaries WHERE session_id = ? ORDER BY created_at_epoch DESC LIMIT 1'
-  ).get(sessionId) as Record<string, unknown> | undefined;
+  const summary = getLatestSummaryRow(db, sessionId) as Record<string, unknown> | undefined;
 
   const prompts = db.prepare(
     'SELECT prompt_text FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC LIMIT 1'

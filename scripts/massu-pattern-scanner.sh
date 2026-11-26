@@ -850,12 +850,14 @@ check25_scan() {
         if (/\*\//) in_block = 0
         next
       }
+      # Track allowlist disable comments on preceding lines. This MUST come before the
+      # comment skip below: the marker IS a `//` line, and with the skip first it was
+      # never seen, so the documented allowlist could not exempt anything (2026-11-26).
+      /eslint-disable-next-line.*massu\/no-unbounded-sql-all/ { allow = NR + 1; next }
       # Skip pure-comment single-line patterns:
       #   - lines that begin with `//` or `*` (JSDoc continuation lines)
       /^[[:space:]]*\/\// { next }
       /^[[:space:]]*\*/ { next }
-      # Track allowlist disable comments on preceding lines.
-      /eslint-disable-next-line.*massu\/no-unbounded-sql-all/ { allow = NR + 1 }
       /\.prepare\(/ { buf = $0; line_start = NR; collecting = 1; next }
       collecting {
         buf = buf "\n" $0

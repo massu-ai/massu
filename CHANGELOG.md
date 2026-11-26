@@ -10,6 +10,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.6.0] - 2026-11-26
+
+### Added
+
+- **`massu doctor --fix` repairs an older memory database in one step.** `massu doctor` now reports how
+  much space the memory database could give back and how many duplicate session summaries it holds.
+  `massu doctor --fix` then repairs it: it saves a checked backup next to the file (kept, never deleted),
+  merges each session's summaries into one row, converts the file so freed space can be returned, and
+  checks the result row by row before it says it is done. It asks before changing anything (`--yes` skips
+  the question, `--dry-run` only reports). It refuses, and changes nothing, while any other process has
+  the database open, or when the disk cannot hold the repair's working space.
+- **`massu memory inspect` and `massu memory repair`** do the same for a database you name with `--db`.
+
+### Changed
+
+- **Each session keeps one summary row, updated in place.** Until now every turn added a full new copy of
+  the session's summary, so long sessions held hundreds of nearly identical rows. Updates now merge into
+  the one row: a field that is filled is never overwritten by an empty one, and a plan item's progress
+  never moves backwards (complete beats in progress, which beats pending). Older massu versions that
+  still write extra rows keep working; massu reads the newest one.
+- **`massu_memory_sessions` shows each session's own latest summary.** It used to look for every
+  session's summary inside a single summary fetched for all of them, so most sessions showed none.
+
 ## [2.5.10] - 2026-11-25
 
 ### Changed

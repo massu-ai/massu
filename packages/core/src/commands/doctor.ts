@@ -29,6 +29,7 @@ import { getExpectedHookFiles } from '../lib/hook-registry.ts';
 import { probeMemoryDbUsable, resolveDbEngine, NATIVE_DB_REMEDY } from '../db-driver.ts';
 import { checkNodeVersion as checkNodeFloor, MIN_NODE_MAJOR, MIN_NODE_MINOR } from '../preflight.ts';
 import { resolveHookFile } from './hook-runner.ts';
+import { formatInspection, runMemoryRepair, type RepairIo } from './memory-repair-cli.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -343,6 +344,21 @@ function checkKnowledgeDb(projectRoot: string): CheckResult {
   return { name: 'Knowledge DB', status: 'pass', detail: '.massu/memory.db exists' };
 }
 
+/**
+ * P8-008: whether the memory database would benefit from `massu doctor --fix` — free pages
+ * it is holding, the old auto_vacuum mode, or duplicate session summaries. Read-only, and a
+ * WARN at most: a database that needs repair still works.
+ */
+export function checkMemoryDatabase(memoryDbPath: string = getResolvedPaths().memoryDbPath): CheckResult {
+  const name = 'Memory database';
+  if (!existsSync(memoryDbPath)) return { name, status: 'pass', detail: 'not created yet (nothing to repair)' };
+  const r = formatInspection(memoryDbPath);
+  if (!r.ok) return { name, status: 'warn', detail: r.text };
+  return r.needsRepair
+    ? { name, status: 'warn', detail: `${r.text.replace(' — repair available: massu memory repair', '')} — run: massu doctor --fix` }
+    : { name, status: 'pass', detail: r.text };
+}
+
 function checkMemoryDir(_projectRoot: string): CheckResult {
   // Memory dir: ~/.claude/projects/-<encoded-root>/memory/ (resolved via config)
   const memoryDir = getResolvedPaths().memoryDir;
@@ -585,7 +601,32 @@ function checkPythonHealth(projectRoot: string): CheckResult | null {
 // Main Doctor Flow
 // ============================================================
 
-export async function runDoctor(): Promise<void> {
+export interface DoctorFlags {
+  fix: boolean;
+  yes: boolean;
+  dryRun: boolean;
+}
+
+/** Parse `massu doctor` flags. Unknown flags are an error, so a typo cannot silently skip --fix. */
+export function parseDoctorArgs(argv: string[]): DoctorFlags | { error: string } {
+  const f: DoctorFlags = { fix: false, yes: false, dryRun: false };
+  for (const a of argv) {
+    if (a === '--fix') f.fix = true;
+    else if (a === '--yes') f.yes = true;
+    else if (a === '--dry-run') f.dryRun = true;
+    else return { error: `unknown argument: ${a}` };
+  }
+  if ((f.yes || f.dryRun) && !f.fix) return { error: '--yes and --dry-run apply to --fix only' };
+  return f;
+}
+
+export async function runDoctor(argv: string[] = [], io: RepairIo = {}): Promise<void> {
+  const parsed = parseDoctorArgs(argv);
+  if ('error' in parsed) {
+    console.error(`massu doctor: ${parsed.error}\nUsage: massu doctor [--fix [--dry-run] [--yes]]`);
+    process.exit(2);
+    return;
+  }
   const projectRoot = process.cwd();
 
   console.log('');
@@ -601,6 +642,7 @@ export async function runDoctor(): Promise<void> {
     await checkHookExecution(projectRoot),
     checkKnowledgeDb(projectRoot),
     checkMemoryDir(projectRoot),
+    checkMemoryDatabase(),
     checkShellHooksWired(projectRoot),
     await checkNativeModules(),
     checkNodeVersion(),
@@ -642,7 +684,25 @@ export async function runDoctor(): Promise<void> {
   }
   console.log('');
 
-  process.exit(failed > 0 ? 1 : 0);
+  // --fix (P8-008): the only repair doctor makes, and the same flow as `massu memory
+  // repair` — confirmation on a terminal, --yes otherwise, a kept backup. Plain doctor
+  // never writes.
+  let fixExit = 0;
+  if (parsed.fix) {
+    const memoryDbPath = getResolvedPaths().memoryDbPath;
+    const mem = checkMemoryDatabase(memoryDbPath);
+    if (mem.status === 'pass') {
+      console.log('--fix: the memory database needs no repair.');
+    } else {
+      console.log('--fix: memory database');
+      const r = await runMemoryRepair(memoryDbPath, { dryRun: parsed.dryRun, yes: parsed.yes }, io);
+      console.log(r.output);
+      fixExit = r.exitCode;
+    }
+    console.log('');
+  }
+
+  process.exit(failed > 0 || fixExit !== 0 ? 1 : 0);
 }
 
 // ============================================================

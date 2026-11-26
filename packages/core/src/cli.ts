@@ -44,7 +44,7 @@ async function main(): Promise<void> {
     }
     case 'doctor': {
       const { runDoctor } = await import('./commands/doctor.ts');
-      await runDoctor();
+      await runDoctor(args.slice(1));
       break;
     }
     case 'login': {
@@ -145,11 +145,21 @@ async function main(): Promise<void> {
         process.exit(result.exitCode);
         return;
       }
+      // P8-007/P8-008. CLI-ONLY like the commands above: `repair` rewrites the database
+      // file, so it must never be model-callable. memory-repair-cli.test.ts asserts it.
+      if (sub === 'inspect' || sub === 'repair') {
+        const { runMemoryRepairCli } = await import('./commands/memory-repair-cli.ts');
+        const result = await runMemoryRepairCli(sub, args.slice(2));
+        process.stdout.write(`${result.output}\n`);
+        process.exit(result.exitCode);
+        return;
+      }
       process.stderr.write(
         `Unknown memory subcommand: ${sub ?? '(none)'}\n` +
           `Usage: massu memory <embed-backfill | render --dry-run | restore [--from <stamp>] | ` +
           `adopt [--dry-run] | unrender [--all | --file <rel>] [--dry-run] | ` +
-          `review | accept <hash> | refuse <hash> | share <id> | trust <repo> --fingerprint <hex> | purge --shared>\n`
+          `review | accept <hash> | refuse <hash> | share <id> | trust <repo> --fingerprint <hex> | purge --shared | ` +
+          `inspect [--db <path>] | repair [--db <path>] [--dry-run] [--yes]>\n`
       );
       process.exit(1);
       return;
@@ -260,8 +270,9 @@ async function handleConfigSubcommand(configArgs: string[]): Promise<void> {
       return;
     }
     case 'doctor': {
+      // Same flags as top-level `massu doctor` (P8-008): two dispatch sites, one parser.
       const { runDoctor } = await import('./commands/doctor.ts');
-      await runDoctor();
+      await runDoctor(configArgs.slice(1));
       return;
     }
     case 'check-drift': {

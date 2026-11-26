@@ -164,8 +164,10 @@ if [ "$MODE" = "publish" ]; then
   WHO="$(npm whoami 2>/dev/null || true)"
   if [ -z "$WHO" ]; then
     bad "not authenticated to npm (\`npm whoami\` failed)."
-    info "A token in ~/.npmrc can be PRESENT and INVALID — that is what blocked 2.5.1."
-    info "Re-authenticate, then re-run this script:   npm login"
+    info "Your npm login has most likely expired: npm login sessions time out on their own, so"
+    info "a login that worked earlier today can fail now. A token saved in ~/.npmrc can also be"
+    info "present but no longer valid (that is what blocked 2.5.1)."
+    info "Fix: run   npm login   then run this script again."
     exit 2
   fi
   ok "authenticated as $WHO"

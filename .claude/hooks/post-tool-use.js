@@ -494,11 +494,11 @@ function openNodeSqlite(dbPath, opts) {
     return rows;
   };
   const transaction = (fn) => {
-    const run = (...args) => {
+    const make = (begin) => (...args) => {
       const nested = raw.isTransaction;
       const name = `msp_${savepointSeq++}`;
       if (nested) raw.exec(`SAVEPOINT ${name}`);
-      else raw.exec("BEGIN");
+      else raw.exec(begin);
       try {
         const out = fn(...args);
         if (nested) raw.exec(`RELEASE ${name}`);
@@ -514,7 +514,12 @@ function openNodeSqlite(dbPath, opts) {
         throw e;
       }
     };
-    return run;
+    const run = make("BEGIN");
+    return Object.assign(run, {
+      deferred: run,
+      immediate: make("BEGIN IMMEDIATE"),
+      exclusive: make("BEGIN EXCLUSIVE")
+    });
   };
   const serialize = () => {
     if (raw.isTransaction) {
@@ -2178,8 +2183,10 @@ __export(memory_db_exports, {
   MEMORY_FILE_TITLE_LIKE: () => MEMORY_FILE_TITLE_LIKE,
   MEMORY_FILE_TITLE_PREFIX: () => MEMORY_FILE_TITLE_PREFIX,
   MEMORY_SCHEMA_VERSION: () => MEMORY_SCHEMA_VERSION,
+  NEWEST_SUMMARY_ORDER: () => NEWEST_SUMMARY_ORDER,
   PENDING_SYNC_MAX_AGE_DAYS: () => PENDING_SYNC_MAX_AGE_DAYS,
   PENDING_SYNC_MAX_ITEMS: () => PENDING_SYNC_MAX_ITEMS,
+  SUMMARY_VALUE_COLUMNS: () => SUMMARY_VALUE_COLUMNS,
   TOOL_COST_EVENTS_RETENTION_DAYS: () => TOOL_COST_EVENTS_RETENTION_DAYS,
   USAGE_COUNTER_ARMED_KEY: () => USAGE_COUNTER_ARMED_KEY,
   addConversationTurn: () => addConversationTurn,
@@ -2210,6 +2217,7 @@ __export(memory_db_exports, {
   getFailedAttempts: () => getFailedAttempts,
   getFailureClasses: () => getFailureClasses,
   getLastProcessedLine: () => getLastProcessedLine,
+  getLatestSummaryRow: () => getLatestSummaryRow,
   getMemoryDb: () => getMemoryDb,
   getMemoryMeta: () => getMemoryMeta,
   getObservabilityDbSize: () => getObservabilityDbSize,
@@ -2222,13 +2230,17 @@ __export(memory_db_exports, {
   getToolPatterns: () => getToolPatterns,
   incrementRetryCount: () => incrementRetryCount,
   initMemorySchema: () => initMemorySchema,
+  isEmptySummaryValue: () => isEmptySummaryValue,
   linkSessionToTask: () => linkSessionToTask,
   markRecordSuperseded: () => markRecordSuperseded,
   memoryTableHasTemporal: () => memoryTableHasTemporal,
+  mergePlanProgress: () => mergePlanProgress,
+  mergeSummaryRows: () => mergeSummaryRows,
   migrateAuditLogCheckExtension: () => migrateAuditLogCheckExtension,
   migrateMemoryFilesFor4B: () => migrateMemoryFilesFor4B,
   migrateObservationEmbeddingChunks: () => migrateObservationEmbeddingChunks,
   migrateSharedMemoryFor5B: () => migrateSharedMemoryFor5B,
+  parsePlanProgress: () => parsePlanProgress,
   pruneOldConversationTurns: () => pruneOldConversationTurns,
   pruneOldObservations: () => pruneOldObservations,
   pruneToolCostEvents: () => pruneToolCostEvents,
@@ -3541,26 +3553,85 @@ function markRecordSuperseded(db, table, recordId, successorId, nowEpochSec = Ma
   ).run(iso, iso, nowEpochSec, nowEpochSec, successorId, recordId, successorId);
   return res.changes > 0;
 }
+function isEmptySummaryValue(v) {
+  if (v === null || v === void 0) return true;
+  const t2 = v.trim();
+  return t2 === "" || t2 === "[]" || t2 === "{}";
+}
+function mergePlanProgress(older, newer) {
+  const out = { ...older };
+  for (const [key, value] of Object.entries(newer)) {
+    if (!(key in out)) {
+      out[key] = value;
+      continue;
+    }
+    const a = PLAN_STATUS_RANK[out[key]] ?? 0;
+    const b = PLAN_STATUS_RANK[value] ?? 0;
+    if (b > a || a === 0 && b === 0) out[key] = value;
+  }
+  return out;
+}
+function parsePlanProgress(json) {
+  if (json === null || json === void 0 || json.trim() === "") return {};
+  try {
+    const v = JSON.parse(json);
+    if (v && typeof v === "object" && !Array.isArray(v)) return v;
+    return null;
+  } catch {
+    return null;
+  }
+}
+function mergeSummaryRows(older, newer) {
+  const out = {};
+  for (const c of SUMMARY_VALUE_COLUMNS) {
+    out[c] = isEmptySummaryValue(newer[c]) ? older[c] : newer[c];
+  }
+  const a = parsePlanProgress(older.plan_progress);
+  const b = parsePlanProgress(newer.plan_progress);
+  if (a === null || b === null) {
+    out.plan_progress = isEmptySummaryValue(newer.plan_progress) ? older.plan_progress : newer.plan_progress;
+  } else {
+    out.plan_progress = JSON.stringify(mergePlanProgress(a, b));
+  }
+  return out;
+}
+function getLatestSummaryRow(db, sessionId) {
+  return db.prepare(`SELECT * FROM session_summaries WHERE session_id = ? ORDER BY ${NEWEST_SUMMARY_ORDER} LIMIT 1`).get(sessionId);
+}
+function summaryToRow(summary) {
+  return {
+    request: summary.request ?? null,
+    investigated: summary.investigated ?? null,
+    decisions: summary.decisions ?? null,
+    completed: summary.completed ?? null,
+    failed_attempts: summary.failedAttempts ?? null,
+    next_steps: summary.nextSteps ?? null,
+    files_created: JSON.stringify(summary.filesCreated ?? []),
+    files_modified: JSON.stringify(summary.filesModified ?? []),
+    verification_results: JSON.stringify(summary.verificationResults ?? {}),
+    plan_progress: JSON.stringify(summary.planProgress ?? {})
+  };
+}
 function addSummary(db, sessionId, summary) {
-  const now = /* @__PURE__ */ new Date();
-  db.prepare(`
-    INSERT INTO session_summaries (session_id, request, investigated, decisions, completed, failed_attempts, next_steps, files_created, files_modified, verification_results, plan_progress, created_at, created_at_epoch)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    sessionId,
-    summary.request ?? null,
-    summary.investigated ?? null,
-    summary.decisions ?? null,
-    summary.completed ?? null,
-    summary.failedAttempts ?? null,
-    summary.nextSteps ?? null,
-    JSON.stringify(summary.filesCreated ?? []),
-    JSON.stringify(summary.filesModified ?? []),
-    JSON.stringify(summary.verificationResults ?? {}),
-    JSON.stringify(summary.planProgress ?? {}),
-    now.toISOString(),
-    Math.floor(now.getTime() / 1e3)
-  );
+  const incoming = summaryToRow(summary);
+  db.transaction(() => {
+    const now = /* @__PURE__ */ new Date();
+    const existing = getLatestSummaryRow(db, sessionId);
+    const row = existing ? mergeSummaryRows(existing, incoming) : incoming;
+    const values = [...SUMMARY_VALUE_COLUMNS.map((c) => row[c]), row.plan_progress, now.toISOString(), Math.floor(now.getTime() / 1e3)];
+    if (existing) {
+      db.prepare(`
+        UPDATE session_summaries
+        SET ${SUMMARY_VALUE_COLUMNS.map((c) => `${c} = ?`).join(", ")}, plan_progress = ?, created_at = ?, created_at_epoch = ?
+        WHERE id = ?
+      `).run(...values, existing.id);
+    } else {
+      db.prepare(`
+        INSERT INTO session_summaries (session_id, ${SUMMARY_VALUE_COLUMNS.join(", ")}, plan_progress, created_at, created_at_epoch)
+        VALUES (?, ${SUMMARY_VALUE_COLUMNS.map(() => "?").join(", ")}, ?, ?, ?)
+      `).run(sessionId, ...values);
+    }
+  }).immediate();
 }
 function addUserPrompt(db, sessionId, text, promptNumber) {
   const now = /* @__PURE__ */ new Date();
@@ -3611,15 +3682,17 @@ function getRecentObservations(db, limit = 20, sessionId) {
 }
 function getSessionSummaries(db, limit = 10) {
   return db.prepare(`
-    SELECT session_id, request, completed, failed_attempts, plan_progress, created_at
-    FROM session_summaries
-    ORDER BY created_at_epoch DESC LIMIT ?
+    SELECT session_id, request, completed, failed_attempts, plan_progress, created_at FROM (
+      SELECT *, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY ${NEWEST_SUMMARY_ORDER}) AS rn
+      FROM session_summaries
+    ) WHERE rn = 1
+    ORDER BY ${NEWEST_SUMMARY_ORDER} LIMIT ?
   `).all(limit);
 }
 function getSessionTimeline(db, sessionId) {
   const session = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get(sessionId);
   const observations = db.prepare("SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC").all(sessionId);
-  const summary = db.prepare("SELECT * FROM session_summaries WHERE session_id = ? ORDER BY created_at_epoch DESC LIMIT 1").get(sessionId);
+  const summary = getLatestSummaryRow(db, sessionId);
   const prompts = db.prepare("SELECT * FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC").all(sessionId);
   return {
     session: session ?? null,
@@ -3775,23 +3848,17 @@ function getSessionsByTask(db, taskId) {
 }
 function getCrossTaskProgress(db, taskId) {
   const sessions = db.prepare(`
-    SELECT session_id FROM sessions WHERE task_id = ? LIMIT 10000
+    SELECT session_id FROM sessions WHERE task_id = ? ORDER BY started_at_epoch ASC, session_id ASC LIMIT 10000
   `).all(taskId);
-  const merged = {};
+  let merged = {};
   for (const session of sessions) {
     const summaries = db.prepare(`
-      SELECT plan_progress FROM session_summaries WHERE session_id = ? LIMIT 10000
+      SELECT plan_progress FROM session_summaries WHERE session_id = ?
+      ORDER BY created_at_epoch ASC, id ASC LIMIT 10000
     `).all(session.session_id);
     for (const summary of summaries) {
-      try {
-        const progress = JSON.parse(summary.plan_progress);
-        for (const [key, value] of Object.entries(progress)) {
-          if (!merged[key] || value === "complete" || value === "in_progress" && merged[key] === "pending") {
-            merged[key] = value;
-          }
-        }
-      } catch (_e) {
-      }
+      const progress = parsePlanProgress(summary.plan_progress);
+      if (progress) merged = mergePlanProgress(merged, progress);
     }
   }
   return merged;
@@ -4081,7 +4148,7 @@ function scoreFailureClasses(db, matchText, filePath, promptContext, weights) {
   }
   return bestMatch;
 }
-var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, PENDING_SYNC_MAX_ITEMS, PENDING_SYNC_MAX_AGE_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
+var MEMORY_SCHEMA_VERSION, TOOL_COST_EVENTS_RETENTION_DAYS, PENDING_SYNC_MAX_ITEMS, PENDING_SYNC_MAX_AGE_DAYS, MAX_DRAFT_TEXT_LEN, FUNNEL_EVENT_OUTBOX_CAP, _temporalColCache, NEWEST_SUMMARY_ORDER, SUMMARY_VALUE_COLUMNS, PLAN_STATUS_RANK, CONSOLIDATION_LESSON_EVIDENCE, MEMORY_FILE_TITLE_PREFIX, MEMORY_FILE_TITLE_LIKE, USAGE_COUNTER_ARMED_KEY;
 var init_memory_db = __esm({
   "src/memory-db.ts"() {
     "use strict";
@@ -4101,6 +4168,19 @@ var init_memory_db = __esm({
     MAX_DRAFT_TEXT_LEN = 16384;
     FUNNEL_EVENT_OUTBOX_CAP = 2e4;
     _temporalColCache = /* @__PURE__ */ new WeakMap();
+    NEWEST_SUMMARY_ORDER = "created_at_epoch DESC, id DESC";
+    SUMMARY_VALUE_COLUMNS = [
+      "request",
+      "investigated",
+      "decisions",
+      "completed",
+      "failed_attempts",
+      "next_steps",
+      "files_created",
+      "files_modified",
+      "verification_results"
+    ];
+    PLAN_STATUS_RANK = { complete: 3, in_progress: 2, pending: 1 };
     CONSOLIDATION_LESSON_EVIDENCE = "consolidation:session-summary";
     MEMORY_FILE_TITLE_PREFIX = "[memory-file] ";
     MEMORY_FILE_TITLE_LIKE = `${MEMORY_FILE_TITLE_PREFIX}%`;
@@ -5403,25 +5483,11 @@ async function main() {
   process.exit(0);
 }
 function updatePlanProgress(db, sessionId, progress) {
-  const existing = db.prepare(
-    "SELECT id, plan_progress FROM session_summaries WHERE session_id = ? ORDER BY created_at_epoch DESC LIMIT 1"
-  ).get(sessionId);
-  if (existing) {
-    try {
-      const currentProgress = JSON.parse(existing.plan_progress);
-      for (const p of progress) {
-        currentProgress[p.planItem] = p.status;
-      }
-      db.prepare("UPDATE session_summaries SET plan_progress = ? WHERE id = ?").run(JSON.stringify(currentProgress), existing.id);
-    } catch (_e) {
-    }
-  } else {
-    const progressMap = {};
-    for (const p of progress) {
-      progressMap[p.planItem] = p.status;
-    }
-    addSummary(db, sessionId, { planProgress: progressMap });
+  const progressMap = {};
+  for (const p of progress) {
+    progressMap[p.planItem] = p.status;
   }
+  addSummary(db, sessionId, { planProgress: progressMap });
 }
 function isTestRunnerCommand(command) {
   const trimmed = command.trim().toLowerCase();

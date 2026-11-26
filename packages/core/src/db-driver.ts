@@ -203,8 +203,12 @@ function openNodeSqlite(dbPath: string, opts: OpenDatabaseOptions): MassuDatabas
 
   // .transaction(fn) — a callable that BEGINs/COMMITs (SAVEPOINT when nested),
   // ROLLBACKs on throw, and forwards its args + return value (bs3 semantics).
+  // `.immediate` / `.exclusive` / `.deferred` are bs3's variants (bs3 parity). A writer that
+  // READS and then WRITES must use `.immediate`: under a deferred BEGIN, another
+  // connection's commit between the read and the write makes the upgrade fail with
+  // SQLITE_BUSY at once, and busy_timeout does not retry it (WAL snapshot conflict).
   const transaction = <A extends unknown[], R>(fn: (...args: A) => R) => {
-    const run = (...args: A): R => {
+    const make = (begin: string) => (...args: A): R => {
       // Consult the connection's REAL transaction state (bs3's `inTransaction` analogue)
       // — NOT a private counter — so a wrapped helper invoked INSIDE a raw `exec('BEGIN')`
       // region correctly opens a SAVEPOINT instead of a second BEGIN (which node:sqlite
@@ -213,7 +217,7 @@ function openNodeSqlite(dbPath: string, opts: OpenDatabaseOptions): MassuDatabas
       const nested = raw.isTransaction;
       const name = `msp_${savepointSeq++}`;
       if (nested) raw.exec(`SAVEPOINT ${name}`);
-      else raw.exec('BEGIN');
+      else raw.exec(begin);
       try {
         const out = fn(...args);
         if (nested) raw.exec(`RELEASE ${name}`);
@@ -231,7 +235,12 @@ function openNodeSqlite(dbPath: string, opts: OpenDatabaseOptions): MassuDatabas
         throw e;
       }
     };
-    return run;
+    const run = make('BEGIN');
+    return Object.assign(run, {
+      deferred: run,
+      immediate: make('BEGIN IMMEDIATE'),
+      exclusive: make('BEGIN EXCLUSIVE'),
+    });
   };
 
   // .serialize() — bs3 returns a consistent snapshot Buffer. node:sqlite has no

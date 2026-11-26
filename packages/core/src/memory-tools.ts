@@ -7,6 +7,7 @@ import {
   searchObservations,
   getRecentObservations,
   getSessionSummaries,
+  getLatestSummaryRow,
   getSessionTimeline,
   getFailedAttempts,
   addObservation,
@@ -317,8 +318,9 @@ function handleSessions(args: Record<string, unknown>, db: Database.Database): T
 
   // Add summaries for each session
   for (const s of sessions) {
-    const summaries = getSessionSummaries(db, 1);
-    const summary = summaries.find(sm => sm.session_id === s.session_id);
+    // The newest summary of THIS session (P8-009). It used to fetch the single newest
+    // summary overall and search it per session, so most sessions showed none.
+    const summary = getLatestSummaryRow(db, s.session_id as string);
     if (summary) {
       lines.push('');
       lines.push(`### ${(s.session_id as string).slice(0, 8)}...`);

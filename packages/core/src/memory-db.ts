@@ -2150,29 +2150,163 @@ export interface SessionSummary {
   planProgress?: Record<string, string>;
 }
 
+// ============================================================
+// session_summaries: ONE row per session (plan 2026-07-23 P8-009)
+//
+// Until 2.5.10 every summary write INSERTed a full snapshot, so a session held one row per
+// turn (one store reached 431 MB, 0.3% of it the newest row per session). The
+// table keeps its schema and gets NO unique index on purpose: every published version's
+// writer only INSERTs, and an index would make its second write per session throw and
+// lose that summary. The one-row rule is enforced HERE, by the single writer, and every
+// reader asks for the newest row, so a stray duplicate from an old version is harmless
+// and `massu doctor --fix` merges it.
+// ============================================================
+
+/** The ONE definition of "newest summary row". Ordering by the epoch alone is ambiguous:
+ *  measured 2026-11-25, 859 (session, second) groups held more than one row. */
+export const NEWEST_SUMMARY_ORDER = 'created_at_epoch DESC, id DESC';
+
+/** Every summary column except the identity, the timestamps and plan_progress. */
+export const SUMMARY_VALUE_COLUMNS = [
+  'request',
+  'investigated',
+  'decisions',
+  'completed',
+  'failed_attempts',
+  'next_steps',
+  'files_created',
+  'files_modified',
+  'verification_results',
+] as const;
+
+export type SummaryValueColumn = (typeof SUMMARY_VALUE_COLUMNS)[number];
+export type SummaryRowValues = Record<SummaryValueColumn, string | null> & { plan_progress: string | null };
+
+/** Empty means "this write says nothing about the column": null, '', '[]' or '{}'. */
+export function isEmptySummaryValue(v: string | null | undefined): boolean {
+  if (v === null || v === undefined) return true;
+  const t = v.trim();
+  return t === '' || t === '[]' || t === '{}';
+}
+
+const PLAN_STATUS_RANK: Record<string, number> = { complete: 3, in_progress: 2, pending: 1 };
+
 /**
- * Insert a session summary.
+ * Merge two plan_progress maps. The ONE rule, used by the writer, by `massu doctor --fix`
+ * and by getCrossTaskProgress, and independent of the order rows are read in:
+ * - a known status (complete > in_progress > pending) beats any other value;
+ * - between two known statuses the higher rank wins;
+ * - between two OTHER values (e.g. `snapshot_type: 'pre_compact'`) the newer one wins.
+ * A key present on only one side is kept, so a status can never be lost by a merge.
+ */
+export function mergePlanProgress(
+  older: Record<string, string>,
+  newer: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = { ...older };
+  for (const [key, value] of Object.entries(newer)) {
+    if (!(key in out)) {
+      out[key] = value;
+      continue;
+    }
+    const a = PLAN_STATUS_RANK[out[key]] ?? 0;
+    const b = PLAN_STATUS_RANK[value] ?? 0;
+    if (b > a || (a === 0 && b === 0)) out[key] = value;
+  }
+  return out;
+}
+
+/** Parse a stored plan_progress. An unreadable value is reported by the caller's
+ *  integrity check, never silently merged as if it held nothing: it returns null. */
+export function parsePlanProgress(json: string | null | undefined): Record<string, string> | null {
+  if (json === null || json === undefined || json.trim() === '') return {};
+  try {
+    const v = JSON.parse(json) as unknown;
+    if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, string>;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Merge an older summary row with a newer one. A column takes the newer value unless the
+ * newer value is empty — an empty value never overwrites a filled one (measured: the
+ * pre-compact and backfill writers produce partial rows). plan_progress uses
+ * mergePlanProgress. If either side's plan_progress is unreadable it is kept VERBATIM
+ * from the newer row (or the older one if the newer is empty) rather than replaced by
+ * a parse of nothing.
+ */
+export function mergeSummaryRows(older: SummaryRowValues, newer: SummaryRowValues): SummaryRowValues {
+  const out = {} as SummaryRowValues;
+  for (const c of SUMMARY_VALUE_COLUMNS) {
+    out[c] = isEmptySummaryValue(newer[c]) ? older[c] : newer[c];
+  }
+  const a = parsePlanProgress(older.plan_progress);
+  const b = parsePlanProgress(newer.plan_progress);
+  if (a === null || b === null) {
+    out.plan_progress = isEmptySummaryValue(newer.plan_progress) ? older.plan_progress : newer.plan_progress;
+  } else {
+    out.plan_progress = JSON.stringify(mergePlanProgress(a, b));
+  }
+  return out;
+}
+
+/** The newest summary row of a session, by NEWEST_SUMMARY_ORDER. */
+export function getLatestSummaryRow(
+  db: Database.Database,
+  sessionId: string,
+): (SummaryRowValues & { id: number; session_id: string; created_at: string; created_at_epoch: number }) | undefined {
+  return db
+    .prepare(`SELECT * FROM session_summaries WHERE session_id = ? ORDER BY ${NEWEST_SUMMARY_ORDER} LIMIT 1`)
+    .get(sessionId) as
+    | (SummaryRowValues & { id: number; session_id: string; created_at: string; created_at_epoch: number })
+    | undefined;
+}
+
+function summaryToRow(summary: SessionSummary): SummaryRowValues {
+  return {
+    request: summary.request ?? null,
+    investigated: summary.investigated ?? null,
+    decisions: summary.decisions ?? null,
+    completed: summary.completed ?? null,
+    failed_attempts: summary.failedAttempts ?? null,
+    next_steps: summary.nextSteps ?? null,
+    files_created: JSON.stringify(summary.filesCreated ?? []),
+    files_modified: JSON.stringify(summary.filesModified ?? []),
+    verification_results: JSON.stringify(summary.verificationResults ?? {}),
+    plan_progress: JSON.stringify(summary.planProgress ?? {}),
+  };
+}
+
+/**
+ * Write a session summary: merge it into the session's newest row, or insert the first.
+ *
+ * `.immediate()`: this READS the newest row and then WRITES it. Under a deferred BEGIN a
+ * commit by another session in between makes the write fail at once (busy_timeout does
+ * not retry a WAL snapshot conflict); IMMEDIATE takes the write lock first, so concurrent
+ * hooks queue behind busy_timeout instead.
  */
 export function addSummary(db: Database.Database, sessionId: string, summary: SessionSummary): void {
-  const now = new Date();
-  db.prepare(`
-    INSERT INTO session_summaries (session_id, request, investigated, decisions, completed, failed_attempts, next_steps, files_created, files_modified, verification_results, plan_progress, created_at, created_at_epoch)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    sessionId,
-    summary.request ?? null,
-    summary.investigated ?? null,
-    summary.decisions ?? null,
-    summary.completed ?? null,
-    summary.failedAttempts ?? null,
-    summary.nextSteps ?? null,
-    JSON.stringify(summary.filesCreated ?? []),
-    JSON.stringify(summary.filesModified ?? []),
-    JSON.stringify(summary.verificationResults ?? {}),
-    JSON.stringify(summary.planProgress ?? {}),
-    now.toISOString(),
-    Math.floor(now.getTime() / 1000)
-  );
+  const incoming = summaryToRow(summary);
+  db.transaction(() => {
+    const now = new Date();
+    const existing = getLatestSummaryRow(db, sessionId);
+    const row = existing ? mergeSummaryRows(existing, incoming) : incoming;
+    const values = [...SUMMARY_VALUE_COLUMNS.map((c) => row[c]), row.plan_progress, now.toISOString(), Math.floor(now.getTime() / 1000)];
+    if (existing) {
+      db.prepare(`
+        UPDATE session_summaries
+        SET ${SUMMARY_VALUE_COLUMNS.map((c) => `${c} = ?`).join(', ')}, plan_progress = ?, created_at = ?, created_at_epoch = ?
+        WHERE id = ?
+      `).run(...values, existing.id);
+    } else {
+      db.prepare(`
+        INSERT INTO session_summaries (session_id, ${SUMMARY_VALUE_COLUMNS.join(', ')}, plan_progress, created_at, created_at_epoch)
+        VALUES (?, ${SUMMARY_VALUE_COLUMNS.map(() => '?').join(', ')}, ?, ?, ?)
+      `).run(sessionId, ...values);
+    }
+  }).immediate();
 }
 
 /**
@@ -2285,10 +2419,14 @@ export function getSessionSummaries(db: Database.Database, limit: number = 10): 
   plan_progress: string;
   created_at: string;
 }> {
+  // The newest row PER SESSION (P8-009): without this, a session with many rows filled
+  // the whole list and the session-start context showed one session repeatedly.
   return db.prepare(`
-    SELECT session_id, request, completed, failed_attempts, plan_progress, created_at
-    FROM session_summaries
-    ORDER BY created_at_epoch DESC LIMIT ?
+    SELECT session_id, request, completed, failed_attempts, plan_progress, created_at FROM (
+      SELECT *, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY ${NEWEST_SUMMARY_ORDER}) AS rn
+      FROM session_summaries
+    ) WHERE rn = 1
+    ORDER BY ${NEWEST_SUMMARY_ORDER} LIMIT ?
   `).all(limit) as Array<{
     session_id: string; request: string | null; completed: string | null;
     failed_attempts: string | null; plan_progress: string; created_at: string;
@@ -2306,7 +2444,7 @@ export function getSessionTimeline(db: Database.Database, sessionId: string): {
 } {
   const session = db.prepare('SELECT * FROM sessions WHERE session_id = ?').get(sessionId) as Record<string, unknown> | undefined;
   const observations = db.prepare('SELECT * FROM observations WHERE session_id = ? ORDER BY created_at_epoch ASC').all(sessionId) as Array<Record<string, unknown>>;
-  const summary = db.prepare('SELECT * FROM session_summaries WHERE session_id = ? ORDER BY created_at_epoch DESC LIMIT 1').get(sessionId) as Record<string, unknown> | undefined;
+  const summary = getLatestSummaryRow(db, sessionId) as Record<string, unknown> | undefined;
   const prompts = db.prepare('SELECT * FROM user_prompts WHERE session_id = ? ORDER BY prompt_number ASC').all(sessionId) as Array<Record<string, unknown>>;
 
   return {
@@ -2670,27 +2808,22 @@ export function getSessionsByTask(db: Database.Database, taskId: string): Array<
  */
 export function getCrossTaskProgress(db: Database.Database, taskId: string): Record<string, string> {
   const sessions = db.prepare(`
-    SELECT session_id FROM sessions WHERE task_id = ? LIMIT 10000
+    SELECT session_id FROM sessions WHERE task_id = ? ORDER BY started_at_epoch ASC, session_id ASC LIMIT 10000
   `).all(taskId) as Array<{ session_id: string }>;
 
-  const merged: Record<string, string> = {};
+  let merged: Record<string, string> = {};
   for (const session of sessions) {
+    // Oldest first, so mergePlanProgress's "newer wins" for non-status values is defined
+    // (P8-009: the inline rule this replaced kept whichever such value it read first, and
+    // the query had no ORDER BY).
     const summaries = db.prepare(`
-      SELECT plan_progress FROM session_summaries WHERE session_id = ? LIMIT 10000
+      SELECT plan_progress FROM session_summaries WHERE session_id = ?
+      ORDER BY created_at_epoch ASC, id ASC LIMIT 10000
     `).all(session.session_id) as Array<{ plan_progress: string }>;
 
     for (const summary of summaries) {
-      try {
-        const progress = JSON.parse(summary.plan_progress) as Record<string, string>;
-        for (const [key, value] of Object.entries(progress)) {
-          // Later status wins (complete > in_progress > pending)
-          if (!merged[key] || value === 'complete' || (value === 'in_progress' && merged[key] === 'pending')) {
-            merged[key] = value;
-          }
-        }
-      } catch (_e) {
-        // Skip invalid JSON
-      }
+      const progress = parsePlanProgress(summary.plan_progress);
+      if (progress) merged = mergePlanProgress(merged, progress); // unreadable JSON: skipped, as before
     }
   }
 

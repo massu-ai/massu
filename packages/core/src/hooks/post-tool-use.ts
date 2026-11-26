@@ -337,30 +337,14 @@ async function main(): Promise<void> {
 }
 
 function updatePlanProgress(db: import('better-sqlite3').Database, sessionId: string, progress: Array<{ planItem: string; status: string }>): void {
-  // Get or create latest summary's plan_progress
-  const existing = db.prepare(
-    'SELECT id, plan_progress FROM session_summaries WHERE session_id = ? ORDER BY created_at_epoch DESC LIMIT 1'
-  ).get(sessionId) as { id: number; plan_progress: string } | undefined;
-
-  if (existing) {
-    try {
-      const currentProgress = JSON.parse(existing.plan_progress) as Record<string, string>;
-      for (const p of progress) {
-        currentProgress[p.planItem] = p.status;
-      }
-      db.prepare('UPDATE session_summaries SET plan_progress = ? WHERE id = ?')
-        .run(JSON.stringify(currentProgress), existing.id);
-    } catch (_e) {
-      // Skip if JSON parse fails
-    }
-  } else {
-    // Create a minimal summary with plan progress
-    const progressMap: Record<string, string> = {};
-    for (const p of progress) {
-      progressMap[p.planItem] = p.status;
-    }
-    addSummary(db, sessionId, { planProgress: progressMap });
+  // Through the ONE summary writer (P8-009): it merges into the session's newest row with
+  // mergePlanProgress and leaves every other column as it was (an empty value never
+  // overwrites a filled one), or creates the first row.
+  const progressMap: Record<string, string> = {};
+  for (const p of progress) {
+    progressMap[p.planItem] = p.status;
   }
+  addSummary(db, sessionId, { planProgress: progressMap });
 }
 
 /**

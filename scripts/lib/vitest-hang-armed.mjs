@@ -119,5 +119,15 @@ export function withHangDetection(config) {
     hookTimeout: test.hookTimeout ?? 0,
   };
 
-  return { ...config, test: { ...test, ...ceilings, reporters } };
+  // vitest 5 caches transformed modules on disk by default, in ONE directory shared by every
+  // run under the workspace root (`<root>/node_modules/.vitest-cache`). Two runs at once — a
+  // second session, the commit gate, the website suite next to core — invalidate each other's
+  // entries, and a reader that already found an entry then fails to open it: measured
+  // 2026-11-25, 4 of 418 core files failed `ENOENT … .vitest-cache/<hash>` while the website
+  // suite ran, and passed 4/4 run alone. Upstream: vitest-dev/vitest#11843. vitest 4 had no
+  // such cache, so turning it off keeps the behaviour this repo already had. DEFAULTED, never
+  // overwritten, like the ceilings above.
+  const fsModuleCache = test.fsModuleCache ?? false;
+
+  return { ...config, test: { ...test, ...ceilings, fsModuleCache, reporters } };
 }

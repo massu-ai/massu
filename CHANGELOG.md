@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > redistributed under the **Apache License 2.0**. Full license + NOTICE:
 > `packages/core/assets/embedder/MODEL-LICENSE`.
 
+## [2.5.10] - 2026-11-25
+
+### Changed
+
+- **The package's test tooling moved to vitest 5.** This changes only the development dependencies listed in
+  `package.json`; massu's runtime code, its dependencies and its behaviour are the same as in 2.5.9. vitest 4
+  could drop the last progress event of a test run when a setup hook never finished, which made massu's own
+  hang detector fail to name the stuck hook in about one CI run in three; vitest 5 fixes that upstream.
+
 ## [2.5.9] - 2026-11-21
 
 ### Changed
